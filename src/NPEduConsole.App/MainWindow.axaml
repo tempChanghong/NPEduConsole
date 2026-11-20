@@ -75,18 +75,20 @@
 
     <Grid x:Name="Workspace" Grid.Row="1" ColumnDefinitions="270,*" IsVisible="False">
       <Border Background="#E8F3EE" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0" Padding="20,22">
-        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="10">
           <TextBlock Text="学校与班级" FontSize="19" FontWeight="SemiBold" />
           <ComboBox x:Name="SchoolPicker" Grid.Row="1" HorizontalAlignment="Stretch" PlaceholderText="选择已授权学校"
                     AutomationProperties.Name="获授权学校" SelectionChanged="SchoolChanged" />
-          <TextBlock Grid.Row="2" Text="班级" Classes="label" Margin="0,9,0,1" />
-          <Grid Grid.Row="3">
+          <Button x:Name="OpenSchoolAuditButton" Grid.Row="2" Content="审计记录" Classes="action"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SchoolAuditClicked" IsEnabled="False" />
+          <TextBlock x:Name="ClassPickerHeading" Grid.Row="3" Text="班级" Classes="label" Margin="0,9,0,1" />
+          <Grid x:Name="ClassPickerPanel" Grid.Row="4">
             <ListBox x:Name="ClassPicker" Background="Transparent" SelectionChanged="ClassChanged" AutomationProperties.Name="班级" />
             <TextBlock x:Name="ClassListMessage" Classes="muted" IsHitTestVisible="False" Text="请先选择学校。" Margin="3,8,3,0" />
           </Grid>
         </Grid>
       </Border>
-      <Grid Grid.Column="1" RowDefinitions="Auto,*">
+      <Grid x:Name="ClassManagementWorkspace" Grid.Column="1" RowDefinitions="Auto,*">
         <Grid ColumnDefinitions="*,Auto" Margin="29,24,29,12">
           <StackPanel Spacing="5">
             <TextBlock x:Name="ClassContext" Classes="muted" />
@@ -252,6 +254,7 @@
           </StackPanel>
         </ScrollViewer>
       </Grid>
+      <local:SchoolAuditView x:Name="SchoolAuditWorkspace" Grid.Column="1" IsVisible="False" />
     </Grid>
   </Grid>
 </Window>

@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     private bool _allowClose;
     private bool _closeAfterSignOut;
     private bool _showClassStudy;
+    private bool _showSchoolAudit;
     private bool _serverStatusOpen;
 
     private sealed record DeviceSelection(string ScreenId, string ScreenName, Device Device);
@@ -47,6 +48,13 @@ public sealed partial class MainWindow : Window
         _equipmentPoll.Tick += PollEquipment;
         _softwarePoll.Tick += PollSoftware;
         StudyWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
+        SchoolAuditWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
+        SchoolAuditWorkspace.BackRequested += () =>
+        {
+            _showSchoolAudit = false;
+            UpdateSchoolAuditWorkspace();
+            OpenSchoolAuditButton.Focus();
+        };
         LoginView.AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
     }
@@ -149,6 +157,7 @@ public sealed partial class MainWindow : Window
         if (_client is not { } client) return;
         using var request = StartRequest();
         _school = school;
+        UpdateSchoolAuditWorkspace();
         RefreshButton.IsEnabled = school is not null;
         _settingSelection = true;
         ClassPicker.ItemsSource = null;
@@ -389,9 +398,11 @@ public sealed partial class MainWindow : Window
         CancelRequest();
         _client = null;
         _showClassStudy = false;
+        _showSchoolAudit = false;
         CancelMicrophoneChanges();
         CancelSoftwareSession();
         _school = null;
+        UpdateSchoolAuditWorkspace();
         _settingSelection = true;
         SchoolPicker.ItemsSource = ClassPicker.ItemsSource = null;
         _settingSelection = false;
@@ -422,6 +433,22 @@ public sealed partial class MainWindow : Window
         if (_classroom is null) return;
         _showClassStudy = !_showClassStudy;
         UpdateStudyWorkspace();
+    }
+
+    private void SchoolAuditClicked(object? sender, RoutedEventArgs args)
+    {
+        _showSchoolAudit = !_showSchoolAudit;
+        UpdateSchoolAuditWorkspace();
+    }
+
+    private void UpdateSchoolAuditWorkspace()
+    {
+        bool show = _showSchoolAudit && _school is not null;
+        OpenSchoolAuditButton.IsEnabled = _school is not null;
+        OpenSchoolAuditButton.Classes.Set("accent", show);
+        ClassPickerHeading.IsVisible = ClassPickerPanel.IsVisible = ClassManagementWorkspace.IsVisible = !show;
+        SchoolAuditWorkspace.IsVisible = show;
+        SchoolAuditWorkspace.SetScope(show ? _client : null, show ? _school : null);
     }
 
     private void UpdateStudyWorkspace()
