@@ -32,7 +32,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         SchoolPicker.ItemTemplate = new FuncDataTemplate<School>((school, _) =>
-            new TextBlock { Text = school?.Name, TextWrapping = TextWrapping.Wrap });
+            new TextBlock { Text = school?.Name });
         ClassPicker.ItemTemplate = new FuncDataTemplate<Classroom>((room, _) =>
             new TextBlock { Text = ClassroomName(room), TextWrapping = TextWrapping.Wrap });
         AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);

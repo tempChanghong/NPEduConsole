@@ -16,6 +16,7 @@
         <ColorPaletteResources x:Key="Light" Accent="#136E58" />
       </FluentTheme.Palettes>
     </FluentTheme>
+    <StyleInclude Source="avares://NPEduConsole.App/Styles/ComboBox.axaml" />
     <Style Selector="Window">
       <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI, sans-serif" />
       <Setter Property="FontSize" Value="14" />

@@ -1,0 +1,67 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <SolidColorBrush x:Key="ComboBoxBackground">#F8FCFA</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxBorderBrush">#91ACA1</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver">#EFF8F3</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver">#648F80</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxBackgroundPressed">#E4F1EA</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxBorderBrushPressed">#397D68</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused">Transparent</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushFocused">#136E58</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxDropDownBackground">#FCFEFD</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush">#AAC5B8</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver">#EDF6F1</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed">#DAEEE4</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected">#DEEFE6</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelected">#82B9A7</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver">#D3EADF</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPointerOver">#6AA491</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed">#C7E4D7</SolidColorBrush>
+    <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPressed">#599884</SolidColorBrush>
+    <Thickness x:Key="ComboBoxDropdownBorderPadding">5</Thickness>
+    <Thickness x:Key="ComboBoxDropdownContentMargin">0</Thickness>
+  </Styles.Resources>
+
+  <!-- Keep Fluent's native popup, item presenter, input handling and accessibility peers. -->
+  <Style Selector="ComboBox">
+    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="MaxDropDownHeight" Value="300" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="Padding" Value="12,7,0,7" />
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+    <Setter Property="PlaceholderForeground" Value="{DynamicResource MutedBrush}" />
+  </Style>
+  <Style Selector="ComboBox:focus-visible /template/ Border#HighlightBackground">
+    <Setter Property="BorderThickness" Value="2" />
+  </Style>
+  <Style Selector="ComboBox /template/ ContentControl#ContentPresenter">
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+  <Style Selector="ComboBox /template/ ContentControl#ContentPresenter TextBlock">
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="ComboBox /template/ TextBlock#PlaceholderTextBlock">
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style Selector="ComboBox /template/ Popup#PART_Popup">
+    <Setter Property="MaxWidth" Value="{Binding Bounds.Width, RelativeSource={RelativeSource TemplatedParent}}" />
+  </Style>
+  <Style Selector="ComboBox /template/ Border#PopupBorder">
+    <Setter Property="ClipToBounds" Value="True" />
+  </Style>
+
+  <Style Selector="ComboBoxItem">
+    <Setter Property="CornerRadius" Value="6" />
+    <Setter Property="Padding" Value="10,7" />
+    <Setter Property="Margin" Value="0,1" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style Selector="ComboBoxItem:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="ComboBoxItem TextBlock">
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+</Styles>
