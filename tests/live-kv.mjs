@@ -13,17 +13,20 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { cameras, microphones, startClassroomDevice } from './classroom-device.mjs';
 import { nextStudyMonday, seedClassStudy } from './class-study-fixture.mjs';
+import { prepareSchoolAudit } from './school-audit-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
-  '--class-study', '--serve-class-study', '--server-status'].includes(mode)),
+  '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
 const softwareUpdate = mode === '--software-update' || mode === '--serve-software-update';
 const classAdmission = mode === '--class-admission' || mode === '--serve-class-admission';
 const classStudy = mode === '--class-study' || mode === '--serve-class-study';
+const schoolAudit = mode === '--school-audit' || mode === '--serve-school-audit';
+const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit;
 const kv = resolve(checkout);
 const fromKv = path => import(pathToFileURL(join(kv, path)).href);
 const kvRequire = createRequire(join(kv, 'package.json'));
@@ -74,7 +77,8 @@ function run(command, args) {
 }
 
 function startDatabase(port) {
-  run(pg('pg_ctl'), ['-D', data, '-l', join(directory, 'postgres.log'), '-o', `-h 127.0.0.1 -p ${port}`, '-w', 'start']);
+  const options = `-h 127.0.0.1 -p ${port}` + (schoolAudit ? ' -c timezone=Asia/Shanghai' : '');
+  run(pg('pg_ctl'), ['-D', data, '-l', join(directory, 'postgres.log'), '-o', options, '-w', 'start']);
 }
 
 async function createDatabase() {
@@ -348,7 +352,8 @@ async function runFixture() {
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
-  if (!classAdmission && !classStudy) {
+  const audit = schoolAudit ? await prepareSchoolAudit(prisma, origin, fixture) : null;
+  if (runDeviceFixture) {
     stopClassroom = await startClassroomDevice(origin, fixture.identity, fixture.classroomBearer,
       { checkIncompleteReceipts: !serve && !localAuthorization, simulateLocalAuthorization: localAuthorization,
         lagAfterLocalChange: localAuthorization && !serve });
@@ -362,17 +367,19 @@ async function runFixture() {
   const access = join(directory, 'desktop.json');
   if (classAdmission) lostReply = await loseWriteReply(origin, path => path.includes('/class-management/'));
   else if (classStudy) lostReply = await loseWriteReply(origin, path => path.endsWith('/study-settings'));
-  else if (!serve && !softwareUpdate) lostReply = await loseWriteReply(origin, path => path.endsWith('/equipment'));
+  else if (!serve && !softwareUpdate && !schoolAudit) lostReply = await loseWriteReply(origin, path => path.endsWith('/equipment'));
   await writeFile(access, JSON.stringify({
     origin, schoolCode: fixture.school.code, username: 'admin', viewer: 'viewer', password: fixture.pin,
     schoolId: fixture.school.id, otherSchoolId: fixture.other.id, revokedDeviceId: fixture.revokedDeviceId,
     lostReplyOrigin: lostReply?.origin,
+    ...audit?.access,
     ...(softwareUpdate || classStudy ? { classroomBearer: fixture.classroomBearer, deviceIdentity: fixture.identity } : {}),
     ...(classStudy ? { termId: fixture.term.id, studyDate: fixture.studyDate } : {}),
   }), { mode: 0o600 });
-  const project = classStudy ? './NPEduConsole.StudySmoke/NPEduConsole.StudySmoke.csproj' : './NPEduConsole.Smoke/NPEduConsole.Smoke.csproj';
+  const project = schoolAudit ? './NPEduConsole.AuditSmoke/NPEduConsole.AuditSmoke.csproj' :
+    classStudy ? './NPEduConsole.StudySmoke/NPEduConsole.StudySmoke.csproj' : './NPEduConsole.Smoke/NPEduConsole.Smoke.csproj';
   const smoke = fileURLToPath(new URL(project, import.meta.url));
-  if (!(serve && (softwareUpdate || classAdmission || classStudy))) await new Promise((res, rej) => {
+  if (!serve || (runDeviceFixture && !softwareUpdate)) await new Promise((res, rej) => {
     // The KV HTTP listener and database pool run on this event loop.
     const options = classAdmission ? ['--class-admission'] : softwareUpdate ? ['--software-update'] : localAuthorization ? [serve ? '--view-local-authorization' : '--local-authorization'] :
       serve ? ['--view-only'] : [];
@@ -385,7 +392,8 @@ async function runFixture() {
     assert.equal(lostReply.count(), 1, 'a lost acknowledgement caused no automatic write retry');
     console.log('PASS: KV committed exactly one write through the lost-reply relay.');
   }
-  if (!serve && !softwareUpdate && !classAdmission && !classStudy) {
+  if (!serve && audit) await audit.verifyRevocation();
+  if (!serve && !softwareUpdate && runDeviceFixture) {
     const { schoolManagementRepository } = await fromKv('services/npepSchoolManagementService.js');
     const policy = await schoolManagementRepository.equipment(prisma, fixture.devices[0]);
     assert.deepEqual({ revision: policy.revision, mic: policy.microphoneId, camera: policy.cameraId, locked: policy.locked },
