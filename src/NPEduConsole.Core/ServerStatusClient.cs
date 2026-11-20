@@ -45,8 +45,16 @@ public static class ServerStatusClient
             throw new ConsoleApiException(0, "请输入部署时配置的监控凭据。请只填 METRICS_TOKEN 的值，去掉 Bearer 前缀和空格。", "OPS_INVALID_TOKEN");
 
         var http = origin.Scheme == Uri.UriSchemeHttps ? Https : LoopbackHttp;
-        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(origin, "api/v2/ops/status"));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", monitoringToken);
+        return await ReadAsync(http, new Uri(origin, "api/v2/ops/status"), monitoringToken, schoolSession: false, cancellationToken);
+    }
+
+    internal static Task<ServerStatus> CheckSchoolSessionAsync(HttpClient http, string token, CancellationToken cancellationToken) =>
+        ReadAsync(http, new Uri("api/v2/me/server-status", UriKind.Relative), token, schoolSession: true, cancellationToken);
+
+    private static async Task<ServerStatus> ReadAsync(HttpClient http, Uri endpoint, string token, bool schoolSession, CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         request.Headers.CacheControl = new CacheControlHeaderValue { NoCache = true, NoStore = true };
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -55,13 +63,20 @@ public static class ServerStatusClient
         try
         {
             using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
-            if (response.StatusCode == HttpStatusCode.ServiceUnavailable && await MonitoringNotConfiguredAsync(response.Content, deadline.Token))
+            if (!schoolSession && response.StatusCode == HttpStatusCode.ServiceUnavailable &&
+                await MonitoringNotConfiguredAsync(response.Content, deadline.Token))
                 throw new ConsoleApiException(503, "服务器尚未配置监控凭据。请核对运行中的 KV 是否设置了 METRICS_TOKEN。", "OPS_NOT_CONFIGURED");
-            if (response.StatusCode != HttpStatusCode.OK) throw StatusError((int)response.StatusCode);
+            if (response.StatusCode != HttpStatusCode.OK)
+                throw schoolSession ? SchoolStatusError((int)response.StatusCode) : StatusError((int)response.StatusCode);
 
             using var document = await ReadJsonAsync(response.Content, deadline.Token);
-            return ParseStatus(document.RootElement);
+            var root = document.RootElement;
+            if (!schoolSession) return ParseStatus(root);
+            if (root.ValueKind != JsonValueKind.Object || !TryGetUniqueProperty(root, "success", out var success) ||
+                success.ValueKind != JsonValueKind.True || !TryGetUniqueProperty(root, "data", out var data)) throw new JsonException();
+            return ParseStatus(data);
         }
+        catch (ObjectDisposedException) when (cancellationToken.IsCancellationRequested) { throw new OperationCanceledException(cancellationToken); }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new ConsoleApiException(0, "检查超时。请核对 KV 地址、网络和服务器负载后再检查。", "OPS_TIMEOUT");
@@ -252,5 +267,13 @@ public static class ServerStatusClient
         >= 300 and < 400 => new(status, "状态接口返回了重定向。请核对并直接填写 KV 的最终 HTTPS 地址。", "OPS_REDIRECT"),
         >= 500 => new(status, "KV 服务或网关暂不可用。请核对服务运行状态和网关连接。", "OPS_SERVICE_UNAVAILABLE"),
         _ => new(status, $"服务器状态检查未成功（HTTP {status}）。请核对 KV 服务地址。", "OPS_REQUEST_FAILED")
+    };
+
+    private static ConsoleApiException SchoolStatusError(int status) => status switch
+    {
+        401 => new(status, "KV 暂时无法核实登录。控制台会自动重试，若持续出现可重新登录。", "SCHOOL_STATUS_SESSION_UNVERIFIED"),
+        403 => new(status, "当前账号无权查看服务器状态，请核对学校管理权限。", "SCHOOL_STATUS_FORBIDDEN"),
+        404 => new(status, "此 KV 版本未提供登录后检查。升级 KV 后可使用自动服务器状态。", "SCHOOL_STATUS_UNSUPPORTED"),
+        _ => StatusError(status)
     };
 }

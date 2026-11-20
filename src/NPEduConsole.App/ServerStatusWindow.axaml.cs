@@ -9,16 +9,21 @@ namespace NPEduConsole.App;
 public sealed partial class ServerStatusWindow : Window
 {
     private CancellationTokenSource? _request;
+    private readonly Action? _refreshSchoolStatus;
     private bool _changingInputs = true;
 
-    public ServerStatusWindow() : this(null) { }
+    public ServerStatusWindow() : this(initialAddress: null) { }
 
     internal ServerStatusWindow(string? initialAddress)
     {
         InitializeComponent();
         OpsServerAddress.Text = initialAddress;
         _changingInputs = false;
-        Opened += (_, _) => (string.IsNullOrWhiteSpace(OpsServerAddress.Text) ? OpsServerAddress : OpsMonitoringToken).Focus();
+        Opened += (_, _) =>
+        {
+            if (_refreshSchoolStatus is not null) RefreshSchoolStatusButton.Focus();
+            else (string.IsNullOrWhiteSpace(OpsServerAddress.Text) ? OpsServerAddress : OpsMonitoringToken).Focus();
+        };
         Closed += (_, _) =>
         {
             _changingInputs = true;
@@ -27,6 +32,28 @@ public sealed partial class ServerStatusWindow : Window
         };
         AddHandler(KeyDownEvent, CloseOnEscape, RoutingStrategies.Tunnel);
     }
+
+    internal ServerStatusWindow(Action refreshSchoolStatus) : this(initialAddress: null)
+    {
+        _refreshSchoolStatus = refreshSchoolStatus;
+        Height = 580;
+        OpsCredentialsCard.IsVisible = false;
+        StatusWindowCaption.Text = "使用当前登录的学校账号检查 KV，约每 60 秒自动刷新。";
+        RefreshSchoolStatusButton.IsVisible = true;
+    }
+
+    internal void PresentSchoolStatus(ServerStatus? status, string? error, bool checking)
+    {
+        RefreshSchoolStatusButton.IsEnabled = !checking;
+        OpsActivity.Text = checking ? (status is null ? "正在检查服务器状态…" : "正在刷新，下方是上次检查的结果。") : null;
+        OpsActivity.IsVisible = checking;
+        OpsErrorMessage.Text = error;
+        OpsError.IsVisible = error is not null;
+        if (status is null) ClearSnapshot();
+        else ShowSnapshot(status);
+    }
+
+    private void RefreshSchoolStatusClicked(object? sender, RoutedEventArgs args) => _refreshSchoolStatus?.Invoke();
 
     private void CloseOnEscape(object? sender, KeyEventArgs args)
     {
@@ -96,12 +123,19 @@ public sealed partial class ServerStatusWindow : Window
         var request = _request;
         _request = null;
         request?.Cancel();
-        OpsActivity.IsVisible = OpsError.IsVisible = OpsSnapshot.IsVisible = false;
-        OpsActivity.Text = OpsErrorMessage.Text = OpsDatabase.Text = OpsCatalog.Text = OpsVersion.Text = OpsCheckedAt.Text = null;
+        OpsActivity.IsVisible = OpsError.IsVisible = false;
+        OpsActivity.Text = OpsErrorMessage.Text = null;
+        ClearSnapshot();
+        RenderActions();
+    }
+
+    private void ClearSnapshot()
+    {
+        OpsSnapshot.IsVisible = false;
+        OpsDatabase.Text = OpsCatalog.Text = OpsVersion.Text = OpsCheckedAt.Text = null;
         OpsDatabaseHint.Text = OpsCatalogHint.Text = null;
         OpsBackupEvidence.IsVisible = false;
         OpsBackupSummary.Text = OpsBackupHint.Text = OpsBackupLastSuccess.Text = OpsBackupLastResult.Text = OpsBackupLastFinished.Text = null;
-        RenderActions();
     }
 
     private void RenderActions()

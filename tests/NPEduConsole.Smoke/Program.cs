@@ -7,6 +7,12 @@ if (args is ["--server-status"])
     return;
 }
 
+if (args is ["--school-server-status"])
+{
+    await ServerStatusSmoke.ProbeSchoolAsync();
+    return;
+}
+
 if (args is ["--server-status-checks"])
 {
     await ServerStatusSmoke.VerifyAsync();

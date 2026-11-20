@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
@@ -17,6 +18,48 @@ internal static class ServerStatusSmoke
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var status = await ServerStatusClient.CheckAsync(RequiredEnvironment("NP_OPS_ORIGIN"),
             RequiredEnvironment("NP_OPS_TOKEN"), deadline.Token);
+        VerifyProbe(status, "/api/v2/ops/status");
+    }
+
+    internal static async Task ProbeSchoolAsync()
+    {
+        string address = RequiredEnvironment("NP_OPS_ORIGIN");
+        var configuredRenewal = Environment.GetEnvironmentVariable("NP_TEST_RENEWAL_SECONDS");
+        int renewalSeconds = 0;
+        if (configuredRenewal is not null && (!int.TryParse(configuredRenewal, NumberStyles.None, CultureInfo.InvariantCulture, out renewalSeconds) ||
+                renewalSeconds <= 0 || !new Uri(address).IsLoopback))
+            throw new InvalidDataException("NP_TEST_RENEWAL_SECONDS requires a positive duration and an isolated loopback fixture.");
+
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var client = new ConsoleClient(address);
+        await client.LoginAsync(RequiredEnvironment("NP_TEST_SCHOOL_CODE"), RequiredEnvironment("NP_TEST_USERNAME"),
+            RequiredEnvironment("NP_TEST_PASSWORD"), deadline.Token);
+        try
+        {
+            var elapsed = Stopwatch.StartNew();
+            while (elapsed.Elapsed < TimeSpan.FromSeconds(renewalSeconds))
+            {
+                await ReadStatusAsync();
+                await Task.Delay(TimeSpan.FromSeconds(2));
+            }
+            VerifyProbe(await ReadStatusAsync(), "/api/v2/me/server-status");
+        }
+        finally
+        {
+            using var ending = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try { await client.LogoutAsync(ending.Token); }
+            catch (Exception error) when (error is ConsoleApiException or OperationCanceledException) { }
+        }
+
+        async Task<ServerStatus> ReadStatusAsync()
+        {
+            using var check = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            return await client.GetServerStatusAsync(check.Token);
+        }
+    }
+
+    private static void VerifyProbe(ServerStatus status, string path)
+    {
         string database = status.Database == ServerDatabaseStatus.Available ? "AVAILABLE" : "UNAVAILABLE";
         string catalog = status.UpdateCatalog.Status switch
         {
@@ -38,7 +81,7 @@ internal static class ServerStatusSmoke
         Check(expectedCatalog is null || catalog == expectedCatalog, "update catalog state matches NP_OPS_CATALOG");
         Check(status.UpdateCatalog.ReleaseCount == releaseCount, "release count matches NP_OPS_RELEASE_COUNT (unset means null)");
         VerifyBackupEnvironment(status.Backup);
-        Console.WriteLine($"PASS: GET /api/v2/ops/status; database={database}; catalog={catalog}; releaseCount={status.UpdateCatalog.ReleaseCount?.ToString(CultureInfo.InvariantCulture) ?? "null"}.");
+        Console.WriteLine($"PASS: GET {path}; database={database}; catalog={catalog}; releaseCount={status.UpdateCatalog.ReleaseCount?.ToString(CultureInfo.InvariantCulture) ?? "null"}.");
     }
 
     private static void VerifyBackupEnvironment(ServerBackup? backup)
@@ -134,7 +177,8 @@ internal static class ServerStatusSmoke
             throw new InvalidDataException("Expected user cancellation.");
         }
         catch (OperationCanceledException) when (userCancel.IsCancellationRequested) { }
-        Console.WriteLine("PASS: local HTTP server status contract, optional backup states and invalid-record fallback, credentials, loopback, error classification, redirect isolation, and cancellation.");
+        await VerifyAuthenticatedAsync(tcpRedirectTarget: trap, ct);
+        Console.WriteLine("PASS: local HTTP server status contracts for account and operations access, backup fallback, credentials, error classification, redirects, and cancellation.");
 
         async Task<ServerStatus> RoundTrip(string body, string status = "200 OK", string contentType = "application/json",
             string host = "127.0.0.1", string prefix = "", string additionalHeader = "")
@@ -144,10 +188,75 @@ internal static class ServerStatusSmoke
             using var accepted = await listener.AcceptTcpClientAsync(ct);
             using var stream = accepted.GetStream();
             await ReadRequestAsync(stream, prefix + "/api/v2/ops/status", ct);
-            byte[] data = Encoding.UTF8.GetBytes(body);
-            await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 {status}\r\nContent-Type: {contentType}\r\nContent-Length: {data.Length}\r\nConnection: close\r\n{additionalHeader}\r\n"), ct);
-            if (data.Length > 0) await stream.WriteAsync(data, ct);
+            await WriteResponseAsync(stream, body, status, ct, contentType, additionalHeader);
             return await checking;
+        }
+    }
+
+    private static async Task VerifyAuthenticatedAsync(TcpListener tcpRedirectTarget, CancellationToken ct)
+    {
+        using var listener = Listen();
+        const string prefix = "/kv/proxy";
+        const string schoolToken = "isolated-synthetic-school-session";
+        using var client = new ConsoleClient(Origin(listener) + prefix);
+        var login = client.LoginAsync("FIXTURE", "admin", "fixture-password", ct);
+        await Reply("/accounts/local/login", """{"success":true,"data":{"access_token":"isolated-synthetic-school-session"}}""",
+            method: "POST", token: null);
+        await Reply("/api/v2/me/schools", """{"success":true,"data":[{"role":"ADMIN","school":{"id":"school-a","name":"Fixture","terms":[]}}]}""");
+        Check((await login).Count == 1, "school session established before checking the server");
+
+        await Expect(404, "SCHOOL_STATUS_UNSUPPORTED", () => RoundTrip("", "404 Not Found"));
+        await Expect(403, "SCHOOL_STATUS_FORBIDDEN", () => RoundTrip("", "403 Forbidden"));
+        await Expect(401, "SCHOOL_STATUS_SESSION_UNVERIFIED", () => RoundTrip("", "401 Unauthorized"));
+        await Expect(302, "OPS_REDIRECT", () => RoundTrip("", "302 Found", $"Location: {Origin(tcpRedirectTarget)}/api/v2/ops/status\r\n"));
+        Check(!tcpRedirectTarget.Pending(), "school Bearer never follows redirects into the operations endpoint");
+        await Expect(0, "OPS_INVALID_RESPONSE", () => RoundTrip(Snapshot));
+        await Expect(0, "OPS_INVALID_RESPONSE", () => RoundTrip("{\"success\":false,\"data\":" + Snapshot + "}"));
+        await Expect(0, "OPS_INVALID_RESPONSE", () => RoundTrip("{\"success\":true,\"data\":null,\"data\":" + Snapshot + "}"));
+
+        const string backup = """{"status":"NO_RECORD","lastSuccessAt":null,"lastAttempt":null,"timeliness":"UNKNOWN","maxAgeHours":26}""";
+        var enriched = Snapshot[..^1] + ",\"backup\":" + backup + "}";
+        var result = await RoundTrip("{\"success\":true,\"data\":" + enriched + "}");
+        Check(result is { Database: ServerDatabaseStatus.Available, UpdateCatalog.ReleaseCount: 0, Backup.Status: ServerBackupStatus.NoRecord },
+            "the account endpoint shares validated status and backup parsing; diagnostic 401 did not discard the session");
+
+        const string endpoint = "/api/v2/me/server-status";
+        const string renewedToken = "header.payload.renewed";
+        const string obsoleteToken = "header.payload.obsolete";
+        string validEnvelope = "{\"success\":true,\"data\":" + Snapshot + "}";
+        string Renewal(string token) => $"X-Token-Refreshed: true\r\nX-New-Access-Token: {token}\r\n";
+        var late = client.GetServerStatusAsync(ct);
+        using (var oldRequest = await listener.AcceptTcpClientAsync(ct))
+        {
+            using var stream = oldRequest.GetStream();
+            await ReadRequestAsync(stream, prefix + endpoint, ct, schoolToken);
+
+            var renewFirst = client.GetServerStatusAsync(ct);
+            await Reply(endpoint, validEnvelope, additionalHeader: Renewal(renewedToken));
+            await renewFirst;
+            await WriteResponseAsync(stream, validEnvelope, "200 OK", ct, additionalHeader: Renewal(obsoleteToken));
+            await late;
+        }
+        var next = client.GetServerStatusAsync(ct);
+        await Reply(endpoint, validEnvelope, token: renewedToken);
+        await next;
+
+        listener.Stop();
+        await Expect(0, "OPS_CONNECTION", () => client.GetServerStatusAsync(ct));
+
+        async Task<ServerStatus> RoundTrip(string body, string status = "200 OK", string additionalHeader = "")
+        {
+            var checking = client.GetServerStatusAsync(ct);
+            await Reply("/api/v2/me/server-status", body, status, additionalHeader: additionalHeader);
+            return await checking;
+        }
+
+        async Task Reply(string path, string body, string status = "200 OK", string method = "GET", string? token = schoolToken, string additionalHeader = "")
+        {
+            using var accepted = await listener.AcceptTcpClientAsync(ct);
+            using var stream = accepted.GetStream();
+            await ReadRequestAsync(stream, prefix + path, ct, token, method);
+            await WriteResponseAsync(stream, body, status, ct, additionalHeader: additionalHeader);
         }
     }
 
@@ -231,14 +340,28 @@ internal static class ServerStatusSmoke
 
     private static string Origin(TcpListener listener, string host = "127.0.0.1") => $"http://{host}:{((IPEndPoint)listener.LocalEndpoint).Port}";
 
-    private static async Task ReadRequestAsync(Stream stream, string path, CancellationToken token)
+    private static async Task ReadRequestAsync(Stream stream, string path, CancellationToken token, string? expectedBearer = FixtureToken, string method = "GET")
     {
         using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
-        Check(await reader.ReadLineAsync(token) == $"GET {path} HTTP/1.1", "request only uses the protected GET route with no query");
+        Check(await reader.ReadLineAsync(token) == $"{method} {path} HTTP/1.1", "request uses the expected route with no query");
         string? authorization = null;
+        int contentLength = 0;
         while (await reader.ReadLineAsync(token) is { Length: > 0 } header)
+        {
             if (header.StartsWith("Authorization:", StringComparison.OrdinalIgnoreCase)) authorization = header[14..].Trim();
-        Check(authorization == "Bearer " + FixtureToken, "synthetic monitor credential was sent only as Bearer authorization");
+            if (header.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase))
+                contentLength = int.Parse(header[15..], CultureInfo.InvariantCulture);
+        }
+        if (contentLength > 0) await reader.ReadBlockAsync(new char[contentLength].AsMemory(), token);
+        Check(authorization == (expectedBearer is null ? null : "Bearer " + expectedBearer), "only the expected synthetic Bearer is sent");
+    }
+
+    private static async Task WriteResponseAsync(Stream stream, string body, string status, CancellationToken ct,
+        string contentType = "application/json", string additionalHeader = "")
+    {
+        byte[] data = Encoding.UTF8.GetBytes(body);
+        await stream.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 {status}\r\nContent-Type: {contentType}\r\nContent-Length: {data.Length}\r\nConnection: close\r\n{additionalHeader}\r\n"), ct);
+        if (data.Length > 0) await stream.WriteAsync(data, ct);
     }
 
     private static async Task Expect(int status, string code, Func<Task> action)

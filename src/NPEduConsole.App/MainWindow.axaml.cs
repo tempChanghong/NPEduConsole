@@ -47,6 +47,7 @@ public sealed partial class MainWindow : Window
         });
         _equipmentPoll.Tick += PollEquipment;
         _softwarePoll.Tick += PollSoftware;
+        _schoolStatusTimer.Tick += PollSchoolServerStatus;
         StudyWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
         SchoolAuditWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
         SchoolAuditWorkspace.BackRequested += () =>
@@ -120,6 +121,7 @@ public sealed partial class MainWindow : Window
             AccountName.Text = username;
             LoginView.IsVisible = false;
             Workspace.IsVisible = AccountBar.IsVisible = true;
+            _ = RefreshSchoolServerStatusAsync();
             ClassListMessage.Text = schools.Count == 0 ? "此账号暂无获授权学校。" : "请先选择学校。";
             SetWorkspaceMessage(schools.Count == 0 ? "此账号暂无获授权学校。" : "请选择学校和班级。");
         }
@@ -396,6 +398,7 @@ public sealed partial class MainWindow : Window
     private void ResetSession()
     {
         CancelRequest();
+        ResetSchoolServerStatus();
         _client = null;
         _showClassStudy = false;
         _showSchoolAudit = false;

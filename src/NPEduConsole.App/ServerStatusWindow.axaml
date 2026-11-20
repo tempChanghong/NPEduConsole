@@ -8,14 +8,18 @@
   </Window.Styles>
   <Grid RowDefinitions="Auto,*" Background="{StaticResource CanvasBrush}">
     <Border Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="24,16">
-      <StackPanel Spacing="5">
-        <TextBlock Text="服务器状态" FontSize="24" FontWeight="SemiBold" />
-        <TextBlock Text="使用部署时已有的只读监控凭据检查 KV。" Classes="muted" />
-      </StackPanel>
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="5">
+          <TextBlock Text="服务器状态" FontSize="24" FontWeight="SemiBold" />
+          <TextBlock x:Name="StatusWindowCaption" Text="使用部署时已有的只读监控凭据检查 KV。" Classes="muted" />
+        </StackPanel>
+        <Button x:Name="RefreshSchoolStatusButton" Grid.Column="1" Content="刷新" Classes="action accent"
+                VerticalAlignment="Center" IsVisible="False" Click="RefreshSchoolStatusClicked" />
+      </Grid>
     </Border>
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Margin="24,18,24,24" Spacing="14">
-        <Border Classes="card" Padding="16">
+        <Border x:Name="OpsCredentialsCard" Classes="card" Padding="16">
           <StackPanel Spacing="10">
             <StackPanel Spacing="5">
               <TextBlock Text="KV 服务地址" Classes="label" />

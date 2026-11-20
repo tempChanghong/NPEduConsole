@@ -96,6 +96,7 @@ async function createDatabase() {
     NPEP_DEPLOYMENT_FILE: join(directory, 'deployment.json'),
   });
   delete process.env.NPEP_UPDATE_CATALOG_FILE;
+  if (mode === '--server-status') process.env.ACCESS_TOKEN_EXPIRES_IN = '15s';
   if (softwareUpdate) {
     process.env.NPEP_UPDATE_CATALOG_FILE = join(directory, 'update-catalog.json');
     const releases = ['1.1.10.0', '1.1.11.0', '1.1.12.0'].map(version => ({
@@ -277,26 +278,65 @@ async function verifyServerStatus(origin, fixture, databasePort) {
   const project = fileURLToPath(new URL('./NPEduConsole.Smoke/NPEduConsole.Smoke.csproj', import.meta.url));
   run('dotnet', ['build', project, '-c', 'Release', '--nologo']);
   const monitoringToken = randomBytes(32).toString('hex');
+  delete process.env.METRICS_TOKEN;
+  async function loginAdmin() {
+    const login = await fetch(origin + '/accounts/local/login', {method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({schoolCode: fixture.school.code, username: 'admin', password: fixture.pin})});
+    assert.equal(login.status, 200);
+    const token = (await login.json()).data.access_token;
+    const {exp, iat} = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+    assert.equal(exp - iat, 15, 'isolated KV issues short-lived access tokens for the renewal check');
+    return token;
+  }
+  let schoolToken = await loginAdmin();
+  async function schoolStatus(expectedStatus) {
+    const response = await fetch(origin + '/api/v2/me/server-status', {headers: {Authorization: 'Bearer ' + schoolToken}});
+    assert.equal(response.status, expectedStatus);
+    assert.match(response.headers.get('cache-control'), /no-store/);
+    assert.match(response.headers.get('vary'), /Authorization/i);
+    const body = await response.json();
+    if (response.ok) return body.data;
+    assert.ok(!body.data, 'no diagnostics when the school grant is missing');
+  }
+  const summary = await schoolStatus(200);
+  assert.equal(summary.database, 'AVAILABLE');
+  assert.deepEqual(Object.keys(summary).sort(), ['backup', 'checkedAt', 'database', 'updateCatalog', 'version']);
+
+  // The same logged-in account can administer multiple schools. A live grant in any one is enough.
+  const manager = await prisma.schoolMember.findFirstOrThrow({where: {schoolId: fixture.school.id, role: 'ADMIN'}});
+  const original = {schoolId_accountId: {schoolId: fixture.school.id, accountId: manager.accountId}};
+  const otherMembership = {schoolId: fixture.other.id, accountId: manager.accountId};
+  await prisma.schoolMember.create({data: {...otherMembership, role: 'OWNER'}});
+  await prisma.schoolMember.update({where: original, data: {role: 'VIEWER'}});
+  await schoolStatus(200);
+  await prisma.schoolMember.delete({where: {schoolId_accountId: otherMembership}});
+  await schoolStatus(403);
+  await prisma.schoolMember.update({where: original, data: {role: 'ADMIN'}});
+  await schoolStatus(200);
+
   process.env.METRICS_TOKEN = monitoringToken;
-  const login = await fetch(origin + '/accounts/local/login', {method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({schoolCode: fixture.school.code, username: 'admin', password: fixture.pin})});
-  assert.equal(login.status, 200);
-  const schoolToken = (await login.json()).data.access_token;
-  assert.ok(schoolToken);
-  for (const [path, token] of [['/api/v2/ops/status', schoolToken], ['/api/v2/me/schools', monitoringToken]]) {
+  for (const [path, token] of [['/api/v2/ops/status', schoolToken], ['/metrics', schoolToken],
+    ['/api/v2/me/schools', monitoringToken], ['/api/v2/me/server-status', monitoringToken]]) {
     const response = await fetch(origin + path, {headers: {Authorization: 'Bearer ' + token}});
     await response.arrayBuffer();
     assert.equal(response.status, 401, path);
   }
-  async function check(database, catalog, count, backupStatus, timeliness, result = 'null') {
-    const env = {...process.env, NP_OPS_ORIGIN: origin, NP_OPS_TOKEN: monitoringToken,
+  async function check(database, catalog, count, backupStatus, timeliness, result = 'null', schoolAccount = false) {
+    const env = {...process.env, NP_OPS_ORIGIN: origin,
       NP_OPS_DATABASE: database, NP_OPS_CATALOG: catalog, NP_OPS_BACKUP_STATUS: backupStatus,
       NP_OPS_BACKUP_TIMELINESS: timeliness, NP_OPS_BACKUP_RESULT: result};
+    const mode = schoolAccount ? '--school-server-status' : '--server-status';
+    if (schoolAccount) {
+      delete env.METRICS_TOKEN;
+      delete env.NP_OPS_TOKEN;
+      Object.assign(env, {NP_TEST_SCHOOL_CODE: fixture.school.code, NP_TEST_USERNAME: 'admin', NP_TEST_PASSWORD: fixture.pin,
+        NP_TEST_RENEWAL_SECONDS: '18'});
+    } else env.NP_OPS_TOKEN = monitoringToken;
     if (count === null) delete env.NP_OPS_RELEASE_COUNT;
     else env.NP_OPS_RELEASE_COUNT = String(count);
     await new Promise((resolve, reject) => {
-      const child = spawn('dotnet', ['run', '--no-build', '--project', project, '-c', 'Release', '--', '--server-status'],
+      const child = spawn('dotnet', ['run', '--no-build', '--project', project, '-c', 'Release', '--', mode],
         {env, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit']});
       child.once('error', reject);
       child.once('close', code => code === 0 ? resolve() : reject(new Error('Server status smoke failed: ' + code)));
@@ -320,15 +360,23 @@ async function verifyServerStatus(origin, fixture, databasePort) {
   await writeFile(path, JSON.stringify({releases: [{version: '1.1.12.0', url: 'https://example.invalid/update.zip',
     sha256: '0'.repeat(64), sizeBytes: 1}]}));
   await writeFile(record, `1 ${now - 7200} ${now - 3600} ${now - 120} FAILED\n`);
+  schoolToken = await loginAdmin();
   run(pg('pg_ctl'), ['-D', data, '-w', '-m', 'fast', 'stop']);
   await check('UNAVAILABLE', 'AVAILABLE', 1, 'AVAILABLE', 'CURRENT', 'FAILED');
+  const unavailable = await fetch(origin + '/api/v2/me/server-status', {
+    headers: {Authorization: 'Bearer ' + schoolToken}, signal: AbortSignal.timeout(30000),
+  });
+  assert.ok(!unavailable.ok && !(await unavailable.json()).data, 'No account diagnostics without a live authorization check');
   startDatabase(databasePort);
+  assert.equal((await schoolStatus(200)).database, 'AVAILABLE', 'Original school session works again after database recovery');
   await writeFile(record, `1 ${now - 30 * 3600} ${now - 27 * 3600} ${now - 120} FAILED\n`);
   await check('AVAILABLE', 'AVAILABLE', 1, 'AVAILABLE', 'OVERDUE', 'FAILED');
   const slightlyAhead = Math.floor(Date.now() / 1000) + 30;
   await writeFile(record, `1 ${now - 3600} ${slightlyAhead} ${slightlyAhead} SUCCEEDED\n`);
   await check('AVAILABLE', 'AVAILABLE', 1, 'AVAILABLE', 'CURRENT', 'SUCCEEDED');
-  console.log('PASS: independent monitoring credentials, catalog states, real database outage and recovery, and scheduled backup records.');
+  delete process.env.METRICS_TOKEN;
+  await check('AVAILABLE', 'AVAILABLE', 1, 'AVAILABLE', 'CURRENT', 'SUCCEEDED', true);
+  console.log('PASS: school account without a monitoring credential, live role revocation, independent deployment diagnostics, database outage and recovery.');
 }
 
 async function runFixture() {

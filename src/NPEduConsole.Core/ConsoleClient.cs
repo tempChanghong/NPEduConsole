@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace NPEduConsole.Core;
 
@@ -16,15 +17,42 @@ public sealed partial class ConsoleClient : IDisposable
     private readonly HttpClient _http;
     private sealed class Session(string token)
     {
-        public string Token { get; } = token;
+        private string _token = token;
+        public string Token => Volatile.Read(ref _token);
         public Guid Id { get; } = Guid.NewGuid();
+
+        public void Renew(string previous, string replacement) =>
+            Interlocked.CompareExchange(ref _token, replacement, previous);
     }
     private Session? _session;
+
+    private sealed class AccountHttpHandler(Func<Session?> currentSession) : HttpClientHandler
+    {
+        private static readonly Regex AccountToken = new(@"\A[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\z", RegexOptions.NonBacktracking);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var session = currentSession();
+            var previous = session?.Token;
+            var response = await base.SendAsync(request, ct).ConfigureAwait(false);
+            var headers = response.Headers.NonValidated;
+            if (session is not null && previous is not null && response.IsSuccessStatusCode &&
+                request.Headers.Authorization is { Scheme: "Bearer" } bearer && bearer.Parameter == previous &&
+                headers.TryGetValues("X-Token-Refreshed", out var refreshed) && refreshed.ToString() == "true" &&
+                headers.TryGetValues("X-New-Access-Token", out var values) && values.Count == 1)
+            {
+                var replacement = values.ToString();
+                // Late responses can update only their original session and only the token they used.
+                if (replacement.Length <= 8192 && AccountToken.IsMatch(replacement)) session.Renew(previous, replacement);
+            }
+            return response;
+        }
+    }
 
     public ConsoleClient(string serverAddress)
     {
         var address = NormalizeKvAddress(serverAddress);
-        _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
+        _http = new HttpClient(new AccountHttpHandler(() => _session) { AllowAutoRedirect = false, UseCookies = false })
         {
             BaseAddress = address,
             Timeout = TimeSpan.FromSeconds(20),
