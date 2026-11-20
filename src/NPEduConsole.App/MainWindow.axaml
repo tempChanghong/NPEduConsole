@@ -101,6 +101,35 @@
             </Border>
             <TextBlock x:Name="ScreensHeading" Text="绑定大屏和设备" FontSize="18" FontWeight="SemiBold" IsVisible="False" />
             <StackPanel x:Name="ScreenCards" Spacing="12" />
+            <Border x:Name="ClassAdmissionCard" Classes="card" Padding="20" IsVisible="False">
+              <StackPanel Spacing="12">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="大屏口令接入" FontSize="18" FontWeight="SemiBold" />
+                    <TextBlock x:Name="AdmissionScope" Classes="muted" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <Button x:Name="CloseAdmissionButton" Grid.Column="1" Classes="action" Content="关闭" Click="CloseAdmissionClicked" VerticalAlignment="Top" />
+                </Grid>
+                <TextBlock x:Name="AdmissionStatus" Classes="label" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock x:Name="AdmissionMessage" Classes="muted" IsVisible="False" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock x:Name="AdmissionAuthorizationNote" Classes="muted" IsVisible="False" TextWrapping="Wrap"
+                           Text="开放此大屏后，现有网页配对入口也可以为它生成一次性配对码。" />
+                <StackPanel x:Name="AdmissionSecretFields" IsVisible="False" Spacing="8" MaxWidth="380" HorizontalAlignment="Left">
+                  <TextBlock Text="新口令供本班大屏共用，请只交给负责现场接入的人员。" Classes="muted" TextWrapping="Wrap" />
+                  <TextBlock Text="班级管理口令（8 至 128 位）" Classes="label" />
+                  <TextBox x:Name="AdmissionSecret" PasswordChar="●" MaxLength="128" IsUndoEnabled="False"
+                           AutomationProperties.Name="班级管理口令" />
+                  <TextBlock Text="再次输入口令" Classes="label" />
+                  <TextBox x:Name="AdmissionSecretConfirmation" PasswordChar="●" MaxLength="128" IsUndoEnabled="False"
+                           AutomationProperties.Name="再次输入班级管理口令" />
+                </StackPanel>
+                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                  <Button x:Name="EnableAdmissionButton" Classes="action accent" Content="开放此大屏的口令接入"
+                          Click="EnableAdmissionClicked" IsVisible="False" />
+                  <Button x:Name="RefreshAdmissionButton" Classes="action" Content="刷新接入状态" Click="RefreshAdmissionClicked" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
             <Border x:Name="EquipmentCard" Classes="card" Padding="20" IsVisible="False">
               <StackPanel Spacing="14">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">

@@ -297,6 +297,7 @@ public sealed partial class ConsoleClient : IDisposable
     private static ConsoleApiException ProtocolConflict(string? code) => new(409, code switch
     {
         "REVISION_CONFLICT" => "学校配置已发生变化，请刷新并核对最新设置，再重新选择。",
+        "BINDING_OCCUPIED" => "这台大屏已有设备接入，请刷新班级列表。",
         "EQUIPMENT_INVENTORY_STALE" => "设备清单已过期，请等待设备重新上报并刷新。",
         "EQUIPMENT_UNAVAILABLE" => "配置涉及的设备已不在清单中，请刷新并核对麦克风和摄像头。",
         "LOCAL_MICROPHONE_CHANGE_UNSUPPORTED" => "设备尚未上报支持现场换麦，请更新设备后刷新。",

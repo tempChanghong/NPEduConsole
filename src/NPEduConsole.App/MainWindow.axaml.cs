@@ -209,7 +209,15 @@ public sealed partial class MainWindow : Window
     {
         var list = new StackPanel { Spacing = 8 };
         list.Children.Add(new TextBlock { Text = screen.Name, FontSize = 16, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
-        if (screen.Devices.Count == 0) list.Children.Add(new TextBlock { Text = "该大屏暂无有效绑定设备。", Classes = { "muted" } });
+        if (screen.Devices.Count == 0)
+        {
+            list.Children.Add(new TextBlock { Text = "该大屏暂无有效绑定设备。", Classes = { "muted" } });
+            var configure = new Button { Content = "配置口令接入", Classes = { "action" }, Tag = screen };
+            AutomationProperties.SetName(configure, $"配置口令接入：{screen.Name}");
+            AutomationProperties.SetAutomationId(configure, "ConfigureClassAdmission-" + screen.Id);
+            configure.Click += OpenAdmissionClicked;
+            list.Children.Add(configure);
+        }
         foreach (var device in screen.Devices)
         {
             var row = new StackPanel { Spacing = 4 };
@@ -238,7 +246,10 @@ public sealed partial class MainWindow : Window
     private async void DeviceClicked(object? sender, RoutedEventArgs args)
     {
         if (sender is Button button && _deviceButtons.TryGetValue(button, out var selection))
+        {
+            CloseClassAdmission();
             await LoadDeviceAsync(selection, scrollIntoView: true);
+        }
     }
 
     private async Task LoadDeviceAsync(DeviceSelection selection, bool scrollIntoView = false,
@@ -374,6 +385,7 @@ public sealed partial class MainWindow : Window
 
     private void SetClassroom(Classroom? room)
     {
+        CloseClassAdmission();
         CloseSoftwareMaintenance();
         ResetEquipmentView();
         _classroom = room;
