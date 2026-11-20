@@ -7,9 +7,11 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { cameras, microphones, startClassroomDevice } from './classroom-device.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || mode === '--serve'), 'Pass the KV checkout and PostgreSQL bin directories, followed optionally by --serve.');
@@ -24,7 +26,31 @@ const data = join(directory, 'data');
 const passwordFile = join(directory, 'password');
 const databasePassword = randomBytes(32).toString('hex');
 const pg = command => join(resolve(binaries), command + (process.platform === 'win32' ? '.exe' : ''));
-let prisma, server, heartbeat;
+let prisma, server, stopClassroom, lostReply;
+
+// Model a gateway losing an acknowledgement after KV has already committed.
+// The destination is pinned to this run's loopback fixture for every request.
+async function loseEquipmentReply(origin) {
+  const target = new URL(origin);
+  let committedRequests = 0;
+  const relay = createHttpServer((req, res) => {
+    const forward = httpRequest({ hostname: '127.0.0.1', port: target.port, method: req.method,
+      path: req.url, headers: { ...req.headers, host: target.host } }, upstream => {
+      if (req.method === 'POST' && req.url.endsWith('/equipment') && upstream.statusCode === 200) {
+        committedRequests++;
+        upstream.resume();
+        upstream.on('end', () => { res.writeHead(502); res.end(); });
+        return;
+      }
+      res.writeHead(upstream.statusCode, upstream.headers);
+      upstream.pipe(res);
+    });
+    forward.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+    req.pipe(forward);
+  });
+  await new Promise((resolve, reject) => relay.once('error', reject).listen(0, '127.0.0.1', resolve));
+  return { server: relay, origin: 'http://127.0.0.1:' + relay.address().port, count: () => committedRequests };
+}
 
 function run(command, args) {
   const logfile = join(directory, basename(command) + '.log');
@@ -74,6 +100,7 @@ async function createDatabase() {
 
 async function seed() {
   const { localProviderId } = await fromKv('domain/localAccount.js');
+  const { secretHash } = await fromKv('domain/npep/wire.js');
   const { schoolManagementRepository } = await fromKv('services/npepSchoolManagementService.js');
   const identity = { serverInstanceId: randomUUID(), deploymentEpoch: randomUUID() };
   await writeFile(process.env.NPEP_DEPLOYMENT_FILE, JSON.stringify({ enabled: true, ...identity }));
@@ -96,6 +123,7 @@ async function seed() {
   } });
   const grade = await prisma.grade.create({ data: { termId: term.id, name: '高二', code: 'G2', sortOrder: 1 } });
   const devices = [], classes = [], revokedDeviceId = randomUUID();
+  let classroomBearer;
   for (let number = 1; number <= 3; number++) {
     const room = await prisma.workspace.create({ data: {
       termId: term.id, gradeId: grade.id, name: `高二（${number}）班`, code: `G2-${number}`, type: 'ADMIN_CLASS',
@@ -107,14 +135,16 @@ async function seed() {
       tokenHash: randomBytes(32).toString('hex'), createdByAccountId: manager.id,
     } });
     const seen = new Date(Date.now() - (number === 1 ? 0 : 2 * 60 * 1000));
+    const secret = randomBytes(32).toString('base64url');
     const device = await prisma.npepDevice.create({ data: {
       ...identity, id: randomUUID(), installationId: randomUUID(), credentialId: randomUUID(),
-      secretHash: randomBytes(32).toString('hex'), schoolId: school.id, administrativeClassId: room.id,
+      secretHash: secretHash(secret), schoolId: school.id, administrativeClassId: room.id,
       screenBindingId: binding.id, bindingRevision: binding.npepBindingRevision, deviceName: room.name + '一体机',
       lastSeenAt: seen, credentialExpiresAt: new Date(Date.now() + 86400000),
     } });
     devices.push(device.id);
     if (number === 1) {
+      classroomBearer = 'npep1.' + device.credentialId + '.' + secret;
       await prisma.npepDevice.create({ data: {
         ...identity, id: revokedDeviceId, installationId: randomUUID(), credentialId: randomUUID(),
         secretHash: randomBytes(32).toString('hex'), schoolId: school.id, administrativeClassId: room.id,
@@ -122,16 +152,15 @@ async function seed() {
         state: 'REVOKED', revokedAt: seen, credentialExpiresAt: new Date(Date.now() + 86400000),
       } });
     }
-    const microphone = { id: 'microphone-usb', name: '讲台 USB 麦克风' };
     await schoolManagementRepository.saveEquipment(prisma, device.id, {
-      revision: 5, locked: true, microphoneId: microphone.id, cameraId: null, updatedAt: seen.toISOString(),
+      revision: 5, locked: true, microphoneId: microphones[0].id, cameraId: cameras[0].id, updatedAt: seen.toISOString(),
     });
     await schoolManagementRepository.saveInventory(prisma, device.id, {
-      appliedRevision: number === 1 ? 5 : 4, selectedMicrophoneId: microphone.id, selectedCameraId: null,
-      unlocked: false, error: null, microphones: [microphone], cameras: [], receivedAt: seen.toISOString(),
+      appliedRevision: number === 1 ? 5 : 4, selectedMicrophoneId: microphones[0].id, selectedCameraId: cameras[0].id,
+      unlocked: false, error: null, microphones, cameras, receivedAt: seen.toISOString(),
     });
   }
-  return { school, other, term, classes, devices, revokedDeviceId, pin };
+  return { school, other, term, classes, devices, revokedDeviceId, pin, identity, classroomBearer };
 }
 
 async function verify(origin, fixture) {
@@ -176,13 +205,29 @@ async function verify(origin, fixture) {
     await get(schoolPath(fixture.other.id) + path, admin, '0.16', 403);
     await get(schoolPath(fixture.school.id) + path, viewer, '0.16', 403);
   }
+  async function deniedChange(schoolId, deviceId, token, microphoneId, status, code) {
+    const requestId = randomUUID();
+    const response = await fetch(origin + schoolPath(schoolId) + '/devices/' + deviceId + '/equipment', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token, 'X-NPEP-Version': '0.16', 'X-Request-Id': requestId,
+        'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId, microphoneId, cameraId: cameras[0].id, locked: true, expectedRevision: 5 }),
+    });
+    assert.equal(response.status, status);
+    assert.equal((await response.json()).error.code, code);
+  }
+  const [activeId, offlineId] = fixture.devices;
+  await deniedChange(fixture.other.id, activeId, admin, microphones[1].id, 403, 'SCHOOL_ADMIN_REQUIRED');
+  await deniedChange(fixture.school.id, activeId, viewer, microphones[1].id, 403, 'SCHOOL_ADMIN_REQUIRED');
+  await deniedChange(fixture.school.id, offlineId, admin, microphones[1].id, 409, 'EQUIPMENT_INVENTORY_STALE');
+  await deniedChange(fixture.school.id, activeId, admin, 'disconnected-id', 409, 'EQUIPMENT_UNAVAILABLE');
   await get(schoolPath(fixture.other.id) + '/device-overview', admin, '0.1', 403);
   await get(overview, viewer, '0.1', 403);
   for (const endpoint of ['/academic-structure?termId=' + fixture.term.id, '/classroom-screens']) {
     await get('/api/v2/admin/schools/' + fixture.other.id + endpoint, admin, undefined, 403);
     await get(prefix + endpoint, viewer, undefined, 403);
   }
-  console.log('PASS: local login, memberships, administrative classes, screens, paginated device overview, applied/pending/unbound, cross-school and read-only account denials.');
+  console.log('PASS: real KV login, directory, paging, receipts and school scope. Unauthorized, offline-inventory and missing-microphone writes rejected.');
 }
 
 let passed = false;
@@ -205,27 +250,36 @@ try {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
+  stopClassroom = await startClassroomDevice(origin, fixture.identity, fixture.classroomBearer, { checkIncompleteReceipts: mode !== '--serve' });
   await verify(origin, fixture);
   // Only local, short-lived, synthetic login data is made available to the desktop process.
   const access = join(directory, 'desktop.json');
+  if (mode !== '--serve') lostReply = await loseEquipmentReply(origin);
   await writeFile(access, JSON.stringify({
     origin, schoolCode: fixture.school.code, username: 'admin', viewer: 'viewer', password: fixture.pin,
     schoolId: fixture.school.id, otherSchoolId: fixture.other.id, revokedDeviceId: fixture.revokedDeviceId,
+    lostReplyOrigin: lostReply?.origin,
   }), { mode: 0o600 });
   const smoke = fileURLToPath(new URL('./NPEduConsole.Smoke/NPEduConsole.Smoke.csproj', import.meta.url));
   await new Promise((res, rej) => {
     // The KV HTTP listener and database pool run on this event loop.
-    const client = spawn('dotnet', ['run', '--project', smoke, '-c', 'Release', '--', access],
+    const client = spawn('dotnet', ['run', '--project', smoke, '-c', 'Release', '--', access, ...(mode === '--serve' ? ['--view-only'] : [])],
       { windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'] });
     client.once('error', rej);
     client.once('close', code => code === 0 ? res() : rej(new Error('Desktop client smoke failed: ' + code)));
   });
+  if (mode !== '--serve') {
+    const { schoolManagementRepository } = await fromKv('services/npepSchoolManagementService.js');
+    const policy = await schoolManagementRepository.equipment(prisma, fixture.devices[0]);
+    assert.deepEqual({ revision: policy.revision, mic: policy.microphoneId, camera: policy.cameraId, locked: policy.locked },
+      { revision: 7, mic: microphones[0].id, camera: cameras[0].id, locked: true });
+    assert.equal(await prisma.npepAudit.count({ where: { schoolId: fixture.school.id, objectId: fixture.devices[0],
+      action: 'EQUIPMENT_POLICY_UPDATED' } }), 2, 'one audit per accepted logical change');
+    assert.equal(lostReply.count(), 1, 'no automatic resubmission after a lost acknowledgement');
+    console.log('PASS: two logical changes produced two audits. A lost acknowledgement produced one forwarded write. Camera and lock were preserved.');
+  }
   if (mode === '--serve') {
     console.log('Desktop test access: ' + access + ' (press Enter to stop)');
-    heartbeat = setInterval(async () => {
-      try { await prisma.npepDevice.update({ where: { id: fixture.devices[0] }, data: { lastSeenAt: new Date() } }); }
-      catch (error) { console.error('Fixture heartbeat failed:', error.message); }
-    }, 15000);
     await new Promise(done => {
       process.stdin.resume();
       process.stdin.once('data', done);
@@ -237,10 +291,14 @@ try {
   }
   passed = true;
 } finally {
-  clearInterval(heartbeat);
-  if (server) {
-    const closed = new Promise(res => server.close(res));
-    server.closeAllConnections();
+  // Finish outstanding device traffic before closing the local server and data store.
+  if (stopClassroom) {
+    try { await stopClassroom(); }
+    catch (error) { passed = false; process.exitCode = 1; console.error('Fixture device stopped:', error.message); }
+  }
+  for (const listener of [lostReply?.server, server].filter(Boolean)) {
+    const closed = new Promise(res => listener.close(res));
+    listener.closeAllConnections();
     await closed;
   }
   if (prisma) await prisma.$disconnect();

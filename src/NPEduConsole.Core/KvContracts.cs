@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace NPEduConsole.Core;
 
 internal sealed record Envelope(JsonElement Data = default, bool? Success = null,
-    string? ProtocolVersion = null, string? RequestId = null, DateTimeOffset? ServerTime = null);
+    string? ProtocolVersion = null, string? RequestId = null, DateTimeOffset? ServerTime = null, NpepError? Error = null);
 
 internal sealed record LoginResponse([property: JsonPropertyName("access_token")] string AccessToken);
 internal sealed record TermRow(string Id, string Status);
@@ -18,8 +18,8 @@ internal sealed record ScreenRow(string Id, string SchoolId, string? Administrat
 internal sealed record DeviceRow(string DeviceId, string SchoolId, string AdministrativeClassId, string ScreenBindingId,
     long BindingRevision, bool BindingChanged, string DeviceName, string State, string Connectivity, DateTimeOffset? LastSeenAt);
 internal sealed record OverviewPage(DeviceRow[] Items, string? NextCursor);
-internal sealed record Microphone(string Id, string Name);
-internal sealed record Policy(long Revision, bool Locked, string? MicrophoneId);
+internal sealed record Policy(long Revision, bool Locked, string? MicrophoneId, string? CameraId);
 internal sealed record Inventory(long AppliedRevision, bool Unlocked, Microphone[] Microphones,
-    DateTimeOffset ReceivedAt, string? Error);
+    DateTimeOffset ReceivedAt, string? Error, string? SelectedMicrophoneId = null);
 internal sealed record EquipmentResponse(Policy Policy, Inventory? Inventory);
+internal sealed record NpepError(string Code);

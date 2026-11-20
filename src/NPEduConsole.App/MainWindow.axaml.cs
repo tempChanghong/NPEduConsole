@@ -26,7 +26,7 @@ public sealed partial class MainWindow : Window
     private bool _allowClose;
     private bool _closeAfterSignOut;
 
-    private sealed record DeviceSelection(string ScreenId, Device Device);
+    private sealed record DeviceSelection(string ScreenId, string ScreenName, Device Device);
 
     public MainWindow()
     {
@@ -35,6 +35,14 @@ public sealed partial class MainWindow : Window
             new TextBlock { Text = school?.Name });
         ClassPicker.ItemTemplate = new FuncDataTemplate<Classroom>((room, _) =>
             new TextBlock { Text = ClassroomName(room), TextWrapping = TextWrapping.Wrap });
+        MicrophonePicker.ItemTemplate = new FuncDataTemplate<MicrophoneChoice>((choice, _) =>
+        {
+            var label = new TextBlock { Text = choice?.Label };
+            if (choice is not null && choice.Label != choice.Microphone.Name)
+                ToolTip.SetTip(label, choice.Microphone.Id);
+            return label;
+        });
+        _equipmentPoll.Tick += PollEquipment;
         AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
     }
@@ -166,7 +174,7 @@ public sealed partial class MainWindow : Window
         }
 
         if (selected is not null && _client == client && _school == school)
-            await SelectClassroomAsync(selected, restoredDevice);
+            await SelectClassroomAsync(selected, restoredDevice, userRefresh: restoredDevice is not null);
     }
 
     private async void ClassChanged(object? sender, SelectionChangedEventArgs args)
@@ -175,7 +183,7 @@ public sealed partial class MainWindow : Window
             await SelectClassroomAsync(ClassPicker.SelectedItem as Classroom);
     }
 
-    private async Task SelectClassroomAsync(Classroom? room, DeviceSelection? restoredDevice = null)
+    private async Task SelectClassroomAsync(Classroom? room, DeviceSelection? restoredDevice = null, bool userRefresh = false)
     {
         CancelRequest();
         WorkspaceProgress.IsVisible = false;
@@ -193,7 +201,7 @@ public sealed partial class MainWindow : Window
         var previous = restoredDevice is null ? null : _deviceButtons.Values.FirstOrDefault(device =>
             device.ScreenId == restoredDevice.ScreenId && device.Device.Id == restoredDevice.Device.Id);
         var selected = previous ?? (_deviceButtons.Count == 1 ? _deviceButtons.Values.Single() : null);
-        if (selected is not null) await LoadDeviceAsync(selected, scrollIntoView: false);
+        if (selected is not null) await LoadDeviceAsync(selected, userRefresh: userRefresh);
     }
 
     private Control BuildScreenCard(CoreScreen screen)
@@ -218,7 +226,7 @@ public sealed partial class MainWindow : Window
                 Classes = { "action", "device" }
             };
             AutomationProperties.SetName(button, $"查看设备 {device.Name}");
-            _deviceButtons.Add(button, new(screen.Id, device));
+            _deviceButtons.Add(button, new(screen.Id, screen.Name, device));
             button.Click += DeviceClicked;
             list.Children.Add(button);
         }
@@ -232,17 +240,24 @@ public sealed partial class MainWindow : Window
             await LoadDeviceAsync(selection, scrollIntoView: true);
     }
 
-    private async Task LoadDeviceAsync(DeviceSelection selection, bool scrollIntoView)
+    private async Task LoadDeviceAsync(DeviceSelection selection, bool scrollIntoView = false,
+        bool userRefresh = false, bool background = false)
     {
         if (_client is not { } client || _school is not { } school) return;
+        if (!background)
+        {
+            ResetEquipmentView();
+            EquipmentDetails.IsVisible = false;
+            WorkspaceProgress.IsVisible = true;
+            SetEquipmentStatus("正在读取设备策略和回执…");
+        }
         using var request = StartRequest();
         _device = selection;
         foreach (var (button, device) in _deviceButtons)
             button.Classes.Set("selected", device == selection);
-        EquipmentCard.IsVisible = WorkspaceProgress.IsVisible = true;
-        EquipmentDetails.IsVisible = false;
+        EquipmentCard.IsVisible = true;
         EquipmentDevice.Text = selection.Device.Name;
-        SetEquipmentStatus("正在读取设备策略和回执…");
+        RenderMicrophoneActions();
         if (scrollIntoView)
             Dispatcher.UIThread.Post(() =>
             {
@@ -252,6 +267,8 @@ public sealed partial class MainWindow : Window
         {
             var equipment = await client.GetEquipmentAsync(school.Id, selection.Device.Id, request.Token);
             if (!IsCurrent(request)) return;
+            _equipment = equipment;
+            ObserveMicrophoneChange(equipment, userRefresh);
             SetEquipmentStatus(equipment.StatusText);
             SchoolPolicy.Text = equipment.Locked ? "要求锁定" : "未要求锁定";
             MicrophoneName.Text = equipment.MicrophoneName ?? "未指定";
@@ -259,6 +276,7 @@ public sealed partial class MainWindow : Window
             AppliedVersion.Text = equipment.ReceivedAt.HasValue && equipment.AppliedRevision is { } revision
                 ? revision.ToString(CultureInfo.InvariantCulture) : "待确认";
             EquipmentReceipt.Text = FormatTime(equipment.ReceivedAt);
+            ReportedMicrophone.Text = equipment.ReportedMicrophoneName ?? "暂无具体输入上报";
             LocalUnlock.Text = (equipment.ReceivedAt.HasValue, equipment.LocallyUnlocked) switch
             {
                 (true, true) => "设备报告已本机解锁",
@@ -270,11 +288,18 @@ public sealed partial class MainWindow : Window
         catch (Exception error) when (IsServiceError(error))
         {
             if (IsCurrent(request) && !ReturnToLoginIfExpired(error))
+            {
+                _equipmentReadFailed = true;
                 SetEquipmentStatus(ServiceMessage(error), isError: true);
+            }
         }
         finally
         {
-            if (FinishRequest(request)) WorkspaceProgress.IsVisible = false;
+            if (FinishRequest(request))
+            {
+                WorkspaceProgress.IsVisible = false;
+                RenderMicrophoneActions();
+            }
         }
     }
 
@@ -337,6 +362,7 @@ public sealed partial class MainWindow : Window
     {
         CancelRequest();
         _client = null;
+        CancelMicrophoneChanges();
         _school = null;
         _settingSelection = true;
         SchoolPicker.ItemsSource = ClassPicker.ItemsSource = null;
@@ -350,6 +376,7 @@ public sealed partial class MainWindow : Window
 
     private void SetClassroom(Classroom? room)
     {
+        ResetEquipmentView();
         _classroom = room;
         _device = null;
         _deviceButtons.Clear();

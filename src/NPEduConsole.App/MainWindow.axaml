@@ -107,14 +107,44 @@
                   <TextBlock x:Name="EquipmentDevice" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
                   <TextBlock x:Name="EquipmentStatus" Classes="muted" AutomationProperties.LiveSetting="Polite" />
                 </StackPanel>
-                <Grid x:Name="EquipmentDetails" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="22" RowSpacing="14">
+                <Grid x:Name="EquipmentDetails" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="22" RowSpacing="14">
                   <StackPanel Spacing="4"><TextBlock Text="学校锁定策略" Classes="muted" /><TextBlock x:Name="SchoolPolicy" Classes="label" /></StackPanel>
                   <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="学校指定麦克风" Classes="muted" /><TextBlock x:Name="MicrophoneName" Classes="label" /></StackPanel>
                   <StackPanel Grid.Row="1" Spacing="4"><TextBlock Text="已发布版本" Classes="muted" /><TextBlock x:Name="PublishedVersion" Classes="label" /></StackPanel>
                   <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4"><TextBlock Text="设备已应用版本" Classes="muted" /><TextBlock x:Name="AppliedVersion" Classes="label" /></StackPanel>
                   <StackPanel Grid.Row="2" Spacing="4"><TextBlock Text="设备上报的本机解锁状态" Classes="muted" /><TextBlock x:Name="LocalUnlock" Classes="label" /></StackPanel>
                   <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4"><TextBlock Text="设备策略回执时间" Classes="muted" /><TextBlock x:Name="EquipmentReceipt" Classes="label" /></StackPanel>
+                  <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Spacing="4"><TextBlock Text="设备上报的实际选用麦克风" Classes="muted" /><TextBlock x:Name="ReportedMicrophone" Classes="label" /></StackPanel>
                 </Grid>
+                <StackPanel x:Name="MicrophoneActions" Spacing="10" IsVisible="False">
+                  <TextBlock x:Name="MicrophoneFeedback" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+                  <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                    <Button x:Name="EditMicrophoneButton" Classes="action" Content="更换指定麦克风"
+                            Click="EditMicrophoneClicked" IsVisible="False" />
+                    <Button x:Name="RefreshEquipmentButton" Classes="action" Content="刷新设备状态"
+                            Click="RefreshEquipmentClicked" />
+                  </WrapPanel>
+                </StackPanel>
+                <Border x:Name="MicrophoneEditor" Padding="16" CornerRadius="10" IsVisible="False"
+                        Background="{StaticResource CanvasBrush}" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+                  <StackPanel Spacing="10">
+                    <TextBlock Text="更换指定麦克风" FontSize="16" Classes="label" />
+                    <TextBlock x:Name="MicrophoneScope" Classes="muted" />
+                    <ComboBox x:Name="MicrophonePicker" HorizontalAlignment="Stretch"
+                              PlaceholderText="选择设备上报的麦克风" AutomationProperties.Name="新指定麦克风"
+                              SelectionChanged="MicrophoneSelectionChanged" />
+                    <TextBlock x:Name="MicrophoneComparison" Classes="label" />
+                    <TextBlock Text="如果实际切换了输入，可能需要在现场重新校准。" Classes="muted" />
+                    <TextBlock x:Name="MicrophoneUnlockWarning"
+                               Text="学校策略要求锁定。设备上次上报为临时解锁，新策略生效后将结束临时解锁。"
+                               TextWrapping="Wrap" Foreground="{StaticResource ErrorBrush}" />
+                    <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                      <Button x:Name="SaveMicrophoneButton" Classes="action accent" Content="确认并保存"
+                              Click="SaveMicrophoneClicked" IsEnabled="False" />
+                      <Button x:Name="CancelMicrophoneButton" Classes="action" Content="取消" Click="CancelMicrophoneClicked" />
+                    </WrapPanel>
+                  </StackPanel>
+                </Border>
               </StackPanel>
             </Border>
           </StackPanel>

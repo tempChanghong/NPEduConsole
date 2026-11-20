@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -13,7 +14,12 @@ public sealed class ConsoleClient : IDisposable
         RespectRequiredConstructorParameters = true
     };
     private readonly HttpClient _http;
-    private string? _accessToken;
+    private sealed class Session(string token)
+    {
+        public string Token { get; } = token;
+        public Guid Id { get; } = Guid.NewGuid();
+    }
+    private Session? _session;
 
     public ConsoleClient(string serverAddress)
     {
@@ -36,7 +42,7 @@ public sealed class ConsoleClient : IDisposable
 
     public async Task<IReadOnlyList<School>> LoginAsync(string schoolCode, string username, string password, CancellationToken ct)
     {
-        if (_accessToken is not null) throw new ConsoleApiException(0, "请先退出当前账号。");
+        if (_session is not null) throw new ConsoleApiException(0, "请先退出当前账号。");
         var credentials = new { schoolCode = schoolCode.Trim(), username = username.Trim(), password };
         var login = await RequestAsync<LoginResponse>(HttpMethod.Post, "accounts/local/login", null, ct, body: credentials);
         var token = login.AccessToken;
@@ -47,7 +53,7 @@ public sealed class ConsoleClient : IDisposable
             if (schools.Length == 0)
                 throw new ConsoleApiException(403, "此账号没有可管理的学校。请使用已获学校管理权限的账号登录。");
             ct.ThrowIfCancellationRequested();
-            _accessToken = token;
+            _session = new Session(token);
             return schools;
         }
         catch
@@ -64,11 +70,11 @@ public sealed class ConsoleClient : IDisposable
         RequestAsync<Membership[]>(HttpMethod.Get, "api/v2/me/schools", token, ct);
 
     private static bool IsAdministrator(Membership membership) => membership.Role is "OWNER" or "ADMIN";
-    private string Token => _accessToken ?? throw new ConsoleApiException(401, "请先登录管理账号。");
+    private Session CurrentSession => _session ?? throw new ConsoleApiException(401, "请先登录管理账号。");
 
     public async Task<IReadOnlyList<Classroom>> GetClassroomsAsync(string schoolId, CancellationToken ct)
     {
-        var token = Token;
+        var token = CurrentSession.Token;
         var path = "api/v2/admin/schools/" + Segment(schoolId);
         // This protected endpoint checks the current school grant even when there is no active term.
         var screens = await RequestAsync<ScreenRow[]>(HttpMethod.Get, path + "/classroom-screens", token, ct);
@@ -124,13 +130,63 @@ public sealed class ConsoleClient : IDisposable
 
     public async Task<Equipment> GetEquipmentAsync(string schoolId, string deviceId, CancellationToken ct)
     {
-        var token = Token;
-        var schoolPath = $"api/v2/npep/schools/{Segment(schoolId)}";
-        var path = $"{schoolPath}/devices/{Segment(deviceId)}/equipment";
-        EquipmentResponse response;
+        var session = CurrentSession;
+        var started = Stopwatch.GetTimestamp();
+        var envelope = await EquipmentRequestAsync(HttpMethod.Get, schoolId, deviceId, session.Token, ct);
+        var response = ReadData<EquipmentResponse>(envelope);
+        var policy = response.Policy;
+        var inventory = response.Inventory;
+        var microphones = inventory?.Microphones ?? [];
+        string? NameFor(string? id) => id is null ? null : microphones.FirstOrDefault(m => m.Id == id)?.Name;
+        var name = policy.MicrophoneId is null ? null : NameFor(policy.MicrophoneId) ?? "已指定（上报清单中无名称）";
+        return new Equipment(policy.Revision, inventory?.AppliedRevision, policy.Locked, inventory?.Unlocked, name,
+            inventory?.ReceivedAt, inventory?.Error)
+        {
+            Source = new EquipmentSource(session.Id, schoolId, deviceId, policy, envelope.ServerTime!.Value, started),
+            Microphones = Array.AsReadOnly(microphones),
+            ReportedMicrophoneId = inventory?.SelectedMicrophoneId,
+            ReportedMicrophoneName = inventory?.SelectedMicrophoneId is { } selected
+                ? NameFor(selected) ?? "已上报选择，当前清单未列出此麦克风" : null
+        };
+    }
+
+    public async Task<long> ChangeMicrophoneAsync(Equipment snapshot, string microphoneId, Guid requestId, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        if (snapshot.Source is not { } source || source.SessionId != session.Id)
+            throw new ConsoleApiException(409, "请在当前账号下重新读取设备。", "SNAPSHOT_CHANGED");
+        if (!snapshot.IsInventoryFresh)
+            throw new ConsoleApiException(409, "设备清单已过期，请等待设备重新上报并刷新。", "EQUIPMENT_INVENTORY_STALE");
+        if (!snapshot.Microphones.Any(m => m.Id == microphoneId))
+            throw new ConsoleApiException(409, "所选麦克风不在设备清单中，请刷新后重新选择。", "EQUIPMENT_UNAVAILABLE");
+        if (source.Policy.MicrophoneId == microphoneId || requestId == Guid.Empty)
+            throw new ConsoleApiException(400, "请选择另一支麦克风并确认更改。", "INVALID_CHANGE");
+
+        var previous = source.Policy;
+        var body = new { requestId, expectedRevision = previous.Revision, microphoneId, previous.CameraId, previous.Locked };
         try
         {
-            response = await RequestAsync<EquipmentResponse>(HttpMethod.Get, path, token, ct, version: "0.16");
+            var envelope = await EquipmentRequestAsync(HttpMethod.Post, source.SchoolId, source.DeviceId, session.Token, ct, body, requestId);
+            var saved = ReadData<Policy>(envelope);
+            if (saved.Revision != previous.Revision + 1 || saved.MicrophoneId != microphoneId ||
+                saved.CameraId != previous.CameraId || saved.Locked != previous.Locked)
+                throw InvalidResponse();
+            return saved.Revision;
+        }
+        catch (ConsoleApiException ex) when (ex.StatusCode is 0 or 408 or >= 500)
+        {
+            throw new ConsoleApiException(ex.StatusCode, "发布结果尚未确认，请重新读取该设备的学校配置后再决定是否提交。", "PUBLISH_UNCONFIRMED");
+        }
+    }
+
+    private async Task<Envelope> EquipmentRequestAsync(HttpMethod method, string schoolId, string deviceId,
+        string token, CancellationToken ct, object? body = null, Guid? requestId = null)
+    {
+        var schoolPath = $"api/v2/npep/schools/{Segment(schoolId)}";
+        var path = $"{schoolPath}/devices/{Segment(deviceId)}/equipment";
+        try
+        {
+            return await SendAsync(method, path, token, ct, "0.16", body, requestId);
         }
         catch (ConsoleApiException ex) when (ex.StatusCode == 401)
         {
@@ -139,23 +195,16 @@ public sealed class ConsoleClient : IDisposable
             await RequestAsync<OverviewPage>(HttpMethod.Get, schoolPath + "/device-overview?limit=1", token, ct, version: "0.1");
             throw new ConsoleApiException(409, "这台设备的绑定已改变或已过期，请刷新班级列表。");
         }
-        var policy = response.Policy;
-        var inventory = response.Inventory;
-        string? name = null;
-        if (policy.MicrophoneId is not null)
-            name = inventory?.Microphones.FirstOrDefault(m => m.Id == policy.MicrophoneId)?.Name ?? "已指定（上报清单中无名称）";
-        return new Equipment(policy.Revision, inventory?.AppliedRevision, policy.Locked, inventory?.Unlocked, name,
-            inventory?.ReceivedAt, inventory?.Error);
     }
 
     public async Task LogoutAsync(CancellationToken ct)
     {
-        var token = Interlocked.Exchange(ref _accessToken, null);
-        if (token is not null) await EndSessionAsync(token, ct);
+        var session = Interlocked.Exchange(ref _session, null);
+        if (session is not null) await EndSessionAsync(session.Token, ct);
     }
 
     private Task EndSessionAsync(string token, CancellationToken ct) =>
-        RequestAsync<JsonElement>(HttpMethod.Post, "accounts/logout", token, ct);
+        SendAsync(HttpMethod.Post, "accounts/logout", token, ct);
 
     private static string Segment(string value)
     {
@@ -165,13 +214,24 @@ public sealed class ConsoleClient : IDisposable
     }
 
     private async Task<T> RequestAsync<T>(HttpMethod method, string path, string? token, CancellationToken ct,
-        string? version = null, object? body = null)
+        string? version = null, object? body = null) =>
+        ReadData<T>(await SendAsync(method, path, token, ct, version, body));
+
+    private static T ReadData<T>(Envelope envelope)
+    {
+        if (envelope.Data.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) throw InvalidResponse();
+        try { return envelope.Data.Deserialize<T>(Json) ?? throw InvalidResponse(); }
+        catch (JsonException) { throw InvalidResponse(); }
+    }
+
+    private async Task<Envelope> SendAsync(HttpMethod method, string path, string? token, CancellationToken ct,
+        string? version = null, object? body = null, Guid? operationId = null)
     {
         ct.ThrowIfCancellationRequested();
         using var request = new HttpRequestMessage(method, path);
         if (token is not null) request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (body is not null) request.Content = JsonContent.Create(body);
-        var requestId = Guid.NewGuid().ToString();
+        var requestId = (operationId ?? Guid.NewGuid()).ToString();
         if (version is not null)
         {
             request.Headers.Add("X-NPEP-Version", version);
@@ -180,14 +240,22 @@ public sealed class ConsoleClient : IDisposable
         try
         {
             using var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode) throw HttpError((int)response.StatusCode, token is null);
+            if (!response.IsSuccessStatusCode)
+            {
+                int status = (int)response.StatusCode;
+                if (version is not null && status == 409)
+                {
+                    var error = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct);
+                    if (error?.RequestId == requestId && error.ProtocolVersion == version)
+                        throw EquipmentConflict(error.Error?.Code);
+                }
+                throw HttpError(status, token is null);
+            }
             var envelope = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct) ?? throw InvalidResponse();
             if (version is null ? envelope.Success != true :
                 envelope.ProtocolVersion != version || envelope.RequestId != requestId || envelope.ServerTime is null)
                 throw InvalidResponse();
-            if (typeof(T) == typeof(JsonElement)) return (T)(object)envelope.Data;
-            if (envelope.Data.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) throw InvalidResponse();
-            return envelope.Data.Deserialize<T>(Json) ?? throw InvalidResponse();
+            return envelope;
         }
         catch (JsonException) { throw InvalidResponse(); }
         catch (ObjectDisposedException) when (ct.IsCancellationRequested) { throw new OperationCanceledException(ct); }
@@ -197,6 +265,14 @@ public sealed class ConsoleClient : IDisposable
     }
 
     private static ConsoleApiException InvalidResponse() => new(0, "KV 服务返回的数据与当前控制台不兼容，请核对服务地址或刷新。");
+    private static ConsoleApiException EquipmentConflict(string? code) => new(409, code switch
+    {
+        "REVISION_CONFLICT" => "学校配置已发生变化，请刷新并核对最新设置，再重新选择。",
+        "EQUIPMENT_INVENTORY_STALE" => "设备清单已过期，请等待设备重新上报并刷新。",
+        "EQUIPMENT_UNAVAILABLE" => "配置涉及的设备已不在清单中，请刷新并核对麦克风和摄像头。",
+        "IDEMPOTENCY_CONFLICT" => "这次请求与先前提交的操作不一致，请刷新后核对。",
+        _ => "绑定或设备状态已改变，请刷新。"
+    }, code);
     private static ConsoleApiException HttpError(int status, bool login) => new(status, status switch
     {
         401 when login => "学校代码、账号或密码不正确。",
@@ -214,7 +290,7 @@ public sealed class ConsoleClient : IDisposable
 
     public void Dispose()
     {
-        _accessToken = null;
+        _session = null;
         _http.Dispose();
     }
 }
