@@ -17,7 +17,7 @@ import { nextStudyMonday, seedClassStudy } from './class-study-fixture.mjs';
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
-  '--class-study', '--serve-class-study'].includes(mode)),
+  '--class-study', '--serve-class-study', '--server-status'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -73,6 +73,10 @@ function run(command, args) {
   if (result.error || result.status !== 0) throw new Error(`${basename(command)} failed. Log: ${logfile}`);
 }
 
+function startDatabase(port) {
+  run(pg('pg_ctl'), ['-D', data, '-l', join(directory, 'postgres.log'), '-o', `-h 127.0.0.1 -p ${port}`, '-w', 'start']);
+}
+
 async function createDatabase() {
   const probe = createServer();
   await new Promise((res, rej) => probe.once('error', rej).listen(0, '127.0.0.1', res));
@@ -102,7 +106,7 @@ async function createDatabase() {
   } finally {
     await rm(passwordFile, { force: true });
   }
-  run(pg('pg_ctl'), ['-D', data, '-l', join(directory, 'postgres.log'), '-o', `-h 127.0.0.1 -p ${port}`, '-w', 'start']);
+  startDatabase(port);
   const db = new Client({ ...connection, database: 'postgres' });
   await db.connect();
   try {
@@ -113,6 +117,7 @@ async function createDatabase() {
     await db.end();
   }
   run(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy']);
+  return port;
 }
 
 async function seed() {
@@ -264,8 +269,51 @@ async function verify(origin, fixture) {
   console.log('PASS: real KV login, directory, paging, receipts and school scope. Unauthorized, offline-inventory and missing-microphone writes rejected.');
 }
 
-let passed = false;
-try {
+async function verifyServerStatus(origin, fixture, databasePort) {
+  const project = fileURLToPath(new URL('./NPEduConsole.Smoke/NPEduConsole.Smoke.csproj', import.meta.url));
+  run('dotnet', ['build', project, '-c', 'Release', '--nologo']);
+  const monitoringToken = randomBytes(32).toString('hex');
+  process.env.METRICS_TOKEN = monitoringToken;
+  const login = await fetch(origin + '/accounts/local/login', {method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({schoolCode: fixture.school.code, username: 'admin', password: fixture.pin})});
+  assert.equal(login.status, 200);
+  const schoolToken = (await login.json()).data.access_token;
+  assert.ok(schoolToken);
+  for (const [path, token] of [['/api/v2/ops/status', schoolToken], ['/api/v2/me/schools', monitoringToken]]) {
+    const response = await fetch(origin + path, {headers: {Authorization: 'Bearer ' + token}});
+    await response.arrayBuffer();
+    assert.equal(response.status, 401, path);
+  }
+  async function check(database, catalog, count) {
+    const env = {...process.env, NP_OPS_ORIGIN: origin, NP_OPS_TOKEN: monitoringToken,
+      NP_OPS_DATABASE: database, NP_OPS_CATALOG: catalog};
+    if (count === null) delete env.NP_OPS_RELEASE_COUNT;
+    else env.NP_OPS_RELEASE_COUNT = String(count);
+    await new Promise((resolve, reject) => {
+      const child = spawn('dotnet', ['run', '--no-build', '--project', project, '-c', 'Release', '--', '--server-status'],
+        {env, windowsHide: true, stdio: ['ignore', 'inherit', 'inherit']});
+      child.once('error', reject);
+      child.once('close', code => code === 0 ? resolve() : reject(new Error('Server status smoke failed: ' + code)));
+    });
+  }
+  await check('AVAILABLE', 'NOT_CONFIGURED', null);
+  const path = join(directory, 'status-catalog.json');
+  process.env.NPEP_UPDATE_CATALOG_FILE = path;
+  await writeFile(path, '{');
+  await check('AVAILABLE', 'UNAVAILABLE', null);
+  await writeFile(path, '{"releases":[]}');
+  await check('AVAILABLE', 'AVAILABLE', 0);
+  await writeFile(path, JSON.stringify({releases: [{version: '1.1.12.0', url: 'https://example.invalid/update.zip',
+    sha256: '0'.repeat(64), sizeBytes: 1}]}));
+  run(pg('pg_ctl'), ['-D', data, '-w', '-m', 'fast', 'stop']);
+  await check('UNAVAILABLE', 'AVAILABLE', 1);
+  startDatabase(databasePort);
+  await check('AVAILABLE', 'AVAILABLE', 1);
+  console.log('PASS: independent monitoring credentials, catalog states, real database outage and recovery.');
+}
+
+async function runFixture() {
   // Node's POSIX file modes have no ACL equivalent on Windows. Restrict the
   // new directory before any credentials, database files, or logs are written.
   if (process.platform === 'win32') {
@@ -275,7 +323,7 @@ try {
       account.stdout.trim() + ':(OI)(CI)F', '*S-1-5-18:(OI)(CI)F'], { windowsHide: true });
     assert.equal(restricted.status, 0, 'Could not restrict temporary fixture access');
   }
-  await createDatabase();
+  const databasePort = await createDatabase();
   ({ prisma } = await fromKv('utils/prisma.js'));
   const fixture = await seed();
   const { default: app } = await fromKv('app.js');
@@ -284,6 +332,7 @@ try {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
+  if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   if (!classAdmission && !classStudy) {
     stopClassroom = await startClassroomDevice(origin, fixture.identity, fixture.classroomBearer,
       { checkIncompleteReceipts: !serve && !localAuthorization, simulateLocalAuthorization: localAuthorization,
@@ -342,6 +391,11 @@ try {
     });
     process.stdin.pause();
   }
+}
+
+let passed = false;
+try {
+  await runFixture();
   passed = true;
 } finally {
   // Finish outstanding device traffic before closing the local server and data store.

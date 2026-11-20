@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     private bool _allowClose;
     private bool _closeAfterSignOut;
     private bool _showClassStudy;
+    private bool _serverStatusOpen;
 
     private sealed record DeviceSelection(string ScreenId, string ScreenName, Device Device);
 
@@ -46,11 +47,23 @@ public sealed partial class MainWindow : Window
         _equipmentPoll.Tick += PollEquipment;
         _softwarePoll.Tick += PollSoftware;
         StudyWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
-        AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
+        LoginView.AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
     }
 
     private async void LoginClicked(object? sender, RoutedEventArgs args) => await LoginAsync();
+
+    private async void OpenServerStatusClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_serverStatusOpen || _request is not null || _signingOut || _client is not null || !LoginView.IsVisible) return;
+        _serverStatusOpen = true;
+        try { await new ServerStatusWindow(ServerAddress.Text).ShowDialog(this); }
+        finally
+        {
+            _serverStatusOpen = false;
+            if (LoginView.IsVisible) OpenServerStatusButton.Focus();
+        }
+    }
 
     private async void OnLoginKeyDown(object? sender, KeyEventArgs args)
     {
@@ -449,6 +462,7 @@ public sealed partial class MainWindow : Window
     private void SetLoginBusy(bool busy)
     {
         LoginButton.IsEnabled = ServerAddress.IsEnabled = SchoolCode.IsEnabled = Username.IsEnabled = Password.IsEnabled = !busy;
+        OpenServerStatusButton.IsEnabled = !busy;
         LoginProgress.IsVisible = busy;
         LoginButton.Content = busy ? (_signingOut ? "正在退出…" : "正在登录…") : "登录";
     }

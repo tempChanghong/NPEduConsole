@@ -1,0 +1,73 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPEduConsole.App.ServerStatusWindow" Title="NPEduConsole · 服务器状态"
+        Width="610" Height="640" MinWidth="480" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="TextBlock.server-unavailable">
+      <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*" Background="{StaticResource CanvasBrush}">
+    <Border Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="24,20">
+      <StackPanel Spacing="5">
+        <TextBlock Text="服务器状态" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock Text="使用部署时已有的只读监控凭据检查 KV。" Classes="muted" />
+      </StackPanel>
+    </Border>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="24,18,24,24" Spacing="14">
+        <Border Classes="card" Padding="18">
+          <StackPanel Spacing="12">
+            <StackPanel Spacing="5">
+              <TextBlock Text="KV 服务地址" Classes="label" />
+              <TextBox x:Name="OpsServerAddress" PlaceholderText="https://kv.example.edu" AutomationProperties.Name="KV 服务地址"
+                       TextChanging="ServerAddressChanging" />
+            </StackPanel>
+            <StackPanel Spacing="5">
+              <TextBlock Text="监控凭据（METRICS_TOKEN）" Classes="label" />
+              <TextBox x:Name="OpsMonitoringToken" PasswordChar="●" IsUndoEnabled="False"
+                       AutomationProperties.Name="监控凭据" TextChanging="MonitoringTokenChanging" />
+              <TextBlock Text="凭据仅在当前窗口使用。" Classes="muted" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button x:Name="CheckServerStatusButton" Content="检查" Classes="action accent" Click="CheckStatusClicked" IsDefault="True" />
+              <Button x:Name="CancelServerStatusButton" Content="取消检查" Classes="action" Click="CancelStatusClicked" IsVisible="False" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <TextBlock x:Name="OpsActivity" Classes="muted" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
+        <Border x:Name="OpsError" Background="{StaticResource ErrorTintBrush}" Padding="14,11" CornerRadius="8" IsVisible="False">
+          <TextBlock x:Name="OpsErrorMessage" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+        </Border>
+        <Border x:Name="OpsSnapshot" Classes="card" Padding="18" IsVisible="False">
+          <StackPanel Spacing="12">
+            <TextBlock Text="检查结果" FontSize="17" Classes="label" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
+              <StackPanel Spacing="4">
+                <TextBlock Text="数据库" Classes="muted" />
+                <TextBlock x:Name="OpsDatabase" Classes="label" />
+                <TextBlock x:Name="OpsDatabaseHint" Classes="muted" />
+              </StackPanel>
+              <StackPanel Grid.Column="1" Spacing="4">
+                <TextBlock Text="更新目录" Classes="muted" />
+                <TextBlock x:Name="OpsCatalog" Classes="label" />
+                <TextBlock x:Name="OpsCatalogHint" Classes="muted" />
+              </StackPanel>
+            </Grid>
+            <Border Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="10">
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
+                <StackPanel Spacing="3">
+                  <TextBlock Text="KV 版本" Classes="muted" />
+                  <TextBlock x:Name="OpsVersion" Classes="label" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="3">
+                  <TextBlock Text="检查完成时间（本机时间）" Classes="muted" />
+                  <TextBlock x:Name="OpsCheckedAt" Classes="label" />
+                </StackPanel>
+              </Grid>
+            </Border>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</Window>

@@ -23,17 +23,22 @@ public sealed partial class ConsoleClient : IDisposable
 
     public ConsoleClient(string serverAddress)
     {
+        var address = NormalizeKvAddress(serverAddress);
+        _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
+        {
+            BaseAddress = address,
+            Timeout = TimeSpan.FromSeconds(20),
+            MaxResponseContentBufferSize = 32 * 1024 * 1024
+        };
+    }
+
+    internal static Uri NormalizeKvAddress(string serverAddress)
+    {
         if (!Uri.TryCreate(serverAddress.Trim(), UriKind.Absolute, out var address)
             || !IsTrustedTransport(address) || address.UserInfo.Length > 0
             || address.Fragment.Length > 0 || address.Query.Length > 0)
             throw new ConsoleApiException(0, "请输入 KV 服务的 HTTPS 地址。本机测试可使用 localhost 或回环 IP 的 HTTP 地址。");
-
-        _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
-        {
-            BaseAddress = new Uri(address.AbsoluteUri.TrimEnd('/') + "/"),
-            Timeout = TimeSpan.FromSeconds(20),
-            MaxResponseContentBufferSize = 32 * 1024 * 1024
-        };
+        return new Uri(address.AbsoluteUri.TrimEnd('/') + "/");
     }
 
     private static bool IsTrustedTransport(Uri uri) => uri.Scheme == Uri.UriSchemeHttps ||

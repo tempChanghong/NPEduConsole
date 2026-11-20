@@ -1,6 +1,18 @@
 using System.Text.Json;
 using NPEduConsole.Core;
 
+if (args is ["--server-status"])
+{
+    await ServerStatusSmoke.ProbeAsync();
+    return;
+}
+
+if (args is ["--server-status-checks"])
+{
+    await ServerStatusSmoke.VerifyAsync();
+    return;
+}
+
 if (args.Length == 2 && args[1] == "--software-update")
 {
     await SoftwareUpdateSmoke.RunAsync(args[0]);

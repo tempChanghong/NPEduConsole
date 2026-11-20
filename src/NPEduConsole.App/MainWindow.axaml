@@ -13,6 +13,8 @@
           <TextBlock Text="NPEduConsole" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
           <TextBlock Text="学校管理控制台" Classes="muted" FontSize="13" VerticalAlignment="Center" />
         </StackPanel>
+        <Button x:Name="OpenServerStatusButton" Grid.Column="2" Classes="action" MinHeight="36" VerticalAlignment="Center"
+                Content="服务器状态" Click="OpenServerStatusClicked" IsVisible="{Binding #LoginView.IsVisible}" />
         <StackPanel x:Name="AccountBar" Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" IsVisible="False">
           <TextBlock x:Name="AccountName" VerticalAlignment="Center" Classes="muted" MaxWidth="170" TextTrimming="CharacterEllipsis" />
           <Button Classes="action" MinHeight="36" Content="退出登录" Click="LogoutClicked" AutomationProperties.Name="退出登录" />
