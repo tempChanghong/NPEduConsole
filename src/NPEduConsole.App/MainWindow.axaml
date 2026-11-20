@@ -205,6 +205,7 @@
                 <TextBlock x:Name="SoftwareMaintenanceFeedback" Classes="muted" AutomationProperties.LiveSetting="Polite" IsVisible="False" />
                 <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
                   <Button x:Name="InviteSoftwareButton" Content="邀请设备纳管" Classes="action accent" Click="InviteSoftwareClicked" IsVisible="False" />
+                  <Button x:Name="WithdrawInvitationButton" Content="撤回邀请" Classes="action" Click="WithdrawInvitationClicked" IsVisible="False" />
                   <Button x:Name="ApproveSoftwareButton" Content="批准此版本" Classes="action accent" Click="ApproveSoftwareClicked" IsVisible="False" />
                   <Button x:Name="CancelSoftwareButton" Content="取消更新任务" Classes="action" Click="CancelSoftwareClicked" IsVisible="False" />
                   <Button x:Name="RefreshSoftwareButton" Content="刷新维护状态" Classes="action" Click="RefreshSoftwareClicked" />

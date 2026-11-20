@@ -303,6 +303,7 @@ public sealed partial class ConsoleClient : IDisposable
         "LOCAL_MICROPHONE_CHANGE_UNAVAILABLE" => "该设备当前无法接受现场换麦授权，请刷新后再核对。",
         "IDEMPOTENCY_CONFLICT" => "这次请求与先前提交的操作不一致，请刷新后核对。",
         "UPDATE_ALREADY_ENROLLED" => "学校已经发出邀请，请刷新查看设备的纳管状态。",
+        "UPDATE_ENROLLMENT_CHANGED" => "当前纳管邀请已变化，请刷新核对最新状态。",
         "UPDATE_NOT_MANAGED" => "这台设备尚未完成纳管确认，请先在教室端确认。",
         "UPDATE_ALREADY_PENDING" => "这台设备已有更新任务，请刷新查看进度。",
         "UPDATE_NOT_CANCELLABLE" => "当前任务已经不能取消，请刷新查看进度。",

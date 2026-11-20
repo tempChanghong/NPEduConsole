@@ -12,6 +12,7 @@ internal static class SoftwareUpdateSmoke
 
     internal static async Task RunAsync(string config)
     {
+        VerifyLegacyInvitation();
         var fixture = JsonSerializer.Deserialize<Fixture>(await File.ReadAllTextAsync(config), JsonSerializerOptions.Web)
             ?? throw new InvalidDataException("Missing software update fixture.");
         if (!new Uri(fixture.Origin).IsLoopback) throw new InvalidDataException("Software update smoke needs a loopback service.");
@@ -34,16 +35,46 @@ internal static class SoftwareUpdateSmoke
         const string original = "1.1.10.0", next = "1.1.11.0", later = "1.1.12.0";
         var installation = await Read();
         Check(installation.CanInvite && !installation.IsEnrolled && !installation.EligibleReleases.Any(), "legacy binding alone is not managed");
-        var invitation = await admin.SetSoftwareUpdateAsync(installation, SoftwareUpdateAction.Enroll, null, Guid.NewGuid(), ct);
-        Check(invitation.Enrollment == "INVITED" && invitation.EnrollmentId is not null && !invitation.IsEnrolled, "school invitation stays pending on local consent");
+        await Exchange(original, null);
+        var available = await Read();
+        var invitation = await admin.SetSoftwareUpdateAsync(available, SoftwareUpdateAction.Enroll, null, Guid.NewGuid(), ct);
+        Check(invitation.CanWithdraw && invitation.InvitationLastExchangeAt is null && invitation.LastSeenAt.HasValue,
+            "a historical version receipt does not confirm communication for the current invitation");
         Check((await admin.GetSoftwareUpdateAsync(fixture.SchoolId, otherId, ct)).CanInvite, "invitation is isolated to a single device");
-        await ExpectError(409, () => admin.SetSoftwareUpdateAsync(installation, SoftwareUpdateAction.Enroll, null, Guid.NewGuid(), ct),
+        await ExpectError(409, () => admin.SetSoftwareUpdateAsync(available, SoftwareUpdateAction.Enroll, null, Guid.NewGuid(), ct),
             "REVISION_CONFLICT");
         await ExpectError(409, () => admin.SetSoftwareUpdateAsync(invitation, SoftwareUpdateAction.Approve, next, Guid.NewGuid(), ct));
-        var consent = invitation.EnrollmentId!.Value;
+        await ExpectError(409, () => Withdraw(invitation with { CanWithdrawInvitation = null }), "INVALID_UPDATE_ACTION");
+
+        var offline = await admin.GetSoftwareUpdateAsync(fixture.SchoolId, otherId, ct);
+        var offlineInvitation = await admin.SetSoftwareUpdateAsync(offline, SoftwareUpdateAction.Enroll, null, Guid.NewGuid(), ct);
+        Check(offlineInvitation.CanWithdraw && offlineInvitation.InvitationLastExchangeAt is null, "pending offline invitation without a device exchange");
+        Check((await Withdraw(offlineInvitation)).CanInvite, "offline invitation can be withdrawn");
+
+        await Exchange(original, null);
+        var exchanged = await Read();
+        Check(exchanged.CanWithdraw && exchanged.InvitationLastExchangeAt.HasValue && !exchanged.IsEnrolled,
+            "current invitation reports a maintenance exchange without implying consent");
+        var withdrawn = await Withdraw(exchanged);
+        Check(withdrawn.CanInvite && !withdrawn.CanWithdraw && withdrawn.Revision > exchanged.Revision &&
+            withdrawn.InvitationLastExchangeAt is null && withdrawn.ObservedVersion == original,
+            "withdrawal resets only software invitation, not version history");
+        await ExpectDeviceError(() => Exchange(original, invitation.EnrollmentId!.Value), "UPDATE_ENROLLMENT_CHANGED");
+        Check((await admin.GetClassroomsAsync(fixture.SchoolId, ct)).Any(room => room.Screens.Any(binding =>
+            binding.Devices.Any(device => device.Id == id))), "withdrawal preserves the device binding");
+
+        var reissued = await admin.SetSoftwareUpdateAsync(withdrawn, SoftwareUpdateAction.Enroll, null, Guid.NewGuid(), ct);
+        Check(reissued.CanWithdraw && reissued.EnrollmentId != invitation.EnrollmentId && reissued.InvitationLastExchangeAt is null,
+            "replacement invitation has a fresh ID and no inherited receipt");
+        await ExpectError(409, () => Withdraw(exchanged), "REVISION_CONFLICT");
+        await ExpectError(409, () => Withdraw(exchanged with { Revision = reissued.Revision }), "UPDATE_ENROLLMENT_CHANGED");
+        Check((await Read()).EnrollmentId == reissued.EnrollmentId, "stale withdrawal cannot cancel a replacement invitation");
+
+        var consent = reissued.EnrollmentId!.Value;
         await Exchange(original, consent);
+        await ExpectError(409, () => Withdraw(reissued), "REVISION_CONFLICT");
         var managed = await Read();
-        Check(managed.IsEnrolled && managed.ObservedVersion == original && managed.LastSeenAt.HasValue &&
+        Check(managed.IsEnrolled && !managed.CanWithdraw && managed.ObservedVersion == original && managed.LastSeenAt.HasValue &&
             managed.EligibleReleases.Select(release => release.Version).Order().SequenceEqual([next, later]), "explicit consent and eligible catalog versions");
         await ExpectError(409, () => admin.SetSoftwareUpdateAsync(managed, SoftwareUpdateAction.Approve, original, Guid.NewGuid(), ct));
 
@@ -83,7 +114,11 @@ internal static class SoftwareUpdateSmoke
         Check(recovered.Plan?.State == "FAILED" && recovered.Plan.Reason == "ROLLED_BACK" && recovered.ObservedVersion == next,
             "a rollback remains distinct from upgrade success");
         await admin.LogoutAsync(ct);
+        Console.WriteLine("PASS: KV invitation withdrawal, offline and historical/current device exchange, old consent rejected, reissue kept, and consent-won enrollment kept.");
         Console.WriteLine("PASS: KV software maintenance school/device scope, explicit consent, revision conflict, catalog eligibility, cancellation, recording/unknown deferral, new Host confirmed, rollback reported.");
+
+        Task<SoftwareUpdate> Withdraw(SoftwareUpdate snapshot) =>
+            admin.SetSoftwareUpdateAsync(snapshot, SoftwareUpdateAction.WithdrawInvitation, null, Guid.NewGuid(), ct);
 
         async Task<JsonElement> StartSession(int expectedStatusEpoch)
         {
@@ -96,9 +131,9 @@ internal static class SoftwareUpdateSmoke
             }, JsonSerializerOptions.Web);
         }
 
-        Task<JsonElement> Exchange(string runningVersion, Guid enrollmentId, Receipt? receipt = null) =>
+        Task<JsonElement> Exchange(string runningVersion, Guid? enrollmentId, Receipt? receipt = null) =>
             DeviceRequest("software-update/exchange", "0.18", requestId =>
-                new { requestId, context, sequence = ++sequence, runningVersion, localConsent = true, consentEnrollmentId = enrollmentId, receipt });
+                new { requestId, context, sequence = ++sequence, runningVersion, localConsent = enrollmentId.HasValue, consentEnrollmentId = enrollmentId, receipt });
 
         async Task<JsonElement> DeviceRequest(string path, string version, Func<Guid, object>? body)
         {
@@ -116,6 +151,18 @@ internal static class SoftwareUpdateSmoke
             }
             return envelope.GetProperty("data");
         }
+    }
+
+    private static void VerifyLegacyInvitation()
+    {
+        const string json = """
+            {"product":"NPEduTools","managed":false,"enrollment":"INVITED",
+             "enrollmentId":"14ac6dfc-4310-4365-8b5b-90f01f569b33","revision":1,
+             "catalog":[],"plan":null,"observedVersion":"1.1.10.0","lastSeenAt":"2026-01-01T00:00:00Z"}
+            """;
+        var legacy = JsonSerializer.Deserialize<SoftwareUpdate>(json, JsonSerializerOptions.Web);
+        Check(legacy is { CanWithdraw: false, CanWithdrawInvitation: null, InvitationLastExchangeAt: null },
+            "legacy JSON without withdrawal capability remains readable but cannot be withdrawn");
     }
 
     private static void Check(bool condition, string step)

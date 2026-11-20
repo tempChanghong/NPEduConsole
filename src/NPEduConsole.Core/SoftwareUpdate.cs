@@ -1,6 +1,6 @@
 namespace NPEduConsole.Core;
 
-public enum SoftwareUpdateAction { Enroll, Approve, Cancel }
+public enum SoftwareUpdateAction { Enroll, Approve, Cancel, WithdrawInvitation }
 
 public sealed record SoftwareRelease(string Version)
 {
@@ -21,11 +21,13 @@ internal sealed record SoftwareUpdateScope(Guid SessionId, string SchoolId, stri
 
 public sealed record SoftwareUpdate(string Product, bool Managed, string Enrollment, Guid? EnrollmentId, long Revision,
     IReadOnlyList<SoftwareRelease> Catalog, SoftwareUpdatePlan? Plan, string? ObservedVersion, DateTimeOffset? LastSeenAt,
-    string? CatalogStatus = null)
+    string? CatalogStatus = null, bool? CanWithdrawInvitation = null, DateTimeOffset? InvitationLastExchangeAt = null)
 {
     internal SoftwareUpdateScope? Scope { get; init; }
 
     public bool CanInvite => !Managed && Enrollment == "UNMANAGED" && EnrollmentId is null;
+    public bool CanWithdraw => CanWithdrawInvitation == true && !Managed && Enrollment == "INVITED" &&
+        EnrollmentId is { } invitation && invitation != Guid.Empty;
     public bool CanCancel => IsEnrolled && Plan?.CanCancel == true;
     public bool IsEnrolled => Managed && Enrollment == "MANAGED" && EnrollmentId is not null;
 

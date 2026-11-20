@@ -19,12 +19,14 @@ public sealed partial class ConsoleClient
             SoftwareUpdateAction.Enroll when snapshot.CanInvite && targetVersion is null => "ENROLL",
             SoftwareUpdateAction.Approve when snapshot.EligibleReleases.Any(release => release.Version == targetVersion) => "APPROVE",
             SoftwareUpdateAction.Cancel when snapshot.CanCancel && targetVersion is null => "CANCEL",
+            SoftwareUpdateAction.WithdrawInvitation when snapshot.CanWithdraw && targetVersion is null => "WITHDRAW_INVITATION",
             _ => throw new ConsoleApiException(409, "当前设备状态不允许此操作，请刷新并核对。", "INVALID_UPDATE_ACTION")
         };
         if (requestId == Guid.Empty)
             throw new ConsoleApiException(400, "维护操作缺少请求标识。", "INVALID_UPDATE_ACTION");
 
-        var body = new SoftwareUpdateWrite(requestId, snapshot.Revision, operation, targetVersion);
+        var body = new SoftwareUpdateWrite(requestId, snapshot.Revision, operation, targetVersion,
+            action == SoftwareUpdateAction.WithdrawInvitation ? snapshot.EnrollmentId : null);
         try
         {
             var saved = await RequestSoftwareUpdateAsync(HttpMethod.Post, session, scope.SchoolId, scope.DeviceId, ct, body);
@@ -44,6 +46,7 @@ public sealed partial class ConsoleClient
         "ENROLL" => saved.Enrollment is "INVITED" or "MANAGED" && saved.EnrollmentId is not null,
         "APPROVE" => saved.Plan?.TargetVersion == request.TargetVersion,
         "CANCEL" => saved.Plan?.State == "CANCELLED",
+        "WITHDRAW_INVITATION" => saved.CanInvite,
         _ => false
     };
 
@@ -73,5 +76,6 @@ public sealed partial class ConsoleClient
     }
 
     private sealed record SoftwareUpdateWrite(Guid RequestId, long ExpectedRevision, string Action,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TargetVersion);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? TargetVersion,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? EnrollmentId);
 }
