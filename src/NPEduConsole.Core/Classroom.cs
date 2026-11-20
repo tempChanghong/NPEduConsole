@@ -3,7 +3,10 @@ using System.Diagnostics;
 namespace NPEduConsole.Core;
 
 public sealed record School(string Id, string Name);
-public sealed record Classroom(string Id, string Name, string? GradeName, IReadOnlyList<Screen> Screens);
+public sealed record Classroom(string Id, string Name, string? GradeName, IReadOnlyList<Screen> Screens)
+{
+    public string? TermId { get; init; }
+}
 public sealed record Screen(string Id, string Name, IReadOnlyList<Device> Devices);
 public sealed record Device(string Id, string Name, string Connectivity, DateTimeOffset? LastSeenAt);
 public sealed record Microphone(string Id, string Name);

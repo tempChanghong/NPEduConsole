@@ -25,6 +25,7 @@ public sealed partial class MainWindow : Window
     private bool _signingOut;
     private bool _allowClose;
     private bool _closeAfterSignOut;
+    private bool _showClassStudy;
 
     private sealed record DeviceSelection(string ScreenId, string ScreenName, Device Device);
 
@@ -44,6 +45,7 @@ public sealed partial class MainWindow : Window
         });
         _equipmentPoll.Tick += PollEquipment;
         _softwarePoll.Tick += PollSoftware;
+        StudyWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
         AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
     }
@@ -123,7 +125,10 @@ public sealed partial class MainWindow : Window
     private async void SchoolChanged(object? sender, SelectionChangedEventArgs args)
     {
         if (!_settingSelection && _client is not null)
+        {
+            _showClassStudy = false;
             await LoadSchoolAsync(SchoolPicker.SelectedItem as School);
+        }
     }
 
     private async Task LoadSchoolAsync(School? school, string? restoredClass = null, DeviceSelection? restoredDevice = null)
@@ -370,6 +375,7 @@ public sealed partial class MainWindow : Window
     {
         CancelRequest();
         _client = null;
+        _showClassStudy = false;
         CancelMicrophoneChanges();
         CancelSoftwareSession();
         _school = null;
@@ -395,6 +401,27 @@ public sealed partial class MainWindow : Window
         ScreensHeading.IsVisible = EquipmentCard.IsVisible = EquipmentDetails.IsVisible = false;
         EquipmentDevice.Text = EquipmentStatus.Text = null;
         ClassContext.Text = room is null ? _school?.Name : $"{_school?.Name} / {ClassroomName(room)}";
+        UpdateStudyWorkspace();
+    }
+
+    private void ClassStudyClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_classroom is null) return;
+        _showClassStudy = !_showClassStudy;
+        UpdateStudyWorkspace();
+    }
+
+    private void UpdateStudyWorkspace()
+    {
+        bool show = _showClassStudy && _classroom is not null;
+        OpenClassStudyButton.IsVisible = _classroom is not null;
+        OpenClassStudyButton.Content = show ? "返回教室设备" : "本班学校自习";
+        ClassWorkspaceTitle.Text = show ? "本班学校自习" : "教室设备";
+        ClassDeviceWorkspace.IsVisible = !show;
+        StudyWorkspace.IsVisible = show;
+        if (show) StudyWorkspace.SetScope(_client, _school?.Id, _classroom?.TermId, _classroom);
+        else StudyWorkspace.SetScope(null, null, null, null);
+        ClassWorkspaceScroll.Offset = default;
     }
 
     private CancellationTokenSource StartRequest()

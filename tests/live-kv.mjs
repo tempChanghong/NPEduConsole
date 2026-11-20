@@ -12,15 +12,18 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { cameras, microphones, startClassroomDevice } from './classroom-device.mjs';
+import { nextStudyMonday, seedClassStudy } from './class-study-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
-  '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission'].includes(mode)),
+  '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
+  '--class-study', '--serve-class-study'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
 const softwareUpdate = mode === '--software-update' || mode === '--serve-software-update';
 const classAdmission = mode === '--class-admission' || mode === '--serve-class-admission';
+const classStudy = mode === '--class-study' || mode === '--serve-class-study';
 const kv = resolve(checkout);
 const fromKv = path => import(pathToFileURL(join(kv, path)).href);
 const kvRequire = createRequire(join(kv, 'package.json'));
@@ -137,11 +140,14 @@ async function seed() {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
   } });
   const grade = await prisma.grade.create({ data: { termId: term.id, name: '高二', code: 'G2', sortOrder: 1 } });
+  const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= 3; number++) {
+  for (let number = 1; number <= (classStudy ? 4 : 3); number++) {
+    const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
+    const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
-      termId: term.id, gradeId: grade.id, name: `高二（${number}）班`, code: `G2-${number}`, type: 'ADMIN_CLASS',
+      termId: term.id, gradeId: roomGrade.id, name: `${roomGrade.name}（${section}）班`, code: `${roomGrade.code}-${section}`, type: 'ADMIN_CLASS',
     } });
     classes.push(room.id);
     if (classAdmission && number >= 2) {
@@ -154,7 +160,7 @@ async function seed() {
         revision: 1, verifier: managementVerifier(randomBytes(24).toString('base64url')), updatedAt: new Date().toISOString(),
       });
     }
-    if (number === 3) continue;
+    if (number >= 3) continue;
     const binding = await prisma.classroomScreenBinding.create({ data: {
       schoolId: school.id, administrativeClassId: room.id, name: room.name + '大屏',
       tokenHash: randomBytes(32).toString('hex'), createdByAccountId: manager.id,
@@ -186,7 +192,9 @@ async function seed() {
       unlocked: false, error: null, microphones, cameras, receivedAt: seen.toISOString(),
     });
   }
-  return { school, other, term, classes, devices, revokedDeviceId, pin, identity, classroomBearer };
+  const studyDate = classStudy ? nextStudyMonday() : null;
+  if (studyDate) await seedClassStudy(prisma, { school, term, manager, grade, classes, date: studyDate });
+  return { school, other, term, classes, devices, revokedDeviceId, pin, identity, classroomBearer, studyDate };
 }
 
 async function verify(origin, fixture) {
@@ -276,7 +284,7 @@ try {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
-  if (!classAdmission) {
+  if (!classAdmission && !classStudy) {
     stopClassroom = await startClassroomDevice(origin, fixture.identity, fixture.classroomBearer,
       { checkIncompleteReceipts: !serve && !localAuthorization, simulateLocalAuthorization: localAuthorization,
         lagAfterLocalChange: localAuthorization && !serve });
@@ -289,15 +297,18 @@ try {
   // Only local, short-lived, synthetic login data is made available to the desktop process.
   const access = join(directory, 'desktop.json');
   if (classAdmission) lostReply = await loseWriteReply(origin, path => path.includes('/class-management/'));
+  else if (classStudy) lostReply = await loseWriteReply(origin, path => path.endsWith('/study-settings'));
   else if (!serve && !softwareUpdate) lostReply = await loseWriteReply(origin, path => path.endsWith('/equipment'));
   await writeFile(access, JSON.stringify({
     origin, schoolCode: fixture.school.code, username: 'admin', viewer: 'viewer', password: fixture.pin,
     schoolId: fixture.school.id, otherSchoolId: fixture.other.id, revokedDeviceId: fixture.revokedDeviceId,
     lostReplyOrigin: lostReply?.origin,
-    ...(softwareUpdate ? { classroomBearer: fixture.classroomBearer, deviceIdentity: fixture.identity } : {}),
+    ...(softwareUpdate || classStudy ? { classroomBearer: fixture.classroomBearer, deviceIdentity: fixture.identity } : {}),
+    ...(classStudy ? { termId: fixture.term.id, studyDate: fixture.studyDate } : {}),
   }), { mode: 0o600 });
-  const smoke = fileURLToPath(new URL('./NPEduConsole.Smoke/NPEduConsole.Smoke.csproj', import.meta.url));
-  if (!(serve && (softwareUpdate || classAdmission))) await new Promise((res, rej) => {
+  const project = classStudy ? './NPEduConsole.StudySmoke/NPEduConsole.StudySmoke.csproj' : './NPEduConsole.Smoke/NPEduConsole.Smoke.csproj';
+  const smoke = fileURLToPath(new URL(project, import.meta.url));
+  if (!(serve && (softwareUpdate || classAdmission || classStudy))) await new Promise((res, rej) => {
     // The KV HTTP listener and database pool run on this event loop.
     const options = classAdmission ? ['--class-admission'] : softwareUpdate ? ['--software-update'] : localAuthorization ? [serve ? '--view-local-authorization' : '--local-authorization'] :
       serve ? ['--view-only'] : [];
@@ -306,11 +317,11 @@ try {
     client.once('error', rej);
     client.once('close', code => code === 0 ? res() : rej(new Error('Desktop client smoke failed: ' + code)));
   });
-  if (!serve && classAdmission) {
-    assert.equal(lostReply.count(), 1, 'a lost admission acknowledgement caused no automatic write retry');
-    console.log('PASS: KV committed exactly one admission write through the lost-reply relay.');
+  if (!serve && (classAdmission || classStudy)) {
+    assert.equal(lostReply.count(), 1, 'a lost acknowledgement caused no automatic write retry');
+    console.log('PASS: KV committed exactly one write through the lost-reply relay.');
   }
-  if (!serve && !softwareUpdate && !classAdmission) {
+  if (!serve && !softwareUpdate && !classAdmission && !classStudy) {
     const { schoolManagementRepository } = await fromKv('services/npepSchoolManagementService.js');
     const policy = await schoolManagementRepository.equipment(prisma, fixture.devices[0]);
     assert.deepEqual({ revision: policy.revision, mic: policy.microphoneId, camera: policy.cameraId, locked: policy.locked },

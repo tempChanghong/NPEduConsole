@@ -88,13 +88,16 @@
         <Grid ColumnDefinitions="*,Auto" Margin="29,24,29,12">
           <StackPanel Spacing="5">
             <TextBlock x:Name="ClassContext" Classes="muted" />
-            <TextBlock Text="教室设备" FontSize="27" FontWeight="SemiBold" />
+            <TextBlock x:Name="ClassWorkspaceTitle" Text="教室设备" FontSize="27" FontWeight="SemiBold" />
           </StackPanel>
-          <Button x:Name="RefreshButton" Grid.Column="1" Classes="action" Content="刷新" Click="RefreshClicked"
-                  IsEnabled="False" VerticalAlignment="Center" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button x:Name="OpenClassStudyButton" Classes="action" Content="本班学校自习" Click="ClassStudyClicked" IsVisible="False" />
+            <Button x:Name="RefreshButton" Classes="action" Content="刷新" Click="RefreshClicked" IsEnabled="False" />
+          </StackPanel>
         </Grid>
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="ClassWorkspaceScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="29,0,29,25" Spacing="16">
+            <StackPanel x:Name="ClassDeviceWorkspace" Spacing="16">
             <ProgressBar x:Name="WorkspaceProgress" IsVisible="False" IsIndeterminate="True" Height="4" />
             <Border x:Name="WorkspaceNotice" Classes="card" Padding="17,13">
               <TextBlock x:Name="WorkspaceMessage" Classes="muted" Text="请选择学校和班级。" AutomationProperties.LiveSetting="Polite" />
@@ -241,6 +244,8 @@
                 </WrapPanel>
               </StackPanel>
             </Border>
+            </StackPanel>
+            <local:ClassStudyView x:Name="StudyWorkspace" IsVisible="False" />
           </StackPanel>
         </ScrollViewer>
       </Grid>

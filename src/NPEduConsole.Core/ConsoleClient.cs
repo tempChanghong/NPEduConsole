@@ -105,7 +105,7 @@ public sealed partial class ConsoleClient : IDisposable
                 var connected = matched.Select(d => new Device(d.DeviceId, d.DeviceName, d.Connectivity, d.LastSeenAt));
                 roomScreens.Add(new Screen(screen.Id, screen.Name, connected.ToArray()));
             }
-            classrooms.Add(new Classroom(room.Id, room.Name, room.Grade?.Name, roomScreens));
+            classrooms.Add(new Classroom(room.Id, room.Name, room.Grade?.Name, roomScreens) { TermId = term.Id });
         }
         return classrooms;
     }
@@ -298,6 +298,11 @@ public sealed partial class ConsoleClient : IDisposable
     {
         "REVISION_CONFLICT" => "学校配置已发生变化，请刷新并核对最新设置，再重新选择。",
         "BINDING_OCCUPIED" => "这台大屏已有设备接入，请刷新班级列表。",
+        "STUDY_SETTING_VERSION_CONFLICT" or "STUDY_PREVIEW_CHANGED" => "学校自习安排或其影响范围已变化，请刷新安排并重新预览。",
+        "STUDY_SETTING_UPGRADE_REQUIRED" => "该班已有需要新版完整编辑器处理的自习策略。请到旧学校管理页核对。",
+        "TERM_NOT_ACTIVE" => "该学期已变更，请刷新班级列表后重新选择。",
+        "STUDY_SOURCE_UNAVAILABLE" => "原策略使用的作业来源已不可用。请在旧学校管理页核对原策略。",
+        "STUDY_LEGACY_NOISE_ACTIVE" => "本班仍使用旧版定时噪音监测，请先在旧学校管理页核对迁移。",
         "EQUIPMENT_INVENTORY_STALE" => "设备清单已过期，请等待设备重新上报并刷新。",
         "EQUIPMENT_UNAVAILABLE" => "配置涉及的设备已不在清单中，请刷新并核对麦克风和摄像头。",
         "LOCAL_MICROPHONE_CHANGE_UNSUPPORTED" => "设备尚未上报支持现场换麦，请更新设备后刷新。",

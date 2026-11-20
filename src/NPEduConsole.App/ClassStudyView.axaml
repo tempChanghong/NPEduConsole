@@ -1,0 +1,76 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.ClassStudyView">
+  <StackPanel Spacing="16">
+    <Border x:Name="StudyPolicyCard" Classes="card" Padding="20">
+      <StackPanel Spacing="12">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <StackPanel Spacing="4">
+            <TextBlock Text="学校自习安排" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock x:Name="StudyPolicyStatus" Classes="label" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+          </StackPanel>
+          <Button x:Name="ReloadStudyPolicyButton" Grid.Column="1" Classes="action" Content="刷新安排"
+                  Click="ReloadPolicyClicked" VerticalAlignment="Top" />
+        </Grid>
+        <TextBlock x:Name="StudyPolicyMessage" Classes="muted" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
+        <StackPanel x:Name="StudyPolicyDetails" Spacing="9" IsVisible="False">
+          <TextBlock x:Name="StudyPolicyFeatures" Classes="muted" TextWrapping="Wrap" />
+          <Expander Header="现有规则和日期例外" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <StackPanel Spacing="9" Margin="0,4,0,0">
+              <TextBlock x:Name="CurrentDailyRules" Classes="muted" TextWrapping="Wrap" />
+              <TextBlock x:Name="CurrentExamRules" Classes="muted" TextWrapping="Wrap" />
+            </StackPanel>
+          </Expander>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <Border x:Name="StudyEditor" Classes="card" Padding="20" IsVisible="False">
+      <StackPanel Spacing="12">
+        <TextBlock Text="新增日常自习时段" FontSize="18" FontWeight="SemiBold" />
+        <TextBlock Text="日常模式按 ClassIsland 学校时间执行。考试模式仍按原规则和 Windows 北京时间执行。" Classes="muted" TextWrapping="Wrap" />
+        <TextBlock x:Name="StudyInheritanceNote" Classes="muted" TextWrapping="Wrap" IsVisible="False" />
+        <WrapPanel Orientation="Horizontal" ItemSpacing="12" LineSpacing="10">
+          <StackPanel Width="145" Spacing="4">
+            <TextBlock Text="日期（年-月-日）" Classes="label" />
+            <TextBox x:Name="StudyDateInput" PlaceholderText="YYYY-MM-DD" MaxLength="10"
+                     AutomationProperties.Name="自习日期" TextChanged="StudyDraftChanged" />
+          </StackPanel>
+          <StackPanel Width="91" Spacing="4">
+            <TextBlock Text="开始" Classes="label" />
+            <TextBox x:Name="StudyStartInput" PlaceholderText="HH:mm" MaxLength="5"
+                     AutomationProperties.Name="自习开始时间" TextChanged="StudyDraftChanged" />
+          </StackPanel>
+          <StackPanel Width="91" Spacing="4">
+            <TextBlock Text="结束" Classes="label" />
+            <TextBox x:Name="StudyEndInput" PlaceholderText="HH:mm" MaxLength="5"
+                     AutomationProperties.Name="自习结束时间" TextChanged="StudyDraftChanged" />
+          </StackPanel>
+          <StackPanel Width="145" Spacing="4">
+            <TextBlock Text="重复" Classes="label" />
+            <ComboBox x:Name="StudyRepeatPicker" SelectedIndex="0" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="重复方式" SelectionChanged="StudyDraftChanged">
+              <ComboBoxItem Content="仅指定日期" />
+              <ComboBoxItem Content="每周同一星期" />
+            </ComboBox>
+          </StackPanel>
+        </WrapPanel>
+        <TextBlock x:Name="StudyDateBefore" Classes="muted" TextWrapping="Wrap" />
+        <TextBlock x:Name="StudyEditorMessage" Classes="muted" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
+        <Button x:Name="PreviewStudyButton" Classes="action" Content="预览新增时段" Click="PreviewStudyClicked" />
+        <Border x:Name="StudyPreviewCard" Classes="card" Background="{StaticResource CanvasBrush}" Padding="14" IsVisible="False">
+          <StackPanel Spacing="8">
+            <TextBlock x:Name="StudyPreviewHeading" Classes="label" TextWrapping="Wrap" />
+            <TextBlock x:Name="StudyPreviewWindows" TextWrapping="Wrap" />
+            <TextBlock x:Name="StudyPreviewFeatures" Classes="muted" TextWrapping="Wrap" />
+            <CheckBox x:Name="StudyReviewAcknowledged" IsCheckedChanged="StudyReviewChanged" IsVisible="False">
+              <TextBlock x:Name="StudyReviewText" TextWrapping="Wrap" />
+            </CheckBox>
+            <Button x:Name="PublishStudyButton" Classes="action accent" Content="确认发布到本班" Click="PublishStudyClicked" IsEnabled="False" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Border>
+
+    <local:StudyEvidenceView x:Name="ClassStudyEvidence" />
+  </StackPanel>
+</UserControl>
