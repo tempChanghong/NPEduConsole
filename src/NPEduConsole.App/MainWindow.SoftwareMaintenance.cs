@@ -13,6 +13,7 @@ public sealed partial class MainWindow
     private CancellationTokenSource? _softwareSession;
     private SoftwareUpdate? _software;
     private string? _softwareError;
+    private const string LocalRecoveryHelp = "请在这台大屏打开已安装的 NPDownloader。若本机显示「恢复上次升级」，按本机提示处理。该入口仅在本机有可恢复记录时出现。";
 
     private sealed record SoftwareFeedback(string Message, bool Writing = false, bool Unconfirmed = false,
         Guid? ConflictingInvitation = null, WithdrawalState? WithdrawalResult = null, bool ReviewInvitation = false);
@@ -30,20 +31,19 @@ public sealed partial class MainWindow
         SoftwareMaintenanceScope.Text = EquipmentScopeText;
         SoftwareMaintenanceCard.IsVisible = true;
         RenderSoftwareMaintenance();
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (SoftwareMaintenanceCard.IsVisible && EquipmentKey == key) SoftwareMaintenanceCard.BringIntoView();
-        }, DispatcherPriority.Loaded);
+        ShowSoftwareMaintenance(key);
         await ReadSoftwareAsync();
         if (SoftwareMaintenanceCard.IsVisible && EquipmentKey == key)
         {
             RefreshSoftwareButton.Focus();
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (SoftwareMaintenanceCard.IsVisible && EquipmentKey == key) SoftwareMaintenanceCard.BringIntoView();
-            }, DispatcherPriority.Loaded);
+            ShowSoftwareMaintenance(key);
         }
     }
+
+    private void ShowSoftwareMaintenance((string SchoolId, string DeviceId) key) => Dispatcher.UIThread.Post(() =>
+    {
+        if (SoftwareMaintenanceCard.IsVisible && EquipmentKey == key) SoftwareMaintenanceCard.BringIntoView();
+    }, DispatcherPriority.Loaded);
 
     private void CloseSoftwareMaintenanceClicked(object? sender, RoutedEventArgs args)
     {
@@ -124,6 +124,7 @@ public sealed partial class MainWindow
             {
                 _softwareRead = null;
                 RenderSoftwareMaintenance();
+                if (userRefresh) ShowSoftwareMaintenance(key);
             }
         }
     }
@@ -165,14 +166,7 @@ public sealed partial class MainWindow
         if (_client == client && EquipmentKey == key && SoftwareMaintenanceCard.IsVisible)
         {
             RenderSoftwareMaintenance();
-            if (withdrawing)
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (_client == client && EquipmentKey == key && SoftwareMaintenanceCard.IsVisible)
-                        SoftwareMaintenanceCard.BringIntoView();
-                }, DispatcherPriority.Loaded);
-            }
+            if (withdrawing) ShowSoftwareMaintenance(key);
         }
     }
 
@@ -200,6 +194,8 @@ public sealed partial class MainWindow
         if (!SoftwareMaintenanceCard.IsVisible) return;
         var snapshot = _software;
         var feedback = CurrentSoftwareFeedback;
+        var plan = snapshot?.Plan;
+        var confirmation = _softwareError is null && snapshot?.IsEnrolled == true ? plan?.RollbackConfirmation : null;
         var releases = snapshot?.EligibleReleases.Select(entry => entry.Version).ToArray() ?? [];
         if (!SoftwareReleasePicker.Items.OfType<string>().SequenceEqual(releases))
         {
@@ -208,13 +204,18 @@ public sealed partial class MainWindow
             if (releases.Contains(selected)) SoftwareReleasePicker.SelectedItem = selected;
         }
 
-        SoftwareMaintenanceStatus.Text = _softwareError ?? (snapshot is null ? "正在读取软件维护状态…" : SoftwareStatusText(snapshot));
+        SoftwareMaintenanceStatus.Text = _softwareError ?? (snapshot is null ? "正在读取软件维护状态…" : SoftwareStatusText(snapshot, confirmation));
         SoftwareVersions.IsVisible = snapshot is not null;
         SoftwareObservedVersion.Text = snapshot?.ObservedVersion ?? "尚无版本回执";
         SoftwareObservationTime.Text = snapshot?.LastSeenAt is { } seen ? $"上报于 {FormatTime(seen)}" : "";
-        SoftwareTargetVersion.Text = snapshot?.Plan?.TargetVersion ?? "暂无任务";
-        SoftwarePlanUpdatedAt.Text = snapshot?.Plan is { } plan ? $"更新于 {FormatTime(plan.UpdatedAt)}" : "";
-        SoftwareMaintenanceDetails.Text = snapshot is null || _softwareError is not null ? "" : SoftwareDetails(snapshot, _device?.Device.Connectivity);
+        SoftwareTargetVersion.Text = plan?.TargetVersion ?? "暂无任务";
+        SoftwarePlanUpdatedAt.Text = plan is not null ? $"更新于 {FormatTime(plan.UpdatedAt)}" : "";
+        SoftwareRollbackReceipt.IsVisible = confirmation is not null;
+        SoftwareRollbackReceipt.Text = confirmation is { } receipt
+            ? $"回退确认 · 原版本 {receipt.Version} · 确认于 {FormatTime(receipt.ConfirmedAt)}" : null;
+        string details = snapshot is null || _softwareError is not null ? "" : SoftwareDetails(snapshot, _device?.Device.Connectivity, confirmation);
+        SoftwareMaintenanceDetails.Text = details;
+        SoftwareMaintenanceDetails.IsVisible = details.Length > 0;
         SoftwareApprovalForm.IsVisible = releases.Length > 0 && _softwareError is null;
         InviteSoftwareButton.IsVisible = snapshot?.CanInvite == true && _softwareError is null;
         WithdrawInvitationButton.IsVisible = snapshot?.CanWithdraw == true && _softwareError is null;
@@ -228,11 +229,13 @@ public sealed partial class MainWindow
             snapshot is not null && _softwareError is null && new WithdrawalState(snapshot) == result);
         SoftwareMaintenanceFeedback.Text = showFeedback ? feedback?.Message : null;
         SoftwareMaintenanceFeedback.IsVisible = showFeedback;
-        if (snapshot is { Enrollment: "INVITED" } || snapshot?.Plan?.IsActive == true) _softwarePoll.Start();
+        if (snapshot is { Enrollment: "INVITED" } || plan?.IsActive == true ||
+            snapshot?.IsEnrolled == true && plan is { HasRollbackReport: true, ValidPreviousVersion: not null } && confirmation is null)
+            _softwarePoll.Start();
         else _softwarePoll.Stop();
     }
 
-    private static string SoftwareStatusText(SoftwareUpdate snapshot) => snapshot.Enrollment switch
+    private static string SoftwareStatusText(SoftwareUpdate snapshot, SoftwareRollbackConfirmation? confirmation) => snapshot.Enrollment switch
     {
         "UNMANAGED" => "设备尚未纳管",
         "INVITED" => "等待教室端确认纳管",
@@ -240,11 +243,21 @@ public sealed partial class MainWindow
         {
             null => "设备已纳管",
             "APPROVED" => "更新已批准",
+            "DEFERRED" when snapshot.Plan.Reason is "BUSY" or "INSTALLER_BUSY" => "等待安装器空闲",
+            "DEFERRED" when snapshot.Plan.Reason is "DOWNLOADER_UNAVAILABLE" or "WORKER_UNAVAILABLE" => "需要现场核对维护工具",
             "DEFERRED" => "等待安全更新时机",
-            "INSTALLING" => "正在安装更新",
-            "AWAITING_RESTART" => "等待新版教室后台上报",
+            "INSTALLING" => "等待安装器报告结果",
+            "AWAITING_RESTART" when snapshot.Plan.Reason is "BUSY" or "INSTALLER_BUSY" => "等待现场安装器退出",
+            "AWAITING_RESTART" when snapshot.Plan.Reason is null => "等待新版教室后台上报",
+            "AWAITING_RESTART" => "安装结果待核对",
             "SUCCEEDED" when snapshot.ObservedVersion == snapshot.Plan.TargetVersion => "升级成功，已收到新版上报",
             "SUCCEEDED" => "任务已完成，当前版本待核对",
+            "FAILED" when confirmation is not null => "升级失败，已确认原版本重新运行",
+            "FAILED" when snapshot.Plan.HasRollbackReport => "升级失败，安装器已报告回退",
+            "FAILED" when snapshot.Plan.Reason is "ROLLBACK_FAILED" or "RECOVERY_REQUIRED" or "HANDOFF_UNCONFIRMED" => "升级失败，需现场核对恢复",
+            "FAILED" when snapshot.Plan.Reason == "APP_START_FAILED" => "教室后台启动失败",
+            "FAILED" when snapshot.Plan.Reason is "VERSION_MISMATCH" or "BASELINE_MISMATCH" => "更新前校验失败",
+            "FAILED" when snapshot.Plan.Reason is "HANDOFF_NOT_STARTED" or "CLASSROOM_STILL_RUNNING" => "安装未开始",
             "FAILED" => "升级失败",
             "CANCELLED" => "更新任务已取消",
             _ => "更新状态暂不可识别"
@@ -252,7 +265,7 @@ public sealed partial class MainWindow
         _ => "设备纳管状态暂不可识别"
     };
 
-    private static string SoftwareDetails(SoftwareUpdate snapshot, string? connectivity)
+    private static string SoftwareDetails(SoftwareUpdate snapshot, string? connectivity, SoftwareRollbackConfirmation? confirmation)
     {
         if (snapshot.CanInvite)
             return "邀请仅适用于这台大屏。需在教室端打开 NPDownloader 并确认，学校才可批准指定版本。";
@@ -266,22 +279,56 @@ public sealed partial class MainWindow
             return connection + receipt + "\n请在此大屏打开 NPDownloader，核对学校、班级和设备后同意纳管。";
         }
         if (!snapshot.IsEnrolled) return "";
-        if (snapshot.Plan is { IsActive: true } or { State: "FAILED" })
-            return snapshot.Plan.Reason switch
+        if (snapshot.Plan is { State: "FAILED" } failed)
+            return FailedUpdateDetails(snapshot, failed, confirmation);
+        if (snapshot.Plan is { IsActive: true } active)
+            return (active.State, active.Reason) switch
             {
-                "RECORDING_ACTIVE" or "RECORDING_BUSY" => "正在录课或保存录像。终端会等待录课安全结束。",
-                "STUDY_ACTIVE" or "STUDY_BUSY" => "正在自习。终端会等待本场自习结束。",
-                "CLASS_IN_SESSION" => "当天课程尚未结束。终端会等到课后再次检查。",
-                "STATE_UNKNOWN" or "STATUS_UNKNOWN" or "CLASSROOM_STATE_UNKNOWN" => "终端尚不能确认课堂状态，会继续等待。",
-                "ROLLED_BACK" or "ROLLBACK_SUCCEEDED" => "终端已报告恢复到升级前的版本。",
-                "ROLLBACK_FAILED" or "RECOVERY_REQUIRED" => "终端未能确认恢复旧版本，请现场检查。",
-                _ when snapshot.Plan.State == "AWAITING_RESTART" => "学校正等待这台设备实际运行并上报目标版本。",
-                _ when snapshot.Plan.State == "FAILED" => "学校已收到失败回执，请核对终端实际运行版本与现场状态。",
+                ("DEFERRED", "RECORDING_ACTIVE" or "RECORDING_BUSY") => "正在录课或保存录像。终端会等待录课安全结束。",
+                ("DEFERRED", "STUDY_ACTIVE" or "STUDY_BUSY") => "正在自习。终端会等待本场自习结束。",
+                ("DEFERRED", "CLASS_IN_SESSION") => "当天课程尚未结束。终端会等到课后再次检查。",
+                ("DEFERRED", "STATE_UNKNOWN" or "STATUS_UNKNOWN" or "CLASSROOM_STATE_UNKNOWN") => "终端尚不能确认课堂状态，会继续等待。",
+                ("DEFERRED", "DOWNLOADER_UNAVAILABLE" or "WORKER_UNAVAILABLE") => "终端无法启动维护工具。请现场确认 NPDownloader 已安装且能够打开，再刷新维护状态。",
+                ("DEFERRED", "DOWNLOAD_FAILED") => "更新包暂未下载完成。请现场核对大屏网络，再刷新维护状态。",
+                ("DEFERRED" or "AWAITING_RESTART", "BUSY" or "INSTALLER_BUSY") => "终端上次报告维护流程被占用。请等现场安装程序结束后刷新维护状态。若状态一直没有变化，请现场打开已安装的 NPDownloader 核对。",
+                ("INSTALLING", _) => "学校正在等待本任务的安装器回执。请先等待。若状态一直没有变化，请现场打开已安装的 NPDownloader 核对。",
+                ("AWAITING_RESTART", null) => "安装器已报告安装完成。请等待新版 NPEduTools 启动并上报。若现场确认后台尚未启动，请在本机打开 NPEduTools 后刷新。",
+                ("AWAITING_RESTART", _) => "学校尚未收到明确的安装完成回执。请现场打开已安装的 NPDownloader 核对，再刷新维护状态。",
                 _ => "终端会在确认课堂空闲后执行批准的更新。"
             };
         if (snapshot.ObservedVersion is null) return "等待终端上报当前版本。";
         if (snapshot.CatalogStatus is "NOT_CONFIGURED" or "UNAVAILABLE") return "学校更新目录暂不可用。";
         if (!snapshot.Catalog.Any(entry => entry.Version == snapshot.ObservedVersion)) return "学校更新目录中没有当前版本的恢复包。";
         return snapshot.EligibleReleases.Any() ? "批准只针对这台设备与所选版本。终端会等待课堂空闲。" : "学校更新目录暂无可批准的更高版本。";
+    }
+
+    private static string FailedUpdateDetails(SoftwareUpdate snapshot, SoftwareUpdatePlan plan, SoftwareRollbackConfirmation? confirmation)
+    {
+        if (confirmation is { } receipt)
+        {
+            if (snapshot.ObservedVersion is { } current && current != receipt.Version)
+                return snapshot.LastSeenAt > receipt.ConfirmedAt
+                    ? $"此后最近一次上报的运行版本为 {current}。请按最新上报核对设备。"
+                    : $"最近上报的运行版本为 {current}，请刷新核对设备当前状态。";
+            return "";
+        }
+
+        if (plan.HasRollbackReport)
+        {
+            string baseline = plan.ValidPreviousVersion is { } previous ? $"本次任务的原版本为 {previous}。" : "";
+            return baseline + "学校尚无法确认原版本已重新运行。请现场核对 NPEduTools 是否已启动并连接学校，再刷新维护状态。";
+        }
+
+        return plan.Reason switch
+        {
+            "ROLLBACK_FAILED" => "终端报告回退失败。" + LocalRecoveryHelp,
+            "RECOVERY_REQUIRED" => "终端报告需要现场检查恢复记录。" + LocalRecoveryHelp,
+            "HANDOFF_UNCONFIRMED" => "学校无法确认本次安装是否已启动。" + LocalRecoveryHelp,
+            "APP_START_FAILED" => "安装流程报告无法启动 NPEduTools。请先在本机核对后台状态。" + LocalRecoveryHelp,
+            "VERSION_MISMATCH" or "BASELINE_MISMATCH" => "现场版本或已安装文件与任务基线不符，未开始本次安装。请现场核对 NPEduTools 的安装版本与实际运行版本。",
+            "HANDOFF_NOT_STARTED" => "本次未启动安装程序。请现场核对 NPEduTools 与已安装的 NPDownloader 状态。",
+            "CLASSROOM_STILL_RUNNING" => "教室软件仍在运行，安装器未开始替换文件。请在录课和自习结束后现场核对状态。",
+            _ => "学校已收到失败回执。请现场核对终端实际运行版本，必要时打开已安装的 NPDownloader 查看维护状态。"
+        };
     }
 }

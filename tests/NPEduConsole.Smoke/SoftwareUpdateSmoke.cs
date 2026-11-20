@@ -13,6 +13,7 @@ internal static class SoftwareUpdateSmoke
     internal static async Task RunAsync(string config)
     {
         VerifyLegacyInvitation();
+        VerifyRollbackContract();
         var fixture = JsonSerializer.Deserialize<Fixture>(await File.ReadAllTextAsync(config), JsonSerializerOptions.Web)
             ?? throw new InvalidDataException("Missing software update fixture.");
         if (!new Uri(fixture.Origin).IsLoopback) throw new InvalidDataException("Software update smoke needs a loopback service.");
@@ -89,6 +90,9 @@ internal static class SoftwareUpdateSmoke
         await Exchange(original, consent, new(planId, "DEFERRED", "STATE_UNKNOWN"));
         Check((await Read()).Plan?.Reason == "STATE_UNKNOWN", "unknown classroom state remains deferred");
         await Exchange(original, consent, new(planId, "INSTALLING", null));
+        await Exchange(original, consent, new(planId, "AWAITING_RESTART", "INSTALLER_BUSY"));
+        Check((await Read()).Plan is { State: "AWAITING_RESTART", Reason: "INSTALLER_BUSY", RollbackConfirmation: null },
+            "an installer-busy receipt remains distinct from installation completion");
         await Exchange(original, consent, new(planId, "AWAITING_RESTART", null));
         var restart = await Read();
         Check(restart.Plan?.State == "AWAITING_RESTART" && restart.ObservedVersion == original,
@@ -102,20 +106,51 @@ internal static class SoftwareUpdateSmoke
         Check(updated.Plan?.State == "SUCCEEDED" && updated.ObservedVersion == next, "new Host epoch observed on target version");
 
         var second = await admin.SetSoftwareUpdateAsync(updated, SoftwareUpdateAction.Approve, later, Guid.NewGuid(), ct);
+        Check(second.Plan is { ValidPreviousVersion: next, RollbackConfirmation: null }, "the approved task carries its own previous version");
         await Exchange(next, consent, new(second.Plan!.Id, "INSTALLING", null));
         context = await StartSession(context.GetProperty("statusEpoch").GetInt32());
         sequence = 0;
         await Exchange(later, consent);
         Check((await Read()).Plan?.State == "INSTALLING", "new runtime without the task's installer receipt cannot mark success");
+        await Exchange(later, consent, new(second.Plan.Id, "FAILED", "ROLLED_BACK"));
+        var reported = await Read();
+        Check(reported.Plan is { State: "FAILED", Reason: "ROLLED_BACK", ValidPreviousVersion: next, RollbackConfirmation: null } &&
+            reported.ObservedVersion == later, "the installer report does not prove the old version is running");
+
         context = await StartSession(context.GetProperty("statusEpoch").GetInt32());
         sequence = 0;
-        await Exchange(next, consent, new(second.Plan.Id, "FAILED", "ROLLED_BACK"));
+        await ReportStatus(next);
+        Check((await Read()).Plan is { HasRollbackReport: true, RollbackConfirmation: null },
+            "a normal heartbeat from the previous version is not task recovery proof");
+        await Exchange(next, consent);
         var recovered = await Read();
-        Check(recovered.Plan?.State == "FAILED" && recovered.Plan.Reason == "ROLLED_BACK" && recovered.ObservedVersion == next,
-            "a rollback remains distinct from upgrade success");
+        var confirmation = recovered.Plan?.RollbackConfirmation ?? throw new InvalidDataException("Expected task recovery confirmation.");
+        Check(recovered.Plan is { State: "FAILED", Reason: "ROLLED_BACK" } && recovered.Plan.Id == second.Plan.Id &&
+            confirmation.Version == next && confirmation.ConfirmedAt.Offset == TimeSpan.Zero && recovered.ObservedVersion == next,
+            "a restarted original runtime confirms this task while its upgrade remains failed");
+        await Exchange(next, consent);
+        Check((await Read()).Plan?.RollbackConfirmation == confirmation, "regular later exchanges preserve the first confirmation time");
+
+        context = await StartSession(context.GetProperty("statusEpoch").GetInt32());
+        sequence = 0;
+        await ReportStatus(original);
+        await Exchange(original, consent);
+        var newerObservation = await Read();
+        Check(newerObservation.ObservedVersion == original && newerObservation.Plan?.RollbackConfirmation == confirmation &&
+            newerObservation.EligibleReleases.Any(release => release.Version == later),
+            "the latest running version and the earlier confirmation stay separate without disabling approval");
+
+        var third = await admin.SetSoftwareUpdateAsync(newerObservation, SoftwareUpdateAction.Approve, later, Guid.NewGuid(), ct);
+        Check(third.Plan is { ValidPreviousVersion: original, RollbackConfirmation: null } && third.Plan.Id != second.Plan.Id,
+            "confirmation is never inherited by a new task");
+        await Exchange(original, consent, new(third.Plan!.Id, "INSTALLING", null));
+        await Exchange(original, consent, new(third.Plan.Id, "FAILED", "ROLLBACK_SUCCEEDED"));
+        Check((await Read()).Plan is { HasRollbackReport: true, RollbackConfirmation: null },
+            "the original install run cannot prove the successful restart of either rollback reason");
+
         await admin.LogoutAsync(ct);
         Console.WriteLine("PASS: KV invitation withdrawal, offline and historical/current device exchange, old consent rejected, reissue kept, and consent-won enrollment kept.");
-        Console.WriteLine("PASS: KV software maintenance school/device scope, explicit consent, revision conflict, catalog eligibility, cancellation, recording/unknown deferral, new Host confirmed, rollback reported.");
+        Console.WriteLine("PASS: KV software maintenance school/device scope, consent, cancellation, installer busy/restart, rollback report vs original runtime, later version, and proof tied to one task.");
 
         Task<SoftwareUpdate> Withdraw(SoftwareUpdate snapshot) =>
             admin.SetSoftwareUpdateAsync(snapshot, SoftwareUpdateAction.WithdrawInvitation, null, Guid.NewGuid(), ct);
@@ -134,6 +169,15 @@ internal static class SoftwareUpdateSmoke
         Task<JsonElement> Exchange(string runningVersion, Guid? enrollmentId, Receipt? receipt = null) =>
             DeviceRequest("software-update/exchange", "0.18", requestId =>
                 new { requestId, context, sequence = ++sequence, runningVersion, localConsent = enrollmentId.HasValue, consentEnrollmentId = enrollmentId, receipt });
+
+        Task<JsonElement> ReportStatus(string version) => DeviceRequest("status", "0.1", requestId =>
+        {
+            var bridge = new { connection = "UNKNOWN", bridgeVersion = (string?)null };
+            return new { requestId, fixture.DeviceIdentity.ServerInstanceId, fixture.DeviceIdentity.DeploymentEpoch,
+                sessionId = context.GetProperty("sessionId").GetGuid(), statusEpoch = context.GetProperty("statusEpoch").GetInt32(),
+                sequence = 1, sampleAgeMs = 0, status = new { appVersion = version, mode = "DAILY", modePhase = "RUNNING",
+                    modeRevision = 1, automaticRecording = "DISABLED", recording = "IDLE", classIsland = bridge, examAware = bridge } };
+        });
 
         async Task<JsonElement> DeviceRequest(string path, string version, Func<Guid, object>? body)
         {
@@ -163,6 +207,34 @@ internal static class SoftwareUpdateSmoke
         var legacy = JsonSerializer.Deserialize<SoftwareUpdate>(json, JsonSerializerOptions.Web);
         Check(legacy is { CanWithdraw: false, CanWithdrawInvitation: null, InvitationLastExchangeAt: null },
             "legacy JSON without withdrawal capability remains readable but cannot be withdrawn");
+    }
+
+    private static void VerifyRollbackContract()
+    {
+        const string json = """
+            {"product":"NPEduTools","managed":true,"enrollment":"MANAGED",
+             "enrollmentId":"14ac6dfc-4310-4365-8b5b-90f01f569b33","revision":3,
+             "catalog":[{"version":"1.1.10.0"},{"version":"1.1.11.0"}],
+             "plan":{"id":"862c4efc-fa08-4206-9bcd-28b099c2934b","targetVersion":"1.1.11.0","state":"FAILED",
+                     "reason":"ROLLED_BACK","updatedAt":"2026-01-01T00:00:00Z"},
+             "observedVersion":"1.1.10.0","lastSeenAt":"2026-01-01T00:00:01Z"}
+            """;
+        var legacy = JsonSerializer.Deserialize<SoftwareUpdate>(json, JsonSerializerOptions.Web)!;
+        Check(legacy.Plan is { PreviousVersion: null, RollbackConfirmedAt: null, HasRollbackReport: true, RollbackConfirmation: null } &&
+            legacy.EligibleReleases.Any(), "older responses retain their conservative presentation and existing operations");
+        var plan = legacy.Plan! with { PreviousVersion = "1.1.10.0", RollbackConfirmedAt = "2026-01-01T00:00:01.123Z" };
+        Check(plan.RollbackConfirmation == new SoftwareRollbackConfirmation("1.1.10.0",
+            new DateTimeOffset(2026, 1, 1, 0, 0, 1, 123, TimeSpan.Zero)), "valid task-scoped UTC confirmation is read exactly");
+        Check((plan with { Reason = "ROLLBACK_SUCCEEDED", RollbackConfirmedAt = "2026-01-01T00:00:01+00:00" }).RollbackConfirmation is not null,
+            "both rollback reasons and an explicit zero offset are accepted");
+        foreach (var invalid in new[]
+        {
+            plan with { PreviousVersion = null }, plan with { PreviousVersion = "1.1.10" }, plan with { PreviousVersion = "1.1.12.0" },
+            plan with { PreviousVersion = plan.TargetVersion }, plan with { RollbackConfirmedAt = null },
+            plan with { RollbackConfirmedAt = "2026-01-01T00:00:01" }, plan with { RollbackConfirmedAt = "2026-01-01T08:00:01+08:00" },
+            plan with { RollbackConfirmedAt = "invalid" }, plan with { Id = Guid.Empty.ToString("D") },
+            plan with { State = "SUCCEEDED" }, plan with { Reason = "RECOVERY_REQUIRED" }
+        }) Check(invalid.RollbackConfirmation is null, "incomplete or unrelated rollback data is never shown as confirmation");
     }
 
     private static void Check(bool condition, string step)

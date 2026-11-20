@@ -217,7 +217,7 @@
                 <TextBlock x:Name="SoftwareMaintenanceStatus" Classes="label" AutomationProperties.LiveSetting="Polite" />
                 <Grid x:Name="SoftwareVersions" ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="False">
                   <StackPanel Spacing="4">
-                    <TextBlock Text="终端上报版本" Classes="muted" />
+                    <TextBlock Text="最近上报的运行版本" Classes="muted" />
                     <TextBlock x:Name="SoftwareObservedVersion" Classes="label" />
                     <TextBlock x:Name="SoftwareObservationTime" Classes="muted" />
                   </StackPanel>
@@ -227,6 +227,7 @@
                     <TextBlock x:Name="SoftwarePlanUpdatedAt" Classes="muted" />
                   </StackPanel>
                 </Grid>
+                <TextBlock x:Name="SoftwareRollbackReceipt" Classes="label" IsVisible="False" />
                 <TextBlock x:Name="SoftwareMaintenanceDetails" Classes="muted" />
                 <StackPanel x:Name="SoftwareApprovalForm" Spacing="7" IsVisible="False">
                   <TextBlock Text="学校更新目录" Classes="muted" />
