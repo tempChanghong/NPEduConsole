@@ -16,6 +16,7 @@ if (args.Length == 2 && args[1] == "--class-admission")
 if (args.Length is < 1 or > 2 ||
     args.Length == 2 && args[1] is not ("--view-only" or "--local-authorization" or "--view-local-authorization"))
     throw new ArgumentException("Expected the live KV fixture path and an optional test mode.");
+StudyEvidenceChecks.Verify();
 VerifyEditingStatus();
 var fixture = JsonSerializer.Deserialize<Fixture>(await File.ReadAllTextAsync(args[0]), JsonSerializerOptions.Web)
     ?? throw new InvalidDataException("Missing fixture.");
