@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { closeSync, openSync } from 'node:fs';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
@@ -285,9 +285,10 @@ async function verifyServerStatus(origin, fixture, databasePort) {
     await response.arrayBuffer();
     assert.equal(response.status, 401, path);
   }
-  async function check(database, catalog, count) {
+  async function check(database, catalog, count, backupStatus, timeliness, result = 'null') {
     const env = {...process.env, NP_OPS_ORIGIN: origin, NP_OPS_TOKEN: monitoringToken,
-      NP_OPS_DATABASE: database, NP_OPS_CATALOG: catalog};
+      NP_OPS_DATABASE: database, NP_OPS_CATALOG: catalog, NP_OPS_BACKUP_STATUS: backupStatus,
+      NP_OPS_BACKUP_TIMELINESS: timeliness, NP_OPS_BACKUP_RESULT: result};
     if (count === null) delete env.NP_OPS_RELEASE_COUNT;
     else env.NP_OPS_RELEASE_COUNT = String(count);
     await new Promise((resolve, reject) => {
@@ -297,20 +298,33 @@ async function verifyServerStatus(origin, fixture, databasePort) {
       child.once('close', code => code === 0 ? resolve() : reject(new Error('Server status smoke failed: ' + code)));
     });
   }
-  await check('AVAILABLE', 'NOT_CONFIGURED', null);
+  await check('AVAILABLE', 'NOT_CONFIGURED', null, 'NOT_CONFIGURED', 'UNKNOWN');
+  const backupDirectory = join(directory, 'status-backup');
+  await mkdir(backupDirectory);
+  process.env.KV_BACKUP_STATUS_DIR = backupDirectory;
+  const record = join(backupDirectory, 'scheduled.state');
   const path = join(directory, 'status-catalog.json');
   process.env.NPEP_UPDATE_CATALOG_FILE = path;
   await writeFile(path, '{');
-  await check('AVAILABLE', 'UNAVAILABLE', null);
+  await check('AVAILABLE', 'UNAVAILABLE', null, 'NO_RECORD', 'UNKNOWN');
   await writeFile(path, '{"releases":[]}');
-  await check('AVAILABLE', 'AVAILABLE', 0);
+  await writeFile(record, 'invalid fixture record\n');
+  await check('AVAILABLE', 'AVAILABLE', 0, 'UNAVAILABLE', 'UNKNOWN');
+  const now = Math.floor(Date.now() / 1000);
+  await writeFile(record, `1 ${now - 3600} 0 0 NONE\n`);
+  await check('AVAILABLE', 'AVAILABLE', 0, 'AVAILABLE', 'AWAITING_FIRST_SUCCESS');
   await writeFile(path, JSON.stringify({releases: [{version: '1.1.12.0', url: 'https://example.invalid/update.zip',
     sha256: '0'.repeat(64), sizeBytes: 1}]}));
+  await writeFile(record, `1 ${now - 7200} ${now - 3600} ${now - 120} FAILED\n`);
   run(pg('pg_ctl'), ['-D', data, '-w', '-m', 'fast', 'stop']);
-  await check('UNAVAILABLE', 'AVAILABLE', 1);
+  await check('UNAVAILABLE', 'AVAILABLE', 1, 'AVAILABLE', 'CURRENT', 'FAILED');
   startDatabase(databasePort);
-  await check('AVAILABLE', 'AVAILABLE', 1);
-  console.log('PASS: independent monitoring credentials, catalog states, real database outage and recovery.');
+  await writeFile(record, `1 ${now - 30 * 3600} ${now - 27 * 3600} ${now - 120} FAILED\n`);
+  await check('AVAILABLE', 'AVAILABLE', 1, 'AVAILABLE', 'OVERDUE', 'FAILED');
+  const slightlyAhead = Math.floor(Date.now() / 1000) + 30;
+  await writeFile(record, `1 ${now - 3600} ${slightlyAhead} ${slightlyAhead} SUCCEEDED\n`);
+  await check('AVAILABLE', 'AVAILABLE', 1, 'AVAILABLE', 'CURRENT', 'SUCCEEDED');
+  console.log('PASS: independent monitoring credentials, catalog states, real database outage and recovery, and scheduled backup records.');
 }
 
 async function runFixture() {
@@ -326,6 +340,7 @@ async function runFixture() {
   const databasePort = await createDatabase();
   ({ prisma } = await fromKv('utils/prisma.js'));
   const fixture = await seed();
+  if (mode === '--server-status') delete process.env.KV_BACKUP_STATUS_DIR;
   const { default: app } = await fromKv('app.js');
   server = await new Promise((res, rej) => {
     const instance = app.listen(0, '127.0.0.1', () => res(instance));

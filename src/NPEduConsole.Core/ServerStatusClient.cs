@@ -8,9 +8,19 @@ namespace NPEduConsole.Core;
 
 public enum ServerDatabaseStatus { Available, Unavailable }
 public enum ServerCatalogStatus { Available, NotConfigured, Unavailable }
+public enum ServerBackupStatus { Available, NoRecord, NotConfigured, Unavailable }
+public enum ServerBackupTimeliness { Current, Overdue, AwaitingFirstSuccess, Unknown }
+public enum ServerBackupResult { Succeeded, Failed }
 
 public sealed record ServerUpdateCatalog(ServerCatalogStatus Status, int? ReleaseCount);
-public sealed record ServerStatus(string Version, DateTimeOffset CheckedAt, ServerDatabaseStatus Database, ServerUpdateCatalog UpdateCatalog);
+public sealed record ServerBackupAttempt(ServerBackupResult Result, DateTimeOffset FinishedAt);
+public sealed record ServerBackup(ServerBackupStatus Status, DateTimeOffset? LastSuccessAt, ServerBackupAttempt? LastAttempt,
+    ServerBackupTimeliness Timeliness, int MaxAgeHours);
+
+public sealed record ServerStatus(string Version, DateTimeOffset CheckedAt, ServerDatabaseStatus Database, ServerUpdateCatalog UpdateCatalog)
+{
+    public ServerBackup? Backup { get; init; }
+}
 
 public static class ServerStatusClient
 {
@@ -26,6 +36,7 @@ public static class ServerStatusClient
 
     private static readonly Regex BearerToken = new(@"\A[A-Za-z0-9._~+/\-]+=*\z", RegexOptions.NonBacktracking);
     private const int MaxResponseBytes = 16 * 1024;
+    private static readonly TimeSpan MaxBackupClockSkew = TimeSpan.FromSeconds(60);
 
     public static async Task<ServerStatus> CheckAsync(string serverAddress, string monitoringToken, CancellationToken cancellationToken = default)
     {
@@ -102,8 +113,7 @@ public static class ServerStatusClient
         if (!string.Equals(content.Headers.ContentType?.MediaType, "application/json", StringComparison.OrdinalIgnoreCase) ||
             content.Headers.ContentLength > MaxResponseBytes) throw new JsonException();
         await content.LoadIntoBufferAsync(MaxResponseBytes, cancellationToken);
-        return JsonDocument.Parse(await content.ReadAsByteArrayAsync(cancellationToken),
-            new JsonDocumentOptions { AllowDuplicateProperties = false });
+        return JsonDocument.Parse(await content.ReadAsByteArrayAsync(cancellationToken));
     }
 
     private static async Task<bool> MonitoringNotConfiguredAsync(HttpContent content, CancellationToken cancellationToken)
@@ -122,15 +132,13 @@ public static class ServerStatusClient
     private static ServerStatus ParseStatus(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object ||
-            !root.TryGetProperty("version", out var version) || version.ValueKind != JsonValueKind.String ||
+            !TryGetUniqueProperty(root, "version", out var version) || version.ValueKind != JsonValueKind.String ||
             version.GetString() is not { Length: > 0 } versionText || string.IsNullOrWhiteSpace(versionText) || versionText.Any(char.IsControl) ||
-            !root.TryGetProperty("checkedAt", out var time) || time.ValueKind != JsonValueKind.String ||
-            time.GetString() is not { } timestamp || !(timestamp.EndsWith('Z') || timestamp.EndsWith("+00:00", StringComparison.Ordinal)) ||
-            !time.TryGetDateTimeOffset(out var checkedAt) || checkedAt.Offset != TimeSpan.Zero ||
-            !root.TryGetProperty("database", out var database) || database.ValueKind != JsonValueKind.String ||
-            !root.TryGetProperty("updateCatalog", out var catalog) || catalog.ValueKind != JsonValueKind.Object ||
-            !catalog.TryGetProperty("status", out var catalogStatus) || catalogStatus.ValueKind != JsonValueKind.String ||
-            !catalog.TryGetProperty("releaseCount", out var count)) throw new JsonException();
+            !TryGetUniqueProperty(root, "checkedAt", out var time) || !TryReadUtc(time, out var checkedAt) ||
+            !TryGetUniqueProperty(root, "database", out var database) || database.ValueKind != JsonValueKind.String ||
+            !TryGetUniqueProperty(root, "updateCatalog", out var catalog) || catalog.ValueKind != JsonValueKind.Object ||
+            !TryGetUniqueProperty(catalog, "status", out var catalogStatus) || catalogStatus.ValueKind != JsonValueKind.String ||
+            !TryGetUniqueProperty(catalog, "releaseCount", out var count)) throw new JsonException();
 
         var databaseState = database.GetString() switch
         {
@@ -146,7 +154,95 @@ public static class ServerStatusClient
             "UNAVAILABLE" when count.ValueKind == JsonValueKind.Null => new ServerUpdateCatalog(ServerCatalogStatus.Unavailable, null),
             _ => throw new JsonException()
         };
-        return new(versionText, checkedAt, databaseState, updates);
+        return new(versionText, checkedAt, databaseState, updates)
+        {
+            Backup = TryGetUniqueProperty(root, "backup", out var backup) ? ParseBackup(backup, checkedAt) : null
+        };
+    }
+
+    private static ServerBackup? ParseBackup(JsonElement data, DateTimeOffset checkedAt)
+    {
+        if (data.ValueKind != JsonValueKind.Object ||
+            !TryGetUniqueProperty(data, "status", out var statusValue) || statusValue.ValueKind != JsonValueKind.String ||
+            !TryGetUniqueProperty(data, "timeliness", out var timingValue) || timingValue.ValueKind != JsonValueKind.String ||
+            !TryGetUniqueProperty(data, "maxAgeHours", out var maxAge) || maxAge.ValueKind != JsonValueKind.Number ||
+            !maxAge.TryGetInt32(out int hours) || hours <= 0 ||
+            !TryGetUniqueProperty(data, "lastSuccessAt", out var successValue) ||
+            !TryGetUniqueProperty(data, "lastAttempt", out var attemptValue)) return null;
+
+        ServerBackupStatus? status = statusValue.GetString() switch
+        {
+            "AVAILABLE" => ServerBackupStatus.Available,
+            "NO_RECORD" => ServerBackupStatus.NoRecord,
+            "NOT_CONFIGURED" => ServerBackupStatus.NotConfigured,
+            "UNAVAILABLE" => ServerBackupStatus.Unavailable,
+            _ => null
+        };
+        ServerBackupTimeliness? timing = timingValue.GetString() switch
+        {
+            "CURRENT" => ServerBackupTimeliness.Current,
+            "OVERDUE" => ServerBackupTimeliness.Overdue,
+            "AWAITING_FIRST_SUCCESS" => ServerBackupTimeliness.AwaitingFirstSuccess,
+            "UNKNOWN" => ServerBackupTimeliness.Unknown,
+            _ => null
+        };
+        if (status is null || timing is null) return null;
+        if (status != ServerBackupStatus.Available)
+            return successValue.ValueKind == JsonValueKind.Null && attemptValue.ValueKind == JsonValueKind.Null && timing == ServerBackupTimeliness.Unknown
+                ? new(status.Value, null, null, timing.Value, hours) : null;
+
+        DateTimeOffset? lastSuccess = null;
+        if (successValue.ValueKind != JsonValueKind.Null)
+        {
+            if (!TryReadUtc(successValue, out var successAt) || successAt - checkedAt > MaxBackupClockSkew) return null;
+            lastSuccess = successAt;
+        }
+        ServerBackupAttempt? lastAttempt = null;
+        if (attemptValue.ValueKind != JsonValueKind.Null)
+        {
+            lastAttempt = ParseBackupAttempt(attemptValue);
+            if (lastAttempt is null || lastAttempt.FinishedAt - checkedAt > MaxBackupClockSkew || lastSuccess > lastAttempt.FinishedAt ||
+                lastAttempt.Result == ServerBackupResult.Succeeded && lastSuccess != lastAttempt.FinishedAt) return null;
+        }
+        // The server observes the backup before it finishes the entire diagnostic snapshot.
+        if (timing != ServerBackupTimeliness.Overdue && timing != (lastSuccess.HasValue
+                ? ServerBackupTimeliness.Current : ServerBackupTimeliness.AwaitingFirstSuccess)) return null;
+
+        return new(status.Value, lastSuccess, lastAttempt, timing.Value, hours);
+    }
+
+    private static ServerBackupAttempt? ParseBackupAttempt(JsonElement attempt)
+    {
+        if (attempt.ValueKind != JsonValueKind.Object ||
+            !TryGetUniqueProperty(attempt, "result", out var result) || result.ValueKind != JsonValueKind.String ||
+            !TryGetUniqueProperty(attempt, "finishedAt", out var time) || !TryReadUtc(time, out var finishedAt)) return null;
+        return result.GetString() switch
+        {
+            "SUCCEEDED" => new(ServerBackupResult.Succeeded, finishedAt),
+            "FAILED" => new(ServerBackupResult.Failed, finishedAt),
+            _ => null
+        };
+    }
+
+    private static bool TryReadUtc(JsonElement time, out DateTimeOffset utc)
+    {
+        utc = default;
+        return time.ValueKind == JsonValueKind.String && time.GetString() is { } value &&
+            (value.EndsWith('Z') || value.EndsWith("+00:00", StringComparison.Ordinal)) &&
+            time.TryGetDateTimeOffset(out utc) && utc.Offset == TimeSpan.Zero;
+    }
+
+    // Validate duplicates within each projection so a bad optional backup does not break the base snapshot.
+    private static bool TryGetUniqueProperty(JsonElement data, string name, out JsonElement value)
+    {
+        value = default;
+        foreach (var property in data.EnumerateObject())
+        {
+            if (!property.NameEquals(name)) continue;
+            if (value.ValueKind != JsonValueKind.Undefined) return false;
+            value = property.Value;
+        }
+        return value.ValueKind != JsonValueKind.Undefined;
     }
 
     private static ConsoleApiException StatusError(int status) => status switch

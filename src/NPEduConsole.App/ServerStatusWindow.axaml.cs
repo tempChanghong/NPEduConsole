@@ -99,6 +99,8 @@ public sealed partial class ServerStatusWindow : Window
         OpsActivity.IsVisible = OpsError.IsVisible = OpsSnapshot.IsVisible = false;
         OpsActivity.Text = OpsErrorMessage.Text = OpsDatabase.Text = OpsCatalog.Text = OpsVersion.Text = OpsCheckedAt.Text = null;
         OpsDatabaseHint.Text = OpsCatalogHint.Text = null;
+        OpsBackupEvidence.IsVisible = false;
+        OpsBackupSummary.Text = OpsBackupHint.Text = OpsBackupLastSuccess.Text = OpsBackupLastResult.Text = OpsBackupLastFinished.Text = null;
         RenderActions();
     }
 
@@ -130,7 +132,45 @@ public sealed partial class ServerStatusWindow : Window
         OpsCatalogHint.Text = hint;
         OpsCatalogHint.IsVisible = hint is not null;
         OpsVersion.Text = status.Version;
-        OpsCheckedAt.Text = status.CheckedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+        OpsCheckedAt.Text = FormatTime(status.CheckedAt);
+        ShowBackup(status.Backup);
         OpsSnapshot.IsVisible = true;
     }
+
+    private void ShowBackup(ServerBackup? backup)
+    {
+        (string summary, string? hint) = backup switch
+        {
+            { Status: ServerBackupStatus.Available, Timeliness: ServerBackupTimeliness.Current } =>
+                ("上次成功仍在时限内", backup.LastAttempt?.Result == ServerBackupResult.Failed ? "请核对最近一次任务的失败日志。" : null),
+            { Status: ServerBackupStatus.Available, Timeliness: ServerBackupTimeliness.Overdue } =>
+                ("超过成功时限", backup.LastSuccessAt.HasValue
+                    ? $"距上次成功已达 {backup.MaxAgeHours} 小时。请检查定时任务和备份日志。"
+                    : $"从开始观测已达 {backup.MaxAgeHours} 小时，尚无成功记录。请检查定时任务和备份日志。"),
+            { Status: ServerBackupStatus.Available, Timeliness: ServerBackupTimeliness.AwaitingFirstSuccess } =>
+                ("等待首次成功记录", $"仍在首个 {backup.MaxAgeHours} 小时观测窗口内。"),
+            { Status: ServerBackupStatus.NoRecord } => ("暂无备份观测记录", "可在服务器核对定时备份任务的日志。"),
+            { Status: ServerBackupStatus.NotConfigured } => ("KV 未接入备份记录", "请核对 KV 与定时备份任务的状态记录配置。"),
+            { Status: ServerBackupStatus.Unavailable } => ("备份记录读取失败", "请核对 KV 读取备份状态记录的路径、权限和格式。"),
+            _ => ("暂无可识别的备份状态", null)
+        };
+        OpsBackupSummary.Text = summary;
+        OpsBackupSummary.Classes.Set("server-unavailable", backup?.Status == ServerBackupStatus.Unavailable ||
+            backup?.Timeliness == ServerBackupTimeliness.Overdue);
+        OpsBackupHint.Text = hint;
+        OpsBackupHint.IsVisible = hint is not null;
+        OpsBackupEvidence.IsVisible = backup?.Status == ServerBackupStatus.Available;
+        OpsBackupLastSuccess.Text = backup?.LastSuccessAt is { } success ? FormatTime(success) : "暂无成功记录";
+        OpsBackupLastResult.Text = backup?.LastAttempt?.Result switch
+        {
+            ServerBackupResult.Succeeded => "成功",
+            ServerBackupResult.Failed => "失败",
+            _ => "暂无任务记录"
+        };
+        OpsBackupLastResult.Classes.Set("server-unavailable", backup?.LastAttempt?.Result == ServerBackupResult.Failed);
+        OpsBackupLastFinished.IsVisible = backup?.LastAttempt is not null;
+        OpsBackupLastFinished.Text = backup?.LastAttempt is { } attempt ? FormatTime(attempt.FinishedAt) : null;
+    }
+
+    private static string FormatTime(DateTimeOffset time) => time.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 }
