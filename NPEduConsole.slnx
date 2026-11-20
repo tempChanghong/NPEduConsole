@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/NPEduConsole.App/NPEduConsole.App.csproj" />
+  <Project Path="src/NPEduConsole.Core/NPEduConsole.Core.csproj" />
+</Solution>

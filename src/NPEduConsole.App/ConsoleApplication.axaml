@@ -1,0 +1,58 @@
+<Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.ConsoleApplication" RequestedThemeVariant="Light">
+  <Application.Resources>
+    <SolidColorBrush x:Key="CanvasBrush">#F4F7F7</SolidColorBrush>
+    <SolidColorBrush x:Key="InkBrush">#152E2A</SolidColorBrush>
+    <SolidColorBrush x:Key="MutedBrush">#51635F</SolidColorBrush>
+    <SolidColorBrush x:Key="LineBrush">#DCE7E3</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentBrush">#136E58</SolidColorBrush>
+    <SolidColorBrush x:Key="AccentTintBrush">#E2F2EA</SolidColorBrush>
+    <SolidColorBrush x:Key="ErrorBrush">#9B2D36</SolidColorBrush>
+    <SolidColorBrush x:Key="ErrorTintBrush">#FDF0F0</SolidColorBrush>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme>
+      <FluentTheme.Palettes>
+        <ColorPaletteResources x:Key="Light" Accent="#136E58" />
+      </FluentTheme.Palettes>
+    </FluentTheme>
+    <Style Selector="Window">
+      <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI, sans-serif" />
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
+      <Setter Property="Background" Value="{StaticResource CanvasBrush}" />
+    </Style>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="White" />
+      <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="14" />
+    </Style>
+    <Style Selector="TextBox">
+      <Setter Property="MinHeight" Value="42" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="Button.action">
+      <Setter Property="MinHeight" Value="42" />
+      <Setter Property="Padding" Value="15,8" />
+      <Setter Property="CornerRadius" Value="8" />
+    </Style>
+    <Style Selector="Button.device">
+      <Setter Property="Background" Value="#F5F8F7" />
+      <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button.device.selected">
+      <Setter Property="Background" Value="#E2F2EA" />
+      <Setter Property="BorderBrush" Value="#82B9A7" />
+    </Style>
+  </Application.Styles>
+</Application>

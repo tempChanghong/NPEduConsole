@@ -1,0 +1,438 @@
+using System.Globalization;
+using System.Net.Http;
+using Avalonia;
+using Avalonia.Automation;
+using Avalonia.Controls;
+using Avalonia.Controls.Templates;
+using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Threading;
+using NPEduConsole.Core;
+using CoreScreen = NPEduConsole.Core.Screen;
+
+namespace NPEduConsole.App;
+
+public sealed partial class MainWindow : Window
+{
+    private readonly Dictionary<Button, DeviceSelection> _deviceButtons = new();
+    private ConsoleClient? _client;
+    private CancellationTokenSource? _request;
+    private School? _school;
+    private Classroom? _classroom;
+    private DeviceSelection? _device;
+    private bool _settingSelection;
+    private bool _signingOut;
+    private bool _allowClose;
+    private bool _closeAfterSignOut;
+
+    private sealed record DeviceSelection(string ScreenId, Device Device);
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        SchoolPicker.ItemTemplate = new FuncDataTemplate<School>((school, _) =>
+            new TextBlock { Text = school?.Name, TextWrapping = TextWrapping.Wrap });
+        ClassPicker.ItemTemplate = new FuncDataTemplate<Classroom>((room, _) =>
+            new TextBlock { Text = ClassroomName(room), TextWrapping = TextWrapping.Wrap });
+        AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
+        Closing += OnClosing;
+    }
+
+    private async void LoginClicked(object? sender, RoutedEventArgs args) => await LoginAsync();
+
+    private async void OnLoginKeyDown(object? sender, KeyEventArgs args)
+    {
+        if (args.Key != Key.Enter || !LoginView.IsVisible || !LoginButton.IsEnabled) return;
+        args.Handled = true;
+        await LoginAsync();
+    }
+
+    private async Task LoginAsync()
+    {
+        if (_request is not null || _signingOut || _client is not null) return;
+        string address = (ServerAddress.Text ?? "").Trim();
+        string schoolCode = (SchoolCode.Text ?? "").Trim();
+        string username = (Username.Text ?? "").Trim();
+        string password = Password.Text ?? "";
+        if (address.Length == 0)
+        {
+            SetLoginMessage("请输入完整的服务地址，例如 https://school.example.edu。");
+            ServerAddress.Focus();
+            return;
+        }
+
+        if (schoolCode.Length == 0 || username.Length == 0 || password.Length == 0)
+        {
+            SetLoginMessage("请填写学校代码、短账号和密码。");
+            (schoolCode.Length == 0 ? SchoolCode : username.Length == 0 ? Username : Password).Focus();
+            return;
+        }
+
+        using var request = StartRequest();
+        SetLoginMessage("");
+        SetLoginBusy(true);
+        ConsoleClient? candidate = null;
+        try
+        {
+            candidate = new ConsoleClient(address);
+            Password.Clear();
+            var schools = await candidate.LoginAsync(schoolCode, username, password, request.Token);
+            if (!IsCurrent(request)) return;
+            _client = candidate;
+            candidate = null;
+            _settingSelection = true;
+            SchoolPicker.ItemsSource = schools;
+            _settingSelection = false;
+            SchoolPicker.IsEnabled = schools.Count > 0;
+            AccountName.Text = username;
+            LoginView.IsVisible = false;
+            Workspace.IsVisible = AccountBar.IsVisible = true;
+            ClassListMessage.Text = schools.Count == 0 ? "此账号暂无获授权学校。" : "请先选择学校。";
+            SetWorkspaceMessage(schools.Count == 0 ? "此账号暂无获授权学校。" : "请选择学校和班级。");
+        }
+        catch (Exception error) when (IsServiceError(error))
+        {
+            if (IsCurrent(request)) SetLoginMessage(ServiceMessage(error));
+        }
+        finally
+        {
+            candidate?.Dispose();
+            if (FinishRequest(request))
+            {
+                SetLoginBusy(false);
+                if (_client is not null)
+                {
+                    SchoolPicker.Focus();
+                    if (SchoolPicker.ItemCount == 1) SchoolPicker.SelectedIndex = 0;
+                }
+                else (candidate is null ? ServerAddress : Password).Focus();
+            }
+        }
+    }
+
+    private async void SchoolChanged(object? sender, SelectionChangedEventArgs args)
+    {
+        if (!_settingSelection && _client is not null)
+            await LoadSchoolAsync(SchoolPicker.SelectedItem as School);
+    }
+
+    private async Task LoadSchoolAsync(School? school, string? restoredClass = null, DeviceSelection? restoredDevice = null)
+    {
+        if (_client is not { } client) return;
+        using var request = StartRequest();
+        _school = school;
+        RefreshButton.IsEnabled = school is not null;
+        _settingSelection = true;
+        ClassPicker.ItemsSource = null;
+        _settingSelection = false;
+        SetClassroom(null);
+        ClassListMessage.Text = school is null ? "请先选择学校。" : "正在读取班级…";
+        ClassListMessage.IsVisible = true;
+        if (school is null)
+        {
+            SetWorkspaceMessage("请选择学校和班级。");
+            FinishRequest(request);
+            return;
+        }
+
+        WorkspaceProgress.IsVisible = true;
+        SetWorkspaceMessage("正在读取该学校的班级…");
+        Classroom? selected = null;
+        try
+        {
+            var rooms = await client.GetClassroomsAsync(school.Id, request.Token);
+            if (!IsCurrent(request)) return;
+            _settingSelection = true;
+            ClassPicker.ItemsSource = rooms;
+            selected = rooms.FirstOrDefault(room => room.Id == restoredClass);
+            ClassPicker.SelectedItem = selected;
+            _settingSelection = false;
+            ClassListMessage.IsVisible = rooms.Count == 0;
+            ClassListMessage.Text = "该学校暂无可查看班级。";
+            SetWorkspaceMessage(rooms.Count == 0 ? "该学校暂无可查看班级。" : "请选择班级。");
+        }
+        catch (Exception error) when (IsServiceError(error))
+        {
+            if (IsCurrent(request) && !ReturnToLoginIfExpired(error))
+            {
+                ClassListMessage.Text = "读取失败，可点击刷新重试。";
+                SetWorkspaceMessage(ServiceMessage(error), isError: true);
+            }
+        }
+        finally
+        {
+            if (FinishRequest(request)) WorkspaceProgress.IsVisible = false;
+        }
+
+        if (selected is not null && _client == client && _school == school)
+            await SelectClassroomAsync(selected, restoredDevice);
+    }
+
+    private async void ClassChanged(object? sender, SelectionChangedEventArgs args)
+    {
+        if (!_settingSelection && _client is not null)
+            await SelectClassroomAsync(ClassPicker.SelectedItem as Classroom);
+    }
+
+    private async Task SelectClassroomAsync(Classroom? room, DeviceSelection? restoredDevice = null)
+    {
+        CancelRequest();
+        WorkspaceProgress.IsVisible = false;
+        SetClassroom(room);
+        if (room is null)
+        {
+            SetWorkspaceMessage("请选择班级。");
+            return;
+        }
+
+        foreach (var screen in room.Screens)
+            ScreenCards.Children.Add(BuildScreenCard(screen));
+        ScreensHeading.IsVisible = room.Screens.Count > 0;
+        SetWorkspaceMessage(room.Screens.Count == 0 ? "该班级暂无绑定大屏。" : "");
+        var previous = restoredDevice is null ? null : _deviceButtons.Values.FirstOrDefault(device =>
+            device.ScreenId == restoredDevice.ScreenId && device.Device.Id == restoredDevice.Device.Id);
+        var selected = previous ?? (_deviceButtons.Count == 1 ? _deviceButtons.Values.Single() : null);
+        if (selected is not null) await LoadDeviceAsync(selected, scrollIntoView: false);
+    }
+
+    private Control BuildScreenCard(CoreScreen screen)
+    {
+        var list = new StackPanel { Spacing = 8 };
+        list.Children.Add(new TextBlock { Text = screen.Name, FontSize = 16, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
+        if (screen.Devices.Count == 0) list.Children.Add(new TextBlock { Text = "该大屏暂无有效绑定设备。", Classes = { "muted" } });
+        foreach (var device in screen.Devices)
+        {
+            var row = new StackPanel { Spacing = 4 };
+            row.Children.Add(new TextBlock { Text = device.Name, Classes = { "label" } });
+            row.Children.Add(new TextBlock
+            {
+                Text = $"{ConnectivityText(device.Connectivity)}  ·  最后上报 {FormatTime(device.LastSeenAt)}",
+                Classes = { "muted" },
+                FontSize = 12
+            });
+            var button = new Button
+            {
+                Content = row, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                Classes = { "action", "device" }
+            };
+            AutomationProperties.SetName(button, $"查看设备 {device.Name}");
+            _deviceButtons.Add(button, new(screen.Id, device));
+            button.Click += DeviceClicked;
+            list.Children.Add(button);
+        }
+
+        return new Border { Child = list, Padding = new Thickness(17, 13), Classes = { "card" } };
+    }
+
+    private async void DeviceClicked(object? sender, RoutedEventArgs args)
+    {
+        if (sender is Button button && _deviceButtons.TryGetValue(button, out var selection))
+            await LoadDeviceAsync(selection, scrollIntoView: true);
+    }
+
+    private async Task LoadDeviceAsync(DeviceSelection selection, bool scrollIntoView)
+    {
+        if (_client is not { } client || _school is not { } school) return;
+        using var request = StartRequest();
+        _device = selection;
+        foreach (var (button, device) in _deviceButtons)
+            button.Classes.Set("selected", device == selection);
+        EquipmentCard.IsVisible = WorkspaceProgress.IsVisible = true;
+        EquipmentDetails.IsVisible = false;
+        EquipmentDevice.Text = selection.Device.Name;
+        SetEquipmentStatus("正在读取设备策略和回执…");
+        if (scrollIntoView)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_device == selection && EquipmentCard.IsVisible) EquipmentCard.BringIntoView();
+            }, DispatcherPriority.Loaded);
+        try
+        {
+            var equipment = await client.GetEquipmentAsync(school.Id, selection.Device.Id, request.Token);
+            if (!IsCurrent(request)) return;
+            SetEquipmentStatus(equipment.StatusText);
+            SchoolPolicy.Text = equipment.Locked ? "要求锁定" : "未要求锁定";
+            MicrophoneName.Text = equipment.MicrophoneName ?? "未指定";
+            PublishedVersion.Text = equipment.PublishedRevision.ToString(CultureInfo.InvariantCulture);
+            AppliedVersion.Text = equipment.ReceivedAt.HasValue && equipment.AppliedRevision is { } revision
+                ? revision.ToString(CultureInfo.InvariantCulture) : "待确认";
+            EquipmentReceipt.Text = FormatTime(equipment.ReceivedAt);
+            LocalUnlock.Text = (equipment.ReceivedAt.HasValue, equipment.LocallyUnlocked) switch
+            {
+                (true, true) => "设备报告已本机解锁",
+                (true, false) => "设备报告未本机解锁",
+                _ => "暂无设备回执"
+            };
+            EquipmentDetails.IsVisible = true;
+        }
+        catch (Exception error) when (IsServiceError(error))
+        {
+            if (IsCurrent(request) && !ReturnToLoginIfExpired(error))
+                SetEquipmentStatus(ServiceMessage(error), isError: true);
+        }
+        finally
+        {
+            if (FinishRequest(request)) WorkspaceProgress.IsVisible = false;
+        }
+    }
+
+    private async void RefreshClicked(object? sender, RoutedEventArgs args) =>
+        await LoadSchoolAsync(_school, _classroom?.Id, _device);
+
+    private async void LogoutClicked(object? sender, RoutedEventArgs args) => await SignOutAsync();
+
+    private async void OnClosing(object? sender, WindowClosingEventArgs args)
+    {
+        if (_allowClose) return;
+        CancelRequest();
+        if (_client is null && !_signingOut) return;
+        args.Cancel = true;
+        _closeAfterSignOut = true;
+        if (!_signingOut) await SignOutAsync();
+    }
+
+    private async Task SignOutAsync()
+    {
+        if (_client is not { } client) return;
+        _signingOut = true;
+        ResetSession();
+        SetLoginBusy(true);
+        try
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+            await client.LogoutAsync(deadline.Token);
+            SetLoginMessage("");
+        }
+        catch (Exception error) when (IsServiceError(error))
+        {
+            SetLoginMessage("本机已退出，服务器注销暂未确认。");
+        }
+        finally
+        {
+            client.Dispose();
+            _signingOut = false;
+            SetLoginBusy(false);
+            if (_closeAfterSignOut)
+            {
+                _allowClose = true;
+                Dispatcher.UIThread.Post(Close);
+            }
+        }
+    }
+
+    private bool ReturnToLoginIfExpired(Exception error)
+    {
+        if (error is not ConsoleApiException { StatusCode: 401 }) return false;
+        var client = _client;
+        ResetSession();
+        client?.Dispose();
+        SetLoginMessage("登录已失效，请重新登录。");
+        Password.Focus();
+        return true;
+    }
+
+    private void ResetSession()
+    {
+        CancelRequest();
+        _client = null;
+        _school = null;
+        _settingSelection = true;
+        SchoolPicker.ItemsSource = ClassPicker.ItemsSource = null;
+        _settingSelection = false;
+        SetClassroom(null);
+        AccountName.Text = null;
+        WorkspaceProgress.IsVisible = Workspace.IsVisible = AccountBar.IsVisible = false;
+        LoginView.IsVisible = true;
+        Password.Clear();
+    }
+
+    private void SetClassroom(Classroom? room)
+    {
+        _classroom = room;
+        _device = null;
+        _deviceButtons.Clear();
+        ScreenCards.Children.Clear();
+        ScreensHeading.IsVisible = EquipmentCard.IsVisible = EquipmentDetails.IsVisible = false;
+        EquipmentDevice.Text = EquipmentStatus.Text = null;
+        ClassContext.Text = room is null ? _school?.Name : $"{_school?.Name} / {ClassroomName(room)}";
+    }
+
+    private CancellationTokenSource StartRequest()
+    {
+        CancelRequest();
+        return _request = new CancellationTokenSource();
+    }
+
+    private bool IsCurrent(CancellationTokenSource request) => ReferenceEquals(_request, request) && !request.IsCancellationRequested;
+
+    private bool FinishRequest(CancellationTokenSource request)
+    {
+        if (!IsCurrent(request)) return false;
+        _request = null;
+        return true;
+    }
+
+    private void CancelRequest()
+    {
+        var request = _request;
+        _request = null;
+        request?.Cancel();
+    }
+
+    private void SetLoginBusy(bool busy)
+    {
+        LoginButton.IsEnabled = ServerAddress.IsEnabled = SchoolCode.IsEnabled = Username.IsEnabled = Password.IsEnabled = !busy;
+        LoginProgress.IsVisible = busy;
+        LoginButton.Content = busy ? (_signingOut ? "正在退出…" : "正在登录…") : "登录";
+    }
+
+    private void SetLoginMessage(string message)
+    {
+        LoginMessage.Text = message;
+        LoginFeedback.IsVisible = message.Length > 0;
+    }
+
+    private void SetWorkspaceMessage(string message, bool isError = false)
+    {
+        WorkspaceNotice.IsVisible = message.Length > 0;
+        WorkspaceMessage.Text = message;
+        if (isError) WorkspaceMessage.Foreground = Brush.Parse("#9B2D36");
+        else WorkspaceMessage.ClearValue(TextBlock.ForegroundProperty);
+    }
+
+    private void SetEquipmentStatus(string message, bool isError = false)
+    {
+        EquipmentStatus.Text = message;
+        if (isError) EquipmentStatus.Foreground = Brush.Parse("#9B2D36");
+        else EquipmentStatus.ClearValue(TextBlock.ForegroundProperty);
+    }
+
+    private static string ClassroomName(Classroom? room) =>
+        room is null ? "" :
+        string.IsNullOrWhiteSpace(room.GradeName) || room.Name.StartsWith(room.GradeName, StringComparison.Ordinal)
+            ? room.Name : $"{room.GradeName} · {room.Name}";
+
+    private static string ConnectivityText(string status) => status switch
+    {
+        "ONLINE" => "最近观测在线",
+        "OFFLINE" => "最近观测离线",
+        _ => "连接状态未知"
+    };
+
+    private static string FormatTime(DateTimeOffset? time) =>
+        time?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "暂无";
+
+    private static bool IsServiceError(Exception error) =>
+        error is ConsoleApiException or HttpRequestException or OperationCanceledException or ArgumentException or System.Text.Json.JsonException;
+
+    private static string ServiceMessage(Exception error) => error switch
+    {
+        ConsoleApiException service => service.Message,
+        OperationCanceledException => "请求超时，请稍后重试。",
+        HttpRequestException => "无法连接学校服务，请核对地址和网络。",
+        ArgumentException => "服务地址或登录信息格式不正确。",
+        _ => "学校服务返回的数据无法读取，请稍后重试。"
+    };
+}

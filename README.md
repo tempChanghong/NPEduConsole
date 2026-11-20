@@ -1,0 +1,27 @@
+# NPEduConsole
+
+学校管理桌面端。当前版本供具有学校管理权限的本地账号查看班级大屏、NPEduTools 最近上报时间、麦克风锁定策略以及设备已应用的配置版本。
+
+## 启动
+
+安装 .NET 10 SDK 后，在仓库根目录运行以下命令。
+
+```powershell
+dotnet run --project src/NPEduConsole.App
+```
+
+在登录页输入 KV 服务地址、学校代码、短账号和密码。校内服务使用 HTTPS，本机联调可使用 HTTP 回环地址。账号须在目标学校具有现有 KV 接口允许的 OWNER 或 ADMIN 权限。凭据仅在本次运行期间使用。
+
+## 查看一个班
+
+选择学校、班级和设备。设备列表显示查询时的连接状态与最近上报时间。麦克风详情分别展示学校配置和设备最近一次回执。学校已发布新版本、设备仍在旧版本时，点击刷新可重新核对。班级可以尚未配置大屏，也可以已有大屏但尚未接入 NPEduTools。
+
+## 本地联调
+
+使用已安装依赖并生成 Prisma 客户端的 NPClassworksKV 工作副本，以及 PostgreSQL 的 bin 目录。下面的命令在临时目录启动独立数据库和 KV，准备三个示例班级，验证实际客户端登录、读取、退出及学校权限，然后关闭测试环境。
+
+```powershell
+node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin'
+```
+
+在命令末尾加 `--serve` 可保留本次临时服务用于桌面验收。控制台会给出临时登录信息文件的位置，按回车结束。

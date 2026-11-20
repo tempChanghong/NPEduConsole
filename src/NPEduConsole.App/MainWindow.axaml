@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.MainWindow"
+        Title="NPEduConsole · 学校管理控制台" Width="1160" Height="780" MinWidth="840" MinHeight="620"
+        WindowStartupLocation="CenterScreen">
+  <Grid RowDefinitions="61,*" Background="{StaticResource CanvasBrush}">
+    <Border Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="24,0">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Border Width="34" Height="34" CornerRadius="9" Background="{StaticResource AccentBrush}" VerticalAlignment="Center">
+          <PathIcon Data="M 2,13 L 2,2 L 6,2 L 12,9 L 12,2 L 15,2 L 15,13 L 12,13 L 5,6 L 5,13 Z"
+                    Foreground="White" Width="15" Height="15" />
+        </Border>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14" Margin="12,0,0,0" VerticalAlignment="Center">
+          <TextBlock Text="NPEduConsole" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
+          <TextBlock Text="学校管理控制台" Classes="muted" FontSize="13" VerticalAlignment="Center" />
+        </StackPanel>
+        <StackPanel x:Name="AccountBar" Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" IsVisible="False">
+          <TextBlock x:Name="AccountName" VerticalAlignment="Center" Classes="muted" MaxWidth="170" TextTrimming="CharacterEllipsis" />
+          <Button Classes="action" MinHeight="36" Content="退出登录" Click="LogoutClicked" AutomationProperties.Name="退出登录" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <ScrollViewer x:Name="LoginView" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <Grid ColumnDefinitions="0.9*,1.1*" MinHeight="525" MaxWidth="1048" Margin="28,42" VerticalAlignment="Center">
+        <Border CornerRadius="16,0,0,16" Padding="34">
+          <Border.Background>
+            <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+              <GradientStop Color="#EAF5EC" Offset="0" />
+              <GradientStop Color="#DCEEEA" Offset="1" />
+            </LinearGradientBrush>
+          </Border.Background>
+          <StackPanel VerticalAlignment="Center" Spacing="20">
+            <PathIcon Data="M 1,3 L 12,1 L 23,3 L 23,19 L 12,22 L 1,19 Z M 5,7 L 5,15 L 9,16 L 9,6 Z M 15,6 L 15,16 L 19,15 L 19,7 Z"
+                      Foreground="{StaticResource AccentBrush}" Width="38" Height="38" HorizontalAlignment="Left" />
+            <TextBlock Text="查看教室设备" FontSize="36" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <TextBlock Text="选择有权限的学校和班级，核对大屏绑定、设备上报和麦克风策略。" Classes="muted" FontSize="16" LineHeight="28" MaxWidth="300" HorizontalAlignment="Left" />
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="1" Classes="card" CornerRadius="0,16,16,0" Padding="40,30">
+          <StackPanel MaxWidth="440" Spacing="16" VerticalAlignment="Center">
+            <StackPanel Spacing="7" Margin="0,0,0,6">
+              <TextBlock Text="管理员登录" FontSize="27" FontWeight="SemiBold" />
+              <TextBlock Text="使用学校分配的管理账号。" Classes="muted" />
+            </StackPanel>
+            <StackPanel Spacing="6">
+              <TextBlock Text="服务地址" Classes="label" />
+              <TextBox x:Name="ServerAddress" PlaceholderText="https://school.example.edu" AutomationProperties.Name="服务地址" />
+            </StackPanel>
+            <Grid ColumnDefinitions="*,16,*">
+              <StackPanel Spacing="6">
+                <TextBlock Text="学校代码" Classes="label" />
+                <TextBox x:Name="SchoolCode" AutomationProperties.Name="学校代码" />
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="6">
+                <TextBlock Text="短账号" Classes="label" />
+                <TextBox x:Name="Username" AutomationProperties.Name="短账号" />
+              </StackPanel>
+            </Grid>
+            <StackPanel Spacing="6">
+              <TextBlock Text="密码" Classes="label" />
+              <TextBox x:Name="Password" PasswordChar="●" AutomationProperties.Name="密码" />
+            </StackPanel>
+            <Border x:Name="LoginFeedback" IsVisible="False" Background="{StaticResource ErrorTintBrush}" CornerRadius="8" Padding="12,9">
+              <TextBlock x:Name="LoginMessage" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+            </Border>
+            <ProgressBar x:Name="LoginProgress" IsVisible="False" IsIndeterminate="True" Height="4" />
+            <Button x:Name="LoginButton" Classes="action accent" Content="登录" Click="LoginClicked"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,4,0,0" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </ScrollViewer>
+
+    <Grid x:Name="Workspace" Grid.Row="1" ColumnDefinitions="270,*" IsVisible="False">
+      <Border Background="#E8F3EE" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,1,0" Padding="20,22">
+        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+          <TextBlock Text="学校与班级" FontSize="19" FontWeight="SemiBold" />
+          <ComboBox x:Name="SchoolPicker" Grid.Row="1" MinHeight="42" HorizontalAlignment="Stretch" PlaceholderText="选择已授权学校"
+                    AutomationProperties.Name="获授权学校" SelectionChanged="SchoolChanged" />
+          <TextBlock Grid.Row="2" Text="班级" Classes="label" Margin="0,9,0,1" />
+          <Grid Grid.Row="3">
+            <ListBox x:Name="ClassPicker" Background="Transparent" SelectionChanged="ClassChanged" AutomationProperties.Name="班级" />
+            <TextBlock x:Name="ClassListMessage" Classes="muted" IsHitTestVisible="False" Text="请先选择学校。" Margin="3,8,3,0" />
+          </Grid>
+        </Grid>
+      </Border>
+      <Grid Grid.Column="1" RowDefinitions="Auto,*">
+        <Grid ColumnDefinitions="*,Auto" Margin="29,24,29,12">
+          <StackPanel Spacing="5">
+            <TextBlock x:Name="ClassContext" Classes="muted" />
+            <TextBlock Text="教室设备" FontSize="27" FontWeight="SemiBold" />
+          </StackPanel>
+          <Button x:Name="RefreshButton" Grid.Column="1" Classes="action" Content="刷新" Click="RefreshClicked"
+                  IsEnabled="False" VerticalAlignment="Center" />
+        </Grid>
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+          <StackPanel Margin="29,0,29,25" Spacing="16">
+            <ProgressBar x:Name="WorkspaceProgress" IsVisible="False" IsIndeterminate="True" Height="4" />
+            <Border x:Name="WorkspaceNotice" Classes="card" Padding="17,13">
+              <TextBlock x:Name="WorkspaceMessage" Classes="muted" Text="请选择学校和班级。" AutomationProperties.LiveSetting="Polite" />
+            </Border>
+            <TextBlock x:Name="ScreensHeading" Text="绑定大屏和设备" FontSize="18" FontWeight="SemiBold" IsVisible="False" />
+            <StackPanel x:Name="ScreenCards" Spacing="12" />
+            <Border x:Name="EquipmentCard" Classes="card" Padding="20" IsVisible="False">
+              <StackPanel Spacing="14">
+                <StackPanel Spacing="5">
+                  <TextBlock x:Name="EquipmentDevice" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
+                  <TextBlock x:Name="EquipmentStatus" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+                <Grid x:Name="EquipmentDetails" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="22" RowSpacing="14">
+                  <StackPanel Spacing="4"><TextBlock Text="学校锁定策略" Classes="muted" /><TextBlock x:Name="SchoolPolicy" Classes="label" /></StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="学校指定麦克风" Classes="muted" /><TextBlock x:Name="MicrophoneName" Classes="label" /></StackPanel>
+                  <StackPanel Grid.Row="1" Spacing="4"><TextBlock Text="已发布版本" Classes="muted" /><TextBlock x:Name="PublishedVersion" Classes="label" /></StackPanel>
+                  <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4"><TextBlock Text="设备已应用版本" Classes="muted" /><TextBlock x:Name="AppliedVersion" Classes="label" /></StackPanel>
+                  <StackPanel Grid.Row="2" Spacing="4"><TextBlock Text="设备上报的本机解锁状态" Classes="muted" /><TextBlock x:Name="LocalUnlock" Classes="label" /></StackPanel>
+                  <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4"><TextBlock Text="设备策略回执时间" Classes="muted" /><TextBlock x:Name="EquipmentReceipt" Classes="label" /></StackPanel>
+                </Grid>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </Grid>
+    </Grid>
+  </Grid>
+</Window>
