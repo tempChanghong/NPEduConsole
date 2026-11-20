@@ -103,10 +103,14 @@
             <StackPanel x:Name="ScreenCards" Spacing="12" />
             <Border x:Name="EquipmentCard" Classes="card" Padding="20" IsVisible="False">
               <StackPanel Spacing="14">
-                <StackPanel Spacing="5">
-                  <TextBlock x:Name="EquipmentDevice" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
-                  <TextBlock x:Name="EquipmentStatus" Classes="muted" AutomationProperties.LiveSetting="Polite" />
-                </StackPanel>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel Spacing="5">
+                    <TextBlock x:Name="EquipmentDevice" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="EquipmentStatus" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+                  </StackPanel>
+                  <Button x:Name="OpenSoftwareMaintenanceButton" Grid.Column="1" Classes="action"
+                          VerticalAlignment="Top" Content="软件维护" Click="OpenSoftwareMaintenanceClicked" />
+                </Grid>
                 <Grid x:Name="EquipmentDetails" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="22" RowSpacing="14">
                   <StackPanel Spacing="4"><TextBlock Text="学校锁定策略" Classes="muted" /><TextBlock x:Name="SchoolPolicy" Classes="label" /></StackPanel>
                   <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="学校指定麦克风" Classes="muted" /><TextBlock x:Name="MicrophoneName" Classes="label" /></StackPanel>
@@ -167,6 +171,44 @@
                     </WrapPanel>
                   </StackPanel>
                 </Border>
+              </StackPanel>
+            </Border>
+            <Border x:Name="SoftwareMaintenanceCard" Classes="card" Padding="20" IsVisible="False">
+              <StackPanel Spacing="13">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                  <StackPanel Spacing="5">
+                    <TextBlock Text="NPEduTools 软件维护" FontSize="18" Classes="label" />
+                    <TextBlock x:Name="SoftwareMaintenanceScope" Classes="muted" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Classes="action" Content="关闭" VerticalAlignment="Top" Click="CloseSoftwareMaintenanceClicked" />
+                </Grid>
+                <TextBlock x:Name="SoftwareMaintenanceStatus" Classes="label" AutomationProperties.LiveSetting="Polite" />
+                <Grid x:Name="SoftwareVersions" ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="False">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="终端上报版本" Classes="muted" />
+                    <TextBlock x:Name="SoftwareObservedVersion" Classes="label" />
+                    <TextBlock x:Name="SoftwareObservationTime" Classes="muted" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="4">
+                    <TextBlock Text="任务目标版本" Classes="muted" />
+                    <TextBlock x:Name="SoftwareTargetVersion" Classes="label" />
+                    <TextBlock x:Name="SoftwarePlanUpdatedAt" Classes="muted" />
+                  </StackPanel>
+                </Grid>
+                <TextBlock x:Name="SoftwareMaintenanceDetails" Classes="muted" />
+                <StackPanel x:Name="SoftwareApprovalForm" Spacing="7" IsVisible="False">
+                  <TextBlock Text="学校更新目录" Classes="muted" />
+                  <ComboBox x:Name="SoftwareReleasePicker" HorizontalAlignment="Stretch"
+                            PlaceholderText="选择要批准的版本" AutomationProperties.Name="选择要批准的版本"
+                            SelectionChanged="SoftwareReleaseChanged" />
+                </StackPanel>
+                <TextBlock x:Name="SoftwareMaintenanceFeedback" Classes="muted" AutomationProperties.LiveSetting="Polite" IsVisible="False" />
+                <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                  <Button x:Name="InviteSoftwareButton" Content="邀请设备纳管" Classes="action accent" Click="InviteSoftwareClicked" IsVisible="False" />
+                  <Button x:Name="ApproveSoftwareButton" Content="批准此版本" Classes="action accent" Click="ApproveSoftwareClicked" IsVisible="False" />
+                  <Button x:Name="CancelSoftwareButton" Content="取消更新任务" Classes="action" Click="CancelSoftwareClicked" IsVisible="False" />
+                  <Button x:Name="RefreshSoftwareButton" Content="刷新维护状态" Classes="action" Click="RefreshSoftwareClicked" />
+                </WrapPanel>
               </StackPanel>
             </Border>
           </StackPanel>

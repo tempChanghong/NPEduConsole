@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace NPEduConsole.Core;
 
-public sealed class ConsoleClient : IDisposable
+public sealed partial class ConsoleClient : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -276,7 +276,7 @@ public sealed class ConsoleClient : IDisposable
                 {
                     var error = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct);
                     if (error?.RequestId == requestId && error.ProtocolVersion == version)
-                        throw EquipmentConflict(error.Error?.Code);
+                        throw ProtocolConflict(error.Error?.Code);
                 }
                 throw HttpError(status, token is null);
             }
@@ -294,7 +294,7 @@ public sealed class ConsoleClient : IDisposable
     }
 
     private static ConsoleApiException InvalidResponse() => new(0, "KV 服务返回的数据与当前控制台不兼容，请核对服务地址或刷新。");
-    private static ConsoleApiException EquipmentConflict(string? code) => new(409, code switch
+    private static ConsoleApiException ProtocolConflict(string? code) => new(409, code switch
     {
         "REVISION_CONFLICT" => "学校配置已发生变化，请刷新并核对最新设置，再重新选择。",
         "EQUIPMENT_INVENTORY_STALE" => "设备清单已过期，请等待设备重新上报并刷新。",
@@ -302,6 +302,15 @@ public sealed class ConsoleClient : IDisposable
         "LOCAL_MICROPHONE_CHANGE_UNSUPPORTED" => "设备尚未上报支持现场换麦，请更新设备后刷新。",
         "LOCAL_MICROPHONE_CHANGE_UNAVAILABLE" => "该设备当前无法接受现场换麦授权，请刷新后再核对。",
         "IDEMPOTENCY_CONFLICT" => "这次请求与先前提交的操作不一致，请刷新后核对。",
+        "UPDATE_ALREADY_ENROLLED" => "学校已经发出邀请，请刷新查看设备的纳管状态。",
+        "UPDATE_NOT_MANAGED" => "这台设备尚未完成纳管确认，请先在教室端确认。",
+        "UPDATE_ALREADY_PENDING" => "这台设备已有更新任务，请刷新查看进度。",
+        "UPDATE_NOT_CANCELLABLE" => "当前任务已经不能取消，请刷新查看进度。",
+        "UPDATE_VERSION_UNKNOWN" => "学校尚未收到本机当前版本，请等教室端上报后刷新。",
+        "UPDATE_CATALOG_UNAVAILABLE" => "学校更新目录暂不可用，请稍后刷新。",
+        "UPDATE_RELEASE_UNAVAILABLE" => "所选版本已不在学校更新目录，请刷新后重新选择。",
+        "UPDATE_NOT_NEWER" => "所选版本必须高于终端实际运行的版本。",
+        "UPDATE_ROLLBACK_UNAVAILABLE" => "学校更新目录中没有当前版本的恢复包，暂时无法批准更新。",
         _ => "绑定或设备状态已改变，请刷新。"
     }, code);
     private static ConsoleApiException HttpError(int status, bool login) => new(status, status switch

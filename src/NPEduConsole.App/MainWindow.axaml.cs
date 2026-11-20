@@ -43,6 +43,7 @@ public sealed partial class MainWindow : Window
             return label;
         });
         _equipmentPoll.Tick += PollEquipment;
+        _softwarePoll.Tick += PollSoftware;
         AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
     }
@@ -246,6 +247,7 @@ public sealed partial class MainWindow : Window
         if (_client is not { } client || _school is not { } school) return;
         if (!background)
         {
+            if (_device != selection) CloseSoftwareMaintenance();
             ResetEquipmentView();
             EquipmentDetails.IsVisible = false;
             WorkspaceProgress.IsVisible = true;
@@ -358,6 +360,7 @@ public sealed partial class MainWindow : Window
         CancelRequest();
         _client = null;
         CancelMicrophoneChanges();
+        CancelSoftwareSession();
         _school = null;
         _settingSelection = true;
         SchoolPicker.ItemsSource = ClassPicker.ItemsSource = null;
@@ -371,6 +374,7 @@ public sealed partial class MainWindow : Window
 
     private void SetClassroom(Classroom? room)
     {
+        CloseSoftwareMaintenance();
         ResetEquipmentView();
         _classroom = room;
         _device = null;

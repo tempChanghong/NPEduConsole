@@ -1,4 +1,4 @@
-// node tests/live-kv.mjs <NPClassworksKV checkout> <PostgreSQL bin> [--serve|--local-authorization|--serve-local-authorization]
+// node tests/live-kv.mjs <NPClassworksKV checkout> <PostgreSQL bin> [test mode]
 // With --serve, keep the isolated KV available for desktop acceptance until Enter.
 import assert from 'node:assert/strict';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
@@ -14,10 +14,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { cameras, microphones, startClassroomDevice } from './classroom-device.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
-assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization'].includes(mode)),
+assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
+  '--software-update', '--serve-software-update'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
-const serve = mode === '--serve' || mode === '--serve-local-authorization';
+const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
+const softwareUpdate = mode === '--software-update' || mode === '--serve-software-update';
 const kv = resolve(checkout);
 const fromKv = path => import(pathToFileURL(join(kv, path)).href);
 const kvRequire = createRequire(join(kv, 'package.json'));
@@ -81,6 +83,14 @@ async function createDatabase() {
     REFRESH_TOKEN_SECRET: randomBytes(48).toString('hex'), NPEP_ENABLED: 'true',
     NPEP_DEPLOYMENT_FILE: join(directory, 'deployment.json'),
   });
+  delete process.env.NPEP_UPDATE_CATALOG_FILE;
+  if (softwareUpdate) {
+    process.env.NPEP_UPDATE_CATALOG_FILE = join(directory, 'update-catalog.json');
+    const releases = ['1.1.10.0', '1.1.11.0', '1.1.12.0'].map(version => ({
+      version, url: 'https://example.invalid/NPEduTools-' + version + '.zip', sha256: 'a'.repeat(64), sizeBytes: 1,
+    }));
+    await writeFile(process.env.NPEP_UPDATE_CATALOG_FILE, JSON.stringify({ releases }));
+  }
   await writeFile(process.env.DOTENV_CONFIG_PATH, '');
   await writeFile(passwordFile, databasePassword, { mode: 0o600 });
   try {
@@ -258,25 +268,30 @@ try {
     { checkIncompleteReceipts: !serve && !localAuthorization, simulateLocalAuthorization: localAuthorization,
       lagAfterLocalChange: localAuthorization && !serve });
   await verify(origin, fixture);
+  if (softwareUpdate) {
+    await stopClassroom();
+    stopClassroom = null;
+  }
   // Only local, short-lived, synthetic login data is made available to the desktop process.
   const access = join(directory, 'desktop.json');
-  if (!serve) lostReply = await loseEquipmentReply(origin);
+  if (!serve && !softwareUpdate) lostReply = await loseEquipmentReply(origin);
   await writeFile(access, JSON.stringify({
     origin, schoolCode: fixture.school.code, username: 'admin', viewer: 'viewer', password: fixture.pin,
     schoolId: fixture.school.id, otherSchoolId: fixture.other.id, revokedDeviceId: fixture.revokedDeviceId,
     lostReplyOrigin: lostReply?.origin,
+    ...(softwareUpdate ? { classroomBearer: fixture.classroomBearer, deviceIdentity: fixture.identity } : {}),
   }), { mode: 0o600 });
   const smoke = fileURLToPath(new URL('./NPEduConsole.Smoke/NPEduConsole.Smoke.csproj', import.meta.url));
-  await new Promise((res, rej) => {
+  if (!(serve && softwareUpdate)) await new Promise((res, rej) => {
     // The KV HTTP listener and database pool run on this event loop.
-    const options = localAuthorization ? [serve ? '--view-local-authorization' : '--local-authorization'] :
+    const options = softwareUpdate ? ['--software-update'] : localAuthorization ? [serve ? '--view-local-authorization' : '--local-authorization'] :
       serve ? ['--view-only'] : [];
     const client = spawn('dotnet', ['run', '--project', smoke, '-c', 'Release', '--', access, ...options],
       { windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'] });
     client.once('error', rej);
     client.once('close', code => code === 0 ? res() : rej(new Error('Desktop client smoke failed: ' + code)));
   });
-  if (!serve) {
+  if (!serve && !softwareUpdate) {
     const { schoolManagementRepository } = await fromKv('services/npepSchoolManagementService.js');
     const policy = await schoolManagementRepository.equipment(prisma, fixture.devices[0]);
     assert.deepEqual({ revision: policy.revision, mic: policy.microphoneId, camera: policy.cameraId, locked: policy.locked },
