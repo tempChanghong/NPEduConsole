@@ -7,7 +7,8 @@ export const cameras = [{ id: 'camera-board', name: '板书摄像头' }];
 
 // Simulate only the classroom's capture timing. Read policy and send receipts and
 // presence through the same authenticated NPEP routes used by a real terminal.
-export async function startClassroomDevice(origin, identity, bearer, { checkIncompleteReceipts = false } = {}) {
+export async function startClassroomDevice(origin, identity, bearer,
+  { checkIncompleteReceipts = false, simulateLocalAuthorization = false, lagAfterLocalChange = false } = {}) {
   const base = origin + '/api/v2/npep/device/';
   async function request(path, version, body) {
     const requestId = randomUUID();
@@ -27,6 +28,7 @@ export async function startClassroomDevice(origin, identity, bearer, { checkInco
   const { sessionId, runId, statusEpoch } = session;
   let sequence = 0, heartbeatSequence = 0, lastHeartbeat = 0;
   let applied = 5, selected = microphones[0].id, pendingRevision, pendingSince;
+  let localMicrophoneOverride = null, authorizedSince = null, locallyChangedAt = null;
   const incomplete = checkIncompleteReceipts ? ['previous-input', 'missing-endpoint'] : [];
   async function tick() {
     const policy = await request('school-management', '0.16');
@@ -41,7 +43,9 @@ export async function startClassroomDevice(origin, identity, bearer, { checkInco
       lastHeartbeat = now;
     }
     let reportedRevision = applied;
-    let reportedInput = selected, reportedMicrophones = microphones;
+    let reportedInput = selected;
+    // The authorization case starts with the school microphone disconnected.
+    let reportedMicrophones = simulateLocalAuthorization && policy.equipment.revision === 5 ? microphones.slice(1) : microphones;
     if (policy.equipment.revision !== applied) {
       if (pendingRevision !== policy.equipment.revision) {
         pendingRevision = policy.equipment.revision;
@@ -58,13 +62,29 @@ export async function startClassroomDevice(origin, identity, bearer, { checkInco
           applied = reportedRevision;
           selected = policy.equipment.microphoneId;
           reportedInput = selected;
+          localMicrophoneOverride = null;
+          locallyChangedAt = null;
+          authorizedSince = policy.equipment.allowLocalMicrophoneChange ? now : null;
         }
       }
+    }
+    if (simulateLocalAuthorization && applied === policy.equipment.revision && authorizedSince !== null &&
+        localMicrophoneOverride === null && now - authorizedSince >= 6000) {
+      localMicrophoneOverride = microphones.find(microphone => microphone.id !== policy.equipment.microphoneId).id;
+      selected = reportedInput = localMicrophoneOverride;
+      locallyChangedAt = now;
+    }
+    let error = reportedRevision === policy.equipment.revision ? null : 'EQUIPMENT_PENDING';
+    if (lagAfterLocalChange && locallyChangedAt !== null && now - locallyChangedAt < 3000 &&
+        applied === policy.equipment.revision) {
+      reportedRevision--;
+      error = 'EQUIPMENT_UNAVAILABLE';
     }
     await request('school-management/receipt', '0.16', {
       context: { sessionId, runId, statusEpoch, identity: policy.identity }, sequence: ++sequence, microphones: reportedMicrophones, cameras,
       unlocked: false, appliedRevision: reportedRevision, credentialRevision: 0, selectedMicrophoneId: reportedInput, selectedCameraId: cameras[0].id,
-      error: reportedRevision === policy.equipment.revision ? null : 'EQUIPMENT_PENDING',
+      error,
+      ...(simulateLocalAuthorization ? { supportsLocalMicrophoneChange: true, localMicrophoneOverride } : {}),
     });
   }
   await tick();

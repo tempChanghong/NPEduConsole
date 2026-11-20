@@ -18,8 +18,12 @@ internal sealed record ScreenRow(string Id, string SchoolId, string? Administrat
 internal sealed record DeviceRow(string DeviceId, string SchoolId, string AdministrativeClassId, string ScreenBindingId,
     long BindingRevision, bool BindingChanged, string DeviceName, string State, string Connectivity, DateTimeOffset? LastSeenAt);
 internal sealed record OverviewPage(DeviceRow[] Items, string? NextCursor);
-internal sealed record Policy(long Revision, bool Locked, string? MicrophoneId, string? CameraId);
+internal sealed record Policy(long Revision, bool Locked, string? MicrophoneId, string? CameraId,
+    bool? AllowLocalMicrophoneChange = null);
+internal sealed record EquipmentChange(Guid RequestId, long ExpectedRevision, string? MicrophoneId, string? CameraId,
+    bool Locked, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? AllowLocalMicrophoneChange);
 internal sealed record Inventory(long AppliedRevision, bool Unlocked, Microphone[] Microphones,
-    DateTimeOffset ReceivedAt, string? Error, string? SelectedMicrophoneId = null);
+    DateTimeOffset ReceivedAt, string? Error, string? SelectedMicrophoneId = null,
+    string? LocalMicrophoneOverride = null, bool SupportsLocalMicrophoneChange = false);
 internal sealed record EquipmentResponse(Policy Policy, Inventory? Inventory);
 internal sealed record NpepError(string Code);

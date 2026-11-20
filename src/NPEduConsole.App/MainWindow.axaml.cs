@@ -277,12 +277,7 @@ public sealed partial class MainWindow : Window
                 ? revision.ToString(CultureInfo.InvariantCulture) : "待确认";
             EquipmentReceipt.Text = FormatTime(equipment.ReceivedAt);
             ReportedMicrophone.Text = equipment.ReportedMicrophoneName ?? "暂无具体输入上报";
-            LocalUnlock.Text = (equipment.ReceivedAt.HasValue, equipment.LocallyUnlocked) switch
-            {
-                (true, true) => "设备报告已本机解锁",
-                (true, false) => "设备报告未本机解锁",
-                _ => "暂无设备回执"
-            };
+            EquipmentEditingStatus.Text = equipment.EditingStatusText;
             EquipmentDetails.IsVisible = true;
         }
         catch (Exception error) when (IsServiceError(error))

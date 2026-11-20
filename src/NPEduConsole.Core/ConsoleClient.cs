@@ -146,30 +146,59 @@ public sealed class ConsoleClient : IDisposable
             Microphones = Array.AsReadOnly(microphones),
             ReportedMicrophoneId = inventory?.SelectedMicrophoneId,
             ReportedMicrophoneName = inventory?.SelectedMicrophoneId is { } selected
-                ? NameFor(selected) ?? "已上报选择，当前清单未列出此麦克风" : null
+                ? NameFor(selected) ?? "已上报选择，当前清单未列出此麦克风" : null,
+            DeviceSupportsLocalMicrophoneChange = inventory?.SupportsLocalMicrophoneChange == true,
+            LocalMicrophoneOverrideId = inventory?.LocalMicrophoneOverride
         };
     }
 
     public async Task<long> ChangeMicrophoneAsync(Equipment snapshot, string microphoneId, Guid requestId, CancellationToken ct)
     {
         var session = CurrentSession;
-        if (snapshot.Source is not { } source || source.SessionId != session.Id)
-            throw new ConsoleApiException(409, "请在当前账号下重新读取设备。", "SNAPSHOT_CHANGED");
+        var source = EquipmentScope(snapshot, session);
         if (!snapshot.IsInventoryFresh)
             throw new ConsoleApiException(409, "设备清单已过期，请等待设备重新上报并刷新。", "EQUIPMENT_INVENTORY_STALE");
         if (!snapshot.Microphones.Any(m => m.Id == microphoneId))
             throw new ConsoleApiException(409, "所选麦克风不在设备清单中，请刷新后重新选择。", "EQUIPMENT_UNAVAILABLE");
-        if (source.Policy.MicrophoneId == microphoneId || requestId == Guid.Empty)
+        if (!snapshot.CanSelectSchoolMicrophone(microphoneId) || requestId == Guid.Empty)
             throw new ConsoleApiException(400, "请选择另一支麦克风并确认更改。", "INVALID_CHANGE");
 
+        return await PublishEquipmentAsync(session, source, microphoneId, allowLocalChange: null, requestId, ct);
+    }
+
+    public async Task<long> SetLocalMicrophoneChangeAsync(Equipment snapshot, bool allow, Guid requestId, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        var source = EquipmentScope(snapshot, session);
+        if (!snapshot.ServiceSupportsLocalMicrophoneChange)
+            throw new ConsoleApiException(409, "当前 KV 服务尚未支持现场换麦授权。", "LOCAL_MICROPHONE_CHANGE_UNSUPPORTED");
+        if (source.Policy.AllowLocalMicrophoneChange == allow || requestId == Guid.Empty)
+            throw new ConsoleApiException(400, "学校当前策略已经是此授权状态。", "INVALID_CHANGE");
+        if (allow && !snapshot.CanGrantLocalMicrophoneChange)
+            throw new ConsoleApiException(409, "本次授权要求已启用学校锁定策略，并收到支持现场换麦的设备新回执。请刷新后核对。",
+                "LOCAL_MICROPHONE_CHANGE_UNAVAILABLE");
+
+        return await PublishEquipmentAsync(session, source, source.Policy.MicrophoneId, allow, requestId, ct);
+    }
+
+    private static EquipmentSource EquipmentScope(Equipment snapshot, Session session) =>
+        snapshot.Source is { } source && source.SessionId == session.Id
+            ? source
+            : throw new ConsoleApiException(409, "请在当前账号下重新读取设备。", "SNAPSHOT_CHANGED");
+
+    private async Task<long> PublishEquipmentAsync(Session session, EquipmentSource source, string? microphoneId,
+        bool? allowLocalChange, Guid requestId, CancellationToken ct)
+    {
         var previous = source.Policy;
-        var body = new { requestId, expectedRevision = previous.Revision, microphoneId, previous.CameraId, previous.Locked };
+        var body = new EquipmentChange(requestId, previous.Revision, microphoneId, previous.CameraId, previous.Locked, allowLocalChange);
+        var expectedAuthorization = allowLocalChange ?? previous.AllowLocalMicrophoneChange;
         try
         {
             var envelope = await EquipmentRequestAsync(HttpMethod.Post, source.SchoolId, source.DeviceId, session.Token, ct, body, requestId);
             var saved = ReadData<Policy>(envelope);
             if (saved.Revision != previous.Revision + 1 || saved.MicrophoneId != microphoneId ||
-                saved.CameraId != previous.CameraId || saved.Locked != previous.Locked)
+                saved.CameraId != previous.CameraId || saved.Locked != previous.Locked ||
+                (expectedAuthorization is { } expected ? saved.AllowLocalMicrophoneChange != expected : saved.AllowLocalMicrophoneChange == true))
                 throw InvalidResponse();
             return saved.Revision;
         }
@@ -270,6 +299,8 @@ public sealed class ConsoleClient : IDisposable
         "REVISION_CONFLICT" => "学校配置已发生变化，请刷新并核对最新设置，再重新选择。",
         "EQUIPMENT_INVENTORY_STALE" => "设备清单已过期，请等待设备重新上报并刷新。",
         "EQUIPMENT_UNAVAILABLE" => "配置涉及的设备已不在清单中，请刷新并核对麦克风和摄像头。",
+        "LOCAL_MICROPHONE_CHANGE_UNSUPPORTED" => "设备尚未上报支持现场换麦，请更新设备后刷新。",
+        "LOCAL_MICROPHONE_CHANGE_UNAVAILABLE" => "该设备当前无法接受现场换麦授权，请刷新后再核对。",
         "IDEMPOTENCY_CONFLICT" => "这次请求与先前提交的操作不一致，请刷新后核对。",
         _ => "绑定或设备状态已改变，请刷新。"
     }, code);

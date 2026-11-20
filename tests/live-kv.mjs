@@ -1,4 +1,4 @@
-// node tests/live-kv.mjs <NPClassworksKV checkout> <PostgreSQL bin> [--serve]
+// node tests/live-kv.mjs <NPClassworksKV checkout> <PostgreSQL bin> [--serve|--local-authorization|--serve-local-authorization]
 // With --serve, keep the isolated KV available for desktop acceptance until Enter.
 import assert from 'node:assert/strict';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
@@ -14,7 +14,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { cameras, microphones, startClassroomDevice } from './classroom-device.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
-assert.ok(checkout && binaries && (!mode || mode === '--serve'), 'Pass the KV checkout and PostgreSQL bin directories, followed optionally by --serve.');
+assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization'].includes(mode)),
+  'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
+const serve = mode === '--serve' || mode === '--serve-local-authorization';
+const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
 const kv = resolve(checkout);
 const fromKv = path => import(pathToFileURL(join(kv, path)).href);
 const kvRequire = createRequire(join(kv, 'package.json'));
@@ -154,6 +157,7 @@ async function seed() {
     }
     await schoolManagementRepository.saveEquipment(prisma, device.id, {
       revision: 5, locked: true, microphoneId: microphones[0].id, cameraId: cameras[0].id, updatedAt: seen.toISOString(),
+      ...(localAuthorization && number === 2 ? { allowLocalMicrophoneChange: true } : {}),
     });
     await schoolManagementRepository.saveInventory(prisma, device.id, {
       appliedRevision: number === 1 ? 5 : 4, selectedMicrophoneId: microphones[0].id, selectedCameraId: cameras[0].id,
@@ -250,11 +254,13 @@ try {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
-  stopClassroom = await startClassroomDevice(origin, fixture.identity, fixture.classroomBearer, { checkIncompleteReceipts: mode !== '--serve' });
+  stopClassroom = await startClassroomDevice(origin, fixture.identity, fixture.classroomBearer,
+    { checkIncompleteReceipts: !serve && !localAuthorization, simulateLocalAuthorization: localAuthorization,
+      lagAfterLocalChange: localAuthorization && !serve });
   await verify(origin, fixture);
   // Only local, short-lived, synthetic login data is made available to the desktop process.
   const access = join(directory, 'desktop.json');
-  if (mode !== '--serve') lostReply = await loseEquipmentReply(origin);
+  if (!serve) lostReply = await loseEquipmentReply(origin);
   await writeFile(access, JSON.stringify({
     origin, schoolCode: fixture.school.code, username: 'admin', viewer: 'viewer', password: fixture.pin,
     schoolId: fixture.school.id, otherSchoolId: fixture.other.id, revokedDeviceId: fixture.revokedDeviceId,
@@ -263,22 +269,24 @@ try {
   const smoke = fileURLToPath(new URL('./NPEduConsole.Smoke/NPEduConsole.Smoke.csproj', import.meta.url));
   await new Promise((res, rej) => {
     // The KV HTTP listener and database pool run on this event loop.
-    const client = spawn('dotnet', ['run', '--project', smoke, '-c', 'Release', '--', access, ...(mode === '--serve' ? ['--view-only'] : [])],
+    const options = localAuthorization ? [serve ? '--view-local-authorization' : '--local-authorization'] :
+      serve ? ['--view-only'] : [];
+    const client = spawn('dotnet', ['run', '--project', smoke, '-c', 'Release', '--', access, ...options],
       { windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'] });
     client.once('error', rej);
     client.once('close', code => code === 0 ? res() : rej(new Error('Desktop client smoke failed: ' + code)));
   });
-  if (mode !== '--serve') {
+  if (!serve) {
     const { schoolManagementRepository } = await fromKv('services/npepSchoolManagementService.js');
     const policy = await schoolManagementRepository.equipment(prisma, fixture.devices[0]);
     assert.deepEqual({ revision: policy.revision, mic: policy.microphoneId, camera: policy.cameraId, locked: policy.locked },
-      { revision: 7, mic: microphones[0].id, camera: cameras[0].id, locked: true });
+      { revision: localAuthorization ? 8 : 7, mic: microphones[0].id, camera: cameras[0].id, locked: true });
     assert.equal(await prisma.npepAudit.count({ where: { schoolId: fixture.school.id, objectId: fixture.devices[0],
-      action: 'EQUIPMENT_POLICY_UPDATED' } }), 2, 'one audit per accepted logical change');
+      action: 'EQUIPMENT_POLICY_UPDATED' } }), localAuthorization ? 3 : 2, 'one audit per accepted logical change');
     assert.equal(lostReply.count(), 1, 'no automatic resubmission after a lost acknowledgement');
-    console.log('PASS: two logical changes produced two audits. A lost acknowledgement produced one forwarded write. Camera and lock were preserved.');
+    console.log('PASS: one equipment audit per write, one forwarded write after the lost acknowledgement, camera and lock unchanged.');
   }
-  if (mode === '--serve') {
+  if (serve) {
     console.log('Desktop test access: ' + access + ' (press Enter to stop)');
     await new Promise(done => {
       process.stdin.resume();
