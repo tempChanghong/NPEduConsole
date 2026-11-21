@@ -328,6 +328,7 @@ internal sealed class SchoolAuditRow(SchoolAuditEntry entry)
         ["TERM_TRANSITION_PREVIEW"] = "预览学期切换", ["TERM_ACTIVATION_PREVIEW"] = "检查学期启用条件", ["TERM_ACTIVATED"] = "切换启用学期",
         ["TERM_DRAFT_CREATED"] = "建立学期草稿", ["TERM_STATUS_CHANGED"] = "修改学期状态", ["SCREEN_COMMAND_ISSUED"] = "下发大屏值守指令",
         ["SCREEN_DEVICE_RESET"] = "重置大屏设备", ["SCREEN_BOUND"] = "绑定班级大屏", ["SCREEN_ACCOUNT_CREATED"] = "创建大屏账号",
+        ["FIRST_CLASSROOM_SCREEN_PREPARED"] = "登记首台教室大屏",
         ["SCREEN_ACCOUNT_UPDATED"] = "修改大屏账号", ["TEACHING_ASSIGNMENT_CHANGED"] = "修改任课关系", ["GRADE_LEADERSHIP_CHANGED"] = "修改年级组长职责",
         ["CLASS_LEADERSHIP_CHANGED"] = "修改班主任职责", ["LOCAL_ACCOUNT_CHANGED"] = "修改本地账号", ["LOCAL_ACCOUNT_PROVISIONED"] = "批量创建本地账号",
         ["STAFF_CONFIGURATION_IMPORT"] = "导入人员配置",

@@ -21,7 +21,7 @@ const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
-  '--class-creation', '--serve-class-creation'].includes(mode)),
+  '--class-creation', '--serve-class-creation', '--first-screen', '--serve-first-screen'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -31,7 +31,8 @@ const classStudy = mode === '--class-study' || mode === '--serve-class-study';
 const schoolAudit = mode === '--school-audit' || mode === '--serve-school-audit';
 const classRoster = mode === '--class-roster' || mode === '--serve-class-roster';
 const classCreation = mode === '--class-creation' || mode === '--serve-class-creation';
-const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation;
+const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen';
+const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !firstScreen;
 const kv = resolve(checkout);
 const fromKv = path => import(pathToFileURL(join(kv, path)).href);
 const kvRequire = createRequire(join(kv, 'package.json'));
@@ -161,13 +162,17 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (classStudy ? 4 : 3); number++) {
+  for (let number = 1; number <= (classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
       termId: term.id, gradeId: roomGrade.id, name: `${roomGrade.name}（${section}）班`, code: `${roomGrade.code}-${section}`, type: 'ADMIN_CLASS',
     } });
     classes.push(room.id);
+    if (firstScreen && number === 4) await prisma.classroomScreenBinding.create({data: {
+      schoolId: school.id, administrativeClassId: room.id, name: '已停用大屏', isActive: false,
+      tokenHash: randomBytes(32).toString('hex'), createdByAccountId: manager.id,
+    }});
     if (classAdmission && number >= 2) {
       const names = number === 2 ? ['沿用口令大屏'] : ['主讲大屏', '后排大屏'];
       for (const name of names) await prisma.classroomScreenBinding.create({ data: {
@@ -425,6 +430,7 @@ async function runFixture() {
   // Only local, short-lived, synthetic login data is made available to the desktop process.
   const access = join(directory, 'desktop.json');
   if (classAdmission) lostReply = await loseWriteReply(origin, path => path.includes('/class-management/'));
+  else if (firstScreen) lostReply = await loseWriteReply(origin, path => path.endsWith('/first-screen'), 'POST', 201);
   else if (classStudy) lostReply = await loseWriteReply(origin, path => path.endsWith('/study-settings'));
   else if (!serve && classRoster) lostReply = await loseWriteReply(origin, path => path.endsWith('/students'), 'PUT');
   else if (classCreation) lostReply = await loseWriteReply(origin, path => path.endsWith('/current-term/administrative-classes'), 'POST', 201);
@@ -436,10 +442,13 @@ async function runFixture() {
     ...audit?.access,
     ...roster?.access,
     ...creation?.access,
+    ...(firstScreen ? {emptyClassId: fixture.classes[2], inactiveClassId: fixture.classes[3], termId: fixture.term.id,
+      allowFirstScreenTestWrites: true} : {}),
     ...(softwareUpdate || classStudy ? { classroomBearer: fixture.classroomBearer, deviceIdentity: fixture.identity } : {}),
     ...(classStudy ? { termId: fixture.term.id, studyDate: fixture.studyDate } : {}),
   }), { mode: 0o600 });
-  const project = classCreation ? './NPEduConsole.ClassCreationSmoke/NPEduConsole.ClassCreationSmoke.csproj' :
+  const project = firstScreen ? './NPEduConsole.FirstScreenSmoke/NPEduConsole.FirstScreenSmoke.csproj' :
+    classCreation ? './NPEduConsole.ClassCreationSmoke/NPEduConsole.ClassCreationSmoke.csproj' :
     classRoster ? './NPEduConsole.RosterSmoke/NPEduConsole.RosterSmoke.csproj' :
     schoolAudit ? './NPEduConsole.AuditSmoke/NPEduConsole.AuditSmoke.csproj' :
     classStudy ? './NPEduConsole.StudySmoke/NPEduConsole.StudySmoke.csproj' : './NPEduConsole.Smoke/NPEduConsole.Smoke.csproj';
@@ -458,6 +467,18 @@ async function runFixture() {
     console.log('PASS: KV committed exactly one write through the lost-reply relay.');
   }
   if (!serve && audit) await audit.verifyRevocation();
+  if (!serve && firstScreen) {
+    assert.equal(lostReply.count(), 1);
+    assert.equal(lostReply.attempts(), 2);
+    const id = fixture.classes[2];
+    const [binding] = await prisma.classroomScreenBinding.findMany({where: {administrativeClassId: id}});
+    assert.equal(await prisma.classroomScreenBinding.count({where: {administrativeClassId: id}}), 1);
+    assert.equal(binding.loginCode, null);
+    assert.equal(binding.pinHash, null);
+    assert.equal(await prisma.auditLog.count({where: {schoolId: fixture.school.id, entityId: binding.id, action: 'FIRST_CLASSROOM_SCREEN_PREPARED'}}), 1);
+    run(process.execPath, ['--test', '--test-name-pattern=first-screen', 'tests/managementDatabase.integration.test.js'], {...process.env, RUN_DATABASE_TESTS: 'true'});
+    console.log('PASS: one screen, one audit, no web login or PIN, and one explicit retry after a lost reply.');
+  }
   if (!serve && creation) {
     assert.equal(lostReply.count(), 1, 'only the original creation returned 201');
     assert.equal(lostReply.attempts(), 2, 'the original and the explicit confirmation retry');

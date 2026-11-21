@@ -17,9 +17,14 @@ public sealed partial class MainWindow
 
     private async void OpenAdmissionClicked(object? sender, RoutedEventArgs args)
     {
-        if (sender is not Button { Tag: CoreScreen screen } opener || _school is not { } school ||
+        if (sender is Button { Tag: CoreScreen screen } opener) await OpenClassAdmissionAsync(screen, opener);
+    }
+
+    private async Task OpenClassAdmissionAsync(CoreScreen screen, Button opener)
+    {
+        if (_school is not { } school ||
             _classroom is not { } classroom || !classroom.Screens.Any(item => ReferenceEquals(item, screen)) ||
-            screen.Devices.Count != 0 || ReferenceEquals(_admissionTarget?.Screen, screen)) return;
+            screen.DeviceOverviewUnavailable || screen.Devices.Count != 0 || ReferenceEquals(_admissionTarget?.Screen, screen)) return;
 
         CloseClassAdmission();
         CloseSoftwareMaintenance();

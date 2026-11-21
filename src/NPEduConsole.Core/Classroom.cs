@@ -6,7 +6,11 @@ public sealed record School(string Id, string Name);
 public sealed record Classroom(string Id, string Name, string? GradeName, IReadOnlyList<Screen> Screens)
 {
     public string? TermId { get; init; }
+    public bool HasInactiveScreens { get; internal init; }
+    internal FirstScreenScope? FirstScreen { get; init; }
+    public bool CanPrepareFirstScreen => FirstScreen is { } scope && Id == scope.ClassId && TermId == scope.TermId && Screens.Count == 0;
 }
+internal sealed record FirstScreenScope(Guid SessionId, string SchoolId, string TermId, string ClassId);
 public sealed record Screen(string Id, string Name, IReadOnlyList<Device> Devices)
 {
     public bool DeviceOverviewUnavailable { get; init; }

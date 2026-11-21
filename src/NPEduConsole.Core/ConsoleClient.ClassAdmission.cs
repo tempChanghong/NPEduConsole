@@ -34,6 +34,33 @@ internal sealed record ClassAdmissionScope(Guid SessionId, string SchoolId, stri
 
 public sealed partial class ConsoleClient
 {
+    private sealed record FirstScreenResponse(string SchoolId, string TermId, string ClassId, string ScreenBindingId);
+
+    public async Task<string> PrepareFirstScreenAsync(Classroom room, Guid requestId, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        if (!room.CanPrepareFirstScreen || room.FirstScreen is not { } scope || scope.SessionId != session.Id)
+            throw new ConsoleApiException(409, "请在当前学校重新选择尚无大屏记录的班级。", "SNAPSHOT_CHANGED");
+        if (requestId == Guid.Empty) throw new ArgumentException("缺少登记请求编号。", nameof(requestId));
+        var path = $"api/v2/npep/schools/{Segment(scope.SchoolId)}/classes/{Segment(scope.ClassId)}/first-screen";
+        try
+        {
+            var envelope = await SendAsync(HttpMethod.Post, path, session.Token, ct, "0.16",
+                new { requestId, scope.TermId }, requestId);
+            var result = ReadData<FirstScreenResponse>(envelope);
+            ct.ThrowIfCancellationRequested();
+            if (!ReferenceEquals(session, _session)) throw new ConsoleApiException(401, "登录会话已改变，请重新登录。");
+            if (result.SchoolId != scope.SchoolId || result.TermId != scope.TermId || result.ClassId != scope.ClassId)
+                throw InvalidResponse();
+            _ = Segment(result.ScreenBindingId);
+            return result.ScreenBindingId;
+        }
+        catch (ConsoleApiException error) when (error.StatusCode is 404 or 426)
+        {
+            throw new ConsoleApiException(error.StatusCode, "请核对此班级和 KV 版本，当前服务未能办理首台大屏登记。", "FIRST_SCREEN_UNSUPPORTED");
+        }
+    }
+
     public Task<ClassAdmission> GetClassAdmissionAsync(string schoolId, string classId, string screenId, CancellationToken ct) =>
         ReadClassAdmissionAsync(CurrentSession, schoolId, classId, screenId, ct);
 

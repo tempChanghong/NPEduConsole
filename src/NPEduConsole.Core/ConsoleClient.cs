@@ -107,7 +107,8 @@ public sealed partial class ConsoleClient : IDisposable
 
     public async Task<IReadOnlyList<Classroom>> GetClassroomsAsync(string schoolId, CancellationToken ct)
     {
-        var token = CurrentSession.Token;
+        var session = CurrentSession;
+        var token = session.Token;
         var path = "api/v2/admin/schools/" + Segment(schoolId);
         // This protected endpoint checks the current school grant even when there is no active term.
         var screens = await RequestAsync<ScreenRow[]>(HttpMethod.Get, path + "/classroom-screens", token, ct);
@@ -127,20 +128,28 @@ public sealed partial class ConsoleClient : IDisposable
         // A screen account may already exist before NPEduTools pairs. Keep it visible in that state.
         var devices = await devicesTask;
         var byScreen = (devices ?? []).ToLookup(d => (d.AdministrativeClassId, d.ScreenBindingId, d.BindingRevision));
-        var byClass = screens.Where(s => s.IsActive && s.SchoolId == schoolId && s.AdministrativeClassId is not null)
+        var byClass = screens.Where(s => s.SchoolId == schoolId && s.AdministrativeClassId is not null)
             .ToLookup(s => s.AdministrativeClassId!);
         var classrooms = new List<Classroom>();
         foreach (var room in structure.AdministrativeClasses.Where(c => c.IsActive))
         {
             var roomScreens = new List<Screen>();
-            foreach (var screen in byClass[room.Id])
+            var bindings = byClass[room.Id];
+            foreach (var screen in bindings.Where(screen => screen.IsActive))
             {
                 var matched = byScreen[(room.Id, screen.Id, screen.NpepBindingRevision)];
                 var connected = matched.Select(d => new Device(d.DeviceId, d.DeviceName, d.Connectivity, d.LastSeenAt));
                 roomScreens.Add(new Screen(screen.Id, screen.Name, connected.ToArray()) { DeviceOverviewUnavailable = devices is null });
             }
-            classrooms.Add(new Classroom(room.Id, room.Name, room.Grade?.Name, roomScreens) { TermId = term.Id });
+            classrooms.Add(new Classroom(room.Id, room.Name, room.Grade?.Name, roomScreens)
+            {
+                TermId = term.Id,
+                HasInactiveScreens = bindings.Any(screen => !screen.IsActive),
+                FirstScreen = devices is not null && !bindings.Any() ? new(session.Id, schoolId, term.Id, room.Id) : null
+            });
         }
+        ct.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(session, _session)) throw new ConsoleApiException(401, "登录会话已改变，请重新登录。");
         return classrooms;
     }
 
@@ -366,6 +375,7 @@ public sealed partial class ConsoleClient : IDisposable
     private static ConsoleApiException InvalidResponse() => new(0, "KV 服务返回的数据与当前控制台不兼容，请核对服务地址或刷新。");
     private static ConsoleApiException ProtocolConflict(string? code) => new(409, code switch
     {
+        "FIRST_SCREEN_EXISTS" => "该班已有大屏记录，请刷新并核对现有大屏。",
         "REVISION_CONFLICT" => "学校配置已发生变化，请刷新并核对最新设置，再重新选择。",
         "BINDING_OCCUPIED" => "这台大屏已有设备接入，请刷新班级列表。",
         "STUDY_SETTING_VERSION_CONFLICT" or "STUDY_PREVIEW_CHANGED" => "学校自习安排或其影响范围已变化，请刷新安排并重新预览。",

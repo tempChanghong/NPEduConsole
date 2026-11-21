@@ -30,6 +30,12 @@
 
 升级 KV 时需应用 `20261121000000_admin_class_creation` 数据库迁移。它保存建班请求与班级的对应关系，供重试时核对。桌面端的建班入口只办理当前学期。网页继续承接草稿学期、批量建班、班级编辑和 OAuth 管理员。
 
+## 给新班准备第一台教室大屏
+
+在「教室设备」选中当前学期的新班，点击「准备教室大屏」。收到登记确认后，Console 会按返回的大屏 ID 打开「配置口令接入」。本班已设管理口令时可直接沿用。首次设置时，在此预设班级管理口令并确认开放。现场在 NPEduTools 的「学校互联」选择对应学校、班级和大屏，输入班级管理口令。终端上报后，管理员刷新即可看到设备。
+
+登记成功后可以稍后开放接入。若登记回包中断，先刷新列表核对；有停用大屏的班级需先在原管理入口核对记录。网页大屏登录账号和 PIN 仍走原网页流程。
+
 ## 十三个旧入口的去向
 
 | 旧网页入口 | 已有桌面能力或仍需网页完成的业务 |
@@ -39,7 +45,7 @@
 | 组织与班级 | Console 可在当前学期的已有年级新建单个行政班并录入名单。年级、学科、班级编辑、批量建班及教学关系仍在网页。 |
 | 学生名单 | Console 可维护当前学期一个行政班的名单，支持批量粘贴、差异预览、保存及冲突核对。 |
 | 教师分配 | 教师职责、任课分配和作业快捷输入配置仍在网页。 |
-| 大屏设备 | Console 可查看班级大屏和已接入的终端。创建或重置网页大屏账号、维护作业快捷截止时间仍在网页。 |
+| 大屏设备 | Console 可为新班登记首台 NPEduTools 大屏并查看连接状态。创建或重置网页大屏账号、维护作业快捷截止时间仍在网页。 |
 | 大屏互联 | Console 已覆盖部分班级接入、麦克风策略和软件维护。设备撤销、考试控制等仍有网页入口。 |
 | 自习监测 | Console 可为单班增加自习安排、查看回执和场次。年级策略、完整日历、照片等仍需网页。 |
 | 自习座位表 | 座位安排仍在网页。 |
@@ -48,7 +54,7 @@
 | 服务器迁移 | 学校迁移包导出等操作仍在网页，与 KV 自动备份状态分别管理。 |
 | 学期运维 | 建立学期草稿、启用检查及切换学期仍在网页。 |
 
-下一项建议接上**给新班准备第一台教室大屏**。目前 Console 的接入设置需要先选中已有大屏，新班还需要通过网页建立大屏记录。下一轮应核对创建大屏和提前配置接入口令的衔接，区分新设备登记与已有设备重新绑定。
+下一项建议接上**大屏较多时的教室端选班**。当前 KV 的接入目录每次最多返回 200 台，全实例共用该上限。NPEduTools 仅显示这批结果。需提供按学校和班级准确定位大屏的入口，并覆盖目标在第 201 台以后的情况。
 
 ## 本地复验
 
@@ -58,11 +64,14 @@
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --school-audit
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-roster
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-creation
+node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --first-screen
 ```
 
 名单联调会停用夹具中的 NPEP，检查无设备班级、同名学生、屏幕并发写入、学期切换、历史考勤和保存结果核对。网页名单的行为可参照 NPClassworks 的 `src/components/admin/ClassRosterManager.vue` 和 `src/utils/classRoster.js`，服务端规则见 NPClassworksKV 的 `services/classroomToolsService.js`。
 
 建班联调从没有班级的年级开始，检查重码、并发请求、回包丢失后的手动重试、跨校与学期校验、首次名单保存及旧网页接口。使用 `--serve-class-creation` 可保留独立测试服务供桌面操作。
+
+首台大屏联调在 Windows 上使用与 Console 同级的 NPEduTools 工作副本，调用其原生互联客户端完成目录读取、口令配对、重启会话及状态上报。服务和客户端使用独立的临时目录。`--serve-first-screen` 可保留服务供桌面验证。
 
 要在 Windows 桌面复验建班，用该服务打印的临时文件运行以下命令。测试从班级栏打开窗口，模拟丢失建班回包，重试确认后保存首份名单，并导出窗口截图。
 

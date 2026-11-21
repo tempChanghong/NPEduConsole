@@ -126,6 +126,18 @@
             <Border x:Name="WorkspaceNotice" Classes="card" Padding="17,13">
               <TextBlock x:Name="WorkspaceMessage" Classes="muted" Text="请选择学校和班级。" AutomationProperties.LiveSetting="Polite" />
             </Border>
+            <Border x:Name="FirstScreenCard" Classes="card" Padding="17,13" IsVisible="False">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel Spacing="5" VerticalAlignment="Center">
+                  <TextBlock x:Name="FirstScreenHeading" Text="教室大屏" Classes="label" FontSize="17" />
+                  <TextBlock x:Name="FirstScreenFeedback" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+                <Button x:Name="PrepareFirstScreenButton" Grid.Column="1" Classes="action accent" Content="准备教室大屏"
+                        VerticalAlignment="Center" Click="PrepareFirstScreenClicked" />
+                <Button x:Name="RefreshFirstScreenButton" Grid.Column="1" Classes="action" Content="刷新大屏列表"
+                        VerticalAlignment="Center" Click="RefreshFirstScreenClicked" IsVisible="False" />
+              </Grid>
+            </Border>
             <TextBlock x:Name="ScreensHeading" Text="绑定大屏和设备" FontSize="18" FontWeight="SemiBold" IsVisible="False" />
             <StackPanel x:Name="ScreenCards" Spacing="12" />
             <Border x:Name="ClassAdmissionCard" Classes="card" Padding="20" IsVisible="False">
@@ -140,9 +152,9 @@
                 <TextBlock x:Name="AdmissionStatus" Classes="label" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                 <TextBlock x:Name="AdmissionMessage" Classes="muted" IsVisible="False" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
                 <TextBlock x:Name="AdmissionAuthorizationNote" Classes="muted" IsVisible="False" TextWrapping="Wrap"
-                           Text="开放此大屏后，现有网页配对入口也可以为它生成一次性配对码。" />
+                           Text="开放后，教室端可用班级管理口令连接。已绑定这台大屏的网页也可生成一次性配对码。" />
                 <StackPanel x:Name="AdmissionSecretFields" IsVisible="False" Spacing="8" MaxWidth="380" HorizontalAlignment="Left">
-                  <TextBlock Text="新口令供本班大屏共用，请只交给负责现场接入的人员。" Classes="muted" TextWrapping="Wrap" />
+                  <TextBlock Text="此口令供本班大屏共用，可提前设置，供教室现场接入。" Classes="muted" TextWrapping="Wrap" />
                   <TextBlock Text="班级管理口令（8 至 128 位）" Classes="label" />
                   <TextBox x:Name="AdmissionSecret" PasswordChar="●" MaxLength="128" IsUndoEnabled="False"
                            AutomationProperties.Name="班级管理口令" />

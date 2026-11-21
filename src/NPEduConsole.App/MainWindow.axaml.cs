@@ -158,6 +158,8 @@ public sealed partial class MainWindow : Window
     {
         if (_client is not { } client) return false;
         using var request = StartRequest();
+        if (_firstScreen is { } preparation && (preparation.State == FirstScreenState.Finished ||
+            preparation.School != school || preparation.ClassId != restoredClass)) ResetFirstScreen();
         if (_school != school) ChangeClassCreationSchool(school);
         _school = school;
         OpenClassCreationButton.IsEnabled = school is not null;
@@ -215,7 +217,11 @@ public sealed partial class MainWindow : Window
     private async void ClassChanged(object? sender, SelectionChangedEventArgs args)
     {
         if (!_settingSelection && _client is not null)
-            await SelectClassroomAsync(ClassPicker.SelectedItem as Classroom);
+        {
+            var room = ClassPicker.SelectedItem as Classroom;
+            if (_firstScreen is { } preparation && !preparation.Matches(room)) ResetFirstScreen();
+            await SelectClassroomAsync(room);
+        }
     }
 
     private async Task SelectClassroomAsync(Classroom? room, DeviceSelection? restoredDevice = null, bool userRefresh = false)
@@ -232,7 +238,8 @@ public sealed partial class MainWindow : Window
         foreach (var screen in room.Screens)
             ScreenCards.Children.Add(BuildScreenCard(screen));
         ScreensHeading.IsVisible = room.Screens.Count > 0;
-        SetWorkspaceMessage(room.Screens.Count == 0 ? "该班级暂无绑定大屏。" : "");
+        SetWorkspaceMessage(room.Screens.Count > 0 || room.CanPrepareFirstScreen ? "" : room.HasInactiveScreens
+            ? "本班有停用的大屏记录，请核对原有大屏。" : "本班暂无可用大屏。可刷新班级，核对当前大屏状态。");
         var previous = restoredDevice is null ? null : _deviceButtons.Values.FirstOrDefault(device =>
             device.ScreenId == restoredDevice.ScreenId && device.Device.Id == restoredDevice.Device.Id);
         var selected = previous ?? (_deviceButtons.Count == 1 ? _deviceButtons.Values.Single() : null);
@@ -256,6 +263,7 @@ public sealed partial class MainWindow : Window
             AutomationProperties.SetName(configure, $"配置口令接入：{screen.Name}");
             AutomationProperties.SetAutomationId(configure, "ConfigureClassAdmission-" + screen.Id);
             configure.Click += OpenAdmissionClicked;
+            _admissionButtons[screen.Id] = configure;
             list.Children.Add(configure);
         }
         foreach (var device in screen.Devices)
@@ -353,6 +361,11 @@ public sealed partial class MainWindow : Window
 
     private async void RefreshClicked(object? sender, RoutedEventArgs args)
     {
+        if (_firstScreen is { } preparation && preparation.State != FirstScreenState.Finished)
+        {
+            await RefreshFirstScreenAsync(preparation);
+            return;
+        }
         if (_createdClassToOpen is { } created && _client is { } client && _school is { } school)
             await OpenCreatedClassRosterAsync(client, school, created);
         else await LoadSchoolAsync(_school, _classroom?.Id, _device);
@@ -416,6 +429,7 @@ public sealed partial class MainWindow : Window
         ResetSchoolServerStatus();
         CloseClassRoster();
         ResetClassCreation();
+        ResetFirstScreen();
         _client = null;
         _showClassStudy = false;
         _showSchoolAudit = false;
@@ -443,11 +457,13 @@ public sealed partial class MainWindow : Window
         _classroom = room;
         _device = null;
         _deviceButtons.Clear();
+        _admissionButtons.Clear();
         ScreenCards.Children.Clear();
         ScreensHeading.IsVisible = EquipmentCard.IsVisible = EquipmentDetails.IsVisible = false;
         EquipmentDevice.Text = EquipmentStatus.Text = null;
         ClassContext.Text = room is null ? _school?.Name : $"{_school?.Name} / {ClassroomName(room)}";
         UpdateStudyWorkspace();
+        RenderFirstScreen();
     }
 
     private void ClassStudyClicked(object? sender, RoutedEventArgs args)
