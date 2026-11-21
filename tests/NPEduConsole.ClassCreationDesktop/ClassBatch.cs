@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
@@ -38,7 +39,8 @@ internal static partial class Program
             Click(Find<Button>(main, "LoginButton"));
             await Until(() => schoolPicker.Items.Cast<School>().Any(item => item.Id == access.SchoolId), "manager login");
             schoolPicker.SelectedItem = schoolPicker.Items.Cast<School>().Single(item => item.Id == access.SchoolId);
-            await Until(() => Find<Button>(main, "OpenClassCreationButton").IsEnabled && classPicker.ItemCount > 0, "school class list");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            await Until(() => Find<Button>(main, "OpenClassCreationButton").IsEffectivelyVisible && classPicker.ItemCount > 0, "school class list");
 
             if (reopen)
             {
@@ -66,18 +68,36 @@ internal static partial class Program
             await Until(() => gradePicker.Items.Cast<ClassCreationGrade>().Any(grade => grade.Id == access.BatchGradeId), "high-school grade directory");
             gradePicker.SelectedItem = gradePicker.Items.Cast<ClassCreationGrade>().Single(grade => grade.Id == access.BatchGradeId);
             Click(Find<Button>(dialog, "OpenClassBatchButton"));
-            var batch = Find<StackPanel>(dialog, "BatchFields");
+            var batch = Find<Grid>(dialog, "BatchFields");
             await Until(() => batch.IsVisible, "batch editing");
             Check(Find<TextBox>(dialog, "BatchNamePrefix").Text == "高一" &&
                 Find<TextBox>(dialog, "BatchCodePrefix").Text == "G1-C", "The selected grade supplies both default prefixes.");
+            Check(dialog.Width >= 1100 && dialog.Height >= 730, "batch workspace uses the school window size");
+            Find<TextBox>(dialog, "CreationName").Text = "单班原草稿";
+            dialog.Width = 840;
+            dialog.Height = 480;
+            Find<TextBox>(dialog, "BatchEndNumber").Text = "100";
+            Click(Find<Button>(dialog, "BatchPreviewButton"));
+            var longBatch = Find<ItemsControl>(dialog, "BatchRows");
+            await Until(() => longBatch.ItemCount == 100 && HasText(longBatch, "高一100班"), "100-row editable preview");
+            var last = CodeAt(longBatch, 100);
+            last.Focus();
+            last.BringIntoView();
+            await Until(() => Find<ScrollViewer>(dialog, "BatchRowScroll").Offset.Y > 0 && last.IsFocused, "last editable row is focusable in the short window");
+            await Capture(dialog, output, "00-narrow-100-rows");
+            Check(FitsBatchWindow(dialog, Find<Grid>(dialog, "BatchColumnLabels")) &&
+                FitsBatchWindow(dialog, Find<Border>(dialog, "BatchWorkspaceActions")), "headers and commands stay inside the short window after scrolling");
+            Click(Find<Button>(dialog, "BatchCancelButton"));
+            await AssertBatchFocusReturnAsync(dialog, "OpenClassBatchButton");
+            Check(Find<TextBox>(dialog, "CreationName").Text == "单班原草稿", "return restores the original draft");
+            Click(Find<Button>(dialog, "OpenClassBatchButton"));
             Find<TextBox>(dialog, "BatchEndNumber").Text = "12";
             Click(Find<Button>(dialog, "BatchPreviewButton"));
             var batchRows = Find<ItemsControl>(dialog, "BatchRows");
             await Until(() => batchRows.ItemCount == 12 && HasText(batchRows, "高一12班"), "12-row preview");
             await Capture(dialog, output, "01-preview");
 
-            TextBox RowCode(int row) => batchRows.GetVisualDescendants().OfType<TextBox>()
-                .ElementAt((row - 1) * 2);
+            TextBox RowCode(int row) => CodeAt(batchRows, row);
             var seventh = RowCode(7);
             var eighth = RowCode(8);
             Check(seventh.Text == "G1-C07" && eighth.Text == "G1-C08", "Preview fields belong to rows 7 and 8.");
@@ -88,6 +108,7 @@ internal static partial class Program
             await Until(() => validate.IsEffectivelyEnabled, "batch verification action enabled for the preview");
             Click(validate);
             await Until(() => HasWord(batchRows, "重复"), "in-batch duplicate shown before any write");
+            Check(!Find<Button>(dialog, "BatchSubmitButton").IsEnabled, "known local row errors disable saving");
             eighth.Text = "G1-C08";
             Click(validate);
             await Until(() => Feedback(dialog).Contains("核对通过"), "server revalidation after duplicate correction");
@@ -97,13 +118,22 @@ internal static partial class Program
             await Until(() => HasWord(batchRows, "本学期已有") && batchRows.ItemCount == 12, "server conflict on one preview row");
             Check(Feedback(dialog).Contains("第 7 行") && Feedback(dialog).Contains("本批未建班"),
                 "The visible summary identifies row 7 and confirms no class was written.");
-            var seventhRow = seventh.GetVisualAncestors().OfType<Grid>().Skip(1).First();
+            var seventhRow = seventh.GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("batch-row"));
             Check(HasWord(seventhRow, "G1-C07") && HasWord(seventhRow, "本学期已有"),
                 "The server conflict appears on row 7.");
             Check(RowCode(1).Text == "G1-C01" && RowCode(12).Text == "G1-C12", "The first and last draft rows are retained.");
-            await Until(() => seventh.IsFocused, "the row 7 code field receives focus");
+            await AssertBatchConflictFocusAsync(dialog, 7, "G1-C07");
+            Check(!submit.IsEnabled && validate.IsEnabled, "a server row conflict disables saving and leaves revalidation available");
             await Capture(dialog, output, "02-row-07-conflict");
+            dialog.Width = 840;
+            dialog.Height = 480;
+            Click(Find<Button>(dialog, "BatchLocateIssueButton"));
+            await Until(() => FitsBatchWindow(dialog, seventh), "row 7 remains reachable at 840 by 480");
+            Check(FitsBatchWindow(dialog, Find<Grid>(dialog, "BatchColumnLabels")) &&
+                FitsBatchWindow(dialog, submit), "headers and commit remain visible while fixing row 7");
+            await Capture(dialog, output, "02-row-07-conflict-compact");
             seventh.Text = "G1-C07-FIX";
+            Check(!submit.IsEnabled, "row edits require a fresh successful check after a confirmed conflict");
             Click(validate);
             await Until(() => Feedback(dialog).Contains("核对通过"), "corrected row is now available");
             await Until(() => submit.IsEnabled, "corrected batch can be submitted");
@@ -126,7 +156,7 @@ internal static partial class Program
             Check(HasText(batchRows, "G1-C07-FIX"), "The corrected row is still present in the restored payload.");
             Click(checkReceipt);
             var results = Find<ListBox>(dialog, "BatchResults");
-            await Until(() => results.ItemCount == 12 && Find<StackPanel>(dialog, "BatchResultPane").IsVisible, "12 committed rows recovered by receipt");
+            await Until(() => results.ItemCount == 12 && Find<Grid>(dialog, "BatchResultPane").IsVisible, "12 committed rows recovered by receipt");
             results.SelectedIndex = 2;
             var openRoster = Find<Button>(dialog, "BatchOpenRosterButton");
             await Until(() => openRoster.IsEnabled, "class selected from the receipt");
@@ -158,6 +188,8 @@ internal static partial class Program
             Finish("FAIL: " + error, 1);
         }
 
+        static TextBox CodeAt(ItemsControl rows, int row) => rows.GetVisualDescendants().OfType<TextBox>()
+            .Single(field => AutomationProperties.GetAutomationId(field) == $"BatchClassCode-{row}");
         static bool HasText(Control control, string expected) =>
             control.GetVisualDescendants().OfType<TextBox>().Any(field => field.Text == expected);
         static bool HasWord(Control control, string expected) =>

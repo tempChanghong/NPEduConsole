@@ -79,7 +79,12 @@ public sealed partial class ClassCreationWindow : Window
         if (pendingBatch is not null)
         {
             RestorePendingBatch(pendingBatch);
-            Opened += (_, _) => _ = LoadContextAsync();
+            Opened += async (_, _) =>
+            {
+                ExpandBatchWorkspace();
+                await LoadContextAsync();
+                if (!_closed && BatchVerifyReceiptButton.IsEffectivelyVisible) BatchVerifyReceiptButton.Focus();
+            };
         }
         else if (pendingGrade is not null) RestorePendingGrade(pendingGrade);
         else if (pending is null)
@@ -308,6 +313,10 @@ public sealed partial class ClassCreationWindow : Window
         CreationFeedback.Text = message;
         CreationFeedback.IsVisible = message is not null;
         CreationFeedback.Classes.Set("creation-error", error);
+        BatchFeedback.Text = message;
+        BatchFeedback.Classes.Set("creation-error", error);
+        BatchFeedbackPanel.Classes.Set("has-issue", error);
+        BatchFeedbackPanel.IsVisible = message is not null;
     }
 
     private void Render()

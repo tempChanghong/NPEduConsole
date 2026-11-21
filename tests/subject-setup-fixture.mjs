@@ -12,6 +12,9 @@ export async function verifySubjectSetup({prisma, origin, fixture, directory, ev
   }})));
   const [math, english, physics] = await Promise.all([['MATH', '数学'], ['ENG', '英语'], ['PHY', '物理']]
     .map(([code, name]) => prisma.subject.create({data: {schoolId: school.id, code, name}})));
+  const longSubjects = await prisma.subject.createManyAndReturn({data: Array.from({length: 99}, (_, index) => ({
+    schoolId: school.id, code: 'LONG-' + String(index + 1).padStart(2, '0'), name: '预览测试学科 ' + (index + 1),
+  })), select: {id: true}});
   const teacher = await createTeacher('setupteacher', '陈老师');
   const originalTeacher = await createTeacher('originalmath', '王老师');
   const admin2 = await createTeacher('subjectadmin2', '第二管理员', 'ADMIN');
@@ -62,8 +65,21 @@ export async function verifySubjectSetup({prisma, origin, fixture, directory, ev
   assert.equal(await prisma.administrativeClassSubject.count({where: {administrativeClassId: seven.id}}), 0);
 
   const backend = new URL(origin);
-  let lost = false, checkPending = false;
+  let lost = false, firstReadbackFailed = false, checkPending = false, raceAccepted = false, saveRequests = 0;
   const relay = createServer(async (req, res) => {
+    if (req.url === '/__subject-setup/add-physics-concurrently' && req.method === 'POST') {
+      try {
+        const targets = [{classId: eight.id, subjectId: physics.id}];
+        const observed = await api(setup(seven.id) + '/preview', {method: 'POST', token: second, body: {termId: term.id, targets}});
+        const saved = await api(setup(seven.id), {method: 'POST', token: second, body: body(targets, observed)});
+        assert.equal(saved.rows[0].state, 'ADDED');
+        raceAccepted = true;
+        res.writeHead(204).end();
+      } catch (error) {
+        res.writeHead(500).end(error.message);
+      }
+      return;
+    }
     if (req.url === '/__subject-setup/check-pending' && req.method === 'POST') {
       try {
         assert.deepEqual(await missing(), [seven.id]);
@@ -72,6 +88,13 @@ export async function verifySubjectSetup({prisma, origin, fixture, directory, ev
       } catch (error) {
         res.writeHead(500).end(error.message);
       }
+      return;
+    }
+    if (req.method === 'POST' && req.url === setup(seven.id)) saveRequests++;
+    if (lost && !firstReadbackFailed && req.method === 'POST' && req.url === setup(seven.id) + '/preview') {
+      firstReadbackFailed = true;
+      req.resume();
+      res.writeHead(502).end();
       return;
     }
     const upstream = request(new URL(req.url, backend), {method: req.method, headers: {...req.headers, host: backend.host}}, reply => {
@@ -93,11 +116,15 @@ export async function verifySubjectSetup({prisma, origin, fixture, directory, ev
   try {
     const access = join(directory, 'desktop.json');
     await writeFile(access, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id,
-      schoolCode: school.code, password: pin, gradeId: grade.id, sevenId: seven.id, eightId: eight.id, nineId: nine.id,
-      mathId: math.id, teacherId: teacher.id, emptySchoolId: emptySchool.id, emptyClassId: emptyClass.id,
+      schoolCode: school.code, password: pin, secondUsername: admin2.localUsername, gradeId: grade.id, sevenId: seven.id, eightId: eight.id, nineId: nine.id,
+      mathId: math.id, physicsId: physics.id, longSubjectIds: longSubjects.map(subject => subject.id), teacherId: teacher.id, emptySchoolId: emptySchool.id, emptyClassId: emptyClass.id,
       allowSubjectSetupTestWrites: true}), {mode: 0o600});
     await runDesktop(['--live-subject-setup', access, evidence]);
-    assert.ok(lost && checkPending);
+    assert.ok(lost && firstReadbackFailed && checkPending && raceAccepted);
+    assert.equal(saveRequests, 2, "one stale attempt, one successful write, then reopened Console only read the rules");
+    assert.equal(await prisma.administrativeClassSubject.count({where: {administrativeClassId: seven.id, subjectId: physics.id}}), 0);
+    assert.equal(await prisma.administrativeClassSubject.count({where: {administrativeClassId: eight.id, subjectId: physics.id}}), 1);
+    assert.equal(await prisma.administrativeClassSubject.count({where: {administrativeClassId: nine.id, subjectId: physics.id}}), 0);
     assert.deepEqual(await missing(), []);
     assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: seven.id, subjectId: math.id, accountId: teacher.id}}), 1);
     const ruleKey = administrativeClassId => ({administrativeClassId_subjectId: {administrativeClassId, subjectId: math.id}});

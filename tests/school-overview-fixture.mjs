@@ -110,6 +110,14 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
     async activate() {
       await prisma.academicTerm.create({data: {schoolId: other.id, academicYear: 2026, semester: 1, name: '起始学期', status: 'ACTIVE'}});
     },
+    async scale() {
+      const data = Array.from({length: 200}, (_, i) => ({
+        schoolId: school.id, administrativeClassId: i < 100 ? eight.id : restored.id,
+        name: i >= 198 ? '同步教室综合展示大屏' : '巡检屏 ' + String(i + 1).padStart(3, '0'),
+        createdByAccountId: managerId, tokenHash: hash(randomSecret()),
+      }));
+      await prisma.classroomScreenBinding.createMany({data});
+    },
   };
   const destination = new URL(origin);
   const relay = createServer(async (req, res) => {

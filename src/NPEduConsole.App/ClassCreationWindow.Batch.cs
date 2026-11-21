@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Text.Json;
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -31,6 +32,7 @@ public sealed partial class ClassCreationWindow
     private bool _batchNormalizing;
     private bool _batchRowsEdited;
     private bool _batchRegenerateConfirmed;
+    private bool _batchHasRejectedRows;
     private (string Start, string End, string NamePrefix, string CodePrefix)? _batchPreviewSettings;
     private string? _batchValidatedSignature;
     private ClassCreationGrade? _batchGrade;
@@ -39,6 +41,7 @@ public sealed partial class ClassCreationWindow
     private string? _batchSubmittedSignature;
     private BatchClassReceipt? _batchReceipt;
     private ClassBatchSubmission? _pendingBatch;
+    private (double Width, double Height, PixelPoint Position)? _singleEditorBounds;
     internal event Action<ClassBatchSubmission?>? PendingBatchChanged;
     internal int? ConfirmedBatchCount { get; private set; }
 
@@ -69,7 +72,6 @@ public sealed partial class ClassCreationWindow
         }
         BatchRows.ItemsSource = _batchRows;
         BatchSummary.Text = $"待核对的原批次 · {pending.Rows.Count} 个班";
-        BatchSummary.IsVisible = true;
         ShowBatchTarget();
         SetFeedback("已恢复原批次和请求编号，请先核对结果。");
     }
@@ -90,20 +92,21 @@ public sealed partial class ClassCreationWindow
         _batchReceipt = null;
         _batchRowsEdited = false;
         _batchRegenerateConfirmed = false;
+        _batchHasRejectedRows = false;
         _batchRows.Clear();
         BatchStartNumber.Text = "1";
         BatchEndNumber.Text = "1";
         BatchNamePrefix.Text = grade.Name;
         BatchCodePrefix.Text = $"{grade.Code}-C";
-        BatchSummary.Text = null;
-        BatchSummary.IsVisible = false;
+        BatchSummary.Text = "输入起止编号和前缀生成预览，一批最多 100 个班。";
         BatchResults.ItemsSource = null;
         BatchResults.SelectedItem = null;
         BatchResultSummary.Text = null;
         BatchResultPane.IsVisible = false;
         if (!ReferenceEquals(BatchRows.ItemsSource, _batchRows)) BatchRows.ItemsSource = _batchRows;
         ShowBatchTarget();
-        SetFeedback("批量开班按年级一次创建多个班。先「生成预览」，逐行核对代码与名称后「保存开班」。");
+        SetFeedback(null);
+        ExpandBatchWorkspace();
         Render();
         BatchEndNumber.Focus();
         BatchEndNumber.SelectAll();
@@ -114,8 +117,19 @@ public sealed partial class ClassCreationWindow
         if (_closed || !_editingBatch || _request is not null || _batchUncertain || _batchSubmitting ||
             _batchValidating || _batchChecking) return;
         ResetBatchState();
+        Title = "新建行政班";
+        MinWidth = 440;
+        MinHeight = 480;
+        if (_singleEditorBounds is { } bounds)
+        {
+            Width = bounds.Width;
+            Height = bounds.Height;
+            Position = bounds.Position;
+        }
+        _singleEditorBounds = null;
         SetFeedback(_context is { } context ? CreationContextMessage(context) : null);
         Render();
+        OpenClassBatchButton.Focus();
     }
 
     private void BatchInputChanged(object? sender, RoutedEventArgs args)
@@ -176,11 +190,11 @@ public sealed partial class ClassCreationWindow
         _batchPreviewSettings = CurrentBatchSettings();
         _batchRowsEdited = false;
         _batchRegenerateConfirmed = false;
+        _batchHasRejectedRows = false;
         _batchValidatedSignature = null;
         BatchResults.SelectedItem = null;
-        BatchSummary.Text = $"预览 {_batchRows.Count} 个班：{_batchRows[0].Name} … {_batchRows[^1].Name}；" +
-            $"代码 {_batchRows[0].Code} … {_batchRows[^1].Code}";
-        BatchSummary.IsVisible = true;
+        BatchSummary.Text = $"预览 {_batchRows.Count} 个班 · {start} 至 {end} 号";
+        BatchRowScroll.Offset = default;
         SetFeedback($"已生成 {_batchRows.Count} 行预览。可逐行修改名称、代码或学生可选，再点「核对」。");
         Render();
     }
@@ -216,7 +230,7 @@ public sealed partial class ClassCreationWindow
             }
             else
             {
-                SetFeedback($"{FirstIssueMessage(issues)} 草稿已保留。修正后可保存。", error: true);
+                SetFeedback($"{FirstIssueMessage(issues)} 草稿已保留。修正后请重新核对。", error: true);
                 CloseNotice = "批量开班核对未通过：草稿已保留。";
             }
         }
@@ -238,7 +252,7 @@ public sealed partial class ClassCreationWindow
     private async Task SubmitBatchAsync()
     {
         if (_closed || _client is not { } client || _context is not { } context || _batchGrade is not { } grade ||
-            _request is not null || _blocked || _contextInvalid || _batchUnsupported || BatchSettingsChanged || !_editingBatch) return;
+            _request is not null || _blocked || _contextInvalid || _batchUnsupported || _batchHasRejectedRows || BatchSettingsChanged || !_editingBatch) return;
         if (!TryBuildBatchRows(out var rows, out string? localError))
         {
             SetFeedback(localError, error: true);
@@ -288,7 +302,7 @@ public sealed partial class ClassCreationWindow
             {
                 SetPendingBatch(null);
                 ApplyBatchIssues(issues);
-                SetFeedback($"{FirstIssueMessage(issues)} 本批未建班，草稿已保留。", error: true);
+                SetFeedback($"{FirstIssueMessage(issues)} 本批未建班，草稿已保留。修正后请重新核对。", error: true);
                 CloseNotice = "批量开班未保存：服务器列出需修正的行，草稿已保留。";
             }
             else if (error.StatusCode is 0 or 408 or >= 500)
@@ -419,6 +433,7 @@ public sealed partial class ClassCreationWindow
 
     private void ApplyBatchIssues(IReadOnlyList<BatchClassIssue> issues)
     {
+        _batchHasRejectedRows = issues.Count > 0;
         foreach (var row in _batchRows) row.ClearError();
         int applied = 0;
         foreach (var issue in issues)
@@ -433,33 +448,47 @@ public sealed partial class ClassCreationWindow
                 _ => "本行"
             };
             string message = string.IsNullOrWhiteSpace(issue.Message) ? issue.Code : issue.Message;
-            row.SetError(row.HasError ? $"{row.Error} {field}：{message}" : $"{field}：{message}");
+            string issueValue = issue.Field == "code" ? row.Code : issue.Field == "name" ? row.Name : "";
+            string detail = string.IsNullOrWhiteSpace(issueValue) || message.Contains(issueValue, StringComparison.Ordinal)
+                ? $"{field}：{message}" : $"{field}「{issueValue}」：{message}";
+            row.SetError(row.HasError ? $"{row.Error} {detail}" : detail, issue.Field);
             applied++;
         }
         _batchValidatedSignature = null;
-        var first = issues.FirstOrDefault(issue => issue.Row >= 1 && issue.Row <= _batchRows.Count);
-        if (first is not null)
-        {
-            var row = _batchRows[first.Row - 1];
-            string label = first.Field switch
-            {
-                "name" => "班级名称",
-                "isStudentSelectable" => "允许学生自选",
-                _ => "班级代码"
-            };
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (_closed || !_editingBatch || !_batchRows.Contains(row)) return;
-                var field = BatchRows.GetVisualDescendants().OfType<Control>().FirstOrDefault(element =>
-                    ReferenceEquals(element.DataContext, row) && AutomationProperties.GetName(element) == label);
-                field?.Focus();
-                var rowPanel = field?.GetVisualAncestors().OfType<Grid>()
-                    .Where(grid => ReferenceEquals(grid.DataContext, row)).Skip(1).FirstOrDefault();
-                (rowPanel ?? field)?.BringIntoView();
-            }, DispatcherPriority.Loaded);
-        }
+        FocusFirstBatchIssue();
         if (applied < issues.Count)
             SetFeedback($"服务器指出 {issues.Count} 处问题，其中 {applied} 处已定位到行；其余请按提示整体检查。", error: true);
+    }
+
+    private void ExpandBatchWorkspace()
+    {
+        if (!_editingBatch) return;
+        _singleEditorBounds ??= (Width, Height, Position);
+        Title = "按年级批量开班";
+        MinWidth = 700;
+        BatchWorkspaceWindow.FitSchoolWindow(this);
+    }
+
+    private void BatchLocateIssueClicked(object? sender, RoutedEventArgs args) => FocusFirstBatchIssue();
+
+    private void FocusFirstBatchIssue()
+    {
+        if (_batchRows.FirstOrDefault(candidate => candidate.HasError) is not { } row) return;
+        string id = row.ErrorField switch
+        {
+            "name" => row.NameId,
+            "isStudentSelectable" => row.StudentSelectableId,
+            _ => row.CodeId
+        };
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed || !_editingBatch || !_batchRows.Contains(row) || !row.HasError) return;
+            var field = BatchRows.GetVisualDescendants().OfType<Control>().FirstOrDefault(element =>
+                ReferenceEquals(element.DataContext, row) && AutomationProperties.GetAutomationId(element) == id);
+            if (field is null || !field.IsEffectivelyEnabled) return;
+            field.Focus();
+            field.GetVisualAncestors().OfType<Border>().FirstOrDefault(border => border.Classes.Contains("batch-row"))?.BringIntoView();
+        }, DispatcherPriority.Loaded);
     }
 
     private static string FirstIssueMessage(IReadOnlyList<BatchClassIssue> issues)
@@ -499,14 +528,15 @@ public sealed partial class ClassCreationWindow
         var codes = new string[count];
         var names = new string[count];
         var messages = new List<string>?[count];
+        var fields = new string?[count];
         for (int index = 0; index < count; index++)
         {
             codes[index] = _batchRows[index].Code;
             names[index] = _batchRows[index].Name;
-            if (codes[index].Length == 0) Add(index, "班级代码：不能为空。");
+            if (codes[index].Length == 0) Add(index, "code", "班级代码：不能为空。");
             else if (!ValidCode(codes[index]))
-                Add(index, "班级代码：需为 2–64 位，以英文字母或数字开头，其余可用英文字母、数字和 . _ -。");
-            if (names[index].Length is < 1 or > 191) Add(index, "班级名称：需为 1 至 191 个字符。");
+                Add(index, "code", "班级代码：需为 2–64 位，以英文字母或数字开头，其余可用英文字母、数字和 . _ -。");
+            if (names[index].Length is < 1 or > 191) Add(index, "name", "班级名称：需为 1 至 191 个字符。");
         }
 
         var seen = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -518,17 +548,22 @@ public sealed partial class ClassCreationWindow
                 seen[codes[index]] = index;
                 continue;
             }
-            Add(first, $"班级代码：与第 {_batchRows[index].Position} 行重复。");
-            Add(index, $"班级代码：与第 {_batchRows[first].Position} 行重复。");
+            Add(first, "code", $"班级代码：与第 {_batchRows[index].Position} 行重复。");
+            Add(index, "code", $"班级代码：与第 {_batchRows[first].Position} 行重复。");
         }
 
         for (int index = 0; index < count; index++)
         {
             if (messages[index] is not { Count: > 0 } parts) continue;
-            _batchRows[index].SetError(string.Join(" ", parts));
+            _batchRows[index].SetError(string.Join(" ", parts), fields[index]);
             error ??= $"第 {_batchRows[index].Position} 行需修正。";
         }
-        if (error is not null) return false;
+        if (error is not null)
+        {
+            _batchHasRejectedRows = true;
+            FocusFirstBatchIssue();
+            return false;
+        }
 
         var list = new List<BatchClassRow>(count);
         for (int index = 0; index < count; index++)
@@ -536,7 +571,11 @@ public sealed partial class ClassCreationWindow
         rows = list;
         return true;
 
-        void Add(int index, string message) => (messages[index] ??= []).Add(message);
+        void Add(int index, string field, string message)
+        {
+            fields[index] ??= field;
+            (messages[index] ??= []).Add(message);
+        }
     }
 
     private void OnBatchRowEdited()
@@ -615,6 +654,7 @@ public sealed partial class ClassCreationWindow
     {
         if (_closed || BatchFields is null) return;
         BatchFields.IsVisible = _editingBatch;
+        StandardCreationBody.IsVisible = !_editingBatch;
         if (!_editingBatch)
         {
             OpenClassBatchButton.IsEnabled = !busy && GradeContextReady && !_editingGrade && !_editingGradeRename &&
@@ -626,14 +666,25 @@ public sealed partial class ClassCreationWindow
         bool settled = !_batchUncertain && !_batchUnsupported;
         bool canEdit = !busy && !_blocked && settled && !_contextInvalid && _batchReceipt is null;
         BatchDraftPane.IsVisible = _batchReceipt is null;
-        BatchColumnLabels.IsVisible = BatchRowScroll.IsVisible = _batchRows.Count > 0;
+        BatchRowScroll.IsVisible = _batchRows.Count > 0;
+        BatchEmpty.IsVisible = _batchRows.Count == 0;
+        BatchLocateIssueButton.IsVisible = _batchRows.Any(row => row.HasError);
+        BatchLocateIssueButton.IsEnabled = canEdit;
+        BatchCloseButton.IsEnabled = !_batchSubmitting && !_batchValidating && !_batchChecking;
+        BatchCloseButton.Content = _batchUncertain ? "关闭，稍后确认" : "关闭";
+        ReloadBatchContextButton.IsVisible = _contextInvalid && !_batchUncertain && _batchReceipt is null;
+        ReloadBatchContextButton.IsEnabled = ReloadCreationContext.IsEnabled;
+        BatchPreviewButton.IsVisible = BatchValidateButton.IsVisible = BatchSubmitButton.IsVisible =
+            _batchReceipt is null && !_batchUncertain;
+        BatchOpenRosterButton.IsVisible = BatchOpenSubjectSetupButton.IsVisible = _batchReceipt is not null;
         BatchStartNumber.IsEnabled = BatchEndNumber.IsEnabled = BatchNamePrefix.IsEnabled = BatchCodePrefix.IsEnabled = canEdit;
         BatchRows.IsEnabled = canEdit;
         BatchPreviewButton.IsEnabled = canEdit;
         BatchValidateButton.Content = _batchValidating ? "正在核对…" : _batchValidatedSignature is null ? "核对" : "重新核对";
         BatchValidateButton.IsEnabled = canEdit && !BatchSettingsChanged && _batchRows.Count > 0;
         BatchSubmitButton.Content = _batchSubmitting ? "正在保存…" : _batchUncertain ? "请先核对结果" : "保存开班";
-        BatchSubmitButton.IsEnabled = canEdit && !BatchSettingsChanged && _batchRows.Count > 0;
+        BatchSubmitButton.IsEnabled = canEdit && !_batchHasRejectedRows && !BatchSettingsChanged && _batchRows.Count > 0;
+        BatchSubmitButton.Classes.Set("accent", BatchSubmitButton.IsEnabled);
         BatchVerifyReceiptButton.IsVisible = _batchUncertain && _batchRequestId is not null;
         BatchVerifyReceiptButton.Content = _batchChecking ? "正在核对…" : "核对结果";
         BatchVerifyReceiptButton.IsEnabled = !busy && !_blocked;
@@ -648,7 +699,7 @@ public sealed partial class ClassCreationWindow
 
     private void ShowBatchTarget() =>
         BatchTarget.Text = _batchGrade is { } grade
-            ? $"目标年级：{grade.Name}（{grade.Code}）· 学期：{_context?.TermName ?? "当前学期"}"
+            ? $"{_school?.Name}  /  {_context?.TermName ?? "当前学期"}  /  {grade.Name}（{grade.Code}）"
             : null;
 
     private void ResetBatchState()
@@ -662,6 +713,7 @@ public sealed partial class ClassCreationWindow
         _batchNormalizing = false;
         _batchRowsEdited = false;
         _batchRegenerateConfirmed = false;
+        _batchHasRejectedRows = false;
         _batchPreviewSettings = null;
         _batchValidatedSignature = null;
         _batchGrade = null;
@@ -673,8 +725,7 @@ public sealed partial class ClassCreationWindow
         _batchRows.Clear();
         if (BatchFields is null) return;
         BatchTarget.Text = null;
-        BatchSummary.Text = null;
-        BatchSummary.IsVisible = false;
+        BatchSummary.Text = "输入起止编号和前缀生成预览，一批最多 100 个班。";
         BatchResults.ItemsSource = null;
         BatchResults.SelectedItem = null;
         BatchResultSummary.Text = null;
@@ -727,6 +778,10 @@ internal sealed class BatchDraftRow(int position, string code, string name, bool
     private string? _error;
 
     public string Position { get; } = position.ToString(CultureInfo.InvariantCulture);
+    public string CodeId => "BatchClassCode-" + Position;
+    public string NameId => "BatchClassName-" + Position;
+    public string StudentSelectableId => "BatchClassStudentChoice-" + Position;
+    public string? ErrorField { get; private set; }
 
     public string Code
     {
@@ -796,8 +851,17 @@ internal sealed class BatchDraftRow(int position, string code, string name, bool
         }
     }
 
-    public void SetError(string? error) => Error = error;
-    public void ClearError() => Error = null;
+    public void SetError(string error, string? field)
+    {
+        if (!HasError) ErrorField = field;
+        Error = error;
+    }
+
+    public void ClearError()
+    {
+        ErrorField = null;
+        Error = null;
+    }
 
     private void Notify(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
@@ -805,5 +869,5 @@ internal sealed class BatchDraftRow(int position, string code, string name, bool
 internal sealed class BatchResultItem(BatchCreatedClass createdClass)
 {
     public BatchCreatedClass Class { get; } = createdClass;
-    public string Text => $"{Class.Name}（{Class.Code}）";
+    public string StudentChoiceText => Class.IsStudentSelectable ? "允许" : "不允许";
 }

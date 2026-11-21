@@ -38,6 +38,12 @@ internal static partial class Program
         var tasks = View<ListBox>("OverviewTasksList");
         var screenDirectory = Find<SchoolDeviceDirectoryView>(main, "DeviceDirectory");
         var screens = screenDirectory.FindControl<ListBox>("DeviceDirectoryRows")!;
+        var nativeFilter = screenDirectory.FindControl<ComboBox>("NativeFilter")!;
+        var browserFilter = screenDirectory.FindControl<ComboBox>("BrowserFilter")!;
+        var deviceSearch = screenDirectory.FindControl<TextBox>("DeviceSearch")!;
+        var clearDirectory = screenDirectory.FindControl<Button>("ClearFilters")!;
+        var nativeRecord = Find<ContentControl>(main, "ScreenNativeEvidence");
+        var browserRecord = Find<ContentControl>(main, "ScreenBrowserEvidence");
         var refresh = View<Button>("RefreshSchoolOverviewButton");
         var showTasks = View<Button>("ShowAllOverviewButton");
         var filter = View<ComboBox>("OverviewTaskFilter");
@@ -105,16 +111,63 @@ internal static partial class Program
             Click(devicesNav);
             await Until(() => screenDirectory.IsEffectivelyVisible && screens.ItemCount > 1, "cross-class device directory opens");
             await Capture(main, output, "02-device-directory");
+            SelectStatus(nativeFilter, "AWAITING_PAIRING");
+            SelectStatus(browserFilter, "ONLINE");
+            deviceSearch.Text = "后排";
+            await Until(() => OnlyDirectoryScreen(access.WaitingScreenId), "native admission and browser heartbeat filters intersect by binding");
+            main.Width = 840;
+            main.Height = 480;
+            await Capture(main, output, "02a-device-directory-compact");
+            var compactOpen = screens.GetVisualDescendants().OfType<Button>().Single(button =>
+                button.Tag is OverviewScreenItem row && row.ScreenId == access.WaitingScreenId);
+            Check(compactOpen.TranslatePoint(new Point(compactOpen.Bounds.Width, compactOpen.Bounds.Height), main) is { } corner &&
+                corner.X <= main.Bounds.Width && corner.Y <= main.Bounds.Height, "the matching screen action fits in the compact viewport");
+            SelectStatus(browserFilter, "OFFLINE");
+            Check(screens.ItemCount == 0 && clearDirectory.IsEnabled, "no result can be cleared without losing navigation");
+            SelectStatus(browserFilter, "ONLINE");
+            deviceSearch.Text = access.WaitingScreenId;
+            await Until(() => OnlyDirectoryScreen(access.WaitingScreenId), "search matches a binding ID");
+            deviceSearch.Text = "后排";
+            main.Width = 1160;
+            main.Height = 780;
             await OpenDirectoryScreen(access.WaitingScreenId);
             await Until(() => IsOnlyScreenVisible(access.WaitingScreenId), "device directory reaches the exact binding and hides sibling cards");
             Check(Find<TextBlock>(main, "ClassWorkspaceTitle").Text == "后排待接入" &&
                 !Find<Button>(main, "OpenClassRosterButton").IsEffectivelyVisible, "the screen title names the binding and keeps class actions off the device page");
+            Check(nativeRecord.Content is DeviceEvidence { State: "AWAITING_PAIRING", HasRecord: false } &&
+                browserRecord.Content is DeviceEvidence { State: "ONLINE", HasRecord: true }, "the same binding shows independent dated browser and native evidence");
+            await Capture(main, output, "02b-single-screen-evidence");
+            await Command("fail");
+            Click(Find<Button>(main, "RefreshButton"));
+            await Until(() => IsOnlyScreenVisible(access.WaitingScreenId) && nativeRecord.Content is DeviceEvidence { State: "UNKNOWN" } &&
+                browserRecord.Content is DeviceEvidence { State: "UNKNOWN" } && Find<TextBlock>(main, "ScreenEvidenceTime").Text?.Contains("待核对") == true &&
+                !Find<ProgressBar>(main, "WorkspaceProgress").IsVisible,
+                "refresh drops prior status when the server cannot verify the detail");
+            Click(Find<Button>(main, "RefreshButton"));
+            await Until(() => IsOnlyScreenVisible(access.WaitingScreenId) && browserRecord.Content is DeviceEvidence { State: "ONLINE" },
+                "retry restores server evidence");
             Click(Find<Button>(main, "OpenScreenClassButton"));
             Check(classes.IsEffectivelyVisible && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId &&
                 Find<Button>(main, "OpenClassRosterButton").IsEffectivelyVisible,
                 "the screen's class link opens the original class with its operations available");
+            var frontEntry = main.GetVisualDescendants().OfType<Button>().Single(button =>
+                AutomationProperties.GetAutomationId(button) == "ClassScreenDetails-" + access.ReadyScreenId);
+            Click(frontEntry);
+            await Until(() => IsOnlyScreenVisible(access.ReadyScreenId) && nativeRecord.Content is DeviceEvidence { State: "REPORTED", HasRecord: true },
+                "class opens the same detail on the neighboring binding");
             Click(Find<Button>(main, "ReturnToDeviceDirectoryButton"));
-            await Until(() => screenDirectory.IsEffectivelyVisible && screens.ItemCount > 1, "device detail returns to refreshed directory");
+            await Until(() => screenDirectory.IsEffectivelyVisible && OnlyDirectoryScreen(access.WaitingScreenId) &&
+                screens.GetVisualDescendants().OfType<Button>().Any(b => b.IsFocused && b.Tag is OverviewScreenItem item && item.ScreenId == access.WaitingScreenId),
+                "the originating directory row regains focus with all three filters preserved");
+            Click(clearDirectory);
+            SelectStatus(nativeFilter, "REPAIR_REQUIRED");
+            await Until(() => OnlyDirectoryScreen(access.RestoredScreenId), "repair filter locates the original binding across classes");
+            await OpenDirectoryScreen(access.RestoredScreenId);
+            await Until(() => IsOnlyScreenVisible(access.RestoredScreenId) && nativeRecord.Content is DeviceEvidence { State: "REPAIR_REQUIRED" } evidence &&
+                evidence.Record?.StartsWith("原设备 ") == true, "detail labels the previous device's actual report");
+            Click(Find<Button>(main, "ReturnToDeviceDirectoryButton"));
+            await Until(() => screenDirectory.IsEffectivelyVisible && OnlyDirectoryScreen(access.RestoredScreenId), "repair scope is retained");
+            Click(clearDirectory);
             Click(overviewNav);
             await Until(() => Has("SCREEN_AWAITING_PAIRING", screen: access.WaitingScreenId), "overview retains the expanded queue");
             filter.SelectedIndex = 2;
@@ -159,9 +212,23 @@ internal static partial class Program
             await Until(() => Has("SCREEN_AWAITING_PAIRING", access.ClassSevenId, sevenScreen) &&
                 !Has("ADMIN_CLASS_WITHOUT_SCREEN", access.ClassSevenId), "registration changes the next step without claiming a connection");
             await Capture(main, output, "04-after-registration");
+            Click(devicesNav);
+            await Until(() => screenDirectory.IsEffectivelyVisible && screens.Items.OfType<OverviewScreenItem>().Any(r => r.ScreenId == sevenScreen),
+                "registration appears in the directory");
+            SelectStatus(nativeFilter, "AWAITING_PAIRING");
+            Check(screens.Items.OfType<OverviewScreenItem>().Select(r => r.ScreenId).Order().SequenceEqual(new[] { sevenScreen, access.WaitingScreenId }.Order()),
+                "both pending screens in different classes are visible together");
+            await Capture(main, output, "04a-cross-class-pairing");
+            await OpenDirectoryScreen(sevenScreen);
+            await Until(() => IsOnlyScreenVisible(sevenScreen) && (classes.SelectedItem as Classroom)?.Id == access.ClassSevenId,
+                "second class opens its own pending screen");
 
             await Command("pair");
-            Click(refresh);
+            Click(Find<Button>(main, "ReturnToDeviceDirectoryButton"));
+            await Until(() => screenDirectory.IsEffectivelyVisible && OnlyDirectoryScreen(access.WaitingScreenId) && deviceSearch.IsFocused,
+                "after pairing the original filter re-reads KV and restores focus when the completed row has gone");
+            Click(clearDirectory);
+            Click(overviewNav);
             await Until(() => Has("SCREEN_AWAITING_REPORT", access.ClassSevenId, sevenScreen), "authenticated terminal is paired without a first report");
             await Command("renew");
             Click(refresh);
@@ -177,16 +244,21 @@ internal static partial class Program
             await Command("report");
             Click(refresh);
             await Until(() => screens.Items.Cast<OverviewScreenItem>().Any(row => row.Title.Contains("（7）") &&
-                row.Native.Contains("已收到有效上报") && row.Native.Contains("最近记录")), "effective report time appears");
+                row.Native is { State: "REPORTED", HasRecord: true }), "effective report time appears");
             Check(!Has("SCREEN_AWAITING_REPORT", access.ClassSevenId, sevenScreen) && Has("SCREEN_AWAITING_PAIRING", screen: access.WaitingScreenId),
                 "only the task for the reported screen clears");
             await Command("restart");
             Click(refresh);
             await Until(() => screens.Items.Cast<OverviewScreenItem>().Any(row => row.Title.Contains("（7）") &&
-                row.Native.Contains("已收到有效上报")), "Host session renewal does not resurrect the finished task");
+                row.Native.State == "REPORTED"), "Host session renewal does not resurrect the finished task");
             Click(devicesNav);
             await Until(() => screenDirectory.IsEffectivelyVisible && screens.ItemCount > 1, "open directory after a first report");
             await Capture(main, output, "06-reported-and-restarted");
+            Application.Current.RequestedThemeVariant = ConsoleHighContrast.Dark;
+            await Capture(main, output, "06a-directory-high-contrast");
+            Application.Current.RequestedThemeVariant = ThemeVariant.Light;
+            SelectStatus(nativeFilter, "REPORTED");
+            deviceSearch.Text = "高二";
             Click(overviewNav);
             await Until(() => Has("SCREEN_AWAITING_PAIRING", screen: access.WaitingScreenId), "back to overview queue");
 
@@ -211,6 +283,8 @@ internal static partial class Program
             SelectSchool(access.OtherSchoolId);
             Check(inactive.IsChecked == false && !picker.IsOpen && picker.Results.All(item => item.ScreenId != access.WaitingScreenId),
                 "switching schools resets the inactive filter and clears the open picker immediately");
+            Check(nativeFilter.SelectedIndex == 0 && browserFilter.SelectedIndex == 0 && string.IsNullOrEmpty(deviceSearch.Text),
+                "switching schools clears both device filters and the previous school's search");
             await Until(() => showTasks.IsEffectivelyVisible, "the new school overview finishes loading");
             Click(showTasks);
             await Until(() => Has("NO_ACTIVE_TERM"), "the new school explains no active term");
@@ -249,7 +323,30 @@ internal static partial class Program
             await Capture(main, output, "10-compact-class");
             Check(Find<Button>(main, "OpenClassRosterButton").IsEffectivelyVisible && classes.IsEffectivelyVisible,
                 "class list and operation strip stay reachable in a compact window");
-            Finish("PASS: Windows shell, login and school selection, exact targets in tasks and device directory, filtered return and focus, registration → pairing → report, fail-closed reads, late school response, legacy entry points, light/dark and compact layout.", 0);
+            await Command("scale");
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            Click(devicesNav);
+            await Until(() => screenDirectory.IsEffectivelyVisible && screens.ItemCount >= 204, "the full directory is available for filtering");
+            var loadMs = watch.ElapsedMilliseconds;
+            await Until(() => screens.GetVisualDescendants().OfType<ListBoxItem>().Any(), "large directory has visible rows");
+            int realized = screens.GetVisualDescendants().OfType<ListBoxItem>().Count();
+            Check(realized < screens.ItemCount / 2, "the directory virtualizes rows in a short window");
+            watch.Restart();
+            deviceSearch.Text = "同步教室综合展示大屏";
+            await Until(() => screens.ItemCount == 2 && screens.GetVisualDescendants().OfType<Button>().Count(b =>
+                b.IsEffectivelyVisible && b.Tag is OverviewScreenItem row && row.Title.Contains("同步教室")) == 2, "both same-name bindings are available");
+            var filterMs = watch.ElapsedMilliseconds;
+            var twins = screens.Items.Cast<OverviewScreenItem>().ToArray();
+            Check(twins.All(row => row.Title.Contains(row.ScreenId)), "both rows identify their distinct binding");
+            await Capture(main, output, "11-duplicate-screens");
+            await OpenDirectoryScreen(twins[1].ScreenId);
+            await Until(() => IsOnlyScreenVisible(twins[1].ScreenId) && Find<TextBlock>(main, "ClassContext").Text?.Contains(twins[1].ScreenId) == true,
+                "detail retains the selected same-name screen ID");
+            Click(Find<Button>(main, "ReturnToDeviceDirectoryButton"));
+            await Until(() => screens.GetVisualDescendants().OfType<Button>().Any(b => b.IsFocused && b.Tag is OverviewScreenItem row && row.ScreenId == twins[1].ScreenId),
+                "return restores focus to the same-name screen by ID");
+            Console.WriteLine($"Directory measurement: load 204 bindings {loadMs} ms; filter to two visible bindings {filterMs} ms; {realized} realized list items; scale {main.RenderScaling}.");
+            Finish("PASS: Windows shell, cross-class dual-status filters, binding search, shared class and directory detail, independent dated browser and native evidence, filtered return and keyboard focus, registration → pairing → report, failed and late reads, legacy entries, compact and high-contrast views.", 0);
         }
         catch (Exception error) { Finish("FAIL: " + error, 1); }
 
@@ -273,6 +370,9 @@ internal static partial class Program
         bool IsOnlyScreenVisible(string id) => IsScreenVisible(id) &&
             main.GetVisualDescendants().OfType<Border>().Count(card =>
                 card.IsEffectivelyVisible && AutomationProperties.GetAutomationId(card)?.StartsWith("SchoolScreen-", StringComparison.Ordinal) == true) == 1;
+        bool OnlyDirectoryScreen(string id) => screens.Items.OfType<OverviewScreenItem>().ToArray() is [var row] && row.ScreenId == id;
+        static void SelectStatus(ComboBox box, string status) =>
+            box.SelectedItem = box.Items.OfType<ComboBoxItem>().Single(item => Equals(item.Tag, status));
         async Task OpenDirectoryScreen(string id)
         {
             var row = screens.Items.Cast<OverviewScreenItem>().Single(item => item.ScreenId == id);

@@ -307,11 +307,23 @@ public sealed partial class MainWindow : Window
         var card = new Border { Child = list, Padding = new Thickness(17, 13), Classes = { "card" }, Focusable = true };
         AutomationProperties.SetAutomationId(card, "SchoolScreen-" + screen.Id);
         _overviewScreenCards[screen.Id] = card;
-        var summary = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 12 };
-        summary.Children.Add(new TextBlock { Text = ScreenDisplayName(screen), FontSize = 16, FontWeight = FontWeight.SemiBold,
+        var summary = new Grid { ColumnDefinitions = new("*,Auto,Auto"), ColumnSpacing = 8 };
+        summary.Children.Add(new TextBlock { Text = ScreenDisplayName(screen), Classes = { "class-screen-name" }, FontSize = 16, FontWeight = FontWeight.SemiBold,
             TextWrapping = TextWrapping.Wrap, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
+        summary.Children.Add(new TextBlock { Text = "绑定设备", Classes = { "screen-devices-heading", "label" }, FontSize = 18,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
+        var details = new Button { Content = "查看大屏", Classes = { "action", "class-screen-entry" } };
+        AutomationProperties.SetAutomationId(details, "ClassScreenDetails-" + screen.Id);
+        AutomationProperties.SetName(details, $"查看大屏：{ScreenDisplayName(screen)}");
+        details.Click += async (_, _) =>
+        {
+            if (_page == ShellPage.Classes && _classroom is { TermId: { } termId } room && room.Screens.Contains(screen))
+                await OpenShellTargetAsync(room.Id, screen.Id, termId);
+        };
+        Grid.SetColumn(details, 1);
+        summary.Children.Add(details);
         var replacement = BuildScreenReplacementButton(screen);
-        Grid.SetColumn(replacement, 1);
+        Grid.SetColumn(replacement, 2);
         summary.Children.Add(replacement);
         list.Children.Add(summary);
         if (screen.DeviceOverviewUnavailable)
@@ -432,6 +444,8 @@ public sealed partial class MainWindow : Window
         }
         if (_createdClassToOpen is { } created && _client is { } client && _school is { } school)
             await OpenCreatedClassRosterAsync(client, school, created);
+        else if (_page == ShellPage.Screen)
+            await Task.WhenAll(SchoolOverviewWorkspace.RefreshAsync(), LoadSchoolAsync(_school, _classroom?.Id, _device));
         else await LoadSchoolAsync(_school, _classroom?.Id, _device);
     }
 
@@ -537,6 +551,7 @@ public sealed partial class MainWindow : Window
         CloseSoftwareMaintenance();
         ResetEquipmentView();
         _classroom = room;
+        ScreenEvidenceCard.IsVisible = false;
         _device = null;
         _deviceButtons.Clear();
         _admissionButtons.Clear();
@@ -544,7 +559,6 @@ public sealed partial class MainWindow : Window
         ScreenCards.Children.Clear();
         ScreensHeading.IsVisible = EquipmentCard.IsVisible = EquipmentDetails.IsVisible = false;
         EquipmentDevice.Text = EquipmentStatus.Text = null;
-        ClassContext.Text = room is null ? _school?.Name : $"{_school?.Name} / {ClassroomName(room)}";
         UpdateStudyWorkspace();
         RenderFirstScreen();
     }
@@ -582,10 +596,13 @@ public sealed partial class MainWindow : Window
         if (show) CloseScreenReplacement();
         OpenClassStudyButton.IsVisible = _page != ShellPage.Screen && _classroom?.IsActive == true;
         OpenClassStudyButton.Content = show ? "返回班级详情" : "本班学校自习";
-        string? screenName = _page == ShellPage.Screen
-            ? _classroom?.Screens.FirstOrDefault(screen => screen.Id == _detailScreenId)?.Name : null;
+        var screen = _page == ShellPage.Screen ? _classroom?.Screens.FirstOrDefault(item => item.Id == _detailScreenId) : null;
+        ClassContext.Text = _classroom is null ? _school?.Name : $"{_school?.Name} / {ClassroomName(_classroom)}";
+        if (screen is not null && _classroom!.Screens.Any(item => item.Id != screen.Id && item.Name == screen.Name))
+            ClassContext.Text += $" / 绑定 {screen.Id}";
         ClassWorkspaceTitle.Text = show ? "本班学校自习" : _classroom?.IsActive == false ? "已停用班级"
-            : _page == ShellPage.Screen ? screenName ?? "大屏详情" : "班级详情";
+            : _page == ShellPage.Screen ? screen?.Name ?? "大屏详情" : "班级详情";
+        ToolTip.SetTip(ClassWorkspaceTitle, screen?.Name);
         ClassDeviceWorkspace.IsVisible = !show;
         StudyWorkspace.IsVisible = show;
         if (show) StudyWorkspace.SetScope(_client, _school?.Id, _classroom?.TermId, _classroom);

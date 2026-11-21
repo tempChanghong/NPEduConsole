@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation;
+using Avalonia.Input;
+using Avalonia.Styling;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
@@ -10,9 +12,9 @@ using NPEduConsole.Core;
 
 internal static partial class Program
 {
-    private sealed record SubjectAccess(string Origin, string SchoolId, string SchoolCode, string Password, string GradeId,
-        string SevenId, string EightId, string NineId, string MathId, string TeacherId, string EmptySchoolId, string EmptyClassId,
-        bool AllowSubjectSetupTestWrites);
+    private sealed record SubjectAccess(string Origin, string SchoolId, string SchoolCode, string Password, string SecondUsername, string GradeId,
+        string SevenId, string EightId, string NineId, string MathId, string PhysicsId, string TeacherId, string EmptySchoolId, string EmptyClassId,
+        bool AllowSubjectSetupTestWrites, string[] LongSubjectIds);
 
     private static int StartSubjectSetup(string path, string output)
     {
@@ -45,12 +47,59 @@ internal static partial class Program
             await Until(() => rooms.IsEffectivelyVisible && rooms.Items.Cast<Classroom>().Any(item => item.Id == access.SevenId), "school classes");
             rooms.SelectedItem = rooms.Items.Cast<Classroom>().Single(item => item.Id == access.SevenId);
             await Until(() => Find<Button>(main, "OpenSubjectSetupButton").IsEffectivelyVisible, "class details setup entry");
+            VerifyBatchPlacementMath();
+            var initialPosition = main.Position;
+            if (main.Screens.ScreenFromWindow(main) is { } currentScreen)
+                main.Position = new PixelPoint(currentScreen.WorkingArea.Right - 390, currentScreen.WorkingArea.Bottom - 260);
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize.Width <= 850 && main.ClientSize.Height <= 490, "short school window");
             Click(Find<Button>(main, "OpenSubjectSetupButton"));
             var setup = await FindSetup();
+            CheckBatchWindowOnScreen(setup);
             Check(Choice(setup, "Class", access.SevenId).IsChecked == true &&
                 Choice(setup, "Class", access.EightId).IsChecked == false, "class details defaults to the selected class");
+            Choice(setup, "Subject", access.MathId).IsChecked = true;
+            foreach (string id in access.LongSubjectIds) Choice(setup, "Subject", id).IsChecked = true;
+            Click(Find<Button>(setup, "SubjectSetupPreviewButton"));
+            var longList = Find<ListBox>(setup, "SubjectSetupRows");
+            await Until(() => longList.ItemCount == 100, "100 pairs in a real KV preview");
+            var last = longList.Items.Cast<SubjectSetupCell>().Last();
+            longList.SelectedItem = last;
+            longList.ScrollIntoView(last);
+            await Until(() => longList.GetVisualDescendants().OfType<CheckBox>().Any(control =>
+                AutomationProperties.GetAutomationId(control) == last.ToggleId && FitsBatchWindow(setup, control)),
+                "the last row is reachable after scrolling");
+            Check(FitsBatchWindow(setup, Find<Grid>(setup, "SubjectSetupColumnLabels")) &&
+                FitsBatchWindow(setup, Find<Border>(setup, "SubjectSetupActions")), "subject headers and actions stay visible while browsing 100 pairs");
+            await Capture(setup, output, "00-narrow-100-pairs");
             setup.Close();
             await Until(() => !setup.IsVisible, "close setup without writing");
+            Click(Find<Button>(main, "OpenSubjectSetupButton"));
+            setup = await FindSetup();
+            Choice(setup, "Class", access.EightId).IsChecked = true;
+            Choice(setup, "Class", access.NineId).IsChecked = true;
+            Choice(setup, "Subject", access.PhysicsId).IsChecked = true;
+            Click(Find<Button>(setup, "SubjectSetupPreviewButton"));
+            var raceList = Find<ListBox>(setup, "SubjectSetupRows");
+            await Until(() => raceList.ItemCount == 3, "all three physics rules were absent at preview");
+            var excluded = await FindPair(raceList, access.SevenId, access.PhysicsId);
+            excluded.IsChecked = false;
+            using (var race = await fixture.PostAsync("/__subject-setup/add-physics-concurrently", null))
+                Check(race.IsSuccessStatusCode, "the second administrator adds only class 8 physics");
+            Click(Find<Button>(setup, "SubjectSetupApplyButton"));
+            await Until(() => raceList.Items.Cast<SubjectSetupCell>().Any(cell => cell.Row.ClassId == access.EightId &&
+                cell.Row.State == "PRESENT" && cell.Detail == "预览：将新增 · 当前：已随班开设"),
+                "stale result shows the previous and current rule on the affected class");
+            await AssertSubjectConflictFocusAsync(setup, access.EightId, access.PhysicsId);
+            Check(raceList.Items.Cast<SubjectSetupCell>().Single(cell => cell.Row.ClassId == access.SevenId).IsExcluded &&
+                !Find<Button>(setup, "SubjectSetupApplyButton").IsEnabled, "the stale attempt keeps explicit exclusion and requires a new preview");
+            await Capture(setup, output, "00-stale-now-present");
+            setup.Close();
+            await Until(() => !setup.IsVisible && main.IsEnabled, "close the stale review");
+            main.Position = initialPosition;
+            main.Width = 1160;
+            main.Height = 780;
 
             Click(Find<Button>(main, "OpenTeachingButton"));
             var empty = await FindTeaching();
@@ -70,17 +119,67 @@ internal static partial class Program
                 cells.Single(cell => cell.Row.ClassId == access.NineId).Row.State == "WALKING_CONFLICT", "three precise preview states");
             var save = Find<Button>(setup, "SubjectSetupApplyButton");
             Check(!save.IsEnabled, "the walking conflict disables save");
+            Check(setup.Width >= 1100 && setup.Height >= 730, "setup uses the school window size even from teaching");
+            Check(Find<TextBlock>(setup, "SubjectSetupScope").Text?.Contains("当前学期 · 从高一（7）班进入") == true,
+                "scope labels class 7 as the entry rather than the batch scope");
+            Check(Find<TextBlock>(setup, "SubjectSetupCount").Text?.Contains("纳入 3 个班级（已选 3 个）") == true,
+                "the preview lists the actual and originally selected class counts");
+            await AssertSubjectConflictFocusAsync(setup, access.NineId, access.MathId);
             await Capture(setup, output, "01-three-preview-states");
+            var previousTheme = Application.Current!.RequestedThemeVariant;
+            Application.Current.RequestedThemeVariant = ThemeVariant.Light;
+            await Capture(setup, output, "01-three-preview-states-light");
+            Application.Current.RequestedThemeVariant = previousTheme;
+            var filter = Find<CheckBox>(setup, "SubjectSetupConflictFilter");
+            filter.IsChecked = true;
+            Check(list.ItemCount == 1 && ((SubjectSetupCell)list.Items[0]!).Row.ClassId == access.NineId,
+                "conflict filter narrows to the exact class and subject");
+            filter.IsChecked = false;
             var conflict = cells.Single(cell => cell.Row.ClassId == access.NineId);
             list.ScrollIntoView(conflict);
             CheckBox? toggle = null;
             await Until(() => (toggle = list.GetVisualDescendants().OfType<CheckBox>()
                 .FirstOrDefault(check => AutomationProperties.GetAutomationId(check) == conflict.ToggleId)) is not null,
                 "resolve the actual exclusion control");
-            toggle!.IsChecked = false;
+            toggle!.Focus();
+            toggle.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Space, Source = toggle });
+            toggle.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyUpEvent, Key = Key.Space, Source = toggle });
             await Until(() => save.IsEnabled, "unchecking only the conflicted cell enables save");
             Check(Choice(setup, "Class", access.NineId).IsChecked == true && list.ItemCount == 3, "the rest of the draft remains");
+            Check(Find<TextBlock>(setup, "SubjectSetupCount").Text?.Contains("纳入 2 个班级（已选 3 个）") == true,
+                "excluding the only pair for class 9 updates the included class count without changing selected classes");
+            await Capture(setup, output, "01-excluded-two-of-three");
             Click(save);
+            var readback = Find<Button>(setup, "SubjectSetupReadButton");
+            await Until(() => readback.Content?.ToString() == "核对保存结果" && readback.IsEffectivelyEnabled,
+                "lost reply and a failed first readback leave the selection locked");
+            Check(!save.IsEffectivelyVisible && list.IsEffectivelyEnabled, "the pending list can be reviewed but cannot be submitted");
+            Check(!(await FindPair(list, access.SevenId, access.MathId)).IsEffectivelyEnabled,
+                "pending pairs remain readable and cannot be changed");
+            await Capture(setup, output, "02-pending-readback");
+            setup.Close();
+            await Until(() => !setup.IsVisible && empty.IsEnabled, "close the unconfirmed setup without clearing the request");
+            empty.Close();
+            await Until(() => !empty.IsVisible && main.IsEnabled, "return to the classroom entry");
+            await CheckOtherSessionDoesNotSeePending();
+            await ChooseClass(main, access.EmptySchoolId, access.EmptyClassId);
+            Click(Find<Button>(main, "OpenSubjectSetupButton"));
+            var otherSchoolSetup = await FindSetup();
+            Check(Find<ListBox>(otherSchoolSetup, "SubjectSetupRows").ItemCount == 0 &&
+                Find<Button>(otherSchoolSetup, "SubjectSetupReadButton").Content?.ToString() == "刷新目录",
+                "the same signed-in account cannot see another school's draft");
+            otherSchoolSetup.Close();
+            await Until(() => !otherSchoolSetup.IsVisible && main.IsEnabled, "return from other school in the same session");
+            await ChooseClass(main, access.SchoolId, access.SevenId);
+            Click(Find<Button>(main, "OpenSubjectSetupButton"));
+            setup = await FindSetup();
+            list = Find<ListBox>(setup, "SubjectSetupRows");
+            readback = Find<Button>(setup, "SubjectSetupReadButton");
+            await Until(() => list.ItemCount == 3, "reopening from the class workspace restores all three rows");
+            await AssertSubjectFocusReturnAsync(setup, "SubjectSetupReadButton");
+            Check(list.Items.Cast<SubjectSetupCell>().Single(cell => cell.Row.ClassId == access.NineId).IsExcluded,
+                "the walking conflict remains excluded in the reopened selection");
+            Click(readback);
             await Until(() => Find<TextBlock>(setup, "SubjectSetupFeedback").Text?.Contains("服务器当前规则与本次选择一致") == true,
                 "lost save reply is verified from KV");
             await Capture(setup, output, "02-saved-and-verified");
@@ -99,7 +198,6 @@ internal static partial class Program
             Click(apply);
             await Until(() => Find<TextBlock>(teaching, "TeachingFeedback").Text?.Contains("已保存 1 个班") == true, "teacher is assigned");
             teaching.Close();
-            empty.Close();
             Click(Find<Button>(main, "OpenSchoolOverviewButton"));
             var overview = Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace");
             await ExpandTaskQueue(overview);
@@ -158,6 +256,53 @@ internal static partial class Program
             }
             catch (Exception captureError) { System.Console.Error.WriteLine(captureError.Message); }
             Finish(error.ToString(), 1);
+        }
+
+        async Task ChooseClass(MainWindow window, string schoolId, string classId)
+        {
+            var schoolPicker = Find<ComboBox>(window, "SchoolPicker");
+            await Until(() => schoolPicker.Items.Cast<School>().Any(school => school.Id == schoolId), "authorized school");
+            schoolPicker.SelectedItem = schoolPicker.Items.Cast<School>().Single(school => school.Id == schoolId);
+            Click(Find<Button>(window, "OpenClassWorkspaceButton"));
+            var classPicker = Find<ListBox>(window, "ClassPicker");
+            await Until(() => classPicker.IsEffectivelyVisible && classPicker.Items.Cast<Classroom>().Any(room => room.Id == classId),
+                "class in the selected school");
+            classPicker.SelectedItem = classPicker.Items.Cast<Classroom>().Single(room => room.Id == classId);
+            await Until(() => Find<Button>(window, "OpenSubjectSetupButton").IsEffectivelyVisible, "setup entry for the current class");
+        }
+
+        async Task CheckOtherSessionDoesNotSeePending()
+        {
+            var otherMain = new MainWindow { Width = 840, Height = 480 };
+            otherMain.Show();
+            try
+            {
+                Find<TextBox>(otherMain, "ServerAddress").Text = access.Origin;
+                Find<TextBox>(otherMain, "SchoolCode").Text = access.SchoolCode;
+                Find<TextBox>(otherMain, "Username").Text = access.SecondUsername;
+                Find<TextBox>(otherMain, "Password").Text = access.Password;
+                Click(Find<Button>(otherMain, "LoginButton"));
+                await ChooseClass(otherMain, access.SchoolId, access.SevenId);
+                Click(Find<Button>(otherMain, "OpenSubjectSetupButton"));
+                var otherSetup = await FindSetup();
+                Check(Find<ListBox>(otherSetup, "SubjectSetupRows").ItemCount == 0 &&
+                    Find<Button>(otherSetup, "SubjectSetupReadButton").Content?.ToString() == "刷新目录",
+                    "an independent authorized account cannot see the previous account's draft");
+                otherSetup.Close();
+                await Until(() => !otherSetup.IsVisible && otherMain.IsEnabled, "close the second account's editor");
+                await SignOut(otherMain);
+            }
+            finally { otherMain.Close(); }
+            main.Activate();
+        }
+
+        async Task<CheckBox> FindPair(ListBox list, string roomId, string subjectId)
+        {
+            CheckBox? result = null;
+            await Until(() => (result = list.GetVisualDescendants().OfType<CheckBox>().FirstOrDefault(control =>
+                AutomationProperties.GetAutomationId(control) == $"SubjectSetupPair-{roomId}-{subjectId}" && control.IsEffectivelyVisible))
+                is not null, "the pair editor is realized");
+            return result!;
         }
 
         async Task<SubjectSetupWindow> FindSetup()

@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
@@ -80,6 +81,7 @@ public sealed partial class MainWindow
     {
         ShellTermName.Text = snapshot?.Term?.Name ?? (snapshot is not null ? "暂无启用学期" : null);
         DeviceDirectory.SetSnapshot(snapshot, status);
+        UpdateScreenEvidence();
     }
 
     private void SetSearchRooms(IReadOnlyList<Classroom> rooms, string message)
@@ -109,11 +111,21 @@ public sealed partial class MainWindow
         if (_page != ShellPage.Screen || _classroom is null) return;
         var fromOverview = _overviewJourney;
         var fromDirectory = _directoryReturnScreenId;
+        var screenId = _detailScreenId;
+        var room = _classroom;
         ChangePage(ShellPage.Classes);
         _overviewJourney = fromOverview;
         _directoryReturnScreenId = fromDirectory;
         UpdateShellPage();
-        ClassPicker.Focus();
+        if (screenId is not null && _overviewScreenCards.TryGetValue(screenId, out var card))
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_page != ShellPage.Classes || room != _classroom) return;
+                var action = card.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => b.Classes.Contains("class-screen-entry"));
+                if (action is not null) { action.BringIntoView(); action.Focus(); }
+                else ClassPicker.Focus();
+            }, DispatcherPriority.Loaded);
+        else ClassPicker.Focus();
     }
 
     private async Task OpenClassDirectoryAsync()
@@ -156,8 +168,14 @@ public sealed partial class MainWindow
     private void ApplyScreenVisibility()
     {
         foreach (var (id, card) in _overviewScreenCards)
+        {
             card.IsVisible = _page != ShellPage.Screen || id == _detailScreenId;
+            card.Classes.Set("single-screen", _page == ShellPage.Screen);
+            if (_admissionButtons.TryGetValue(id, out var configure)) configure.Classes.Set("accent", _page == ShellPage.Screen);
+        }
 
+        ScreensHeading.IsVisible = _page == ShellPage.Classes && _overviewScreenCards.Count > 0;
+        UpdateScreenEvidence();
         if (_page == ShellPage.Screen && _detailScreenId is { } expectedScreen && _classroom is not null)
         {
             if (_overviewScreenCards.ContainsKey(expectedScreen))
@@ -168,6 +186,21 @@ public sealed partial class MainWindow
             ScreensHeading.IsVisible = false;
             SetWorkspaceMessage("当前班级已找不到这台大屏。请返回并刷新核对。", isError: true);
         }
+    }
+
+    private void UpdateScreenEvidence()
+    {
+        if (_page != ShellPage.Screen || _detailScreenId is not { } id || _classroom is not { } room ||
+            !_overviewScreenCards.ContainsKey(id))
+        {
+            ScreenEvidenceCard.IsVisible = false;
+            return;
+        }
+        var row = DeviceDirectory.FindEvidence(_school?.Id, room.TermId, room.Id, id);
+        ScreenEvidenceCard.IsVisible = true;
+        ScreenNativeEvidence.Content = row?.Native ?? DeviceEvidence.Unknown;
+        ScreenBrowserEvidence.Content = row?.Browser ?? DeviceEvidence.Unknown;
+        ScreenEvidenceTime.Text = DeviceDirectory.EvidenceStatus(row is not null);
     }
 
     private async Task OpenSearchTargetAsync(ShellSearchItem item)
@@ -203,16 +236,20 @@ public sealed partial class MainWindow
                 else SetWorkspaceMessage(message, isError: true);
                 return;
             }
-            bool fromDevices = source == ShellPage.Devices || _directoryReturnScreenId is not null;
+            var returnScreen = source == ShellPage.Devices ? screenId : _directoryReturnScreenId;
+            bool fromOverview = source == ShellPage.Overview || _overviewJourney;
             ChangePage(screenId is null ? ShellPage.Classes : ShellPage.Screen);
             _detailScreenId = screenId;
-            _directoryReturnScreenId = fromDevices ? screenId : null;
-            _overviewJourney = source == ShellPage.Overview;
+            _directoryReturnScreenId = returnScreen;
+            _overviewJourney = fromOverview;
             UpdateShellPage();
             ApplyScreenVisibility();
             UpdateStudyWorkspace();
-            if (screenId is not null && _overviewScreenCards.TryGetValue(screenId, out var target))
-                FocusScreenTarget(target, client, school);
+            if (screenId is not null && ScreenEvidenceCard.IsVisible)
+            {
+                FocusScreenTarget(ScreenEvidenceCard, client, school);
+                if (source == ShellPage.Classes) await SchoolOverviewWorkspace.RefreshAsync();
+            }
             else ClassPicker.Focus();
         }
         finally

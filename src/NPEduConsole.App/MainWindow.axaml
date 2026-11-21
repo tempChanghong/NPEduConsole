@@ -3,6 +3,12 @@
         Title="NPEduConsole · 学校管理控制台" Width="1160" Height="780" MinWidth="720" MinHeight="480"
         WindowStartupLocation="CenterScreen">
   <Window.Styles>
+    <Style Selector="Border.single-screen Button.class-screen-entry, Border.single-screen TextBlock.class-screen-name, TextBlock.screen-devices-heading">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Border.single-screen TextBlock.screen-devices-heading">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
     <Style Selector="TextBlock.school-server-warning">
       <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
@@ -236,10 +242,10 @@
               </Grid>
             </Border>
       <Grid x:Name="ClassManagementWorkspace" Grid.Column="1" RowDefinitions="Auto,Auto,*">
-        <Grid RowDefinitions="Auto,Auto" RowSpacing="10" Margin="21,18,21,11">
+        <Grid RowDefinitions="Auto,Auto" RowSpacing="10" Margin="29,18,29,11">
           <StackPanel Spacing="5">
             <TextBlock x:Name="ClassContext" Classes="muted" TextWrapping="Wrap" />
-            <TextBlock x:Name="ClassWorkspaceTitle" Text="班级详情" FontSize="25" FontWeight="SemiBold" />
+            <TextBlock x:Name="ClassWorkspaceTitle" Text="班级详情" FontSize="25" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
           </StackPanel>
           <WrapPanel Grid.Row="1" ItemSpacing="8" LineSpacing="6" HorizontalAlignment="Left" VerticalAlignment="Center">
             <Button x:Name="ReturnToDeviceDirectoryButton" Classes="action" Content="返回设备目录" Click="OpenDeviceDirectoryClicked" IsVisible="False" />
@@ -279,6 +285,24 @@
               </Grid>
             </Border>
             <TextBlock x:Name="ScreensHeading" Text="绑定大屏和设备" FontSize="18" FontWeight="SemiBold" IsVisible="False" />
+            <Border x:Name="ScreenEvidenceCard" IsVisible="False" Classes="card" Padding="19,15"
+                    Focusable="True" AutomationProperties.Name="大屏接入记录">
+              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,*" RowSpacing="13" ColumnSpacing="17">
+                <Grid Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                  <TextBlock Text="接入记录" Classes="label" FontSize="18" />
+                  <TextBlock Grid.Column="1" x:Name="ScreenEvidenceTime" Classes="muted" FontSize="12"
+                             VerticalAlignment="Center" HorizontalAlignment="Right" TextWrapping="Wrap" />
+                </Grid>
+                <StackPanel Grid.Row="1" Spacing="6">
+                  <TextBlock Text="NPEduTools 接入" Classes="muted" FontSize="13" />
+                  <ContentControl x:Name="ScreenNativeEvidence" ContentTemplate="{StaticResource ScreenEvidenceTemplate}" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="6">
+                  <TextBlock Text="网页值守" Classes="muted" FontSize="13" />
+                  <ContentControl x:Name="ScreenBrowserEvidence" ContentTemplate="{StaticResource ScreenEvidenceTemplate}" />
+                </StackPanel>
+              </Grid>
+            </Border>
             <StackPanel x:Name="ScreenCards" Spacing="12" />
             <local:ScreenReplacementView x:Name="ScreenReplacementWorkspace" IsVisible="False" />
             <Border x:Name="ClassAdmissionCard" Classes="card" Padding="20" IsVisible="False">

@@ -1,40 +1,78 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolDeviceDirectoryView">
-  <Grid Margin="25,20,25,22" RowDefinitions="Auto,Auto,*" RowSpacing="11">
+  <UserControl.Styles>
+    <Style Selector="TextBox#DeviceSearch">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="TextBox#DeviceSearch:focus">
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+    </Style>
+    <Style Selector="TextBlock.column-caption">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="ListBox#DeviceDirectoryRows > ListBoxItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+  </UserControl.Styles>
+  <Grid Margin="25,20,25,20" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
       <TextBlock Text="教室设备" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center" />
-      <Button Grid.Column="1" Content="刷新设备目录" Classes="action" Click="RefreshClicked" />
+      <Button Content="刷新目录" Grid.Column="1" Classes="action" Click="RefreshClicked" />
     </Grid>
-    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="16">
-      <TextBlock x:Name="DeviceDirectoryFeedback" Classes="muted" VerticalAlignment="Center"
-                 AutomationProperties.LiveSetting="Polite" />
-      <TextBox x:Name="DeviceSearch" Grid.Column="1" Width="245" PlaceholderText="筛选班级或大屏名称"
-               TextChanged="SearchChanged" AutomationProperties.Name="筛选教室设备" />
+    <Grid Grid.Row="1" ColumnDefinitions="1.35*,*,*,Auto" ColumnSpacing="12">
+      <StackPanel Spacing="5">
+        <TextBlock Text="查找大屏" Classes="column-caption" />
+        <TextBox x:Name="DeviceSearch" PlaceholderText="班级、屏名或绑定编号" AutomationProperties.Name="筛选教室设备" />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Spacing="5">
+        <TextBlock Text="NPEduTools 接入" Classes="column-caption" />
+        <ComboBox x:Name="NativeFilter" HorizontalAlignment="Stretch" AutomationProperties.Name="筛选 NPEduTools 接入状态" />
+      </StackPanel>
+      <StackPanel Grid.Column="2" Spacing="5">
+        <TextBlock Text="网页值守" Classes="column-caption" />
+        <ComboBox x:Name="BrowserFilter" HorizontalAlignment="Stretch" AutomationProperties.Name="筛选网页值守状态" />
+      </StackPanel>
+      <Button Grid.Column="3" x:Name="ClearFilters" Content="清除筛选" Classes="action" VerticalAlignment="Bottom" Click="ClearClicked" />
     </Grid>
-    <Border x:Name="DeviceTable" Grid.Row="2" Classes="card" ClipToBounds="True" VerticalAlignment="Top" Padding="3">
-      <ListBox x:Name="DeviceDirectoryRows" Background="Transparent" BorderThickness="0" AutomationProperties.Name="教室设备目录">
-        <ListBox.Styles>
-          <Style Selector="ListBoxItem">
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-          </Style>
-        </ListBox.Styles>
-        <ListBox.ItemTemplate>
-          <DataTemplate x:DataType="local:OverviewScreenItem">
-            <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource LineBrush}" Padding="16,12">
-              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                <StackPanel Spacing="5">
-                  <TextBlock Text="{Binding Title}" FontSize="16" Classes="label" />
-                  <TextBlock Text="{Binding Native}" Classes="muted" />
-                  <TextBlock Text="{Binding Browser}" Classes="muted" FontSize="12" IsVisible="{Binding HasBrowserObservation}" />
-                </StackPanel>
-                <Button Grid.Column="1" Classes="action" Content="打开大屏" Tag="{Binding}" Click="OpenClicked"
-                        AutomationProperties.AutomationId="{Binding AutomationId}" VerticalAlignment="Center" />
-              </Grid>
-            </Border>
-          </DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
+    <TextBlock Grid.Row="2" x:Name="DeviceDirectoryFeedback" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+    <Border Grid.Row="3" x:Name="DeviceTable" Classes="card" ClipToBounds="True" VerticalAlignment="Top">
+      <Grid RowDefinitions="Auto,*">
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="13,13,0,0" Padding="17,10"
+                BorderThickness="0,0,0,1" BorderBrush="{DynamicResource LineBrush}">
+          <Grid ColumnDefinitions="1.2*,*,*,65" ColumnSpacing="12">
+            <TextBlock Text="大屏 / 班级" Classes="column-caption" />
+            <TextBlock Grid.Column="1" Text="NPEduTools" Classes="column-caption" />
+            <TextBlock Grid.Column="2" Text="网页大屏" Classes="column-caption" />
+          </Grid>
+        </Border>
+        <ListBox x:Name="DeviceDirectoryRows" Grid.Row="1" Background="Transparent" BorderThickness="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="教室设备目录">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="local:OverviewScreenItem">
+              <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource LineBrush}" Padding="16,12">
+                <Grid ColumnDefinitions="1.2*,*,*,65" ColumnSpacing="12">
+                  <StackPanel VerticalAlignment="Center" Spacing="3" ToolTip.Tip="{Binding ScreenId}">
+                    <TextBlock Text="{Binding DisplayName}" FontSize="16" Classes="label" />
+                    <TextBlock Text="{Binding Screen.ClassName}" Classes="muted" FontSize="12" />
+                    <TextBlock Text="{Binding BindingCaption}" IsVisible="{Binding ShowBinding}" Classes="muted" FontSize="12" />
+                  </StackPanel>
+                  <ContentControl Grid.Column="1" Content="{Binding Native}" ContentTemplate="{StaticResource ScreenEvidenceTemplate}" VerticalAlignment="Center" />
+                  <ContentControl Grid.Column="2" Content="{Binding Browser}" ContentTemplate="{StaticResource ScreenEvidenceTemplate}" VerticalAlignment="Center" />
+                  <Button Grid.Column="3" Classes="action" Content="查看" Tag="{Binding}" Click="OpenClicked"
+                          AutomationProperties.Name="{Binding Title}" AutomationProperties.AutomationId="{Binding AutomationId}"
+                          HorizontalAlignment="Right" VerticalAlignment="Center" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </Grid>
     </Border>
   </Grid>
 </UserControl>

@@ -16,12 +16,6 @@ public sealed record OverviewTaskItem(SchoolOverviewTask Task, string ActionLabe
         (Task.Action == "OPEN_TEACHING" ? "-" + Task.SubjectId : "");
 }
 
-public sealed record OverviewScreenItem(string ClassId, string ScreenId, string Title, string Browser, string Native,
-    bool HasBrowserObservation)
-{
-    public string AutomationId => "SchoolDevice-" + ScreenId;
-}
-
 public sealed partial class SchoolOverviewView : UserControl
 {
     private ConsoleClient? _client;
@@ -271,30 +265,6 @@ public sealed partial class SchoolOverviewView : UserControl
             _ => "学校配置"
         };
         return new(task, action, task.LastReportedAt is { } time ? $"{source} · 最近记录 {Time(time)}" : source);
-    }
-
-    internal static OverviewScreenItem ScreenRow(SchoolOverviewScreen screen) => new(screen.ClassId, screen.ScreenId,
-        $"{screen.ClassName} · {screen.ScreenName}", "网页大屏 · " + Observation(screen.Browser),
-        "NPEduTools · " + Observation(screen.Native), screen.Browser.State != "NOT_APPLICABLE");
-
-    private static string Observation(SchoolScreenObservation observation)
-    {
-        string title = observation.State switch
-        {
-            "NOT_APPLICABLE" => "暂无该方式的接入记录",
-            "AWAITING_LOGIN" => "等待首次登录",
-            "AWAITING_HEARTBEAT" => "已接入，等待值守心跳",
-            "ONLINE" => "近期有值守心跳",
-            "DEGRADED" => "最近心跳报告异常",
-            "OFFLINE" => "近期未收到心跳",
-            "AWAITING_PAIRING" => "等待现场接入",
-            "AWAITING_REPORT" => "已配对，等待首次有效上报",
-            "REPORTED" => "已收到有效上报",
-            "REPAIR_REQUIRED" => "旧配对授权失效，需现场重新配对",
-            _ => "待核对"
-        };
-        if (observation.LastReportedAt is not { } time) return title;
-        return $"{title} · {(observation.State == "REPAIR_REQUIRED" ? "原设备记录" : "最近记录")} {Time(time)}";
     }
 
     private static string Time(DateTimeOffset value) =>
