@@ -28,6 +28,8 @@ internal static partial class Program
             return StartSubjectSetup(subjectFixture, subjectOutput);
         if (args is ["--live-school-subjects" or "--live-school-subjects-reopen", var catalogFixture, var catalogOutput])
             return StartSchoolSubjects(catalogFixture, catalogOutput, args[0].EndsWith("-reopen"));
+        if (args is ["--live-term-screen-placement" or "--live-term-screen-placement-reopen", var placementFixture, var placementOutput])
+            return StartTermScreenPlacement(placementFixture, placementOutput, args[0].EndsWith("-reopen", StringComparison.Ordinal));
         if (args is ["--live-term-activation", var activationFixture, var activationOutput])
             return StartTermActivation(activationFixture, activationOutput);
         if (args is ["--live-term-preparation", var termFixture, var termOutput])

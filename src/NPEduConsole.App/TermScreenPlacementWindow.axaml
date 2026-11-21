@@ -1,0 +1,93 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.TermScreenPlacementWindow"
+        Title="为这台屏安排新班" Width="1160" Height="780" MinWidth="650" MinHeight="440"
+        WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="TextBlock#PlacementNotice.error">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
+    </Style>
+    <!-- 键盘落到候选班时给出可见落点；用底色而不是边框，避免焦点移动时行高跳动。 -->
+    <Style Selector="ListBox#PlacementCandidates > ListBoxItem:focus /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}"/>
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Classes="card" Margin="14,10,14,0" Padding="14,10">
+      <StackPanel Spacing="4">
+        <TextBlock Text="为这台屏安排新班" FontSize="23" Classes="label"/>
+        <TextBlock x:Name="PlacementScope" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                   Classes="label"/>
+        <!-- 绑定编号单独一行：长屏名换行时不再把编号挤成半截。 -->
+        <TextBlock x:Name="PlacementBindingId" TextWrapping="NoWrap" MaxLines="1" TextTrimming="CharacterEllipsis"
+                   Classes="muted"/>
+        <TextBlock x:Name="PlacementOriginal" TextWrapping="Wrap" MaxLines="2" Classes="muted"/>
+        <TextBlock x:Name="PlacementNotice" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
+      </StackPanel>
+    </Border>
+    <ScrollViewer x:Name="PlacementScroll" Grid.Row="1" Margin="14,10" AllowAutoHide="False"
+                  HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="8" Margin="0,0,6,0">
+        <Grid x:Name="PlacementEditor" RowSpacing="8" ColumnSpacing="10">
+          <Border x:Name="PlacementTargetPicker" Classes="card" Padding="12">
+            <StackPanel Spacing="7">
+              <TextBlock Text="选择当前学期的班级" FontSize="17" Classes="label"/>
+              <TextBlock x:Name="PlacementTerm" TextWrapping="Wrap" Classes="muted"/>
+              <TextBox x:Name="PlacementSearch" PlaceholderText="按年级、班名或代码搜索"
+                       TextChanged="SearchChanged" KeyDown="SearchKeyDown" AutomationProperties.Name="查找目标班级"
+                       ToolTip.Tip="输入可筛选；按 Enter 跳到班级列表，再用 ↑ ↓ 选择"/>
+              <TextBlock x:Name="PlacementNoCandidates" IsVisible="False" TextWrapping="Wrap" Classes="muted"/>
+              <!-- 收窄列表上限：840×480 时让「安排后」卡片留在视野内，长名单靠搜索与列表自身滚动。 -->
+              <ListBox x:Name="PlacementCandidates" Classes="object-list" MinHeight="96" MaxHeight="150"
+                       Background="Transparent" BorderThickness="0" SelectionChanged="ClassSelected"
+                       AutomationProperties.Name="目标行政班"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="core:TermScreenCandidate">
+                    <TextBlock Text="{Binding Display}" TextWrapping="Wrap" AutomationProperties.AutomationId="{Binding Id}"/>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </StackPanel>
+          </Border>
+          <Border x:Name="PlacementTargetCard" Classes="card" Padding="10">
+            <StackPanel Spacing="5">
+              <TextBlock Text="安排后" Classes="label" FontSize="17"/>
+              <TextBlock x:Name="PlacementTargetSummary" TextWrapping="Wrap"
+                         AutomationProperties.LiveSetting="Polite"/>
+              <TextBlock x:Name="PlacementConsequence" Text="迁入的这台屏需按现有流程到教室接入。目标班已有大屏继续使用原绑定。"
+                         TextWrapping="Wrap" Classes="muted"/>
+            </StackPanel>
+          </Border>
+        </Grid>
+        <Border x:Name="PlacementResultCard" Classes="card" Padding="14" IsVisible="False">
+          <StackPanel Spacing="7">
+            <TextBlock x:Name="PlacementResultTitle" Classes="label" FontSize="20" TextWrapping="Wrap"/>
+            <TextBlock x:Name="PlacementResultTarget" TextWrapping="Wrap"/>
+            <TextBlock x:Name="PlacementResultEvidence" TextWrapping="Wrap" Classes="muted"/>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0" Padding="16,8">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="5">
+        <!-- 目标与「该班已有大屏」固定在操作栏上方：窄窗里不必滚回正文也能在提交前核对。 -->
+        <StackPanel Grid.ColumnSpan="3" Spacing="2">
+          <TextBlock x:Name="PlacementChosen" TextWrapping="Wrap" Classes="label" IsVisible="False"
+                     AutomationProperties.LiveSetting="Polite"/>
+          <TextBlock x:Name="PlacementOtherScreens" TextWrapping="Wrap" Classes="muted"
+                     AutomationProperties.LiveSetting="Polite"/>
+        </StackPanel>
+        <Button x:Name="PlacementBack" Grid.Row="1" Classes="action" Content="返回" Click="BackClicked"
+                HorizontalAlignment="Left"/>
+        <Button x:Name="PlacementRefresh" Grid.Row="1" Grid.Column="1" Classes="action" Content="刷新" Click="RefreshClicked"/>
+        <Button x:Name="PlacementPrimary" Grid.Row="1" Grid.Column="2" Classes="action accent"
+                Content="确认安排" Click="PrimaryClicked" IsEnabled="False" MaxWidth="350">
+          <Button.ContentTemplate>
+            <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap"/></DataTemplate>
+          </Button.ContentTemplate>
+        </Button>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

@@ -3,11 +3,14 @@ namespace NPEduConsole.Core;
 public sealed record TermActivationBindingProof(string BindingId, string Version);
 public sealed record TermActivationProof(string Version, string TermVersion, string DiagnosticsVersion, TermActivationBindingProof[] Screens);
 public sealed record TermActivatedScreen(string BindingId, string Name, TermDraftOriginalClass? FromClass, TermDraftClass? TargetClass,
-    string NativeImpact, bool ArchiveInvalidatesNative, bool Rebound, string? Status = null, DateTimeOffset? LastReportedAt = null)
+    string NativeImpact, bool ArchiveInvalidatesNative, bool Rebound, string? Status = null, DateTimeOffset? LastReportedAt = null,
+    TermScreenPlacement? Placement = null)
     : TermDraftScreenImpact(BindingId, Name, FromClass, TargetClass, NativeImpact, ArchiveInvalidatesNative)
 {
-    public bool NeedsAttention => Status != "REPORTED";
-    public string Outcome => Status switch
+    public bool NeedsAttention => (Placement?.Status ?? Status) != "REPORTED";
+    public string PlacementDetails => Placement is { } row ? $"后来安排　{row.TargetClass.Display} · {row.Evidence}" : "";
+    public bool HasPlacement => Placement is not null;
+    public string Outcome => Placement?.StatusText ?? (Status switch
     {
         "REPAIR_REQUIRED" => "已改绑 · 原配对失效，需现场重新配对",
         "AWAITING_PAIRING" => "已改绑 · 等待现场接入",
@@ -16,12 +19,12 @@ public sealed record TermActivatedScreen(string BindingId, string Name, TermDraf
         "RETAINED_ORIGINAL" when ArchiveInvalidatesNative => "无匹配，仍绑定原班 · 原学期已归档，原配对已失效",
         "RETAINED_ORIGINAL" => "无匹配，仍绑定原班 · 待安排",
         _ => "待核对 · 请以当前绑定和设备回执为准"
-    };
+    });
 }
 public sealed record TermActivationReceipt(Guid RequestId, ManagedAcademicTerm Term, ManagedAcademicTerm? ArchivedTerm,
     int ReboundScreens, TermActivatedScreen[] Screens);
 public sealed record TermActivationResult(string? State = null, TermActivationReceipt? Receipt = null, ManagedAcademicTerm? ActiveTerm = null,
-    TermActivatedScreen[]? Screens = null, string[]? Changes = null, TermPreparationCheck? Check = null);
+    TermActivatedScreen[]? Screens = null, string[]? Changes = null, TermPreparationCheck? Check = null, bool PlacementSupported = false);
 
 public sealed partial class ConsoleClient
 {
@@ -82,7 +85,7 @@ public sealed partial class ConsoleClient
         for (int i = 0; i < receipt.Screens.Length; i++)
         {
             var row = result.Screens[i];
-            if (row is null || (row with {Status = null, LastReportedAt = null}) != receipt.Screens[i] ||
+            if (row is null || (row with {Status = null, LastReportedAt = null, Placement = null}) != receipt.Screens[i] || !PlacementValid(row.Placement) ||
                 row.Status is not ("REPAIR_REQUIRED" or "AWAITING_PAIRING" or "AWAITING_REPORT" or "REPORTED" or "RETAINED_ORIGINAL" or "VERIFY") ||
                 row.Status == "REPORTED" && row.LastReportedAt is null)
                 throw InvalidResponse();

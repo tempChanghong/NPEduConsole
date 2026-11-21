@@ -186,7 +186,8 @@
                       <TextBlock Text="{Binding BindingId, StringFormat='绑定编号 {0}'}" Classes="muted" TextWrapping="Wrap"/>
                       <TextBlock Text="{Binding Original, StringFormat='原班级　{0}'}" TextWrapping="Wrap"/>
                       <TextBlock Text="{Binding Target, StringFormat='新班级　{0}'}" TextWrapping="Wrap"/>
-                      <TextBlock Text="{Binding Outcome}" Classes="label" TextWrapping="Wrap"/>
+                      <TextBlock Text="{Binding PlacementDetails}" IsVisible="{Binding HasPlacement}" TextWrapping="Wrap"/>
+                          <TextBlock Text="{Binding Outcome}" Classes="label" TextWrapping="Wrap"/>
                     </StackPanel>
                   </DataTemplate>
                 </ListBox.ItemTemplate>

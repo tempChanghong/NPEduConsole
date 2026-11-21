@@ -66,7 +66,7 @@ public sealed partial class ConsoleClient
 
     private static async Task<ConsoleApiException> TermPreparationErrorAsync(HttpResponseMessage response, CancellationToken ct)
     {
-        string? code = null, existing = null;
+        string? code = null, existing = null, changeReason = null;
         int status = (int)response.StatusCode;
         try
         {
@@ -75,8 +75,13 @@ public sealed partial class ConsoleClient
             {
                 var root = content.RootElement;
                 if (root.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String) code = value.GetString();
-                if (code == "TARGET_TERM_EXISTS" && root.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Object &&
-                    details.TryGetProperty("termId", out var id) && id.ValueKind == JsonValueKind.String) existing = id.GetString();
+                if (root.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Object)
+                {
+                    if (code == "TARGET_TERM_EXISTS" && details.TryGetProperty("termId", out var id) && id.ValueKind == JsonValueKind.String)
+                        existing = id.GetString();
+                    if (code == "TERM_SCREEN_PLACEMENT_CHANGED" && details.TryGetProperty("reason", out var reason) && reason.ValueKind == JsonValueKind.String)
+                        changeReason = reason.GetString();
+                }
             }
         }
         catch (JsonException) { }
@@ -97,6 +102,17 @@ public sealed partial class ConsoleClient
             "TERM_ACTIVATION_REQUEST_CONFLICT" => "启用请求编号已用于其他操作，请先核对原结果。",
             "TERM_ACTIVATION_RECEIPT_NOT_FOUND" => "暂未找到本次启用回执。",
             "TERM_NOT_READY" => "本次检查有教务阻断，无法启用。",
+            "TERM_SCREEN_PLACEMENT_NOT_AVAILABLE" => "这台大屏当前没有可办理的未匹配记录。",
+            "TERM_SCREEN_PLACEMENT_RECEIPT_NOT_FOUND" => "暂未找到本次安排回执。",
+            "TERM_SCREEN_PLACEMENT_REQUEST_CONFLICT" => "请求编号已用于其他安排，请先核对结果。",
+            "TERM_SCREEN_PLACEMENT_INVALID" => "请重新核对目标班级和现有大屏。",
+            "TERM_SCREEN_PLACEMENT_CHANGED" => changeReason switch
+            {
+                "TERM_CHANGED" => "当前学期已切换。请返回学校总览，核对新学期。",
+                "BINDING_CHANGED" => "这台屏的绑定或办理状态已变化。请核对当前归属。",
+                "TARGET_CHANGED" => "目标班或该班已有大屏已变化。请核对后重新确认。",
+                _ => "大屏、目标班或当前学期已变化，请核对最新资料。"
+            },
             "TERM_NOT_FOUND" => "该草稿不存在或不在当前学校。",
             _ when status is 404 or 405 or 426 => "当前 KV 尚未提供桌面学期管理，请使用原网页。",
             _ => HttpError(status, false).Message

@@ -74,6 +74,19 @@ public sealed partial class MainWindow
                 if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
+            if (task.Action == "OPEN_TERM_SCREEN_PLACEMENT" && overview.Term is { } placementTerm &&
+                task.ScreenId is { } placementBinding)
+            {
+                var target = await ShowTermScreenPlacementAsync(this, client, school, placementTerm.Id, placementBinding);
+                if (!StillHere()) return;
+                if (target is not null)
+                {
+                    _overviewNavigation = null;
+                    await OpenTermResultDestinationAsync(client, school, target);
+                }
+                else await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
+                return;
+            }
             if (task.Action == "OPEN_WEB")
             {
                 OpenOverviewWebTask(client, school, overview, task);

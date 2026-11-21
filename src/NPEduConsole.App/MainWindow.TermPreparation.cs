@@ -19,7 +19,8 @@ public sealed partial class MainWindow
         if (_termPreparationWindow is not null || _client != client || _school != school) return;
         var window = new TermPreparationWindow(client, school)
         {
-            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
+            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
+            OpenPlacement = (owner, termId, bindingId) => ShowTermScreenPlacementAsync(owner, client, school, termId, bindingId)
         };
         _termPreparationWindow = window;
         window.Closed += Release;
@@ -34,11 +35,7 @@ public sealed partial class MainWindow
         if (window.ActivationDestination is { } target)
         {
             beforeNavigate?.Invoke();
-            await OpenShellTargetAsync(target.ClassId, target.ScreenId, target.TermId);
-            if (_client == client && _school == school && _detailScreenId == target.ScreenId && _page == ShellPage.Screen &&
-                target.NeedsPairing && _classroom?.Screens.FirstOrDefault(row => row.Id == target.ScreenId) is { } screen &&
-                _admissionButtons.TryGetValue(target.ScreenId, out var opener))
-                await OpenClassAdmissionAsync(screen, opener);
+            await OpenTermResultDestinationAsync(client, school, target);
         }
         else
         {
@@ -55,6 +52,7 @@ public sealed partial class MainWindow
 
     private void CloseTermPreparation()
     {
+        CloseTermScreenPlacement();
         var window = _termPreparationWindow;
         _termPreparationWindow = null;
         window?.CloseForScopeChange();

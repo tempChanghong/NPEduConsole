@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Avalonia.Controls;
 using Avalonia.Interactivity;
 using NPEduConsole.Core;
 
@@ -19,6 +20,7 @@ public sealed partial class TermPreparationWindow
 
     internal bool ActivationObserved { get; private set; }
     internal ScreenDestination? ActivationDestination { get; private set; }
+    internal Func<Window, string, string, Task<ScreenDestination?>>? OpenPlacement { get; init; }
 
     private bool CanConfirmActivation => _check is {ActivationProof: not null, BlockingDiagnostics.Length: 0};
 
@@ -175,11 +177,33 @@ public sealed partial class TermPreparationWindow
 
     private void ActivationSelectionChanged(object? sender, Avalonia.Controls.SelectionChangedEventArgs args) => Render();
 
-    private void OpenActivationScreen()
+    private async Task OpenActivationScreenAsync()
     {
         if (_activationReadFailed || TermActivatedScreens.SelectedItem is not TermActivatedScreen row) return;
+        if (row.HasPlacement && row.Placement is {BindingConfirmed: true} placed && _activeTerm is { } activePlacement)
+        {
+            ActivationDestination = new(placed.TargetClass.Id, row.BindingId, activePlacement.Id, placed.Status == "AWAITING_PAIRING");
+            Close();
+            return;
+        }
         if (row.Status == "RETAINED_ORIGINAL" && row.FromClass is { } original)
         {
+            if (_activation is {PlacementSupported: true, Receipt: { } activation} && OpenPlacement is { } open)
+            {
+                await RunAsync(async () =>
+                {
+                    var target = await open(this, activation.Term.Id, row.BindingId);
+                    if (_closed) return;
+                    if (target is not null)
+                    {
+                        ActivationDestination = target;
+                        Close();
+                        return;
+                    }
+                    await RefreshActivationAsync(activation.RequestId, activation.Term.Id);
+                });
+                return;
+            }
             var link = SchoolAdminBrowser.Link(_catalog?.AdminUrl, _school.Id, original.TermId, "screens", row.BindingId, original.Id);
             if (link is not null && SchoolAdminBrowser.Open(link)) return;
             Notice($"请到网页学校管理的大屏页核对 {row.Name}（{row.BindingId}）。", true);
@@ -233,9 +257,11 @@ public sealed partial class TermPreparationWindow
         var row = TermActivatedScreens.SelectedItem as TermActivatedScreen;
         TermPrimary.IsVisible = row is not null;
         TermPrimary.IsEnabled = !_busy && !_activationReadFailed && row is not null &&
-            (row.Status == "RETAINED_ORIGINAL" || row.Rebound && _activation?.Receipt?.Term.Id == _activeTerm?.Id);
-        TermPrimary.Content = row?.Status == "RETAINED_ORIGINAL" ? "网页安排这台屏" :
-            row?.Status is "REPAIR_REQUIRED" or "AWAITING_PAIRING" ? "打开大屏接入" : "查看选中大屏";
+            (row.Status == "RETAINED_ORIGINAL" || (row.Rebound || row.Placement?.BindingConfirmed == true) &&
+                _activation?.Receipt?.Term.Id == _activeTerm?.Id);
+        TermPrimary.Content = row?.Status == "RETAINED_ORIGINAL" ?
+            _activation?.PlacementSupported == true ? "为这台屏安排新班" : "网页安排这台屏" :
+            (row?.Placement?.Status ?? row?.Status) is "REPAIR_REQUIRED" or "AWAITING_PAIRING" ? "打开大屏接入" : "查看选中大屏";
         TermRefresh.Content = "刷新办理状态";
         TermBack.Content = "返回学期管理";
     }

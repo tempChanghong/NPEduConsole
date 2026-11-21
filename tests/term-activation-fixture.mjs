@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {createServer, request} from 'node:http';
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {cp, mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {basename, dirname, join, resolve} from 'node:path';
+import {verifyTermScreenPlacement} from './term-screen-placement-fixture.mjs';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
 
 export async function verifyTermActivation(options) {
@@ -16,7 +17,7 @@ export async function verifyTermActivation(options) {
   }
 }
 
-async function verify({prisma, origin, fixture, directory, evidence, web, nativeState, runDesktop, runNative, createTeacher}) {
+async function verify({prisma, origin, fixture, directory, evidence, web, nativeState, runDesktop, runNative, createTeacher, termScreenPlacement = false}) {
   const {school, other, term, pin, managerId} = fixture;
   async function api(path, {method = 'GET', token, body, status = 200} = {}) {
     const response = await fetch(origin + path, {method, headers: {'Content-Type': 'application/json',
@@ -53,16 +54,31 @@ async function verify({prisma, origin, fixture, directory, evidence, web, native
   await prisma.administrativeClassStudent.create({data: {administrativeClassId: seven.id, name: '原名单学生', studentNumber: '0701'}});
 
   const screenRooms = [seven, seven, eight], names = ['七班前屏', '七班后屏', '八班无匹配屏'];
-  const bindings = await Promise.all(screenRooms.map((room, index) => prisma.classroomScreenBinding.create({data: {
-    schoolId: school.id, administrativeClassId: room.id, name: names[index], npepPrepared: true,
-    createdByAccountId: managerId, tokenHash: randomBytes(32).toString('hex'),
-  }})));
+  const browserLogin = {schoolCode: school.code, loginCode: 'placement-screen', pin, deviceFingerprint: '78d282ab91b44571a3799ad03b5c8d05'};
+  const bindings = await Promise.all(screenRooms.map(async (room, index) => {
+    if (index === 2 && termScreenPlacement) {
+      const account = await api(schoolPath + '/classroom-screen-accounts', {method: 'POST', token, status: 201,
+        body: {administrativeClassId: room.id, loginCode: browserLogin.loginCode, pin, name: names[index]}});
+      return prisma.classroomScreenBinding.update({where: {id: account.id}, data: {npepPrepared: true}});
+    }
+    return prisma.classroomScreenBinding.create({data: {
+      schoolId: school.id, administrativeClassId: room.id, name: names[index], npepPrepared: true,
+      createdByAccountId: managerId, tokenHash: randomBytes(32).toString('hex'),
+    }});
+  }));
+  const webScreen = termScreenPlacement
+    ? await api('/api/v2/classroom-screens/login', {method: 'POST', body: browserLogin}) : null;
   const bindingIds = bindings.map(row => row.id);
   const nativeFixture = join(directory, 'term-activation-native.json');
   const setNativeScope = classIds => writeFile(nativeFixture, JSON.stringify({kind: 'TERM_PREPARATION_DISPOSABLE_DATABASE',
     origin, adminToken: token, schoolId: school.id, classId: classIds[0], classIds, bindingIds}), {mode: 0o600});
   await setNativeScope(screenRooms.map(row => row.id));
   await runNative(['pair', nativeFixture, nativeState]);
+  const beforeNativeCopy = join(nativeState, '..', 'pre-activation-probe');
+  if (termScreenPlacement) {
+    await mkdir(beforeNativeCopy);
+    await cp(join(nativeState, 'device-3'), join(beforeNativeCopy, 'device-3'), {recursive: true});
+  }
   const devices = await prisma.npepDevice.findMany({where: {screenBindingId: {in: bindingIds}}});
   assert.equal(devices.length, 3);
   assert.ok(devices.every(row => row.state === 'ACTIVE' && row.lastReportedAt));
@@ -77,6 +93,8 @@ async function verify({prisma, origin, fixture, directory, evidence, web, native
   const newRoom = code => prisma.workspace.findUniqueOrThrow({where: {termId_code: {termId: draftId, code}}});
   const newSeven = await newRoom(seven.code), newEight = await newRoom(eight.code);
   const newGroups = await Promise.all(['PHY-A1', 'PHY-A2'].map(newRoom));
+  if (termScreenPlacement) await prisma.workspace.create({data: {termId: draftId, gradeId: newSeven.gradeId,
+    type: 'ADMIN_CLASS', name: '高二（7）班协作班', code: 'G2-70'}});
   await api(schoolPath + '/administrative-classes/' + newEight.id, {method: 'PATCH', token,
     body: {name: newEight.name, code: 'G2-8-NEW', expectedUpdatedAt: newEight.updatedAt}});
 
@@ -258,6 +276,13 @@ async function verify({prisma, origin, fixture, directory, evidence, web, native
       archivedTerm: confirmation.receipt.archivedTerm, screens: confirmation.screens, requestId: lostReceipt.requestId,
       posts, reads, assignedAccess, independentAccess, oldFormRejection: oldWrite.code, studentNewTerm: draftId, legacyWebPassed: true}, null, 2));
     console.log('PASS: Windows activation and readback, independent screen recovery, teacher permissions, stale old form and actual student and school-admin Edge.');
+    if (termScreenPlacement) {
+      await createTeacher('placement-admin', 'ADMIN');
+      await verifyTermScreenPlacement({prisma, origin, school, termId: draftId, oldClassId: eight.id, targetClass: newSeven,
+        bindingIds, activation: lostReceipt, managerToken: token, secondToken: await login('placement-admin'),
+        browserLogin, oldBrowserToken: webScreen.token, directory, evidence, nativeState, nativeFixture,
+        beforeNativeCopy, setNativeScope, runDesktop, runNative, api, pin});
+    }
   } finally {
     relay.closeAllConnections();
     await new Promise(resolve => relay.close(resolve));

@@ -290,7 +290,7 @@ public sealed partial class TermPreparationWindow : Window
     private async void PrimaryClicked(object? sender, RoutedEventArgs args)
     {
         if (!TermPrimary.IsEnabled) return;
-        if (_page == Page.ActivationResult) { OpenActivationScreen(); return; }
+        if (_page == Page.ActivationResult) { await OpenActivationScreenAsync(); return; }
         if (_page == Page.Check || PendingActivation is not null) { await OpenActivationActionAsync(); return; }
         if (Pending is { } pending)
         {

@@ -36,7 +36,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
-  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db'].includes(mode)),
+  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -55,7 +55,8 @@ const currentTeaching = mode === '--current-teaching';
 const subjectSetup = mode === '--current-subject-setup';
 const schoolSubjects = mode === '--school-subjects';
 const termPreparation = mode === '--term-preparation';
-const termActivation = mode === '--term-activation';
+const termScreenPlacement = mode === '--term-screen-placement';
+const termActivation = mode === '--term-activation' || termScreenPlacement;
 const termActivationDatabase = mode === '--term-activation-db';
 const courseGroups = mode === '--current-course-groups';
 const teacherAccounts = mode === '--teacher-accounts';
@@ -489,7 +490,7 @@ async function runFixture() {
     await mkdir(evidence, {recursive: true});
     const report = 'term-activation-postgres.log';
     try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/termActivation.integration.test.js',
-      'tests/termPreparation.integration.test.js', 'tests/schoolManagementOverview.integration.test.js'],
+      'tests/termPreparation.integration.test.js', 'tests/schoolManagementOverview.integration.test.js', 'tests/termScreenPlacement.integration.test.js'],
     {...process.env, RUN_DATABASE_TESTS: 'true'}, report); }
     finally { await copyFile(join(directory, report), join(evidence, report)); }
     return;
@@ -501,14 +502,14 @@ async function runFixture() {
     const {localProviderId} = await fromKv('domain/localAccount.js');
     const evidence = process.env.NP_CONSOLE_TERM_ACTIVATION_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/term-activation/desktop', import.meta.url));
-    const createTeacher = async username => {
+    const createTeacher = async (username, role = 'VIEWER') => {
       const teacher = await prisma.account.create({data: {provider: 'school-local',
         providerId: localProviderId(fixture.school.code, username), localUsername: username, name: username,
         localPasswordHash: await bcrypt.hash(fixture.pin, 10), providerData: {schoolCode: fixture.school.code}}});
-      await prisma.schoolMember.create({data: {schoolId: fixture.school.id, accountId: teacher.id, role: 'VIEWER'}});
+      await prisma.schoolMember.create({data: {schoolId: fixture.school.id, accountId: teacher.id, role}});
       return teacher;
     };
-    return verifyTermActivation({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'), createTeacher,
+    return verifyTermActivation({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'), createTeacher, termScreenPlacement,
       runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args)});
   }
   if (termPreparation) {

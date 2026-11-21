@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using NPEduTools.Integrations.Npep;
 
-if (args is not [var phase, var fixtureFile, var dataRoot] || phase is not ("pair" or "report" or "invalidated" or "repair-first" or "report-first") || !OperatingSystem.IsWindows()) return 2;
+if (args is not [var phase, var fixtureFile, var dataRoot] || phase is not ("pair" or "report" or "invalidated" or "repair-first" or "report-first" or "repair-third" or "report-third" or "invalidated-third") || !OperatingSystem.IsWindows()) return 2;
 string step = "read fixture";
 try
 {
@@ -20,15 +20,18 @@ try
     var classIds = fixture["classIds"] is JsonArray supplied
         ? supplied.Select(row => row!.GetValue<string>()).ToArray() : bindingIds.Select(_ => classId).ToArray();
     if (bindingIds.Length is < 2 or > 3 || bindingIds.Distinct().Count() != bindingIds.Length || classIds.Length != bindingIds.Length) return 2;
-    bool firstOnly = phase is "repair-first" or "report-first";
+    bool repair = phase is "repair-first" or "repair-third";
+    int[] slots = phase.EndsWith("-third", StringComparison.Ordinal) ? [2] :
+        phase.EndsWith("-first", StringComparison.Ordinal) ? [0] : Enumerable.Range(0, bindingIds.Length).ToArray();
+    if (slots.Any(slot => slot >= bindingIds.Length)) return 2;
 
-    for (int slot = 0; slot < (firstOnly ? 1 : bindingIds.Length); slot++)
+    foreach (int slot in slots)
     {
         string binding = bindingIds[slot];
         string data = Path.Combine(dataRoot, $"device-{slot + 1}");
         step = "open isolated native profile";
         using var device = new NpepDevice(data);
-        if (phase == "invalidated")
+        if (phase is "invalidated" or "invalidated-third")
         {
             step = "check rejected original credential";
             try { await device.OpenSessionAsync(); }
@@ -39,9 +42,9 @@ try
             }
             throw new NpepException("ORIGINAL_CREDENTIAL_STILL_VALID");
         }
-        if (phase is "pair" or "repair-first")
+        if (phase == "pair" || repair)
         {
-            if (phase == "repair-first") await device.UnpairAsync();
+            if (repair) await device.UnpairAsync();
             step = "inspect isolated server";
             var info = await device.InspectServerAsync(origin);
             step = "begin native pairing";
@@ -62,9 +65,9 @@ try
             await device.ConfirmAsync(approved.Text("approvalId"));
         }
         if (device.View().Text("state") != "ACTIVE") throw new NpepException("ORIGINAL_PAIRING_NOT_ACTIVE");
-        if (phase == "repair-first")
+        if (repair)
         {
-            Console.WriteLine($"PASS display 1 ({binding}) re-paired to {classIds[slot]} without a report.");
+            Console.WriteLine($"PASS display {slot + 1} ({binding}) re-paired to {classIds[slot]} without a report.");
             continue;
         }
         step = "open session for native device";
