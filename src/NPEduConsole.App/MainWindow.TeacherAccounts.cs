@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Interactivity;
 using NPEduConsole.Core;
 
@@ -6,6 +7,7 @@ namespace NPEduConsole.App;
 public sealed partial class MainWindow
 {
     private TeacherAccountsWindow? _teacherAccountsWindow;
+    private TeacherAllocationWindow? _teacherAllocationWindow;
 
     private async void OpenTeacherAccountsClicked(object? sender, RoutedEventArgs args)
     {
@@ -19,7 +21,8 @@ public sealed partial class MainWindow
         if (_teacherAccountsWindow is not null || _client != client || _school != school) return;
         var window = new TeacherAccountsWindow(client, school, accountId)
         {
-            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
+            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
+            OpenBulkAllocation = owner => ShowTeacherAllocationAsync(owner, client, school)
         };
         _teacherAccountsWindow = window;
         try { await window.ShowDialog(this); }
@@ -33,8 +36,30 @@ public sealed partial class MainWindow
 
     private void CloseTeacherAccounts()
     {
+        var allocation = _teacherAllocationWindow;
+        _teacherAllocationWindow = null;
+        allocation?.CloseForScopeChange();
         var window = _teacherAccountsWindow;
         _teacherAccountsWindow = null;
         window?.CloseForScopeChange();
+    }
+
+    private async Task<bool> ShowTeacherAllocationAsync(Window owner, ConsoleClient client, School school,
+        string? termId = null, string? gradeId = null)
+    {
+        if (_teacherAllocationWindow is not null || _client != client || _school != school) return false;
+        var window = new TeacherAllocationWindow(client, school, termId, gradeId)
+        {
+            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
+        };
+        _teacherAllocationWindow = window;
+        try { await window.ShowDialog(owner); }
+        finally { if (_teacherAllocationWindow == window) _teacherAllocationWindow = null; }
+        if (_client != client || _school != school) return false;
+        if (window.TeachingTarget is { } next)
+            await ShowTeachingAsync(client, school, next.TermId, next.WorkspaceId, next.SubjectId, next.AccountId, next.IsGroup, owner);
+        if (window.AccessChanged && _client == client && _school == school)
+            await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
+        return window.AccessChanged && _client == client && _school == school;
     }
 }

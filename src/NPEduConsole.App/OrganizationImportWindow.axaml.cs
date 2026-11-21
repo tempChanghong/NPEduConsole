@@ -88,6 +88,7 @@ public sealed partial class OrganizationImportWindow : Window
     internal bool ActiveTermChanged { get; private set; }
     internal string? GoToDraftId { get; private set; }
     internal (string TermId, string WorkspaceId, bool IsGroup)? GoToTeaching { get; private set; }
+    internal (string TermId, string GradeId)? GoToTeacherAllocation { get; private set; }
 
     private async Task LoadAsync(string? termId, bool clearTarget = false)
     {
@@ -382,6 +383,14 @@ public sealed partial class OrganizationImportWindow : Window
         Close();
     }
 
+    private void AllocateTeachersClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || _receipt is not { } receipt) return;
+        GoToTeacherAllocation = (receipt.TermId, receipt.GradeId);
+        _allowClose = true;
+        Close();
+    }
+
     private void Edited()
     {
         if (_binding) return;
@@ -461,6 +470,8 @@ public sealed partial class OrganizationImportWindow : Window
         OrgSave.IsVisible = OrgSections.SelectedIndex != 4;
         OrgSave.IsEnabled = edit && _reviewed && OrgApprove.IsChecked == true;
         OrgContinue.IsVisible = OrgSections.SelectedIndex == 4 && _receipt is not null;
+        OrgTeacherAllocation.IsVisible = OrgContinue.IsVisible;
+        OrgTeacherAllocation.IsEnabled = !_busy;
         OrgContinue.IsEnabled = !_busy && (_receipt?.TermStatus == "DRAFT" || OrgReceiptClasses.SelectedItem is ReceiptChoice);
         OrgClose.IsEnabled = !_writing;
         OrgFooter.Text = $"{_classes.Count} 个行政班 · {_groups.Count} 个教学班";

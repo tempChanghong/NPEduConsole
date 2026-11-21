@@ -57,6 +57,14 @@ public sealed partial class TeacherAccountsWindow : Window
     }
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal Func<Window, Task<bool>>? OpenBulkAllocation { get; init; }
+
+    private async void OpenBulkClicked(object? sender, RoutedEventArgs args)
+    {
+        if (OpenBulkAllocation is not { } open) return;
+        await RunAsync(async () => { if (await open(this) && !_closed) await LoadAsync(); });
+        if (!_closed) TeacherAccountBulk.Focus();
+    }
     internal TeacherAccountDestination? Destination { get; private set; }
     private Dictionary<string, StatusIntent> Operations => PendingBySession.GetOrCreateValue(_client);
     private StatusIntent? Pending => Operations.GetValueOrDefault(_school.Id);
@@ -158,6 +166,7 @@ public sealed partial class TeacherAccountsWindow : Window
         NewTeacherAccountButton.IsVisible = _directory?.SupportsLocalWrites == true;
         NewTeacherAccountButton.IsEnabled = writable;
         TeacherAccountWeb.IsVisible = _directory?.Mode == "OAUTH_EMAIL";
+        TeacherAccountBulk.IsEnabled = !_busy && _directory is not null && OpenBulkAllocation is not null;
         TeacherAccountRefresh.IsEnabled = !_busy;
         TeacherAccountRefresh.Content = Pending is null ? "刷新目录" : "核对操作回执";
         TeacherAccountRefresh.Classes.Set("accent", Pending is not null);

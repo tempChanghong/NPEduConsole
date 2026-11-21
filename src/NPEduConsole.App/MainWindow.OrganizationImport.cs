@@ -35,6 +35,8 @@ public sealed partial class MainWindow
             await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
         }
         if (_client != client || _school != school) return null;
+        if (window.GoToTeacherAllocation is { } allocation)
+            await ShowTeacherAllocationAsync(owner, client, school, allocation.TermId, allocation.GradeId);
         if (window.GoToTeaching is { } target)
             await ShowTeachingAsync(client, school, target.TermId, target.WorkspaceId, null, courseGroup: target.IsGroup, owner: owner);
         return window.GoToDraftId;

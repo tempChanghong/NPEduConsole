@@ -28,7 +28,7 @@
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,12">
       <StackPanel Spacing="3">
-        <TextBlock Text="行政班任课" FontSize="25" FontWeight="SemiBold"/>
+        <TextBlock x:Name="TeachingHeading" Text="行政班任课" FontSize="25" FontWeight="SemiBold"/>
         <TextBlock x:Name="TeachingContext" Classes="muted" MaxLines="1" TextTrimming="CharacterEllipsis"/>
       </StackPanel>
     </Border>

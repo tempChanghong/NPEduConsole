@@ -31,6 +31,7 @@ import { verifyCourseGroups } from './course-groups-fixture.mjs';
 import { verifyGradeTeachingPlan } from './grade-teaching-plan-fixture.mjs';
 import { verifySchoolStudy } from './school-study-fixture.mjs';
 import { verifyOrganizationImport } from './school-organization-import-fixture.mjs';
+import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
@@ -40,7 +41,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
-  '--organization-import', '--organization-import-db'].includes(mode)),
+  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -67,6 +68,7 @@ const gradePlanDatabase = mode === '--grade-teaching-plan-db';
 const gradePlan = mode === '--grade-teaching-plan';
 const schoolStudy = mode === '--school-study' || mode === '--school-study-db';
 const organizationImport = mode === '--organization-import' || mode === '--organization-import-db';
+const teacherAllocation = mode === '--teacher-allocation';
 const teacherAccounts = mode === '--teacher-accounts';
 const currentStaff = mode === '--current-staff';
 const replacement = mode === '--screen-replacement';
@@ -136,7 +138,8 @@ async function createDatabase() {
   await new Promise(res => probe.close(res));
   const connection = { host: '127.0.0.1', port, user: 'npconsole', password: databasePassword };
   for (const key of ['AXIOM_TOKEN', 'AXIOM_DATASET', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS', 'PGHOST', 'PGDATABASE', 'PGUSER', 'PGPORT', 'PGPASSWORD', 'TRUST_PROXY']) delete process.env[key];
-  const fixtureDatabase = mode === '--organization-import-db' ? 'npclassworks_test_organization_import' :
+  const fixtureDatabase = mode === '--teacher-allocation-db' ? 'npclassworks_test_teacher_allocation' :
+    mode === '--organization-import-db' ? 'npclassworks_test_organization_import' :
     mode === '--school-study-db' ? 'npclassworks_test_school_study' :
     gradePlanDatabase ? 'npclassworks_test_grade_plan' : 'npconsole_fixture';
   Object.assign(process.env, {
@@ -197,7 +200,7 @@ async function seed() {
   }
   const manager = await account('admin', 'ADMIN');
   await account('viewer', 'VIEWER');
-  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport) await account('admin2', 'ADMIN');
+  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation) await account('admin2', 'ADMIN');
   const term = await prisma.academicTerm.create({ data: {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
   } });
@@ -485,6 +488,33 @@ async function runFixture() {
   }
   const databasePort = await createDatabase();
   ({ prisma } = await fromKv('utils/prisma.js'));
+  if (mode === '--teacher-allocation-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_TEACHER_ALLOCATION_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/teacher-allocation', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    const specialized = 'teacher-allocation-postgres.log', legacy = 'teacher-allocation-legacy.log';
+    const legacyEnv = {...process.env, RUN_DATABASE_TESTS: 'true'};
+    const url = new URL(legacyEnv.DATABASE_URL);
+    url.pathname = '/npclassworks_test_teacher_allocation_legacy';
+    legacyEnv.DATABASE_URL = url.href;
+    const connection = new Client({host: '127.0.0.1', port: databasePort, user: 'npconsole', password: databasePassword, database: 'postgres'});
+    await connection.connect();
+    try {
+      assert.equal(resolve((await connection.query('SHOW data_directory')).rows[0].data_directory), resolve(data));
+      await connection.query('CREATE DATABASE npclassworks_test_teacher_allocation_legacy');
+    } finally { await connection.end(); }
+    try {
+      run(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], legacyEnv, legacy);
+      run(process.execPath, ['--test', '--test-concurrency=1', 'tests/workspaceAssignmentDatabase.integration.test.js'], legacyEnv, legacy);
+    } finally { await copyFile(join(directory, legacy), join(evidence, legacy)); }
+    try {
+      run(process.execPath, ['--test', '--test-concurrency=1', 'tests/schoolTeacherAllocation.test.js', 'tests/schoolTeacherAccounts.integration.test.js',
+        'tests/currentTeachingAssignments.integration.test.js', 'tests/currentStaffResponsibilities.integration.test.js',
+        'tests/workspaceAssignmentImport.test.js', 'tests/oauthSecurity.test.js'],
+      {...process.env, RUN_DATABASE_TESTS: 'true'}, specialized);
+    } finally { await copyFile(join(directory, specialized), join(evidence, specialized)); }
+    return;
+  }
   const fixture = await seed();
   if (classRoster || classCreation || gradeCreation || gradeRename || classBatch) process.env.NPEP_ENABLED = 'false';
   if (mode === '--server-status') delete process.env.KV_BACKUP_STATUS_DIR;
@@ -495,6 +525,13 @@ async function runFixture() {
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
+  if (teacherAllocation) {
+    const desktop = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_TEACHER_ALLOCATION_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/teacher-allocation/desktop', import.meta.url)));
+    return verifyTeacherAllocation({prisma, origin, fixture, fromKv, directory, evidence, bcrypt, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(desktop, args)});
+  }
   if (organizationImport) {
     const evidence = resolve(process.env.NP_CONSOLE_ORGANIZATION_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/school-organization-import', import.meta.url)));

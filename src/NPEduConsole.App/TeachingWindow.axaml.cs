@@ -40,7 +40,7 @@ public sealed partial class TeachingWindow : Window
     {
         _client = client;
         _courseGroup = courseGroup;
-        if (courseGroup) Title = "走班任课";
+        if (courseGroup) TeachingHeading.Text = Title = "走班任课";
         _school = school;
         _schoolId = school.Id;
         _schoolName = school.Name;
@@ -52,20 +52,30 @@ public sealed partial class TeachingWindow : Window
         Opened += async (_, _) =>
         {
             BatchWorkspaceWindow.FitSchoolWindow(this);
+            Control? entryFocus = null;
             await RunAsync(async () =>
             {
                 await ReadAsync(_unconfirmed?.Draft.SubjectId ?? subjectId);
                 if (!_closed && accountId is not null && _unconfirmed is null)
                 {
-                    TeachingExistingPicker.SelectedItem = TeachingExistingPicker.Items.Cast<TeachingAssignment>()
-                        .FirstOrDefault(row => row.AccountId == accountId);
-                    TeachingExistingPicker.Focus(NavigationMethod.Tab);
+                    var existing = TeachingExistingPicker.Items.OfType<TeachingAssignment>().FirstOrDefault(row => row.AccountId == accountId);
+                    if (existing is not null)
+                    {
+                        TeachingExistingPicker.SelectedItem = existing;
+                        entryFocus = TeachingExistingPicker;
+                    }
+                    else if (TeachingTeacherPicker.Items.OfType<TeachingTeacher>().FirstOrDefault(row => row.Id == accountId) is { } teacher)
+                    {
+                        TeachingTeacherPicker.SelectedItem = teacher;
+                        entryFocus = TeachingTeacherPicker;
+                    }
                 }
                 if (_closed || _unconfirmed is not { } pending) return;
                 TeachingFeedback.Text = "已恢复待核对的提交。请先读取服务器当前任课安排。";
                 ShowBeforeReadback(pending);
             });
             if (!_closed && _unconfirmed is not null) TeachingReadButton.Focus(NavigationMethod.Tab);
+            else if (!_closed) entryFocus?.Focus(NavigationMethod.Tab);
         };
         Closing += (_, args) => args.Cancel = _submitting && !_closed;
         Closed += (_, _) =>
