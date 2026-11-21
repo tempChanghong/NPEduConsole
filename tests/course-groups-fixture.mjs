@@ -153,7 +153,7 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   }
 }
 
-export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent}) {
+export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent, afterSelection}) {
   const require = createRequire(join(web, 'package.json'));
   const {chromium} = require('@playwright/test');
   const outDir = join(directory, 'walking-web-build');
@@ -205,6 +205,7 @@ export async function verifyStudentBrowser({origin, web, directory, evidence, sc
         dialog.getByRole('button', {name: '保存并查看作业'}).click()
       ]);
       await dialog.waitFor({state: 'hidden'});
+      if (afterSelection) await afterSelection({page, dialog, room, browser, url});
       await page.close();
       page = null;
     }

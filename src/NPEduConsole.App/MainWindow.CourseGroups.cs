@@ -20,6 +20,7 @@ public sealed partial class MainWindow
         if (_courseGroupsWindow is not null || _client != client || _school != school) return;
         var window = new CourseGroupsWindow(client, school, term, group, room, subject, teaching)
         {
+            OpenGradePlan = (owner, grade, planSubject, selectedGroup) => ShowGradeTeachingPlanAsync(owner, client, school, grade, planSubject, selectedGroup),
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
         };
         _courseGroupsWindow = window;
@@ -29,6 +30,7 @@ public sealed partial class MainWindow
 
     private void CloseCourseGroups()
     {
+        CloseGradeTeachingPlan();
         var window = _courseGroupsWindow;
         _courseGroupsWindow = null;
         window?.CloseForScopeChange();

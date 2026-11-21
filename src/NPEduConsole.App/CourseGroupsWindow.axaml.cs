@@ -578,6 +578,17 @@ public sealed partial class CourseGroupsWindow : Window
         }
     }, DispatcherPriority.Loaded);
 
+    internal Func<Window, string, string, string, Task<bool>>? OpenGradePlan { get; init; }
+
+    private async void GradePlanClicked(object? sender, RoutedEventArgs args)
+    {
+        if (DirectorySelection?.Group is not { } group || OpenGradePlan is not { } open || _catalog?.TermId is not { } term) return;
+        RememberPosition();
+        if (await open(this, group.GradeId, group.SubjectId, group.Id) && !_closed)
+            await RunAsync(() => LoadAsync(term));
+        if (!_closed) Focus(CourseGradePlan.IsEnabled ? CourseGradePlan : CourseGroupRows);
+    }
+
     private async void TeachingClicked(object? sender, RoutedEventArgs args)
     {
         if (CourseTeaching.IsEnabled && DirectorySelection?.Group is { } group)
@@ -700,8 +711,9 @@ public sealed partial class CourseGroupsWindow : Window
         CourseName.IsEnabled = CourseCode.IsEnabled = CourseSelectable.IsEnabled = CourseSourceRows.IsEnabled = editable;
         CourseUseExisting.IsEnabled = editable && CourseExistingPicker.SelectedItem is CourseGroupDirectoryRow;
         CourseExistingPicker.IsEnabled = editable;
+        CourseGradePlan.IsVisible = !_editing && !pending && OpenGradePlan is not null;
         CourseEdit.IsVisible = CourseTeaching.IsVisible = !_editing && !pending;
-        CourseEdit.IsEnabled = CourseTeaching.IsEnabled = editable && existing;
+        CourseGradePlan.IsEnabled = CourseEdit.IsEnabled = CourseTeaching.IsEnabled = editable && existing;
         CourseRefresh.IsEnabled = !_busy;
         CourseRefresh.Content = pending ? "核对回执" : "刷新";
         CourseBack.IsEnabled = !_busy;

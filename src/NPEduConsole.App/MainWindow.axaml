@@ -293,6 +293,7 @@
             <Button x:Name="OpenClassMaintenanceButton" Classes="action" Content="维护班级" Click="OpenClassMaintenanceClicked" IsVisible="False" />
             <Button x:Name="OpenClassStudyButton" Classes="action" Content="本班学校自习" Click="ClassStudyClicked" IsVisible="False" />
             <Button x:Name="OpenTermPreparationButton" Classes="action" Content="学期管理" Click="OpenTermPreparationClicked" IsVisible="False" />
+            <Button x:Name="OpenGradeTeachingPlanButton" Classes="action" Content="年级教学安排" Click="OpenGradeTeachingPlanClicked" IsVisible="False" />
             <Button x:Name="OpenCourseGroupsButton" Classes="action" Content="走班教学班" Click="OpenCourseGroupsClicked" IsVisible="False" />
             <Button x:Name="OpenTeacherAccountsButton" Classes="action" Content="教师账号" Click="OpenTeacherAccountsClicked" IsVisible="False" />
             <Button x:Name="OpenSchoolSubjectsButton" Classes="action" Content="学科目录" Click="OpenSchoolSubjectsClicked" IsVisible="False" />

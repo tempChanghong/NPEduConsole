@@ -28,6 +28,7 @@ import { verifyStaffResponsibilities } from './staff-responsibilities-fixture.mj
 import { verifyTermActivation } from './term-activation-fixture.mjs';
 import { verifyTermPreparation } from './term-preparation-fixture.mjs';
 import { verifyCourseGroups } from './course-groups-fixture.mjs';
+import { verifyGradeTeachingPlan } from './grade-teaching-plan-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
@@ -36,7 +37,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
-  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement'].includes(mode)),
+  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -59,6 +60,8 @@ const termScreenPlacement = mode === '--term-screen-placement';
 const termActivation = mode === '--term-activation' || termScreenPlacement;
 const termActivationDatabase = mode === '--term-activation-db';
 const courseGroups = mode === '--current-course-groups';
+const gradePlanDatabase = mode === '--grade-teaching-plan-db';
+const gradePlan = mode === '--grade-teaching-plan';
 const teacherAccounts = mode === '--teacher-accounts';
 const currentStaff = mode === '--current-staff';
 const replacement = mode === '--screen-replacement';
@@ -128,8 +131,9 @@ async function createDatabase() {
   await new Promise(res => probe.close(res));
   const connection = { host: '127.0.0.1', port, user: 'npconsole', password: databasePassword };
   for (const key of ['AXIOM_TOKEN', 'AXIOM_DATASET', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS', 'PGHOST', 'PGDATABASE', 'PGUSER', 'PGPORT', 'PGPASSWORD', 'TRUST_PROXY']) delete process.env[key];
+  const fixtureDatabase = gradePlanDatabase ? 'npclassworks_test_grade_plan' : 'npconsole_fixture';
   Object.assign(process.env, {
-    DATABASE_URL: `postgresql://npconsole:${databasePassword}@127.0.0.1:${port}/npconsole_fixture`,
+    DATABASE_URL: `postgresql://npconsole:${databasePassword}@127.0.0.1:${port}/${fixtureDatabase}`,
     DOTENV_CONFIG_PATH: join(directory, 'empty.env'), DOTENV_CONFIG_OVERRIDE: 'false',
     NODE_ENV: 'test', JWT_ALG: 'HS256', JWT_SECRET: randomBytes(48).toString('hex'),
     REFRESH_TOKEN_SECRET: randomBytes(48).toString('hex'), NPEP_ENABLED: 'true',
@@ -157,7 +161,7 @@ async function createDatabase() {
   try {
     // Confirm ownership even if another listener raced the ephemeral port choice.
     assert.equal(resolve((await db.query('SHOW data_directory')).rows[0].data_directory), resolve(data));
-    await db.query('CREATE DATABASE npconsole_fixture');
+    await db.query('CREATE DATABASE ' + fixtureDatabase);
   } finally {
     await db.end();
   }
@@ -194,7 +198,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || termPreparation || termActivation || termActivationDatabase ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || gradePlan || gradePlanDatabase || termPreparation || termActivation || termActivationDatabase ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -484,6 +488,20 @@ async function runFixture() {
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
+  if (gradePlanDatabase) {
+    const evidence = resolve(process.env.NP_CONSOLE_GRADE_PLAN_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/grade-teaching-plan', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    const report = 'grade-plan-postgres.log';
+    try {
+      run(process.execPath, ['--test', '--test-concurrency=1', 'tests/gradeTeachingPlans.integration.test.js',
+        'tests/currentCourseGroups.integration.test.js', 'tests/currentTeachingAssignments.integration.test.js',
+        'tests/schoolManagementOverview.integration.test.js', 'tests/organizationConsistencyDatabase.integration.test.js',
+        'tests/publicationIdempotencyDatabase.integration.test.js', 'tests/publicationWeekDatabase.integration.test.js'],
+      {...process.env, RUN_DATABASE_TESTS: 'true'}, report);
+    } finally { await copyFile(join(directory, report), join(evidence, report)); }
+    return;
+  }
   if (termActivationDatabase) {
     const evidence = resolve(process.env.NP_CONSOLE_TERM_ACTIVATION_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/term-activation', import.meta.url)));
@@ -541,7 +559,7 @@ async function runFixture() {
     return verifyTermPreparation({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
       runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args), runDatabase});
   }
-  if (courseGroups) {
+  if (gradePlan || courseGroups) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = process.env.NP_CONSOLE_COURSE_GROUPS_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/current-course-groups/desktop', import.meta.url));
@@ -559,6 +577,12 @@ async function runFixture() {
         {...process.env, RUN_DATABASE_TESTS: 'true'}, report); }
       finally { await copyFile(join(directory, report), join(evidence, report)); }
     };
+    if (gradePlan) {
+      const gradeEvidence = process.env.NP_CONSOLE_GRADE_PLAN_EVIDENCE ||
+        fileURLToPath(new URL('../.artifacts/grade-teaching-plan/desktop', import.meta.url));
+      return verifyGradeTeachingPlan({prisma, origin, fixture, directory, evidence: gradeEvidence, web: join(kv, '..', 'NPClassworks'),
+        createTeacher, runDesktop: args => runDesktop(project, args)});
+    }
     return verifyCourseGroups({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'), createTeacher,
       runDesktop: args => runDesktop(project, args), runDatabase});
   }

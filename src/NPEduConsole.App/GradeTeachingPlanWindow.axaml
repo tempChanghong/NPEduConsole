@@ -1,0 +1,151 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.GradeTeachingPlanWindow"
+        Title="年级教学安排" Width="1160" Height="780" MinWidth="680" MinHeight="450" WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="TextBlock#PlanNotice.error"><Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/></Style>
+    <Style Selector="Grid.plan-row.conflict"><Setter Property="Background" Value="{DynamicResource ErrorTintBrush}"/></Style>
+    <Style Selector="Window.compact-plan ListBoxItem TextBlock.plan-cell">
+      <Setter Property="MaxLines" Value="3"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+    <Style Selector="Window.compact-plan ListBoxItem:selected TextBlock.plan-cell">
+      <Setter Property="MaxLines" Value="0"/>
+      <Setter Property="TextTrimming" Value="None"/>
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,9">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+        <StackPanel Spacing="3">
+          <TextBlock Text="年级教学安排" FontSize="24" Classes="label"/>
+          <TextBlock x:Name="PlanScope" Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+        <WrapPanel Grid.Column="1" ItemSpacing="7" VerticalAlignment="Center">
+          <ComboBox x:Name="PlanGrade" MinWidth="128" PlaceholderText="选择年级" SelectionChanged="ScopeChanged" AutomationProperties.Name="选择年级"/>
+          <ComboBox x:Name="PlanSubject" MinWidth="154" PlaceholderText="选择学科" SelectionChanged="ScopeChanged" AutomationProperties.Name="选择学科"/>
+        </WrapPanel>
+      </Grid>
+    </Border>
+    <Grid Grid.Row="1" Margin="13,8" RowDefinitions="Auto,*" RowSpacing="5">
+      <TextBlock x:Name="PlanNotice" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
+      <Grid x:Name="PlanColumns" Grid.Row="1" ColumnSpacing="10" RowSpacing="6">
+        <TabControl x:Name="PlanTabs">
+          <TabItem Header="逐班对照">
+            <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="6">
+              <WrapPanel ItemSpacing="6" LineSpacing="4">
+                <ComboBox x:Name="PlanRuleSubject" MinWidth="125" SelectionChanged="RuleSubjectChanged" AutomationProperties.Name="本次编辑的科目"/>
+                <ComboBox x:Name="PlanRuleMode" MinWidth="100" AutomationProperties.Name="授课方式"/>
+                <ComboBox x:Name="PlanCompulsory" MinWidth="105" AutomationProperties.Name="必修设置"/>
+                <Button x:Name="PlanStageRules" Classes="action" Click="StageRules" Content="加入所选班级"/>
+                <Button Classes="action" Click="ShowPlanChanges" Content="核对本次变更"/>
+              </WrapPanel>
+              <Grid Grid.Row="1" ColumnDefinitions="0.85*,1.15*,1.15*,0.8*" ColumnSpacing="6" Margin="8,0,16,0">
+                <TextBlock Text="行政班" Classes="label"/><TextBlock Grid.Column="1" Text="当前" Classes="label"/>
+                <TextBlock Grid.Column="2" Text="调整后" Classes="label"/><TextBlock Grid.Column="3" Text="需要处理" Classes="label"/>
+              </Grid>
+              <ListBox x:Name="PlanRows" Grid.Row="2" Classes="object-list" Background="Transparent" BorderThickness="0" SelectionMode="Multiple"
+                       SelectionChanged="RowSelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False"
+                       AutomationProperties.Name="行政班逐行对照表">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="local:GradeTeachingPlanRowView">
+                    <Grid Classes="plan-row" Classes.conflict="{Binding Conflict}" ColumnDefinitions="0.85*,1.15*,1.15*,0.8*"
+                          ColumnSpacing="6" AutomationProperties.AutomationId="{Binding ClassId}">
+                      <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Classes="label"/>
+                      <TextBlock Grid.Column="1" Text="{Binding Current}" Classes="plan-cell" TextWrapping="Wrap"/>
+                      <TextBlock Grid.Column="2" Text="{Binding After}" Classes="plan-cell" TextWrapping="Wrap"/>
+                      <TextBlock Grid.Column="3" Text="{Binding Action}" Classes="plan-cell" TextWrapping="Wrap" ToolTip.Tip="{Binding Action}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <TextBlock x:Name="PlanRowDetail" Grid.Row="3" TextWrapping="Wrap" Classes="muted"
+                         AutomationProperties.LiveSetting="Polite"/>
+            </Grid>
+          </TabItem>
+          <TabItem Header="走班与来源">
+            <ScrollViewer AllowAutoHide="False" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="7" Margin="0,0,10,0">
+                <WrapPanel ItemSpacing="6" LineSpacing="4">
+                  <ComboBox x:Name="PlanExistingGroup" Width="235" SelectionChanged="GroupSelected" PlaceholderText="选择已有走班" AutomationProperties.Name="选择走班教学班"/>
+                  <Button Classes="action" Click="NewGroup" Content="另开教学班"/>
+                  <Button x:Name="PlanReplaceGroup" Classes="action" Click="ReplaceGroup" Content="按新科目另开班"/>
+                </WrapPanel>
+                <TextBlock x:Name="PlanGroupImpact" TextWrapping="Wrap" Classes="muted"/>
+                <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="6">
+                  <ComboBox x:Name="PlanGroupOperation" SelectionChanged="GroupOperationChanged" HorizontalAlignment="Stretch" AutomationProperties.Name="教学班操作"/>
+                  <ComboBox x:Name="PlanGroupSubject" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="走班学科"/>
+                  <TextBox x:Name="PlanGroupName" Grid.Row="1" PlaceholderText="教学班名称" MaxLength="191" AutomationProperties.Name="教学班名称"/>
+                  <TextBox x:Name="PlanGroupCode" Grid.Row="1" Grid.Column="1" PlaceholderText="唯一代码" MaxLength="64" AutomationProperties.Name="教学班代码"/>
+                </Grid>
+                <WrapPanel ItemSpacing="10" LineSpacing="3">
+                  <CheckBox x:Name="PlanGroupSelectable" Content="允许学生自行选择"/>
+                  <CheckBox x:Name="PlanSetSourceRules" Content="同时为来源设置走班规则"/>
+                  <CheckBox x:Name="PlanRetireFormer" Content="停用原教学班" IsVisible="False"/>
+                </WrapPanel>
+                <TextBlock Text="来源行政班（可多选）" Classes="label"/>
+                <ListBox x:Name="PlanSources" Classes="object-list" SelectionMode="Multiple" MinHeight="60" MaxHeight="150"
+                         ScrollViewer.AllowAutoHide="False" AutomationProperties.Name="选择来源行政班"/>
+                <WrapPanel ItemSpacing="7" LineSpacing="5">
+                  <Button x:Name="PlanStageGroup" Classes="action" Click="StageGroup" Content="将走班调整加入方案"/>
+                  <ComboBox x:Name="PlanMergeTarget" Width="185" PlaceholderText="选择接收来源的教学班" AutomationProperties.Name="并入目标教学班"/>
+                  <Button x:Name="PlanMerge" Classes="action" Click="MergeGroups" Content="并入并停用原班"/>
+                </WrapPanel>
+                <TextBlock Text="并入只调整明确选定的来源。旧班任课和成员权限仍指向原班，学生按新选项自行重选。" TextWrapping="Wrap" Classes="muted"/>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+          <TabItem Header="任课与变更">
+            <ScrollViewer AllowAutoHide="False" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="7" Margin="0,0,10,0">
+                <TextBlock Text="任课按当前选中的行政班和编辑科目办理，也可直接选择走班。" TextWrapping="Wrap" Classes="muted"/>
+                <ComboBox x:Name="PlanTeachingTarget" SelectionChanged="TeachingTargetChanged" HorizontalAlignment="Stretch" AutomationProperties.Name="任课教学空间"/>
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+                  <ComboBox x:Name="PlanTeacher" HorizontalAlignment="Stretch" PlaceholderText="选择教师" AutomationProperties.Name="选择教师"/>
+                  <ComboBox x:Name="PlanTeacherRole" Grid.Column="1" Width="86" AutomationProperties.Name="任课角色"/>
+                  <Button x:Name="PlanStageTeacher" Grid.Column="2" Classes="action" Click="StageTeacher" Content="加入任课"/>
+                </Grid>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7">
+                  <ComboBox x:Name="PlanTeachingExisting" HorizontalAlignment="Stretch" PlaceholderText="选择要移除的现有任课" AutomationProperties.Name="现有任课"/>
+                  <Button x:Name="PlanStageRemoval" Grid.Column="1" Classes="action" Click="StageRemoval" Content="加入移除任课"/>
+                </Grid>
+                <TextBlock Text="新增任课沿用现有成员授权规则。移除任课保留成员权限；也可留待保存后从总览补任课。" TextWrapping="Wrap" Classes="muted"/>
+                <Border x:Name="PlanNarrowChanges" Classes="card" Padding="10" IsVisible="False"/>
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+        </TabControl>
+        <Border x:Name="PlanWideChanges" Grid.Column="1" Classes="card" Padding="10">
+          <Grid x:Name="PlanChangeCard" RowDefinitions="Auto,Auto,*" RowSpacing="6">
+            <TextBlock Text="本次变更" FontSize="17" Classes="label"/>
+            <TextBlock x:Name="PlanChangeCount" Grid.Row="1" TextWrapping="Wrap" Classes="muted"
+                       AutomationProperties.LiveSetting="Polite"/>
+            <ListBox x:Name="PlanChangeRows" Grid.Row="2" Classes="object-list" Background="Transparent" BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False" AutomationProperties.Name="变更和阻断">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:GradeTeachingPlanChangeView">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap"/>
+                    <Button Grid.Column="1" Classes="action" Content="{Binding Action}" IsVisible="{Binding HasAction}"
+                            Tag="{Binding}" Click="ChangeAction"/>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0" Padding="13,8">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+        <WrapPanel ItemSpacing="6" LineSpacing="4">
+          <Button x:Name="PlanBack" Classes="action" Click="Back" Content="返回"/>
+          <Button x:Name="PlanReset" Classes="action" Click="Reset" Content="清空草稿"/>
+          <Button x:Name="PlanReload" Classes="action" Click="Refresh" Content="刷新"/>
+        </WrapPanel>
+        <Button x:Name="PlanPreview" Grid.Column="1" Classes="action" Click="Preview" Content="预览整份方案"/>
+        <Button x:Name="PlanSave" Grid.Column="2" Classes="action accent" Click="Save" Content="保存整份方案"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

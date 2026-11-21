@@ -109,6 +109,7 @@
           <Button x:Name="CourseDiscard" Classes="action" IsVisible="False" Content="放弃草稿" Click="DiscardClicked"/>
           <Button x:Name="CourseRefresh" Classes="action" Content="刷新" Click="RefreshClicked"/>
           <Button x:Name="CourseEdit" Classes="action" Content="维护所选" Click="EditClicked"/>
+          <Button x:Name="CourseGradePlan" Classes="action" Content="停用或改科" Click="GradePlanClicked"/>
           <Button x:Name="CourseTeaching" Classes="action" Content="分配任课" Click="TeachingClicked"/>
         </WrapPanel>
         <Button x:Name="CoursePrimary" Grid.Column="1" Classes="action accent" Content="新建教学班" Click="PrimaryClicked"/>
