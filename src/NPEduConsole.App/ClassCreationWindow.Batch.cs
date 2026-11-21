@@ -20,6 +20,7 @@ internal sealed record ClassBatchSubmission(ClassCreationContext Context, ClassC
 /// </summary>
 public sealed partial class ClassCreationWindow
 {
+    private readonly SubjectSetupFlow _batchSubjectSetup = new();
     private readonly ObservableCollection<BatchDraftRow> _batchRows = [];
     private bool _editingBatch;
     private bool _batchSubmitting;
@@ -354,6 +355,15 @@ public sealed partial class ClassCreationWindow
 
     private void BatchResultSelectionChanged(object? sender, SelectionChangedEventArgs args) => Render();
 
+    private async void BatchOpenSubjectSetupClicked(object? sender, RoutedEventArgs args)
+    {
+        if (!BatchOpenSubjectSetupButton.IsEnabled || _batchReceipt is not { } receipt || _client is not { } client ||
+            _school is not { } school || BatchResults.SelectedItem is not BatchResultItem item) return;
+        await _batchSubjectSetup.OpenAsync(this, client, school, receipt.TermId, item.Class.Id,
+            receipt.Classes.Select(room => room.Id).ToArray(), error => SessionExpired?.Invoke(error));
+        if (!_closed) BatchOpenSubjectSetupButton.Focus();
+    }
+
     private void BatchOpenRosterClicked(object? sender, RoutedEventArgs args)
     {
         if (_closed || _batchReceipt is not { } receipt || BatchResults.SelectedItem is not BatchResultItem item) return;
@@ -632,6 +642,7 @@ public sealed partial class ClassCreationWindow
         BatchOpenRosterButton.IsEnabled = !busy && BatchResults.SelectedItem is BatchResultItem item &&
             _batchReceipt is { } receipt && receipt.Classes.Any(created => created.Id == item.Class.Id) &&
             !_contextInvalid && _context is { } context && receipt.TermId == context.TermId;
+        BatchOpenSubjectSetupButton.IsEnabled = BatchOpenRosterButton.IsEnabled;
         OpenClassBatchButton.IsEnabled = false;
     }
 

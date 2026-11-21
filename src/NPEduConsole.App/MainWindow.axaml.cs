@@ -159,6 +159,7 @@ public sealed partial class MainWindow : Window
             _showSchoolAudit = false;
             var school = SchoolPicker.SelectedItem as School;
             CloseTeaching();
+            _subjectSetup.Close();
             _showSchoolOverview = school is not null;
             _overviewJourney = false;
             _overviewNavigation = null;
@@ -472,6 +473,7 @@ public sealed partial class MainWindow : Window
         ResetSchoolServerStatus();
         CloseClassRoster();
         CloseTeaching();
+        _subjectSetup.Close();
         ResetClassCreation();
         ResetClassMaintenance();
         ResetFirstScreen();
@@ -501,6 +503,7 @@ public sealed partial class MainWindow : Window
         if (_teachingWindow is not null && !_showSchoolOverview &&
             (_classroom?.Id != room?.Id || _classroom?.TermId != room?.TermId)) CloseTeaching();
         OpenTeachingButton.IsVisible = room?.IsActive == true && room.TermId is not null;
+        OpenSubjectSetupButton.IsVisible = OpenTeachingButton.IsVisible;
         OpenClassRosterButton.IsEnabled = room?.IsActive == true;
         OpenClassRosterButton.IsVisible = room?.IsActive != false;
         OpenClassMaintenanceButton.IsVisible = room?.TermId is not null;

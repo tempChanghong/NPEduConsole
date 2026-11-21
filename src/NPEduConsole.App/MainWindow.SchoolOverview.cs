@@ -1,5 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -138,32 +136,20 @@ public sealed partial class MainWindow
 
     private void OpenOverviewWebTask(ConsoleClient client, School school, SchoolOverview overview, SchoolOverviewTask task)
     {
-        if (!Uri.TryCreate(overview.AdminUrl, UriKind.Absolute, out var url) || url.UserInfo.Length != 0 ||
-            url.Query.Length != 0 || url.Fragment.Length != 0 ||
-            url.Scheme != Uri.UriSchemeHttps && !(url.IsLoopback && url.Scheme == Uri.UriSchemeHttp))
+        string section = task.TargetTab is "organization" or "terms" or "structure" or "teachers" or "screens" or "accounts"
+            ? task.TargetTab : "overview";
+        if (SchoolAdminBrowser.Link(overview.AdminUrl, school.Id, overview.Term?.Id, section, task.ScreenId, task.ClassId) is not { } link)
         {
             SchoolOverviewWorkspace.ShowNavigationMessage("KV 未提供网页地址。请在原 NPClassworks 网页的「学校管理」打开对应入口。");
             return;
         }
-        string section = task.TargetTab is "organization" or "terms" or "structure" or "teachers" or "screens" or "accounts"
-            ? task.TargetTab : "overview";
-        var link = new UriBuilder(url) { Query = $"school={Uri.EscapeDataString(school.Id)}&section={section}" };
-        if (overview.Term is { } term) link.Query += "&term=" + Uri.EscapeDataString(term.Id);
-        if (section == "screens" && task.ScreenId is { } screenId)
+        if (SchoolAdminBrowser.Open(link))
         {
-            link.Query += "&screen=" + Uri.EscapeDataString(screenId);
-            if (task.ClassId is { } classId) link.Query += "&classId=" + Uri.EscapeDataString(classId);
-        }
-        try
-        {
-            using var browser = Process.Start(new ProcessStartInfo(link.Uri.AbsoluteUri) { UseShellExecute = true });
             _overviewWebReturn = (client, school);
             SchoolOverviewWorkspace.ShowNavigationMessage("已打开网页学校管理。办理后返回此窗口即可核对最新状态。");
         }
-        catch (Exception error) when (error is Win32Exception or InvalidOperationException)
-        {
+        else
             SchoolOverviewWorkspace.ShowNavigationMessage("暂时无法打开浏览器。请在原 NPClassworks 网页办理。");
-        }
     }
 
     private void RefreshAfterWebOverviewTask()

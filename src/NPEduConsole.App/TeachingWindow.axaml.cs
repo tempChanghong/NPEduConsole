@@ -10,6 +10,8 @@ namespace NPEduConsole.App;
 public sealed partial class TeachingWindow : Window
 {
     private readonly ConsoleClient _client = null!;
+    private readonly SubjectSetupFlow _subjectSetup = new();
+    private readonly School _school = null!;
     private readonly string _schoolId = "", _schoolName = "", _termId = "", _classId = "";
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, CheckBox> _choices = new(StringComparer.Ordinal);
@@ -30,6 +32,7 @@ public sealed partial class TeachingWindow : Window
     public TeachingWindow(ConsoleClient client, School school, string termId, string classId, string? subjectId) : this()
     {
         _client = client;
+        _school = school;
         _schoolId = school.Id;
         _schoolName = school.Name;
         _termId = termId;
@@ -63,6 +66,7 @@ public sealed partial class TeachingWindow : Window
             : catalog.Subjects.FirstOrDefault(row => row.Id == subjectId);
         _binding = false;
         BindSubject();
+        TeachingSubjectSetupButton.IsVisible = catalog.Subjects.Length == 0;
         if (announce) TeachingFeedback.Text = catalog.Subjects.Length == 0 ? "该班暂无随行政班授课的科目。"
             : Subject is null ? "原待办的科目已变化，请核对当前班级的科目。"
             : catalog.Teachers.Length == 0 ? "暂无可分配的本校教师。" : "请选择教师和任课身份，先预览再提交。";
@@ -157,6 +161,7 @@ public sealed partial class TeachingWindow : Window
         TeachingPreviewButton.IsEnabled = editable && Draft() is not null;
         TeachingApplyButton.IsEnabled = editable && _preview is { Preview: { CanApply: true, HasChanges: true } };
         TeachingReadButton.IsEnabled = !_busy && !_closed;
+        TeachingSubjectSetupButton.IsEnabled = editable;
         TeachingReadButton.Content = _unconfirmed is null ? "刷新安排" : "核对提交结果";
     }
 
@@ -263,6 +268,12 @@ public sealed partial class TeachingWindow : Window
 
     private async void ReadClicked(object? sender, RoutedEventArgs args) =>
         await RunAsync(() => _unconfirmed is not null ? VerifyAsync() : ReadAsync(Subject?.Id));
+
+    private async void SubjectSetupClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
+    {
+        await _subjectSetup.OpenAsync(this, _client, _school, _termId, _classId, [_classId], error => SessionExpired?.Invoke(error));
+        if (!_closed) await ReadAsync(null);
+    });
 
     private async Task RunAsync(Func<Task> work)
     {

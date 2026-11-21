@@ -7,6 +7,7 @@
       <TextBlock Text="行政班任课" FontSize="24" FontWeight="SemiBold"/>
       <TextBlock x:Name="TeachingContext" Classes="muted" TextWrapping="Wrap"/>
       <TextBlock x:Name="TeachingFeedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+      <Button x:Name="TeachingSubjectSetupButton" Classes="action" Content="配置授课科目" IsVisible="False" Click="SubjectSetupClicked"/>
     </StackPanel>
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
       <StackPanel Spacing="12" Margin="0,0,10,0">

@@ -1,0 +1,59 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SubjectSetupWindow"
+        Title="配置授课科目" Width="820" Height="735" MinWidth="560" MinHeight="540" WindowStartupLocation="CenterOwner">
+  <Border Background="{StaticResource CanvasBrush}" Padding="24">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+      <StackPanel Spacing="6">
+        <TextBlock Text="配置授课科目" FontSize="24" FontWeight="SemiBold"/>
+        <TextBlock x:Name="SubjectSetupScope" Classes="muted" TextWrapping="Wrap"/>
+        <TextBlock x:Name="SubjectSetupFeedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+      </StackPanel>
+      <Grid x:Name="SubjectSetupInputs" Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="12" IsEnabled="False">
+        <Border Classes="card" Padding="12">
+          <StackPanel Spacing="5">
+            <TextBlock Text="同年级启用班级" FontWeight="SemiBold"/>
+            <ScrollViewer Height="115" VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="SubjectSetupClasses"/>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+        <Border Grid.Column="1" Classes="card" Padding="12">
+          <StackPanel Spacing="5">
+            <TextBlock Text="本校学科" FontWeight="SemiBold"/>
+            <ScrollViewer Height="115" VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="SubjectSetupSubjects"/>
+            </ScrollViewer>
+          </StackPanel>
+        </Border>
+      </Grid>
+      <Grid Grid.Row="2" RowDefinitions="Auto,*,Auto" RowSpacing="7">
+        <TextBlock x:Name="SubjectSetupCount" Classes="muted" TextWrapping="Wrap"/>
+        <ListBox x:Name="SubjectSetupRows" Grid.Row="1" SelectionMode="Single"
+                 AutomationProperties.Name="逐班逐科的预览和结果">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="local:SubjectSetupCell">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7" Margin="2,3">
+                <CheckBox IsChecked="{Binding Included, Mode=TwoWay}" IsVisible="{Binding CanExclude}"
+                          AutomationProperties.Name="{Binding ToggleLabel}" AutomationProperties.AutomationId="{Binding ToggleId}"/>
+                <StackPanel Grid.Column="1" Spacing="3">
+                  <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                  <TextBlock Text="{Binding Detail}" TextWrapping="Wrap" Classes="muted"/>
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+        <ComboBox x:Name="SubjectSetupTeachingPicker" Grid.Row="2" IsVisible="False" HorizontalAlignment="Stretch"
+                  AutomationProperties.Name="选择要分配任课的班级和学科"/>
+      </Grid>
+      <WrapPanel Grid.Row="3" ItemSpacing="8" LineSpacing="8">
+        <Button x:Name="SubjectSetupPreviewButton" Content="预览" Classes="action" Click="PreviewClicked" IsEnabled="False"/>
+        <Button x:Name="SubjectSetupApplyButton" Content="确认保存" Classes="accent" Click="ApplyClicked" IsEnabled="False"/>
+        <Button x:Name="SubjectSetupTeachingButton" Content="前往任课分配" Classes="action" Click="TeachingClicked" IsVisible="False"/>
+        <Button x:Name="SubjectSetupReadButton" Content="刷新目录" Classes="action" Click="ReadClicked"/>
+        <Button x:Name="SubjectSetupWebButton" Content="网页学科目录" Classes="action" Click="WebClicked"/>
+        <Button Content="返回" Classes="action" Click="CloseClicked"/>
+      </WrapPanel>
+    </Grid>
+  </Border>
+</Window>

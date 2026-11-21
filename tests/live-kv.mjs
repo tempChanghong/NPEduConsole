@@ -22,13 +22,14 @@ import { prepareClassBatch } from './class-batch-fixture.mjs';
 import { verifyClassMaintenance } from './class-maintenance-fixture.mjs';
 import { verifySchoolOverview } from './school-overview-fixture.mjs';
 import { verifyCurrentTeaching } from './teaching-fixture.mjs';
+import { verifySubjectSetup } from './subject-setup-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
-  '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching'].includes(mode)),
+  '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -44,6 +45,7 @@ const classBatch = mode === '--class-batch';
 const classMaintenance = mode === '--class-maintenance';
 const schoolOverview = mode === '--school-overview';
 const currentTeaching = mode === '--current-teaching';
+const subjectSetup = mode === '--current-subject-setup';
 const replacement = mode === '--screen-replacement';
 const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen' || replacement;
 const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !gradeCreation && !gradeRename && !firstScreen;
@@ -177,7 +179,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (schoolOverview || currentTeaching ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -468,10 +470,11 @@ async function runFixture() {
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   if (classBatch) return verifyClassBatch(origin, fixture);
-  if (currentTeaching) {
+  if (currentTeaching || subjectSetup) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
-    const evidence = process.env.NP_CONSOLE_TEACHING_EVIDENCE
-      || fileURLToPath(new URL('../.artifacts/current-teaching/desktop-live', import.meta.url));
+    const evidence = subjectSetup
+      ? process.env.NP_CONSOLE_SUBJECT_SETUP_EVIDENCE || fileURLToPath(new URL('../.artifacts/current-subject-setup/desktop-live', import.meta.url))
+      : process.env.NP_CONSOLE_TEACHING_EVIDENCE || fileURLToPath(new URL('../.artifacts/current-teaching/desktop-live', import.meta.url));
     const {localProviderId} = await fromKv('domain/localAccount.js');
     const createTeacher = async (username, name, role = 'VIEWER') => {
       const account = await prisma.account.create({data: {provider: 'school-local',
@@ -481,11 +484,14 @@ async function runFixture() {
       return account;
     };
     const runDatabase = async () => {
-      const report = 'teaching-postgres.log';
-      try { run(process.execPath, ['--test', 'tests/currentTeachingAssignments.integration.test.js'],
+      const report = subjectSetup ? 'subject-setup-postgres.log' : 'teaching-postgres.log';
+      const file = subjectSetup ? 'tests/currentSubjectSetup.integration.test.js' : 'tests/currentTeachingAssignments.integration.test.js';
+      try { run(process.execPath, ['--test', file],
         {...process.env, RUN_DATABASE_TESTS: 'true'}, report); }
       finally { await copyFile(join(directory, report), join(evidence, report)); }
     };
+    if (subjectSetup) return verifySubjectSetup({prisma, origin, fixture, directory, evidence,
+      createTeacher, runDesktop: args => runDesktop(project, args), runDatabase});
     return verifyCurrentTeaching({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
       createTeacher, runDesktop: args => runDesktop(project, args), runDatabase});
   }

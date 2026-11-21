@@ -160,6 +160,8 @@
                 <WrapPanel ItemSpacing="8" LineSpacing="8">
                   <Button x:Name="BatchOpenRosterButton" Content="打开所选班级名单" Classes="action accent" IsEnabled="False"
                           Click="BatchOpenRosterClicked" />
+                  <Button x:Name="BatchOpenSubjectSetupButton" Content="配置授课科目" Classes="action" IsEnabled="False"
+                          Click="BatchOpenSubjectSetupClicked" />
                   <Button Content="返回建班" Classes="action" Click="BatchCancelClicked" />
                 </WrapPanel>
               </StackPanel>
