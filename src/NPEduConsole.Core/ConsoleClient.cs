@@ -144,6 +144,7 @@ public sealed partial class ConsoleClient : IDisposable
             classrooms.Add(new Classroom(room.Id, room.Name, room.Grade?.Name, roomScreens)
             {
                 TermId = term.Id,
+                GradeId = room.Grade?.Id,
                 Code = room.Code,
                 HasInactiveScreens = bindings.Any(screen => !screen.IsActive),
                 FirstScreen = devices is not null && !bindings.Any() ? new(session.Id, schoolId, term.Id, room.Id) : null
@@ -328,6 +329,8 @@ public sealed partial class ConsoleClient : IDisposable
                     throw ClassMaintenanceError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsCurrentTeachingPath(path))
                     throw CurrentTeachingError(status, await AcademicErrorCodeAsync(response, ct));
+                if (IsCurrentStaffPath(path))
+                    throw CurrentStaffError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSubjectSetupPath(path))
                     throw SubjectSetupError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSchoolSubjectPath(path))

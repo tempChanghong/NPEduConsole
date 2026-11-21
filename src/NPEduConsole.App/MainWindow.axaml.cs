@@ -175,6 +175,7 @@ public sealed partial class MainWindow : Window
             _page = ShellPage.Overview;
             var school = SchoolPicker.SelectedItem as School;
             CloseSchoolSubjects();
+            CloseStaffResponsibilities();
             CloseTeaching();
             _subjectSetup.Close();
             _detailScreenId = _directoryReturnScreenId = null;
@@ -513,6 +514,7 @@ public sealed partial class MainWindow : Window
         CloseTeaching();
         _subjectSetup.Close();
         CloseSchoolSubjects();
+        CloseStaffResponsibilities();
         ResetClassCreation();
         ResetClassMaintenance();
         ResetFirstScreen();
@@ -606,6 +608,7 @@ public sealed partial class MainWindow : Window
         OpenClassStudyButton.Content = show ? "返回班级详情" : "本班学校自习";
         var screen = _page == ShellPage.Screen ? _classroom?.Screens.FirstOrDefault(item => item.Id == _detailScreenId) : null;
         bool classHome = _page == ShellPage.Classes;
+        OpenGradeResponsibilityButton.IsVisible = classHome && !show && _school is not null;
         ClassEmblem.IsVisible = classHome;
         ClassHeader.Classes.Set("class-home", classHome && _classroom is not null && !show);
         ClassHeader.Classes.Set("active-class", classHome && _classroom?.IsActive == true);

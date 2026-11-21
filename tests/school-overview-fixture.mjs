@@ -143,7 +143,7 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
       }
       return;
     }
-    const isOverview = req.method === 'GET' && req.url === overviewPath;
+    const isOverview = req.method === 'GET' && new URL(req.url, destination).pathname === overviewPath;
     if (isOverview) {
       overviewReads++;
       if (failNext) { failNext = false; res.writeHead(503).end(); return; }

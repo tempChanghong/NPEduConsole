@@ -1,0 +1,93 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.StaffResponsibilitiesWindow"
+        Title="教师职责" Width="1160" Height="780" MinWidth="720" MinHeight="465" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,10">
+      <StackPanel Spacing="3">
+        <TextBlock x:Name="StaffHeading" FontSize="25" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="StaffScope" Classes="muted" TextTrimming="CharacterEllipsis"/>
+      </StackPanel>
+    </Border>
+    <!-- 状态固定在标题下：冲突结论（“本次未写入”）不能随草稿滚动出窗口。 -->
+    <Border x:Name="StaffStatusBox" Grid.Row="1" Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="10,7"
+            Margin="20,8,20,0">
+      <TextBlock x:Name="StaffStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+    </Border>
+    <ScrollViewer x:Name="StaffBody" Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" AllowAutoHide="False">
+      <StackPanel Margin="20,6" Spacing="9">
+        <Grid x:Name="StaffComparison" ColumnDefinitions="*,1.15*">
+          <Border x:Name="StaffCurrentCard" Classes="card" Padding="10,8">
+            <StackPanel Spacing="5">
+              <TextBlock x:Name="StaffCurrentHeading" Text="当前安排" Classes="label" FontSize="17"/>
+              <TextBlock x:Name="StaffNoCurrent" Classes="muted" Text="当前没有职责安排。"/>
+              <ListBox x:Name="StaffCurrentRows" Classes="object-list" Background="Transparent" BorderThickness="0" MaxHeight="260"
+                       ScrollViewer.AllowAutoHide="False" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="当前职责">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="local:StaffEditorRow">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" AutomationProperties.AutomationId="{Binding AutomationId}">
+                      <StackPanel>
+                        <TextBlock Text="{Binding Teacher.DisplayName}" Classes="label" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Identity}" Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+                      <TextBlock Grid.Column="1" VerticalAlignment="Center" Text="{Binding PositionLabel}" Classes="muted"/>
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </StackPanel>
+          </Border>
+          <Border x:Name="StaffDraftCard" Grid.Column="1" Classes="card" Padding="10,8">
+            <StackPanel Spacing="6">
+              <TextBlock Text="保存后" Classes="label" FontSize="17"/>
+              <Grid x:Name="StaffAddFields" ColumnDefinitions="*,1.45*,Auto" ColumnSpacing="7">
+                <TextBox x:Name="StaffTeacherSearch" PlaceholderText="搜索教师或账号" TextChanged="TeacherSearchChanged" AutomationProperties.Name="搜索教师"/>
+                <ComboBox x:Name="StaffTeacherPicker" Grid.Column="1" HorizontalAlignment="Stretch" PlaceholderText="选择教师"
+                          SelectionChanged="TeacherChanged" AutomationProperties.Name="教师候选"/>
+                <Button x:Name="StaffAddTeacher" Grid.Column="2" Classes="action" Content="加入安排" Click="AddClicked"/>
+              </Grid>
+              <TextBlock x:Name="StaffNoDraft" Classes="muted" Text="尚无职责安排。"/>
+              <ListBox x:Name="StaffDraftRows" Classes="object-list" Background="Transparent" BorderThickness="0" MaxHeight="280"
+                       ScrollViewer.AllowAutoHide="False" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="保存后职责">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="local:StaffEditorRow">
+                    <Grid ColumnDefinitions="*,153" ColumnSpacing="8" AutomationProperties.AutomationId="{Binding AutomationId}">
+                      <StackPanel>
+                        <TextBlock Text="{Binding Teacher.DisplayName}" Classes="label" TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="{Binding Identity}" Classes="muted" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                      </StackPanel>
+                      <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" ItemsSource="{Binding Positions}"
+                                SelectedIndex="{Binding Selection, Mode=TwoWay}" AutomationProperties.Name="{Binding RoleSelectorLabel}"/>
+                    </Grid>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </StackPanel>
+          </Border>
+        </Grid>
+        <Border x:Name="StaffAdvisoryBox" Classes="card" Padding="10,7" IsVisible="False">
+          <StackPanel Spacing="4">
+            <TextBlock x:Name="StaffAdvisoryTitle" Classes="label"/>
+            <ItemsControl x:Name="StaffAdvisories">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate><TextBlock Text="{Binding}" Classes="muted" TextWrapping="Wrap" Margin="0,1"/></DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+        <TextBlock x:Name="StaffAccessNote" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="3" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,8">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <WrapPanel ItemSpacing="8" LineSpacing="5">
+          <Button x:Name="StaffClose" Classes="action" Content="返回" Click="CloseClicked"/>
+          <Button x:Name="StaffReload" Classes="action" Content="刷新安排" Click="ReloadClicked"/>
+          <Button x:Name="StaffDiscard" Classes="action" Content="放弃草稿" IsVisible="False" Click="DiscardClicked"/>
+        </WrapPanel>
+        <Button x:Name="StaffPrimaryAction" Grid.Column="1" Classes="action accent" Content="预览安排" Click="PrimaryClicked" IsEnabled="False"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

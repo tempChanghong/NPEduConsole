@@ -34,6 +34,14 @@ public sealed partial class MainWindow
         _overviewNavigation = navigation;
         try
         {
+            if (overview.Term is { } staffTerm &&
+                (task.Action == "OPEN_CLASS_RESPONSIBILITY" ? task.ClassId : task.Action == "OPEN_GRADE_RESPONSIBILITY" ? task.GradeId : null) is { } staffTarget)
+            {
+                await ShowStaffResponsibilitiesAsync(client, school, staffTerm.Id,
+                    task.Action == "OPEN_CLASS_RESPONSIBILITY" ? "classes" : "grades", staffTarget, task.AccountId);
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
+                return;
+            }
             if (task.Action == "OPEN_TEACHING" && overview.Term is { } teachingTerm &&
                 task.ClassId is { } teachingClass && task.SubjectId is { } subjectId)
             {

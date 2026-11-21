@@ -24,13 +24,15 @@ import { verifySchoolOverview } from './school-overview-fixture.mjs';
 import { verifyCurrentTeaching } from './teaching-fixture.mjs';
 import { verifySubjectSetup } from './subject-setup-fixture.mjs';
 import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
+import { verifyStaffResponsibilities } from './staff-responsibilities-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
-  '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects'].includes(mode)),
+  '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
+  '--current-staff'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -48,6 +50,7 @@ const schoolOverview = mode === '--school-overview';
 const currentTeaching = mode === '--current-teaching';
 const subjectSetup = mode === '--current-subject-setup';
 const schoolSubjects = mode === '--school-subjects';
+const currentStaff = mode === '--current-staff';
 const replacement = mode === '--screen-replacement';
 const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen' || replacement;
 const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !gradeCreation && !gradeRename && !firstScreen;
@@ -181,7 +184,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -472,6 +475,19 @@ async function runFixture() {
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (currentStaff) {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = process.env.NP_CONSOLE_STAFF_EVIDENCE || fileURLToPath(new URL('../.artifacts/current-staff/desktop', import.meta.url));
+    const runDatabase = async () => {
+      const report = 'current-staff-postgres.log';
+      try { run(process.execPath, ['--test', 'tests/currentStaffResponsibilities.integration.test.js'],
+        {...process.env, RUN_DATABASE_TESTS: 'true'}, report); }
+      finally { await copyFile(join(directory, report), join(evidence, report)); }
+    };
+    return verifyStaffResponsibilities({prisma, origin, fixture, directory, evidence, bcrypt,
+      localProviderId: (await fromKv('domain/localAccount.js')).localProviderId,
+      runDesktop: args => runDesktop(project, args), runDatabase});
+  }
   if (schoolSubjects) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = process.env.NP_CONSOLE_SCHOOL_SUBJECTS_EVIDENCE || fileURLToPath(new URL('../.artifacts/school-subjects/desktop', import.meta.url));

@@ -6,7 +6,8 @@ public sealed record SchoolScreenObservation(string State, DateTimeOffset? LastR
 public sealed record SchoolOverviewScreen(string ClassId, string ClassName, string ScreenId, string ScreenName,
     SchoolScreenObservation Browser, SchoolScreenObservation Native);
 public sealed record SchoolOverviewTask(string Code, string Source, string Severity, string Message, string Action,
-    string? ClassId = null, string? ScreenId = null, string? TargetTab = null, DateTimeOffset? LastReportedAt = null, string? SubjectId = null);
+    string? ClassId = null, string? ScreenId = null, string? TargetTab = null, DateTimeOffset? LastReportedAt = null, string? SubjectId = null,
+    string? GradeId = null, string? AccountId = null);
 public sealed record SchoolOverview(School School, SchoolOverviewTerm? Term, SchoolOverviewCounts Counts,
     IReadOnlyList<SchoolOverviewScreen> Screens, IReadOnlyList<SchoolOverviewTask> Tasks, DateTimeOffset GeneratedAt,
     string? AdminUrl = null);
@@ -17,7 +18,7 @@ public sealed partial class ConsoleClient
     {
         var session = CurrentSession;
         var overview = await RequestAsync<SchoolOverview>(HttpMethod.Get,
-            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current", session.Token, ct);
+            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1", session.Token, ct);
         CheckCreationSession(session, ct);
         if (overview.School?.Id != schoolId || overview.Counts is not { } counts || overview.Screens is null ||
             overview.Tasks is null || overview.GeneratedAt == default || counts.Grades < 0 || counts.AdministrativeClasses < 0 ||
@@ -44,7 +45,10 @@ public sealed partial class ConsoleClient
         foreach (var task in overview.Tasks)
         {
             if (task is null || string.IsNullOrWhiteSpace(task.Code) || string.IsNullOrWhiteSpace(task.Message) ||
-                task.Action is not ("OPEN_WEB" or "OPEN_SCREEN" or "PREPARE_SCREEN" or "CREATE_GRADE" or "CREATE_CLASS" or "OPEN_TEACHING") ||
+                task.Action is not ("OPEN_WEB" or "OPEN_SCREEN" or "PREPARE_SCREEN" or "CREATE_GRADE" or "CREATE_CLASS" or "OPEN_TEACHING" or
+                    "OPEN_CLASS_RESPONSIBILITY" or "OPEN_GRADE_RESPONSIBILITY") ||
+                task.Action == "OPEN_CLASS_RESPONSIBILITY" && (overview.Term is null || string.IsNullOrWhiteSpace(task.ClassId)) ||
+                task.Action == "OPEN_GRADE_RESPONSIBILITY" && (overview.Term is null || string.IsNullOrWhiteSpace(task.GradeId)) ||
                 task.Action == "OPEN_TEACHING" && (string.IsNullOrWhiteSpace(task.ClassId) || string.IsNullOrWhiteSpace(task.SubjectId)) ||
                 task.Action == "PREPARE_SCREEN" && string.IsNullOrWhiteSpace(task.ClassId) ||
                 task.Action == "OPEN_SCREEN" && (task.ScreenId is null || !screens.TryGetValue(task.ScreenId, out var room) || room != task.ClassId))
