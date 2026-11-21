@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Interactivity;
 using NPEduConsole.Core;
 
@@ -15,16 +16,17 @@ public sealed partial class MainWindow
         if (_client == client && _school == school && _classroom?.Id == room.Id) OpenTeachingButton.Focus();
     }
 
-    private async Task ShowTeachingAsync(ConsoleClient client, School school, string termId, string classId, string? subjectId, string? accountId = null)
+    private async Task ShowTeachingAsync(ConsoleClient client, School school, string termId, string classId, string? subjectId,
+        string? accountId = null, bool courseGroup = false, Window? owner = null)
     {
         if (_teachingWindow is not null || _client != client || _school != school) return;
-        var window = new TeachingWindow(client, school, termId, classId, subjectId, accountId);
+        var window = new TeachingWindow(client, school, termId, classId, subjectId, accountId, courseGroup);
         _teachingWindow = window;
         window.SessionExpired += error =>
         {
             if (_teachingWindow == window && _client == client) ReturnToLoginIfExpired(error);
         };
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(owner ?? this); }
         finally { if (_teachingWindow == window) _teachingWindow = null; }
     }
 

@@ -14,13 +14,14 @@ public sealed partial class MainWindow
         if (_client == client && _school == school && _page == ShellPage.Classes) OpenTermPreparationButton.Focus();
     }
 
-    private async Task ShowTermPreparationAsync(ConsoleClient client, School school, Action? beforeNavigate = null)
+    private async Task ShowTermPreparationAsync(ConsoleClient client, School school, Action? beforeNavigate = null, string? initialDraftCheck = null)
     {
         if (_termPreparationWindow is not null || _client != client || _school != school) return;
-        var window = new TermPreparationWindow(client, school)
+        var window = new TermPreparationWindow(client, school, initialDraftCheck)
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
-            OpenPlacement = (owner, termId, bindingId) => ShowTermScreenPlacementAsync(owner, client, school, termId, bindingId)
+            OpenPlacement = (owner, termId, bindingId) => ShowTermScreenPlacementAsync(owner, client, school, termId, bindingId),
+            OpenOrganizationImport = (owner, termId) => ShowOrganizationImportAsync(owner, client, school, termId)
         };
         _termPreparationWindow = window;
         window.Closed += Release;

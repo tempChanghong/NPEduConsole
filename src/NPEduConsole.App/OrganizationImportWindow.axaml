@@ -1,0 +1,171 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.OrganizationImportWindow"
+        Title="开学组织导入" Width="1160" Height="780" MinWidth="720" MinHeight="450"
+        WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,8">
+      <StackPanel Spacing="3">
+        <TextBlock Text="开学组织导入" FontSize="24" FontWeight="SemiBold"/>
+        <TextBlock x:Name="OrgScope" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" Classes="muted"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="1" Margin="14,6,14,2" RowDefinitions="Auto,Auto" RowSpacing="5">
+      <Grid ColumnDefinitions="1.4*,1.15*,0.65*,1*" ColumnSpacing="7">
+        <ComboBox x:Name="OrgTerm" SelectionChanged="TermSelectionChanged" HorizontalAlignment="Stretch"
+                  AutomationProperties.Name="目标学期" PlaceholderText="目标学期"/>
+        <ComboBox Grid.Column="1" x:Name="OrgGrade" SelectionChanged="GradeSelectionChanged" HorizontalAlignment="Stretch"
+                  AutomationProperties.Name="选择现有年级" PlaceholderText="选择或填写新年级"/>
+        <TextBox Grid.Column="2" x:Name="OrgGradeCode" PlaceholderText="年级代码" MaxLength="64"
+                 AutomationProperties.Name="目标年级代码" TextChanged="TargetGradeEdited"/>
+        <TextBox Grid.Column="3" x:Name="OrgGradeName" PlaceholderText="年级名称" MaxLength="191"
+                 AutomationProperties.Name="目标年级名称" TextChanged="TargetGradeEdited"/>
+      </Grid>
+      <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="6">
+        <Button x:Name="OrgOpenFile" Classes="action" Content="打开旧 JSON" Click="OpenFileClicked"/>
+        <Button Grid.Column="1" x:Name="OrgExample" Classes="action" Content="七班制示例" Click="LoadExampleClicked"/>
+        <Button Grid.Column="2" x:Name="OrgExcel" Classes="action" Content="从 Excel 粘贴" Click="PasteClicked"/>
+        <TextBlock Grid.Column="3" x:Name="OrgStatus" TextWrapping="Wrap" VerticalAlignment="Center" MaxLines="2"
+                   TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
+      </Grid>
+    </Grid>
+    <TabControl Grid.Row="2" Margin="12,0,12,3" x:Name="OrgSections" SelectionChanged="SectionChanged">
+      <TabItem Header="行政班与学科">
+        <Grid x:Name="OrgClassLayout" RowDefinitions="*,Auto" ColumnDefinitions="3*,2*" ColumnSpacing="8">
+          <Grid x:Name="OrgClassTable" RowDefinitions="Auto,*,Auto" RowSpacing="4">
+            <Grid ColumnDefinitions="1*,1.4*,1*,Auto" ColumnSpacing="6" Margin="8,0">
+              <TextBlock Text="班级代码" Classes="label"/><TextBlock Grid.Column="1" Text="班级名称" Classes="label"/>
+              <TextBlock Grid.Column="2" Text="学生自选" Classes="label"/>
+            </Grid>
+            <ListBox Grid.Row="1" x:Name="OrgClasses" SelectionChanged="ClassSelected" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     Background="Transparent" BorderThickness="0"
+                     AutomationProperties.Name="行政班导入表"/>
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="5">
+              <Button x:Name="OrgAddClass" Classes="action" Content="添加行政班" Click="AddClassClicked"/>
+              <Button x:Name="OrgOpenClassEditor" Classes="action" Content="展开授课规则" Click="OpenClassEditorClicked" IsVisible="False"/>
+            </StackPanel>
+          </Grid>
+          <Grid Grid.Column="1" x:Name="OrgClassEditor" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="4">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock x:Name="OrgClassTitle" Classes="label" TextWrapping="Wrap"/>
+              <Button Grid.Column="1" x:Name="OrgBackClassTable" Classes="action" Content="返回班级表"
+                      Click="BackClassTableClicked" IsVisible="False"/>
+            </Grid>
+            <CheckBox Grid.Row="1" x:Name="OrgReplaceRules" Content="按表替换此班全部授课规则"
+                      IsCheckedChanged="ReplaceRulesChanged"/>
+            <ScrollViewer Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="OrgRules" Spacing="5"/>
+            </ScrollViewer>
+            <Button Grid.Row="3" x:Name="OrgAddRule" Classes="action" Content="添加学科规则" Click="AddRuleClicked"/>
+          </Grid>
+        </Grid>
+      </TabItem>
+      <TabItem Header="走班与来源">
+        <Grid x:Name="OrgGroupLayout" RowDefinitions="*,Auto" ColumnDefinitions="3*,2*" ColumnSpacing="8">
+          <Grid x:Name="OrgGroupTable" RowDefinitions="Auto,*,Auto" RowSpacing="4">
+            <Grid ColumnDefinitions="1*,1.4*,1*,1*,Auto" ColumnSpacing="6" Margin="8,0">
+              <TextBlock Text="教学班代码" Classes="label"/><TextBlock Grid.Column="1" Text="教学班名称" Classes="label"/>
+              <TextBlock Grid.Column="2" Text="学科代码" Classes="label"/><TextBlock Grid.Column="3" Text="学生自选" Classes="label"/>
+            </Grid>
+            <ListBox Grid.Row="1" x:Name="OrgGroups" SelectionChanged="GroupSelected" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     Background="Transparent" BorderThickness="0"
+                     AutomationProperties.Name="走班导入表"/>
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="5">
+              <Button x:Name="OrgAddGroup" Classes="action" Content="添加教学班" Click="AddGroupClicked"/>
+              <Button x:Name="OrgOpenGroupEditor" Classes="action" Content="展开来源班" Click="OpenGroupEditorClicked" IsVisible="False"/>
+            </StackPanel>
+          </Grid>
+          <Grid Grid.Column="1" x:Name="OrgGroupEditor" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="5">
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock x:Name="OrgGroupTitle" Classes="label" TextWrapping="Wrap"/>
+              <Button Grid.Column="1" x:Name="OrgBackGroupTable" Classes="action" Content="返回教学班表"
+                      Click="BackGroupTableClicked" IsVisible="False"/>
+            </Grid>
+            <CheckBox Grid.Row="1" x:Name="OrgReplaceSources" Content="按表替换此教学班全部来源"
+                      IsCheckedChanged="ReplaceSourcesChanged"/>
+            <TextBox Grid.Row="2" x:Name="OrgSourceCodes" PlaceholderText="来源班代码，可用逗号分隔" AutomationProperties.Name="来源班代码"
+                     TextChanged="SourceCodesChanged"/>
+            <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="OrgSources" Spacing="4"/>
+            </ScrollViewer>
+          </Grid>
+        </Grid>
+      </TabItem>
+      <TabItem Header="全校学科">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="5">
+          <TextBlock Text="已有学科可直接引用代码。新增学科全校可见，原有学科和其他年级的引用继续保留。"
+                     TextWrapping="Wrap" Classes="muted"/>
+          <Grid Grid.Row="1" ColumnDefinitions="1*,2*,1*,0.6*,Auto" Margin="8,0">
+            <TextBlock Text="代码" Classes="label"/><TextBlock Grid.Column="1" Text="名称" Classes="label"/>
+            <TextBlock Grid.Column="2" Text="类别" Classes="label"/><TextBlock Grid.Column="3" Text="排序" Classes="label"/>
+          </Grid>
+          <ListBox Grid.Row="2" x:Name="OrgSubjects" Background="Transparent" BorderThickness="0"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="全校学科导入表"/>
+          <Grid Grid.Row="3" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+            <Button x:Name="OrgAddSubject" Classes="action" Content="添加学科行" Click="AddSubjectClicked"/>
+            <ComboBox Grid.Column="1" x:Name="OrgExistingSubject" HorizontalAlignment="Stretch" PlaceholderText="从全校目录引用学科"
+                      SelectionChanged="CatalogSubjectSelected" AutomationProperties.Name="全校现有学科">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="core:OrganizationSubject">
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="{Binding Code}"/><TextBlock Text="{Binding Name}"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </Grid>
+        </Grid>
+      </TabItem>
+      <TabItem Header="导入差异">
+        <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="5">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <ComboBox x:Name="OrgDifferenceFilter" SelectionChanged="DifferenceFilterChanged" AutomationProperties.Name="筛选差异类别"/>
+            <TextBlock Grid.Column="1" x:Name="OrgDifferenceCount" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            <Button Grid.Column="2" x:Name="OrgLocateError" Classes="action" Content="定位所选行" Click="LocateErrorClicked"/>
+          </Grid>
+          <Grid Grid.Row="1" ColumnDefinitions="1*,2*,2*,2*" ColumnSpacing="6" Margin="8,0">
+            <TextBlock Text="状态" Classes="label"/><TextBlock Grid.Column="1" Text="对象" Classes="label"/>
+            <TextBlock Grid.Column="2" x:Name="OrgBeforeHeader" Text="现在" Classes="label"/>
+            <TextBlock Grid.Column="3" x:Name="OrgAfterHeader" Text="导入后" Classes="label"/>
+          </Grid>
+          <ListBox Grid.Row="2" x:Name="OrgDifferences" SelectionChanged="DifferenceSelected" KeyDown="DifferenceKeyDown"
+                   Background="Transparent" BorderThickness="0"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="导入差异">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="core:OrganizationDifference">
+                <Grid ColumnDefinitions="1*,2*,2*,2*" ColumnSpacing="6" RowDefinitions="Auto,Auto" Margin="2,2">
+                  <TextBlock Text="{Binding ActionLabel}" Classes="label"/>
+                  <TextBlock Grid.Column="1" Text="{Binding Object}" TextWrapping="Wrap"/>
+                  <TextBlock Grid.Column="2" Classes="muted org-wide" Text="{Binding BeforeText}" TextWrapping="Wrap"/>
+                  <TextBlock Grid.Column="3" Classes="org-wide" Text="{Binding AfterText}" TextWrapping="Wrap"/>
+                  <TextBlock Grid.Row="1" Grid.ColumnSpan="4" Text="{Binding Message}" IsVisible="{Binding HasMessage}" Classes="muted" TextWrapping="Wrap"/>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock Grid.Row="3" x:Name="OrgCompactDifference" Classes="muted" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
+          <CheckBox Grid.Row="4" x:Name="OrgApprove" IsCheckedChanged="ApprovalChanged"
+                    Content="我已核对整个年级的导入差异"/>
+        </Grid>
+      </TabItem>
+      <TabItem x:Name="OrgResultTab" Header="导入结果" IsVisible="False">
+        <Grid RowDefinitions="Auto,*" RowSpacing="6">
+          <TextBlock x:Name="OrgReceiptCaption" Classes="label" TextWrapping="Wrap"/>
+          <ListBox Grid.Row="1" x:Name="OrgReceiptClasses" Classes="object-list" Background="Transparent" BorderThickness="0"
+                   AutomationProperties.Name="导入回执中的班级"
+                   SelectionChanged="ReceiptClassSelected"/>
+        </Grid>
+      </TabItem>
+    </TabControl>
+    <Border Grid.Row="3" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0" Padding="13,6">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="7">
+        <Button x:Name="OrgClose" Classes="action" Content="返回" Click="CloseClicked"/>
+        <TextBlock Grid.Column="1" x:Name="OrgFooter" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+        <Button Grid.Column="2" x:Name="OrgVerify" Classes="action" Content="只读核对原回执" Click="VerifyClicked" IsVisible="False"/>
+        <Button Grid.Column="2" x:Name="OrgPreview" Classes="action" Content="预览导入差异" Click="PreviewClicked"/>
+        <Button Grid.Column="3" x:Name="OrgSave" Classes="action accent" Content="确认导入" Click="SaveClicked"/>
+        <Button Grid.Column="3" x:Name="OrgContinue" Classes="action accent" Content="进入启用前检查" Click="ContinueClicked" IsVisible="False"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

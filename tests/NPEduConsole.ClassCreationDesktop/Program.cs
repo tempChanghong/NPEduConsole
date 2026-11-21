@@ -36,6 +36,8 @@ internal static partial class Program
             return StartTermPreparation(termFixture, termOutput);
         if (args is ["--live-school-study", var schoolStudyFixture, var schoolStudyOutput])
             return StartSchoolStudy(schoolStudyFixture, schoolStudyOutput);
+        if (args is ["--live-organization-import", var organizationFixture, var organizationOutput])
+            return StartOrganizationImport(organizationFixture, organizationOutput);
         if (args is ["--live-grade-teaching-plan", var gradePlanFixture, var gradePlanOutput])
             return StartGradeTeachingPlan(gradePlanFixture, gradePlanOutput);
         if (args is ["--live-course-groups", var walkingFixture, var walkingOutput])

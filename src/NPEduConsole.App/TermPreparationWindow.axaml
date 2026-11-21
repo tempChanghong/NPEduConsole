@@ -204,6 +204,7 @@
           <Button x:Name="TermRefresh" Classes="action" Content="刷新" Click="RefreshClicked"/>
           <Button x:Name="TermPreviewButton" Classes="action" Content="预览继承" Click="PreviewClicked" IsVisible="False"/>
           <Button x:Name="TermExistingButton" Classes="action" Content="检查现有草稿" Click="ExistingClicked" IsVisible="False"/>
+          <Button x:Name="TermOrganizationImport" Classes="action" Content="导入草稿组织" Click="OrganizationImportClicked" IsVisible="False"/>
           <Button x:Name="TermDiscard" Classes="action" Content="放弃输入" Click="DiscardClicked" IsVisible="False"/>
           <Button x:Name="TermLatestActivation" Classes="action" Content="上次启用结果" Click="OpenLatestActivation" IsVisible="False"/>
           <Button x:Name="TermConfirmCancel" Classes="action" Content="取消启用" Click="CancelActivationConfirmation" IsVisible="False"/>

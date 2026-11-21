@@ -71,6 +71,7 @@ public sealed partial class MainWindow
         bool screen = _page == ShellPage.Screen;
         OpenSchoolStudyButton.IsVisible = scoped && _page == ShellPage.Classes;
         OpenTermPreparationButton.IsVisible = OpenGradeTeachingPlanButton.IsVisible = OpenCourseGroupsButton.IsVisible = OpenTeacherAccountsButton.IsVisible = OpenSchoolSubjectsButton.IsVisible = scoped && _page == ShellPage.Classes;
+        OpenOrganizationImportButton.IsVisible = scoped && _page == ShellPage.Classes;
         OpenScreenClassButton.IsVisible = screen && _classroom is not null;
         OpenTeachingButton.IsVisible = OpenSubjectSetupButton.IsVisible =
             !screen && _classroom is { IsActive: true, TermId: not null };

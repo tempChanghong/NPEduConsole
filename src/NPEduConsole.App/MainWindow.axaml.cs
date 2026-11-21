@@ -179,6 +179,7 @@ public sealed partial class MainWindow : Window
             CloseTeacherAccounts();
             CloseCourseGroups();
             CloseSchoolStudy();
+            CloseOrganizationImport();
             CloseTermPreparation();
             CloseTeaching();
             _subjectSetup.Close();
@@ -522,6 +523,7 @@ public sealed partial class MainWindow : Window
         CloseTeacherAccounts();
         CloseCourseGroups();
         CloseSchoolStudy();
+        CloseOrganizationImport();
         CloseTermPreparation();
         ResetClassCreation();
         ResetClassMaintenance();

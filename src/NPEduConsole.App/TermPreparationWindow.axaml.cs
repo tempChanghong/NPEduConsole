@@ -31,7 +31,7 @@ public sealed partial class TermPreparationWindow : Window
 
     public TermPreparationWindow() => InitializeComponent();
 
-    internal TermPreparationWindow(ConsoleClient client, School school) : this()
+    internal TermPreparationWindow(ConsoleClient client, School school, string? initialDraftCheck = null) : this()
     {
         _client = client;
         _school = school;
@@ -60,6 +60,11 @@ public sealed partial class TermPreparationWindow : Window
                     ShowPreview(pending.Preview, false);
                     await VerifyAsync(pending);
                 }
+                else if (initialDraftCheck is not null && _catalog?.Drafts.Any(row => row.Id == initialDraftCheck) == true)
+                {
+                    _checkBack = Page.Directory;
+                    await OpenCheckAsync(initialDraftCheck);
+                }
                 else Focus(PreparedTerms.ItemCount > 0 ? PreparedTerms : TermPrimary);
             });
         };
@@ -78,6 +83,7 @@ public sealed partial class TermPreparationWindow : Window
     }
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal Func<Window, string, Task<string?>>? OpenOrganizationImport { get; init; }
     private Dictionary<string, Operation> Operations => PendingByClient.GetOrCreateValue(_client);
     private Operation? Pending => Operations.GetValueOrDefault(_school.Id);
     private ManagedAcademicTerm? SelectedDraft => PreparedTerms.SelectedItem as ManagedAcademicTerm;
@@ -391,6 +397,24 @@ public sealed partial class TermPreparationWindow : Window
         _receipt = null;
         _checkBack = _page;
         await RunAsync(() => OpenCheckAsync(termId));
+    }
+
+    private async void OrganizationImportClicked(object? sender, RoutedEventArgs args)
+    {
+        var termId = _page == Page.Check ? _check?.Term.Id : SelectedDraft?.Id;
+        if (_busy || termId is null || OpenOrganizationImport is not { } open) return;
+        await RunAsync(async () =>
+        {
+            var target = await open(this, termId);
+            if (_closed) return;
+            if (target is not null)
+            {
+                _checkBack = Page.Directory;
+                await OpenCheckAsync(target);
+            }
+            else if (_page == Page.Check) await ReadCheckAsync(termId);
+            else await LoadCatalogAsync();
+        });
     }
 
     private async Task OpenCheckAsync(string termId)
@@ -707,6 +731,9 @@ public sealed partial class TermPreparationWindow : Window
         TermPreviewButton.IsEnabled = editable && (!_sourceUnavailable || _activeTerm is not null);
         TermExistingButton.IsVisible = !pending && (_page == Page.Directory && PreparedTerms.ItemCount > 0 || _page == Page.Create && _existingId is not null);
         TermExistingButton.IsEnabled = editable && (_page == Page.Directory ? SelectedDraft is not null : _existingId is not null);
+        TermOrganizationImport.IsVisible = !pending && OpenOrganizationImport is not null &&
+            (_page == Page.Directory && PreparedTerms.ItemCount > 0 || _page == Page.Check && _check is not null);
+        TermOrganizationImport.IsEnabled = editable && (_page == Page.Check ? _check is not null : SelectedDraft is not null);
         TermWeb.IsVisible = !pending && _catalog is not null && (_page == Page.Directory && _activeTerm is null || _page == Page.Check);
         TermWeb.Content = _catalog?.HasAnyTerm == false ? "打开初始化入口" : "网页学期管理";
         TermPrimary.IsVisible = pending ? _canRetry : _page == Page.Create || _page == Page.Directory && _activeTerm is not null;

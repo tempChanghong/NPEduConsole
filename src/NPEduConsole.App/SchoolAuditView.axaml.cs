@@ -324,6 +324,7 @@ internal sealed class SchoolAuditRow(SchoolAuditEntry entry)
         ["SCHOOL_PROFILE_UPDATED"] = "学校设置", ["SUBJECT_CREATED"] = "创建学科", ["SUBJECT_UPDATED"] = "修改学科",
         ["GRADE_CREATED"] = "创建年级", ["GRADE_UPDATED"] = "修改年级", ["ADMIN_CLASS_CREATED"] = "创建行政班",
         ["ADMIN_CLASSES_BATCH_CREATED"] = "批量创建行政班", ["ADMIN_CLASS_UPDATED"] = "修改行政班", ["ORGANIZATION_IMPORT"] = "导入学校组织",
+        ["SCHOOL_ORGANIZATION_IMPORT_PREVIEW"] = "预览开学组织导入", ["SCHOOL_ORGANIZATION_IMPORT"] = "导入年级教学组织",
         ["SCHOOL_MIGRATION_EXPORT_CREATED"] = "生成整校迁移包", ["SCHOOL_MIGRATION_IMPORT_COMPLETED"] = "导入整校迁移包",
         ["TERM_TRANSITION_PREVIEW"] = "预览学期切换", ["TERM_ACTIVATION_PREVIEW"] = "检查学期启用条件", ["TERM_ACTIVATED"] = "切换启用学期",
         ["TERM_DRAFT_CREATED"] = "建立学期草稿", ["TERM_STATUS_CHANGED"] = "修改学期状态", ["SCREEN_COMMAND_ISSUED"] = "下发大屏值守指令",
