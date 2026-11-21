@@ -28,6 +28,8 @@ internal static partial class Program
             return StartSubjectSetup(subjectFixture, subjectOutput);
         if (args is ["--live-school-subjects" or "--live-school-subjects-reopen", var catalogFixture, var catalogOutput])
             return StartSchoolSubjects(catalogFixture, catalogOutput, args[0].EndsWith("-reopen"));
+        if (args is ["--live-course-groups", var walkingFixture, var walkingOutput])
+            return StartCourseGroups(walkingFixture, walkingOutput);
         if (args is ["--live-teacher-accounts", var teacherFixture, var teacherOutput])
             return StartTeacherAccounts(teacherFixture, teacherOutput);
         if (args is ["--live-staff-responsibilities", var staffFixture, var staffOutput])

@@ -25,6 +25,7 @@ import { verifyCurrentTeaching } from './teaching-fixture.mjs';
 import { verifySubjectSetup } from './subject-setup-fixture.mjs';
 import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
 import { verifyStaffResponsibilities } from './staff-responsibilities-fixture.mjs';
+import { verifyCourseGroups } from './course-groups-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
@@ -33,7 +34,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
-  '--current-staff', '--teacher-accounts'].includes(mode)),
+  '--current-staff', '--teacher-accounts', '--current-course-groups'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -51,6 +52,7 @@ const schoolOverview = mode === '--school-overview';
 const currentTeaching = mode === '--current-teaching';
 const subjectSetup = mode === '--current-subject-setup';
 const schoolSubjects = mode === '--school-subjects';
+const courseGroups = mode === '--current-course-groups';
 const teacherAccounts = mode === '--teacher-accounts';
 const currentStaff = mode === '--current-staff';
 const replacement = mode === '--screen-replacement';
@@ -186,7 +188,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -477,6 +479,27 @@ async function runFixture() {
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (courseGroups) {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = process.env.NP_CONSOLE_COURSE_GROUPS_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/current-course-groups/desktop', import.meta.url));
+    const {localProviderId} = await fromKv('domain/localAccount.js');
+    const createTeacher = async (username, name) => {
+      const row = await prisma.account.create({data: {provider: 'school-local', providerId: localProviderId(fixture.school.code, username),
+        localUsername: username, name, localPasswordHash: await bcrypt.hash(fixture.pin, 10), providerData: {schoolCode: fixture.school.code}}});
+      await prisma.schoolMember.create({data: {schoolId: fixture.school.id, accountId: row.id, role: 'VIEWER'}});
+      return row;
+    };
+    const runDatabase = async () => {
+      const report = 'walking-postgres.log';
+      try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/currentCourseGroups.integration.test.js',
+        'tests/currentTeachingAssignments.integration.test.js', 'tests/schoolManagementOverview.integration.test.js'],
+        {...process.env, RUN_DATABASE_TESTS: 'true'}, report); }
+      finally { await copyFile(join(directory, report), join(evidence, report)); }
+    };
+    return verifyCourseGroups({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'), createTeacher,
+      runDesktop: args => runDesktop(project, args), runDatabase});
+  }
   if (teacherAccounts) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = process.env.NP_CONSOLE_TEACHER_ACCOUNTS_EVIDENCE ||

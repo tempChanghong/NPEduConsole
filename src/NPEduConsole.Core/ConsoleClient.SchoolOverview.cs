@@ -7,7 +7,7 @@ public sealed record SchoolOverviewScreen(string ClassId, string ClassName, stri
     SchoolScreenObservation Browser, SchoolScreenObservation Native);
 public sealed record SchoolOverviewTask(string Code, string Source, string Severity, string Message, string Action,
     string? ClassId = null, string? ScreenId = null, string? TargetTab = null, DateTimeOffset? LastReportedAt = null, string? SubjectId = null,
-    string? GradeId = null, string? AccountId = null);
+    string? GradeId = null, string? AccountId = null, string? CourseGroupId = null);
 public sealed record SchoolOverview(School School, SchoolOverviewTerm? Term, SchoolOverviewCounts Counts,
     IReadOnlyList<SchoolOverviewScreen> Screens, IReadOnlyList<SchoolOverviewTask> Tasks, DateTimeOffset GeneratedAt,
     string? AdminUrl = null);
@@ -18,7 +18,7 @@ public sealed partial class ConsoleClient
     {
         var session = CurrentSession;
         var overview = await RequestAsync<SchoolOverview>(HttpMethod.Get,
-            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1&teacherAccountActions=1", session.Token, ct);
+            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1&teacherAccountActions=1&courseGroupActions=1", session.Token, ct);
         CheckCreationSession(session, ct);
         if (overview.School?.Id != schoolId || overview.Counts is not { } counts || overview.Screens is null ||
             overview.Tasks is null || overview.GeneratedAt == default || counts.Grades < 0 || counts.AdministrativeClasses < 0 ||
@@ -46,7 +46,11 @@ public sealed partial class ConsoleClient
         {
             if (task is null || string.IsNullOrWhiteSpace(task.Code) || string.IsNullOrWhiteSpace(task.Message) ||
                 task.Action is not ("OPEN_WEB" or "OPEN_SCREEN" or "PREPARE_SCREEN" or "CREATE_GRADE" or "CREATE_CLASS" or "OPEN_TEACHING" or
-                    "OPEN_CLASS_RESPONSIBILITY" or "OPEN_GRADE_RESPONSIBILITY" or "OPEN_TEACHER_ACCOUNT") ||
+                    "OPEN_CLASS_RESPONSIBILITY" or "OPEN_GRADE_RESPONSIBILITY" or "OPEN_TEACHER_ACCOUNT" or
+                    "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING") ||
+                task.Action == "OPEN_COURSE_GROUP_TEACHING" && (overview.Term is null || string.IsNullOrWhiteSpace(task.CourseGroupId) || string.IsNullOrWhiteSpace(task.SubjectId)) ||
+                task.Action == "OPEN_COURSE_GROUP_SOURCE" && (overview.Term is null || string.IsNullOrWhiteSpace(task.SubjectId) ||
+                    string.IsNullOrWhiteSpace(task.ClassId) && string.IsNullOrWhiteSpace(task.CourseGroupId)) ||
                 task.Action == "OPEN_TEACHER_ACCOUNT" && string.IsNullOrWhiteSpace(task.AccountId) ||
                 task.Action == "OPEN_CLASS_RESPONSIBILITY" && (overview.Term is null || string.IsNullOrWhiteSpace(task.ClassId)) ||
                 task.Action == "OPEN_GRADE_RESPONSIBILITY" && (overview.Term is null || string.IsNullOrWhiteSpace(task.GradeId)) ||

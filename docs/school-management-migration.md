@@ -6,7 +6,7 @@
 
 「大屏状态」分别显示网页首次登录和值守心跳，以及 NPEduTools 配对和有效上报。Console 登记首屏后会出现 NPEduTools 接入待办，登记网页账号也会独立显示首次登录待办。终端成功上报后，同一绑定的首次上报待办消除。KV 保留最近一次有效上报的时间，终端重开 Host 会话仍可查阅该记录。旧数据若已在升级前丢失上报证据，显示「待核对」。原班重新启用后，既有规则判定旧 NPEduTools 授权已失效时，待办提示现场重新配对。
 
-当前学期的班主任、年级职责及本地教师账号待办可在 Console 办理。走班任课、OAuth 邮箱分配、网页大屏和学期启用仍打开原网页学校管理对应入口。网页地址取自 KV 的 `FRONTEND_URL`。地址未配置时，Console 显示原网页办理提示。无需另填监控凭据。
+当前学期的班主任、年级职责、本地教师账号和走班待办可在 Console 办理。OAuth 邮箱分配、网页大屏和学期启用仍打开原网页学校管理对应入口。网页地址取自 KV 的 `FRONTEND_URL`。地址未配置时，Console 显示原网页办理提示。无需另填监控凭据。
 
 上线先部署 KV 并应用迁移 `20261121040000_npep_device_last_report`，再更新 Console 和网页。旧网页仍可查询指定学期。新接口位于 `/api/v2/admin/schools/:schoolId/management-overview/current`。
 
@@ -16,7 +16,7 @@
 
 Console 只补设随行政班授课的规则。新增项沿用非必修默认值，已有随班规则及其必修信息原样保留。走班规则、走班来源、任课、名单和访问权限也会保留。所选项目冲突、班级变化或切换学期时，KV 不写入本批。重发相同配置不会新增重复规则。若其他管理员已改过某一项，可在对应行对照预览和当前记录，再重新预览。回包中断时先只读核对实际规则。在同一次登录中关闭窗口后，可从同一学校、学期和入口班级重新打开「配置授课科目」，继续核对原选择。成功后可选择班级与学科进入任课分配，返回总览重新核对缺教师待办。
 
-需要调整走班方式、全量替换授课规则或管理其他学期时，继续用原网页。部署先更新 KV，再更新 Console，本轮无新增数据库迁移。本地 Windows 联调用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --current-subject-setup`，截图默认写入 `.artifacts/current-subject-setup/desktop-live`。
+开设当前学期走班课程时，使用「走班教学班」。全量替换授课规则和其他学期管理仍在网页。部署先更新 KV，再更新 Console，本轮无新增数据库迁移。本地 Windows 联调用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --current-subject-setup`，截图默认写入 `.artifacts/current-subject-setup/desktop-live`。
 
 ## 学校学科目录
 
@@ -24,7 +24,7 @@ Console 只补设随行政班授课的规则。新增项沿用非必修默认值
 
 代码重复时可就地修改。另一位管理员先保存时，草稿保留，Console 显示学校当前值，采用当前版本后可重新提交。创建回包中断时，Console 在当前登录会话保留请求编号，可关闭并重开目录继续只读核对。回执只归原学校与账号。返回开科前如遇学期切换，已建学科保留，请选新学期的班级继续。
 
-旧网页可继续维护学科。删除、合并以及走班规则不在本轮迁移范围内。部署新版 KV 时先应用 `20261121050000_school_subject_creation`，再更新 Console。Windows 与隔离 PostgreSQL 回归可用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --school-subjects`，截图默认在 `.artifacts/school-subjects/desktop`。
+旧网页可继续维护学科。删除和合并学科目录项目仍按原流程处理。部署新版 KV 时先应用 `20261121050000_school_subject_creation`，再更新 Console。Windows 与隔离 PostgreSQL 回归可用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --school-subjects`，截图默认在 `.artifacts/school-subjects/desktop`。
 
 ## 当前学期行政班任课
 
@@ -32,9 +32,19 @@ Console 只补设随行政班授课的规则。新增项沿用非必修默认值
 
 新增时选择本校已有教师及主讲或协同身份，可以同时勾选同年级、该科目随行政班授课的其他启用班级。预览列出逐班变化和当前安排。有主讲冲突或预览已过期时，整批不写入。可以取消有冲突的班、选择协同，或单独修改原关系。提交回包中断时，Console 先只读核对服务器当前安排。返回总览后重新读取待办。
 
-新增或调整任课可能授予或提升班级成员权限。修改为协同或移除任课时，已有班级成员权限保留，其他科目和职责授予的访问照常有效。人员账号和走班任课仍从原网页办理。上线先更新 KV，再更新 Console，本轮无新增数据库迁移。
+新增或调整任课可能授予或提升班级成员权限。修改为协同或移除任课时，已有班级成员权限保留，其他科目和职责授予的访问照常有效。本地教师账号和当前学期走班任课另有桌面入口。上线先更新 KV，再更新 Console，本轮无新增数据库迁移。
 
 本地联调用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --current-teaching`。使用隔离数据库、Windows Console 和 Edge，截图默认写入 `.artifacts/current-teaching/desktop-live`。
+
+## 当前学期走班教学班
+
+从「班级与教务 → 走班教学班」按年级、学科或缺教师筛选，打开或新建教学班。在「学校总览」点「核对走班来源」会定位到缺覆盖的行政班或需要核对的教学班，点「分配走班任课」会进入对应教学班的任课编辑。
+
+开设或补来源时，选择同年级启用行政班，填写教学班名称、唯一代码和是否允许学生自行选择。预览逐班列出新增、保留和移出，既有同科教学班和随班任课可一起核对。同一行政班可同时作为多个同科教学班的来源。若某班仍有有效随班任课，可打开该班任课处理，返回原走班草稿后重新预览。移出一条来源会保留原授课规则和其他教学班，最后一条覆盖移除后会出现缺覆盖待办。
+
+确认时 KV 在同一事务内复核学期、权限和预览依据，保存目标教学班、来源以及涉及班级的该科规则。保留必修信息、其他科目及既有任课和权限。并发变化时整次零写入。若保存回包丢失，Console 先按本次请求编号只读核对，并按服务器确认的教学班 ID 返回列表。任课另行保存，沿用任课、来源班主任职责和既有成员关系分别生效的权限。停用、改科、历史学期和全量授课规则维护仍走旧网页。
+
+上线先部署 KV 并应用 `20261122010000_current_course_group_receipts`，再更新 Console。Windows、学生网页和隔离 PostgreSQL 联调使用 `--current-course-groups`，证据默认在 `.artifacts/current-course-groups/desktop`。
 
 ## 本校教师账号
 
@@ -122,9 +132,9 @@ Console 只补设随行政班授课的规则。新增项沿用非必修默认值
 | --- | --- |
 | 审计记录 | 本地学校管理账号可在 Console 完成上述查询。 |
 | 管理总览 | Console 选中学校后显示当前学期诊断和管理待办。需由网页办理的事项仍链接到原入口。 |
-| 组织与班级 | Console 可维护全校学科目录，也可在当前启用学期维护年级名称与行政班、录入名单、批量补设随班授课科目并办理任课分配。其他学期、年级代码和排序、全量授课规则及走班设置仍在网页。 |
+| 组织与班级 | Console 可维护全校学科目录，也可在当前启用学期维护年级名称与行政班、录入名单、批量补设随班授课科目并办理任课分配。可开设当前学期走班教学班并维护来源。其他学期、年级代码和排序、全量授课规则，以及走班教学班的停用和改科仍在网页。 |
 | 学生名单 | Console 可维护当前学期一个行政班的名单，支持批量粘贴、差异预览、保存及冲突核对。 |
-| 教师分配 | Console 可办理当前学期随行政班任课，以及班主任、协同班主任、年级组长和副组长。历史学期职责、联动规则维护、走班任课和作业快捷输入配置仍在网页。 |
+| 教师分配 | Console 可办理当前学期随行政班与走班教学班任课，以及班主任、协同班主任、年级组长和副组长。历史学期职责、联动规则维护和作业快捷输入配置仍在网页。 |
 | 大屏设备 | Console 可为新班登记首台 NPEduTools 大屏并查看连接状态。创建或重置网页大屏账号、维护作业快捷截止时间仍在网页。 |
 | 大屏互联 | Console 已覆盖部分班级接入、麦克风策略和软件维护。设备撤销、考试控制等仍有网页入口。 |
 | 自习监测 | Console 可为单班增加自习安排、查看回执和场次。年级策略、完整日历、照片等仍需网页。 |
@@ -151,6 +161,7 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/P
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --school-overview
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --first-screen
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --teacher-accounts
+node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --current-course-groups
 ```
 
 名单联调会停用夹具中的 NPEP，检查无设备班级、同名学生、屏幕并发写入、学期切换、历史考勤和保存结果核对。网页名单的行为可参照 NPClassworks 的 `src/components/admin/ClassRosterManager.vue` 和 `src/utils/classRoster.js`，服务端规则见 NPClassworksKV 的 `services/classroomToolsService.js`。

@@ -14,6 +14,7 @@ public sealed partial class TeachingWindow : Window
 {
     private readonly ConsoleClient _client = null!;
     private readonly SubjectSetupFlow _subjectSetup = new();
+    private readonly bool _courseGroup;
     private readonly School _school = null!;
     private readonly string _schoolId = "", _schoolName = "", _termId = "", _classId = "";
     private readonly CancellationTokenSource _lifetime = new();
@@ -35,9 +36,11 @@ public sealed partial class TeachingWindow : Window
         _binding = false;
     }
 
-    public TeachingWindow(ConsoleClient client, School school, string termId, string classId, string? subjectId, string? accountId = null) : this()
+    public TeachingWindow(ConsoleClient client, School school, string termId, string classId, string? subjectId, string? accountId = null, bool courseGroup = false) : this()
     {
         _client = client;
+        _courseGroup = courseGroup;
+        if (courseGroup) Title = "走班任课";
         _school = school;
         _schoolId = school.Id;
         _schoolName = school.Name;
@@ -79,12 +82,12 @@ public sealed partial class TeachingWindow : Window
 
     private async Task ReadAsync(string? subjectId, bool announce = true)
     {
-        var catalog = await _client.GetTeachingAsync(_schoolId, _termId, _classId, _lifetime.Token);
+        var catalog = await _client.GetTeachingAsync(_schoolId, _termId, _classId, _lifetime.Token, _courseGroup);
         if (_closed) return;
         _scopeUnavailable = false;
         var teacherId = Teacher?.Id;
         _binding = true;
-        TeachingContext.Text = $"{_schoolName} · 当前学期 · 从{catalog.Classroom.Name}进入";
+        TeachingContext.Text = $"{_schoolName} · 当前学期 · {catalog.Classroom.Name}";
         TeachingTeacherPicker.ItemsSource = catalog.Teachers;
         TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(row => row.Id == teacherId);
         TeachingSubjectPicker.ItemsSource = catalog.Subjects;
@@ -92,8 +95,9 @@ public sealed partial class TeachingWindow : Window
             : catalog.Subjects.FirstOrDefault(row => row.Id == subjectId);
         _binding = false;
         BindSubject();
-        TeachingSubjectSetupButton.IsVisible = catalog.Subjects.Length == 0;
-        if (announce) TeachingFeedback.Text = catalog.Subjects.Length == 0 ? "该班暂无随行政班授课的科目。"
+        TeachingSubjectSetupButton.IsVisible = !_courseGroup && catalog.Subjects.Length == 0;
+        TeachingSubjectPicker.IsEnabled = !_courseGroup;
+        if (announce) TeachingFeedback.Text = catalog.Subjects.Length == 0 ? (_courseGroup ? "原教学班学科已变化，请返回核对。" : "该班暂无随行政班授课的科目。")
             : Subject is null ? "原待办的科目已变化，请核对当前班级的科目。"
             : catalog.Teachers.Length == 0 ? "暂无可分配的本校教师。" : "请选择教师和任课身份，先预览再提交。";
     }
@@ -207,7 +211,7 @@ public sealed partial class TeachingWindow : Window
         {
             ResetPreview();
             TeachingFeedback.Text = "正在读取各班当前安排…";
-            var preview = await _client.PreviewTeachingAsync(_schoolId, _classId, draft, _lifetime.Token);
+            var preview = await _client.PreviewTeachingAsync(_schoolId, _classId, draft, _lifetime.Token, _courseGroup);
             if (_closed) return;
             _preview = (draft, preview);
             TeachingBeforeHeading.Text = "当前任课";
@@ -229,7 +233,7 @@ public sealed partial class TeachingWindow : Window
             TeachingResult result;
             try
             {
-                result = await _client.SaveTeachingAsync(_schoolId, _classId, pending.Draft, pending.Preview, _lifetime.Token);
+                result = await _client.SaveTeachingAsync(_schoolId, _classId, pending.Draft, pending.Preview, _lifetime.Token, _courseGroup);
             }
             catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
             {
@@ -263,7 +267,7 @@ public sealed partial class TeachingWindow : Window
         if (_unconfirmed is not { } pending || _closed) return;
         var draft = pending.Draft;
         TeachingFeedback.Text = "提交回执未确认，正在只读核对服务器安排…";
-        var current = await _client.PreviewTeachingAsync(_schoolId, _classId, draft, _lifetime.Token);
+        var current = await _client.PreviewTeachingAsync(_schoolId, _classId, draft, _lifetime.Token, _courseGroup);
         if (_closed) return;
         var observed = TeachingPreviewRow.Compare(current.Rows, pending, TeachingObservation.Readback);
         bool confirmed = observed.All(row => !row.NeedsAttention);
@@ -370,7 +374,7 @@ public sealed partial class TeachingWindow : Window
 
     private async Task<TeachingCatalog?> ReadAfterTeacherCreationAsync()
     {
-        try { return await _client.GetTeachingAsync(_schoolId, _termId, _classId, _lifetime.Token); }
+        try { return await _client.GetTeachingAsync(_schoolId, _termId, _classId, _lifetime.Token, _courseGroup); }
         catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
         {
             if (!_closed)

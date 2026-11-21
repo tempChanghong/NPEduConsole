@@ -28,11 +28,11 @@ public sealed record TeachingResult(string State, TeachingRow[] Rows);
 
 public sealed partial class ConsoleClient
 {
-    private static string TeachingPath(string school, string classroom) =>
-        $"{CurrentClassesPath(school)}/{Segment(classroom)}/teaching-assignments";
+    private static string TeachingPath(string school, string classroom, bool courseGroup) =>
+        $"{(courseGroup ? CourseGroupsPath(school) : CurrentClassesPath(school))}/{Segment(classroom)}/teaching-assignments";
 
     private static bool IsCurrentTeachingPath(string path) =>
-        path.Contains(CurrentClassesSuffix + "/", StringComparison.Ordinal) &&
+        (path.Contains(CurrentClassesSuffix + "/", StringComparison.Ordinal) || path.Contains(CourseGroupsSuffix + "/", StringComparison.Ordinal)) &&
         path.Contains("/teaching-assignments", StringComparison.Ordinal);
 
     private static ConsoleApiException CurrentTeachingError(int status, string? code) => new(status, code switch
@@ -45,10 +45,10 @@ public sealed partial class ConsoleClient
         _ => HttpError(status, false).Message
     }, code);
 
-    public async Task<TeachingCatalog> GetTeachingAsync(string school, string term, string classroom, CancellationToken ct)
+    public async Task<TeachingCatalog> GetTeachingAsync(string school, string term, string classroom, CancellationToken ct, bool courseGroup = false)
     {
         var session = CurrentSession;
-        var reply = await RequestAsync<TeachingCatalog>(HttpMethod.Get, TeachingPath(school, classroom) + "?termId=" + Segment(term),
+        var reply = await RequestAsync<TeachingCatalog>(HttpMethod.Get, TeachingPath(school, classroom, courseGroup) + "?termId=" + Segment(term),
             session.Token, ct);
         CheckCreationSession(session, ct);
         if (reply.SchoolId != school || reply.TermId != term || reply.Classroom?.Id != classroom ||
@@ -58,22 +58,22 @@ public sealed partial class ConsoleClient
         return reply;
     }
 
-    public async Task<TeachingPreview> PreviewTeachingAsync(string school, string classroom, TeachingDraft draft, CancellationToken ct)
+    public async Task<TeachingPreview> PreviewTeachingAsync(string school, string classroom, TeachingDraft draft, CancellationToken ct, bool courseGroup = false)
     {
         var session = CurrentSession;
-        var reply = await RequestAsync<TeachingPreview>(HttpMethod.Post, TeachingPath(school, classroom) + "/preview", session.Token, ct, body: draft);
+        var reply = await RequestAsync<TeachingPreview>(HttpMethod.Post, TeachingPath(school, classroom, courseGroup) + "/preview", session.Token, ct, body: draft);
         CheckCreationSession(session, ct);
         CheckTeachingRows(draft, reply.Rows, partial: false);
         return reply;
     }
 
     public async Task<TeachingResult> SaveTeachingAsync(string school, string classroom, TeachingDraft draft,
-        TeachingPreview preview, CancellationToken ct)
+        TeachingPreview preview, CancellationToken ct, bool courseGroup = false)
     {
         var session = CurrentSession;
         object body = new { draft.TermId, draft.SubjectId, draft.Action, draft.ClassIds, draft.AccountId, draft.Position, draft.AssignmentId,
             expected = preview.Rows.Select(row => new { row.ClassId, row.Version }).ToArray() };
-        var reply = await RequestAsync<TeachingResult>(HttpMethod.Post, TeachingPath(school, classroom), session.Token, ct, body: body);
+        var reply = await RequestAsync<TeachingResult>(HttpMethod.Post, TeachingPath(school, classroom, courseGroup), session.Token, ct, body: body);
         CheckCreationSession(session, ct);
         if (reply.State is not ("APPLIED" or "STALE" or "BLOCKED")) throw InvalidResponse();
         CheckTeachingRows(draft, reply.Rows, partial: reply.State == "STALE");

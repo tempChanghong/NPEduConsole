@@ -69,7 +69,7 @@ public sealed partial class MainWindow
         OpenDeviceDirectoryButton.Classes.Set("current", _page is ShellPage.Devices or ShellPage.Screen);
         OpenSchoolAuditButton.Classes.Set("current", _showSchoolAudit);
         bool screen = _page == ShellPage.Screen;
-        OpenTeacherAccountsButton.IsVisible = OpenSchoolSubjectsButton.IsVisible = scoped && _page == ShellPage.Classes;
+        OpenCourseGroupsButton.IsVisible = OpenTeacherAccountsButton.IsVisible = OpenSchoolSubjectsButton.IsVisible = scoped && _page == ShellPage.Classes;
         OpenScreenClassButton.IsVisible = screen && _classroom is not null;
         OpenTeachingButton.IsVisible = OpenSubjectSetupButton.IsVisible =
             !screen && _classroom is { IsActive: true, TermId: not null };

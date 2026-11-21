@@ -12,8 +12,8 @@ namespace NPEduConsole.App;
 public sealed record OverviewTaskItem(SchoolOverviewTask Task, string ActionLabel, string Evidence)
 {
     public string Message => Task.Message;
-    public string AutomationId => "SchoolOverviewTask-" + Task.Code + "-" + (Task.ScreenId ?? Task.ClassId ?? Task.GradeId ?? "school") +
-        (Task.Action == "OPEN_TEACHING" ? "-" + Task.SubjectId : Task.AccountId is { } accountId ? "-" + accountId : "");
+    public string AutomationId => "SchoolOverviewTask-" + Task.Code + "-" + (Task.ScreenId ?? Task.CourseGroupId ?? Task.ClassId ?? Task.GradeId ?? "school") +
+        (Task.Action is "OPEN_TEACHING" or "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING" ? "-" + Task.SubjectId + (Task.CourseGroupId is not null && Task.ClassId is not null ? "-" + Task.ClassId : "") : Task.AccountId is { } accountId ? "-" + accountId : "");
 }
 
 public sealed partial class SchoolOverviewView : UserControl
@@ -251,6 +251,8 @@ public sealed partial class SchoolOverviewView : UserControl
             "PREPARE_SCREEN" => "前往登记",
             "OPEN_SCREEN" => "定位大屏",
             "OPEN_TEACHING" => "分配任课",
+            "OPEN_COURSE_GROUP_TEACHING" => "分配走班任课",
+            "OPEN_COURSE_GROUP_SOURCE" => "核对走班来源",
             "OPEN_TEACHER_ACCOUNT" => "查看教师账号",
             "OPEN_CLASS_RESPONSIBILITY" => "办理班主任",
             "OPEN_GRADE_RESPONSIBILITY" => "办理年级组长",
