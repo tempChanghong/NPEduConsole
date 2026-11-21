@@ -323,6 +323,8 @@ public sealed partial class ConsoleClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 int status = (int)response.StatusCode;
+                if (IsTermPreparationPath(path))
+                    throw await TermPreparationErrorAsync(response, ct);
                 if (IsClassBatchPath(path))
                     throw await ClassBatchErrorAsync(response, ct);
                 if (IsClassMaintenancePath(path))

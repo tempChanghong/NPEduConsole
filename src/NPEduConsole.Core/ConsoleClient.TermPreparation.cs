@@ -1,0 +1,184 @@
+using System.Text.Json;
+
+namespace NPEduConsole.Core;
+
+public sealed record ManagedAcademicTerm(string Id, string Name, int AcademicYear, int Semester, string Status,
+    DateTimeOffset? StartsAt, DateTimeOffset? EndsAt)
+{
+    public string Period => $"{AcademicYear} 学年 · 第 {Semester} 学期";
+    public string Dates => StartsAt is null && EndsAt is null ? "未设置起止日期" :
+        $"{StartsAt?.ToString("yyyy-MM-dd") ?? "开始未定"} 至 {EndsAt?.ToString("yyyy-MM-dd") ?? "结束未定"}";
+    public override string ToString() => $"{Name} · {Period}";
+}
+public sealed record TermPreparationCatalog(string SchoolId, ManagedAcademicTerm? ActiveTerm, ManagedAcademicTerm[] Drafts,
+    bool HasAnyTerm, string? AdminUrl, string? SetupUrl);
+public sealed record TermDraftSettings(int AcademicYear, int Semester, string Name, string? StartsAt, string? EndsAt,
+    bool CarryWorkspaceMembers = true, bool CarryTeachingAssignments = true, bool CarryLeaderships = true, bool CarryPendingInvitations = false);
+public sealed record TermDraftTarget(string Name, int AcademicYear, int Semester, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt);
+public sealed record TermDraftCarry(bool WorkspaceMembers, bool TeachingAssignments, bool Leaderships, bool PendingInvitations);
+public sealed record TermDraftCounts(int Grades, int AdministrativeClasses, int CourseGroups, int Workspaces, int WorkspaceMembers,
+    int TeachingAssignments, int GradeLeaderships, int ClassLeaderships, int PendingInvitations, int SourceLinks)
+{
+    internal bool Valid => Grades >= 0 && AdministrativeClasses >= 0 && CourseGroups >= 0 && Workspaces >= 0 &&
+        (long)AdministrativeClasses + CourseGroups <= Workspaces && WorkspaceMembers >= 0 && TeachingAssignments >= 0 &&
+        GradeLeaderships >= 0 && ClassLeaderships >= 0 && PendingInvitations >= 0 && SourceLinks >= 0;
+}
+public sealed record TermDraftPerson(string AccountId, string Name, string Position)
+{
+    public string Role => Position switch
+    {
+        "HEAD_TEACHER" => "班主任", "CO_HEAD_TEACHER" => "协同班主任", "PRIMARY" => "主讲",
+        "CO_TEACHER" => "协同任课", "DEPUTY" => "副组长", _ => Position
+    };
+}
+public sealed record TermDraftClass(string Id, string Name, string Code);
+public sealed record TermDraftWorkspace(string Id, string Name, string Code, string Type, bool IsActive, string? SubjectName,
+    TermDraftClass[] SourceClasses, TermDraftPerson[] Assignments, TermDraftPerson[] Duties, int WorkspaceMembers, int PendingInvitations);
+public sealed record TermDraftGrade(string Id, string Name, string Code, TermDraftPerson[] Duties);
+public sealed record TermDraftPreview(ManagedAcademicTerm Source, TermDraftTarget Target, TermDraftCarry Carry, TermDraftCounts Counts,
+    TermDraftWorkspace[] Workspaces, TermDraftGrade[] GradeDuties, string Version);
+public sealed record TermDraftReceipt(Guid RequestId, string TermId, TermDraftCounts Counts);
+public sealed record TermDraftResult(string State, TermDraftPreview? Preview = null, TermDraftReceipt? Receipt = null);
+public sealed record TermDraftDiagnostic(string Source, string Severity, string Code, string Message, string? TargetTab = null);
+public sealed record TermDraftOriginalClass(string Id, string Name, string Code, string TermId, string TermName);
+public sealed record TermDraftScreenImpact(string BindingId, string Name, TermDraftOriginalClass? FromClass,
+    TermDraftClass? TargetClass, string NativeImpact)
+{
+    public string Original => FromClass is { } room ? $"{room.Name}（{room.Code}） · {room.TermName}" : "原班待核对";
+    public string Target => TargetClass is { } room ? $"{room.Name}（{room.Code}）" : "无匹配的新班";
+    public string Impact => FromClass is null ? "原绑定证据不足，请核对。" : NativeImpact switch
+    {
+        "REPAIR_REQUIRED" => "若按默认规则改绑，原 NPEduTools 需在现场重新配对。",
+        "NO_REBIND" => "按默认规则没有改绑目标，请核对启用后教室安排。",
+        _ => "原生配对影响待核对。班级代码匹配仅用于拟迁移绑定。"
+    };
+}
+public sealed record TermPreparationCheck(string SchoolId, ManagedAcademicTerm Term, ManagedAcademicTerm? ActiveTerm,
+    TermDraftDiagnostic[] BlockingDiagnostics, TermDraftDiagnostic[] Reminders, TermDraftScreenImpact[] Screens);
+
+public sealed partial class ConsoleClient
+{
+    private const string TermPreparationSuffix = "/term-preparation";
+    private static string TermPreparationPath(string school) => $"api/v2/admin/schools/{Segment(school)}{TermPreparationSuffix}";
+    private static bool IsTermPreparationPath(string path) => path.Contains(TermPreparationSuffix, StringComparison.Ordinal);
+
+    private static async Task<ConsoleApiException> TermPreparationErrorAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        string? code = null, existing = null;
+        int status = (int)response.StatusCode;
+        try
+        {
+            using var content = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            if (content.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                var root = content.RootElement;
+                if (root.TryGetProperty("code", out var value) && value.ValueKind == JsonValueKind.String) code = value.GetString();
+                if (code == "TARGET_TERM_EXISTS" && root.TryGetProperty("details", out var details) && details.ValueKind == JsonValueKind.Object &&
+                    details.TryGetProperty("termId", out var id) && id.ValueKind == JsonValueKind.String) existing = id.GetString();
+            }
+        }
+        catch (JsonException) { }
+        return new(status, code switch
+        {
+            "INVALID_TARGET_TERM" => "请填写有效的学年、学期和草稿名称。",
+            "INVALID_TARGET_TERM_DATE" => "请核对学期开始和结束日期。",
+            "INVALID_TARGET_TERM_RANGE" => "结束日期应在开始日期当天或之后。",
+            "TARGET_TERM_EXISTS" => "该学年和学期已经存在。可检查现有草稿，或返回修改目标。",
+            "TERM_DRAFT_SOURCE_CHANGED" => "当前启用学期或来源配置已变化。输入已保留，请重新核对。",
+            "TERM_DRAFT_STRUCTURE_INVALID" => "来源学期含跨学期走班关系，请先在原入口核对。",
+            "TERM_DRAFT_CHANGED" => "该学期已不再处于准备中，请刷新学期列表。",
+            "TERM_DRAFT_RECEIPT_NOT_FOUND" => "暂未找到原请求的草稿回执。",
+            "TERM_DRAFT_REQUEST_INVALID" => "请先核对继承预览，再建立草稿。",
+            "TERM_DRAFT_REQUEST_CONFLICT" => "该请求编号已用于其他操作，请先核对原结果。",
+            "TERM_NOT_FOUND" => "该草稿不存在或不在当前学校。",
+            _ when status is 404 or 405 or 426 => "当前 KV 尚未提供桌面学期管理，请使用原网页。",
+            _ => HttpError(status, false).Message
+        }, code) { ExistingTermId = existing };
+    }
+
+    public async Task<TermPreparationCatalog> GetTermPreparationAsync(string school, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        var result = await RequestAsync<TermPreparationCatalog>(HttpMethod.Get, TermPreparationPath(school), session.Token, ct);
+        CheckCreationSession(session, ct);
+        if (result.SchoolId != school || result.Drafts is null ||
+            result.ActiveTerm is { } active && !ValidTerm(active, "ACTIVE") ||
+            result.Drafts.Any(term => !ValidTerm(term, "DRAFT")) ||
+            result.Drafts.Select(term => term.Id).Distinct().Count() != result.Drafts.Length) throw InvalidResponse();
+        return result;
+    }
+
+    public async Task<TermDraftPreview> PreviewTermDraftAsync(string school, string source, TermDraftSettings target, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        var result = await RequestAsync<TermDraftPreview>(HttpMethod.Post, TermPreparationPath(school) + "/preview",
+            session.Token, ct, body: new {sourceTermId = source, target});
+        CheckCreationSession(session, ct);
+        ValidateTermPreview(result, source, target);
+        return result;
+    }
+
+    public async Task<TermDraftResult> SaveTermDraftAsync(string school, string source, TermDraftSettings target,
+        TermDraftPreview preview, Guid requestId, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        ValidateTermPreview(preview, source, target);
+        var result = await RequestAsync<TermDraftResult>(HttpMethod.Post, TermPreparationPath(school), session.Token, ct,
+            body: new {sourceTermId = source, target, requestId, expectedVersion = preview.Version});
+        CheckCreationSession(session, ct);
+        if (result.State == "APPLIED") ValidateTermReceipt(result.Receipt, requestId, preview.Counts);
+        else if (result.State == "STALE" && result.Preview is { } observed) ValidateTermPreview(observed, source, target);
+        else throw InvalidResponse();
+        return result;
+    }
+
+    public async Task<TermDraftReceipt?> GetTermDraftReceiptAsync(string school, Guid requestId, TermDraftCounts expected, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        try
+        {
+            var result = await RequestAsync<TermDraftReceipt>(HttpMethod.Get, $"{TermPreparationPath(school)}/receipts/{requestId:D}", session.Token, ct);
+            CheckCreationSession(session, ct);
+            ValidateTermReceipt(result, requestId, expected);
+            return result;
+        }
+        catch (ConsoleApiException error) when (error is {StatusCode: 404, Code: "TERM_DRAFT_RECEIPT_NOT_FOUND"})
+        {
+            CheckCreationSession(session, ct);
+            return null;
+        }
+    }
+
+    public async Task<TermPreparationCheck> GetTermPreparationCheckAsync(string school, string term, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        var result = await RequestAsync<TermPreparationCheck>(HttpMethod.Get, $"{TermPreparationPath(school)}/drafts/{Segment(term)}/check", session.Token, ct);
+        CheckCreationSession(session, ct);
+        if (result.SchoolId != school || !ValidTerm(result.Term, "DRAFT") || result.Term.Id != term ||
+            result.ActiveTerm is { } active && !ValidTerm(active, "ACTIVE") || result.Screens is null ||
+            result.BlockingDiagnostics is null || result.Reminders is null ||
+            result.Screens.Any(row => string.IsNullOrWhiteSpace(row.BindingId) || row.NativeImpact is not ("NO_REBIND" or "VERIFY" or "REPAIR_REQUIRED")) ||
+            result.Screens.Select(row => row.BindingId).Distinct().Count() != result.Screens.Length) throw InvalidResponse();
+        return result;
+    }
+
+    private static bool ValidTerm(ManagedAcademicTerm? term, string status) =>
+        term is { AcademicYear: >= 2000 and <= 2200, Semester: >= 1 and <= 3 } && !string.IsNullOrWhiteSpace(term.Id) &&
+        !string.IsNullOrWhiteSpace(term.Name) && term.Status == status;
+
+    private static void ValidateTermPreview(TermDraftPreview result, string source, TermDraftSettings target)
+    {
+        if (!ValidTerm(result.Source, "ACTIVE") || result.Source.Id != source || result.Target?.Name != target.Name ||
+            result.Target.AcademicYear != target.AcademicYear || result.Target.Semester != target.Semester ||
+            result.Counts is not { Valid: true } || result.Carry != new TermDraftCarry(target.CarryWorkspaceMembers,
+                target.CarryTeachingAssignments, target.CarryLeaderships, target.CarryPendingInvitations) ||
+            result.Workspaces is null || result.GradeDuties is null || result.Version is not { Length: 64 } ||
+            !result.Version.All(char.IsAsciiHexDigitLower)) throw InvalidResponse();
+    }
+
+    private static void ValidateTermReceipt(TermDraftReceipt? result, Guid requestId, TermDraftCounts expected)
+    {
+        if (result is null || result.RequestId != requestId || result.Counts != expected || string.IsNullOrWhiteSpace(result.TermId))
+            throw InvalidResponse();
+    }
+}

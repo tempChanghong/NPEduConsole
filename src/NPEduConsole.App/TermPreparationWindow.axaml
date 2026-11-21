@@ -1,0 +1,160 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.TermPreparationWindow"
+        Title="学期管理" Width="1160" Height="780" MinWidth="665" MinHeight="450" WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="TextBlock.term-notice.error">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,10">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="TermHeading" Text="学期管理" FontSize="24" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="TermScope" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="6" Margin="16,10">
+      <TextBlock x:Name="TermNotice" Classes="term-notice" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
+      <ScrollViewer x:Name="TermScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" AllowAutoHide="False">
+        <Grid Margin="0,0,6,0">
+          <Grid x:Name="TermDirectory">
+            <Border x:Name="ActiveTermCard" Classes="card" Padding="12">
+              <StackPanel Spacing="7">
+                <TextBlock Text="正在使用" FontSize="17" Classes="label"/>
+                <TextBlock x:Name="ActiveTermName" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock x:Name="ActiveTermDates" Classes="muted" TextWrapping="Wrap"/>
+              </StackPanel>
+            </Border>
+            <Border x:Name="DraftTermsCard" Classes="card" Padding="12">
+              <StackPanel Spacing="7">
+                <TextBlock Text="准备中" FontSize="17" Classes="label"/>
+                <TextBlock x:Name="DraftListEmpty" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
+                <ListBox x:Name="PreparedTerms" Classes="object-list" Background="Transparent" BorderThickness="0" MaxHeight="240"
+                         SelectionChanged="DraftSelected" KeyDown="DraftListKeyDown" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.AllowAutoHide="False" AutomationProperties.Name="准备中的学期">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="core:ManagedAcademicTerm">
+                      <StackPanel Spacing="3">
+                        <TextBlock Text="{Binding Name}" Classes="label" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Period}" Classes="muted"/>
+                        <TextBlock Text="{Binding Dates}" Classes="muted" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </StackPanel>
+            </Border>
+          </Grid>
+          <Grid x:Name="TermCreateView" IsVisible="False">
+            <Border x:Name="TermSettingsCard" Classes="card" Padding="12">
+              <StackPanel Spacing="8">
+                <TextBlock Text="草稿信息" FontSize="17" Classes="label"/>
+                <TextBlock x:Name="TermDraftSource" Classes="muted" TextWrapping="Wrap"/>
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="9" RowDefinitions="Auto,Auto,Auto" RowSpacing="7">
+                  <StackPanel Spacing="3">
+                    <TextBlock Text="学年" Classes="label"/>
+                    <TextBox x:Name="TermDraftYear" MaxLength="4" TextChanged="InputChanged" AutomationProperties.Name="目标学年"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="3">
+                    <TextBlock Text="学期" Classes="label"/>
+                    <ComboBox x:Name="TermDraftSemester" HorizontalAlignment="Stretch" SelectionChanged="SemesterChanged" AutomationProperties.Name="目标学期">
+                      <ComboBoxItem Content="第一学期"/><ComboBoxItem Content="第二学期"/><ComboBoxItem Content="第三学期"/>
+                    </ComboBox>
+                  </StackPanel>
+                  <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Spacing="3">
+                    <TextBlock Text="名称" Classes="label"/>
+                    <TextBox x:Name="TermDraftName" MaxLength="191" TextChanged="InputChanged" AutomationProperties.Name="目标学期名称"/>
+                  </StackPanel>
+                  <StackPanel Grid.Row="2" Spacing="3">
+                    <TextBlock Text="开始日期" Classes="label"/>
+                    <TextBox x:Name="TermStartDate" PlaceholderText="YYYY-MM-DD" MaxLength="10" TextChanged="InputChanged" AutomationProperties.Name="开始日期"/>
+                  </StackPanel>
+                  <StackPanel Grid.Row="2" Grid.Column="1" Spacing="3">
+                    <TextBlock Text="结束日期" Classes="label"/>
+                    <TextBox x:Name="TermEndDate" PlaceholderText="YYYY-MM-DD" MaxLength="10" TextChanged="InputChanged" AutomationProperties.Name="结束日期"/>
+                  </StackPanel>
+                </Grid>
+                <TextBlock Text="继承范围" FontSize="16" Classes="label"/>
+                <CheckBox x:Name="CarryTermMembers" Content="教学空间成员权限" IsChecked="True" IsCheckedChanged="CarryChanged"/>
+                <CheckBox x:Name="CarryTermTeaching" Content="有效任课" IsChecked="True" IsCheckedChanged="CarryChanged"/>
+                <CheckBox x:Name="CarryTermDuties" Content="有效班级与年级职责" IsChecked="True" IsCheckedChanged="CarryChanged"/>
+                <CheckBox x:Name="CarryTermInvites" Content="未认领的 OAuth 邀请" IsCheckedChanged="CarryChanged"/>
+                <TextBlock x:Name="TermAccessNote" Classes="muted" TextWrapping="Wrap"/>
+              </StackPanel>
+            </Border>
+            <Border x:Name="TermReviewCard" Classes="card" Padding="12">
+              <StackPanel Spacing="7">
+                <TextBlock Text="继承预览" FontSize="17" Classes="label"/>
+                <TextBlock x:Name="TermPreviewSummary" Text="请选择继承范围，再读取预览。" Classes="muted" TextWrapping="Wrap"/>
+                <ComboBox x:Name="TermPreviewItems" SelectionChanged="PreviewItemChanged" HorizontalAlignment="Stretch" IsVisible="False"
+                          AutomationProperties.Name="按班级、教学班或年级核对继承详情"/>
+                <TextBlock x:Name="TermPreviewDetails" TextWrapping="Wrap" IsVisible="False"/>
+              </StackPanel>
+            </Border>
+          </Grid>
+          <StackPanel x:Name="TermCheckView" Spacing="8" IsVisible="False">
+            <Border Classes="card" Padding="12">
+              <StackPanel Spacing="5">
+                <TextBlock x:Name="TermCheckTarget" FontSize="19" Classes="label" TextWrapping="Wrap"/>
+                <TextBlock x:Name="TermCheckDates" Classes="muted" TextWrapping="Wrap"/>
+                <TextBlock x:Name="TermCheckStatus" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                <TextBlock x:Name="TermCheckReceiptCounts" TextWrapping="Wrap" IsVisible="False"/>
+              </StackPanel>
+            </Border>
+            <Grid x:Name="TermCheckIssues">
+              <Border x:Name="TermBlockersCard" Classes="card" Padding="12">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="启用阻断" FontSize="17" Classes="label"/>
+                  <TextBlock x:Name="TermBlockersSummary" TextWrapping="Wrap"/>
+                  <StackPanel x:Name="TermBlockerItems" Spacing="4"/>
+                </StackPanel>
+              </Border>
+              <Border x:Name="TermRemindersCard" Classes="card" Padding="12">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="一般提醒" FontSize="17" Classes="label"/>
+                  <TextBlock x:Name="TermRemindersSummary" TextWrapping="Wrap"/>
+                  <StackPanel x:Name="TermReminderItems" Spacing="4"/>
+                </StackPanel>
+              </Border>
+            </Grid>
+            <Border Classes="card" Padding="12">
+              <StackPanel Spacing="7">
+                <TextBlock Text="大屏影响" FontSize="17" Classes="label"/>
+                <TextBlock Text="按正式启用时的默认规则，查询当前绑定的班级代码能否匹配草稿中的启用行政班。班级代码匹配并不能确认设备授权；没有匹配新班的绑定不会重绑，启用后仍指向原学期班级，请在启用前核对教室安排。" TextWrapping="Wrap" Classes="muted"/>
+                <TextBlock x:Name="TermScreenSummary" TextWrapping="Wrap"/>
+                <TextBox x:Name="TermScreenSearch" PlaceholderText="按大屏名、班级或绑定编号查找" TextChanged="ScreenSearchChanged" KeyDown="ScreenSearchKeyDown" AutomationProperties.Name="查找拟迁移大屏"/>
+                <ListBox x:Name="TermScreenRows" Classes="object-list" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.AllowAutoHide="False" MaxHeight="260" AutomationProperties.Name="逐台大屏影响">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="core:TermDraftScreenImpact">
+                      <StackPanel Spacing="3" AutomationProperties.AutomationId="{Binding BindingId}">
+                        <TextBlock Text="{Binding Name}" Classes="label" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding BindingId, StringFormat='绑定编号 {0}'}" Classes="muted" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Original, StringFormat='原班级　{0}'}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Target, StringFormat='拟迁入　{0}'}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Impact}" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </Grid>
+      </ScrollViewer>
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,8">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <WrapPanel ItemSpacing="8" LineSpacing="4">
+          <Button x:Name="TermBack" Classes="action" Content="关闭" Click="BackClicked"/>
+          <Button x:Name="TermRefresh" Classes="action" Content="刷新" Click="RefreshClicked"/>
+          <Button x:Name="TermPreviewButton" Classes="action" Content="预览继承" Click="PreviewClicked" IsVisible="False"/>
+          <Button x:Name="TermExistingButton" Classes="action" Content="检查现有草稿" Click="ExistingClicked" IsVisible="False"/>
+          <Button x:Name="TermDiscard" Classes="action" Content="放弃输入" Click="DiscardClicked" IsVisible="False"/>
+          <Button x:Name="TermWeb" Classes="action" Content="网页学期管理" Click="WebClicked" IsVisible="False"/>
+        </WrapPanel>
+        <Button x:Name="TermPrimary" Grid.Column="1" Classes="action accent" Content="新建草稿" Click="PrimaryClicked"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

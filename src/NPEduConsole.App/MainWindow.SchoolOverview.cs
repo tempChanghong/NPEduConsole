@@ -34,6 +34,12 @@ public sealed partial class MainWindow
         _overviewNavigation = navigation;
         try
         {
+            if (task.Action == "OPEN_TERM_PREPARATION")
+            {
+                await ShowTermPreparationAsync(client, school);
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
+                return;
+            }
             if (overview.Term is { } courseTerm && task.Action is ("OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING"))
             {
                 await ShowCourseGroupsAsync(client, school, courseTerm.Id, task.CourseGroupId, task.ClassId, task.SubjectId,

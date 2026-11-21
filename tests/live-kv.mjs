@@ -25,6 +25,7 @@ import { verifyCurrentTeaching } from './teaching-fixture.mjs';
 import { verifySubjectSetup } from './subject-setup-fixture.mjs';
 import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
 import { verifyStaffResponsibilities } from './staff-responsibilities-fixture.mjs';
+import { verifyTermPreparation } from './term-preparation-fixture.mjs';
 import { verifyCourseGroups } from './course-groups-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
 
@@ -34,7 +35,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
-  '--current-staff', '--teacher-accounts', '--current-course-groups'].includes(mode)),
+  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -52,6 +53,7 @@ const schoolOverview = mode === '--school-overview';
 const currentTeaching = mode === '--current-teaching';
 const subjectSetup = mode === '--current-subject-setup';
 const schoolSubjects = mode === '--school-subjects';
+const termPreparation = mode === '--term-preparation';
 const courseGroups = mode === '--current-course-groups';
 const teacherAccounts = mode === '--teacher-accounts';
 const currentStaff = mode === '--current-staff';
@@ -188,7 +190,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || termPreparation ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -479,6 +481,35 @@ async function runFixture() {
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (termPreparation) {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
+    const evidence = process.env.NP_CONSOLE_TERM_PREPARATION_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/term-preparation/desktop', import.meta.url));
+    const runDatabase = async () => {
+      const report = 'term-preparation-postgres.log';
+      try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/termPreparation.integration.test.js',
+        'tests/schoolManagementOverview.integration.test.js'], {...process.env, RUN_DATABASE_TESTS: 'true'}, report); }
+      finally { await copyFile(join(directory, report), join(evidence, report)); }
+      // The legacy compatibility suite exercises the initial administrator bootstrap.
+      const connection = new Client({host: '127.0.0.1', port: databasePort, user: 'npconsole', password: databasePassword, database: 'postgres'});
+      await connection.connect();
+      try {
+        assert.equal(resolve((await connection.query('SHOW data_directory')).rows[0].data_directory), resolve(data));
+        await connection.query('CREATE DATABASE npconsole_term_legacy');
+      } finally { await connection.end(); }
+      const url = new URL(process.env.DATABASE_URL);
+      url.pathname = '/npconsole_term_legacy';
+      const env = {...process.env, DATABASE_URL: url.href, RUN_DATABASE_TESTS: 'true'};
+      const legacyReport = 'term-legacy-postgres.log';
+      try {
+        run(process.execPath, ['node_modules/prisma/build/index.js', 'migrate', 'deploy'], env, legacyReport);
+        run(process.execPath, ['--test', 'tests/workspaceAssignmentDatabase.integration.test.js'], env, legacyReport);
+      } finally { await copyFile(join(directory, legacyReport), join(evidence, legacyReport)); }
+    };
+    return verifyTermPreparation({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args), runDatabase});
+  }
   if (courseGroups) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = process.env.NP_CONSOLE_COURSE_GROUPS_EVIDENCE ||

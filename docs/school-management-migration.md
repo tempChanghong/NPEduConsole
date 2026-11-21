@@ -6,7 +6,7 @@
 
 「大屏状态」分别显示网页首次登录和值守心跳，以及 NPEduTools 配对和有效上报。Console 登记首屏后会出现 NPEduTools 接入待办，登记网页账号也会独立显示首次登录待办。终端成功上报后，同一绑定的首次上报待办消除。KV 保留最近一次有效上报的时间，终端重开 Host 会话仍可查阅该记录。旧数据若已在升级前丢失上报证据，显示「待核对」。原班重新启用后，既有规则判定旧 NPEduTools 授权已失效时，待办提示现场重新配对。
 
-当前学期的班主任、年级职责、本地教师账号和走班待办可在 Console 办理。OAuth 邮箱分配、网页大屏和学期启用仍打开原网页学校管理对应入口。网页地址取自 KV 的 `FRONTEND_URL`。地址未配置时，Console 显示原网页办理提示。无需另填监控凭据。
+当前学期的班主任、年级职责、本地教师账号和走班待办可在 Console 办理。暂无启用学期的待办可打开桌面学期管理。OAuth 邮箱分配、网页大屏和正式启用仍打开原网页学校管理对应入口。网页地址取自 KV 的 `FRONTEND_URL`。地址未配置时，Console 显示原网页办理提示。无需另填监控凭据。
 
 上线先部署 KV 并应用迁移 `20261121040000_npep_device_last_report`，再更新 Console 和网页。旧网页仍可查询指定学期。新接口位于 `/api/v2/admin/schools/:schoolId/management-overview/current`。
 
@@ -78,6 +78,18 @@ Console 只补设随行政班授课的规则。新增项沿用非必修默认值
 
 **网页入口目前保留。** 网页提供 OAuth 登录，桌面端目前使用本地学校管理账号。部署新版 KV 和 Console 后，先确认使用该入口的管理员均有可用的桌面登录方式，再移除 `section=audit` 的网页导航并处理指向旧地址的链接。只持有 OAuth 身份的管理员在此之前可以继续使用原网页，无需为本轮迁移额外设置口令。
 
+## 新学期草稿与启用前检查
+
+从「班级与教务 → 学期管理」核对正在使用的学期和准备中的草稿。学校总览「暂无启用学期」可直接打开此页。已有草稿可直接检查，学校尚未建立任何学期时使用页面上的网页初始化入口。
+
+从当前启用学期建立草稿时填写学年、学期序号、名称和日期。预览与实际复制使用同一继承计划，默认复制教学空间成员权限、有效任课及有效职责，未认领的 OAuth 邀请默认不选。预览可逐个核对走班来源、任课和年级或班级职责。取消任课仍可能通过单独继承的成员权限保留教师访问。学生名单需另行准备。
+
+来源配置或当前学期发生变化时，服务端重新核对，原表单保留。若本次成功回包中断，Console 先按原学校、操作者及请求编号查询回执。只有服务端认领的草稿 ID 用于打开本次建立结果。同学年同学期已存在时，也可独立打开已有草稿。
+
+启用前检查区分阻断、一般提醒与大屏影响。按绑定编号逐台核对原班、默认同码匹配的新班及无匹配状态。可确认的既有 NPEduTools 配对在默认改绑后需现场重新配对。创建和查看草稿不会改动正在使用的学期、大屏绑定或原生配对。正式或强制启用及授权迁移仍走原网页。
+
+上线先部署 KV 并应用 `20261122020000_term_preparation_receipts`，再更新 Console。Windows、实际 Edge 学生端及 NPEduTools 原生互联联合验收使用 `--term-preparation`，产物默认在 `.artifacts/term-preparation/desktop`。
+
 ## 当前学期的行政班学生名单
 
 使用本地学校管理账号选择一个行政班后，打开「学生名单」。可逐行增改、移出和排序，也可粘贴 Excel 两列或纯文本名单，选择追加或替换。预览并列显示原名单和保存后的姓名、学号、位置，确认后生效。无大屏的班级也可以办理。
@@ -142,7 +154,7 @@ Console 只补设随行政班授课的规则。新增项沿用非必修默认值
 | 账号与管理员 | Console 可维护本校普通本地教师。管理员、所有者、OAuth 邮箱分配和批量导入仍在网页。 |
 | 高级批量导入 | 组织导入的校验、预览和写入仍在网页。 |
 | 服务器迁移 | 学校迁移包导出等操作仍在网页，与 KV 自动备份状态分别管理。 |
-| 学期运维 | 建立学期草稿、启用检查及切换学期仍在网页。 |
+| 学期运维 | Console 可从当前学期建立草稿并查看启用前检查。正式或强制启用、归档和大屏授权迁移仍在网页。 |
 
 教室端可在 NPEduTools 首次设置或学校互联设置中使用快速列表。目标大屏未列出时，按学校和班级的完整名称或代码查找。一个班有多台大屏时可翻页选择，随后按原流程提交申请或输入班级管理口令。精确查找需要 KV 和教室端均支持该功能。
 
@@ -162,6 +174,7 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/P
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --first-screen
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --teacher-accounts
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --current-course-groups
+node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --term-preparation
 ```
 
 名单联调会停用夹具中的 NPEP，检查无设备班级、同名学生、屏幕并发写入、学期切换、历史考勤和保存结果核对。网页名单的行为可参照 NPClassworks 的 `src/components/admin/ClassRosterManager.vue` 和 `src/utils/classRoster.js`，服务端规则见 NPClassworksKV 的 `services/classroomToolsService.js`。

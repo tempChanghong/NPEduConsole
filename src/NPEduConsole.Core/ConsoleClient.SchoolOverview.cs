@@ -18,7 +18,7 @@ public sealed partial class ConsoleClient
     {
         var session = CurrentSession;
         var overview = await RequestAsync<SchoolOverview>(HttpMethod.Get,
-            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1&teacherAccountActions=1&courseGroupActions=1", session.Token, ct);
+            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1&teacherAccountActions=1&courseGroupActions=1&termPreparation=1", session.Token, ct);
         CheckCreationSession(session, ct);
         if (overview.School?.Id != schoolId || overview.Counts is not { } counts || overview.Screens is null ||
             overview.Tasks is null || overview.GeneratedAt == default || counts.Grades < 0 || counts.AdministrativeClasses < 0 ||
@@ -47,7 +47,7 @@ public sealed partial class ConsoleClient
             if (task is null || string.IsNullOrWhiteSpace(task.Code) || string.IsNullOrWhiteSpace(task.Message) ||
                 task.Action is not ("OPEN_WEB" or "OPEN_SCREEN" or "PREPARE_SCREEN" or "CREATE_GRADE" or "CREATE_CLASS" or "OPEN_TEACHING" or
                     "OPEN_CLASS_RESPONSIBILITY" or "OPEN_GRADE_RESPONSIBILITY" or "OPEN_TEACHER_ACCOUNT" or
-                    "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING") ||
+                    "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING" or "OPEN_TERM_PREPARATION") ||
                 task.Action == "OPEN_COURSE_GROUP_TEACHING" && (overview.Term is null || string.IsNullOrWhiteSpace(task.CourseGroupId) || string.IsNullOrWhiteSpace(task.SubjectId)) ||
                 task.Action == "OPEN_COURSE_GROUP_SOURCE" && (overview.Term is null || string.IsNullOrWhiteSpace(task.SubjectId) ||
                     string.IsNullOrWhiteSpace(task.ClassId) && string.IsNullOrWhiteSpace(task.CourseGroupId)) ||

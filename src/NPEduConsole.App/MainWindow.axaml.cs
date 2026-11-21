@@ -178,6 +178,7 @@ public sealed partial class MainWindow : Window
             CloseStaffResponsibilities();
             CloseTeacherAccounts();
             CloseCourseGroups();
+            CloseTermPreparation();
             CloseTeaching();
             _subjectSetup.Close();
             _detailScreenId = _directoryReturnScreenId = null;
@@ -519,6 +520,7 @@ public sealed partial class MainWindow : Window
         CloseStaffResponsibilities();
         CloseTeacherAccounts();
         CloseCourseGroups();
+        CloseTermPreparation();
         ResetClassCreation();
         ResetClassMaintenance();
         ResetFirstScreen();

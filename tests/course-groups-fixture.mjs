@@ -153,7 +153,7 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   }
 }
 
-async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms}) {
+export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId}) {
   const require = createRequire(join(web, 'package.json'));
   const {chromium} = require('@playwright/test');
   const outDir = join(directory, 'walking-web-build');
@@ -186,7 +186,9 @@ async function verifyStudentBrowser({origin, web, directory, evidence, school, r
         await dialog.locator('.v-select').filter({hasText: label}).locator('.v-field').click();
         await page.getByRole('option', {name: item, exact: true}).click();
       };
+      const activeRequest = expectedTermId ? page.waitForResponse(res => res.url().includes('/catalog/terms/current?') && res.ok()) : null;
       await choose(/^学校/, school.name);
+      if (activeRequest) assert.equal((await (await activeRequest).json()).data.id, expectedTermId);
       await choose(/^行政班/, room.name);
       if (index < 2) {
         await dialog.locator('.v-select').filter({hasText: '物理（必须确认）'}).locator('.v-field').click();
