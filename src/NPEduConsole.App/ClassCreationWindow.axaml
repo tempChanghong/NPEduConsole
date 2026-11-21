@@ -24,6 +24,22 @@
               </StackPanel>
               <Button x:Name="ReloadCreationContext" Grid.Column="1" Content="刷新学期与年级" Classes="action" Click="ReloadClicked" />
             </Grid>
+            <Button x:Name="OpenGradeCreationButton" Content="新建年级" Classes="action" Click="OpenGradeCreationClicked" IsEnabled="False" />
+            <StackPanel x:Name="GradeCreationFields" Spacing="10" IsVisible="False">
+              <StackPanel Spacing="4">
+                <TextBlock Text="年级名称" Classes="label" />
+                <TextBox x:Name="NewGradeName" PlaceholderText="如高一" AutomationProperties.Name="年级名称" TextChanged="GradeFieldsChanged" />
+              </StackPanel>
+              <StackPanel Spacing="4">
+                <TextBlock Text="年级代码" Classes="label" />
+                <TextBox x:Name="NewGradeCode" PlaceholderText="如 G1" AutomationProperties.Name="年级代码" TextChanged="GradeFieldsChanged" />
+                <TextBlock Text="2–64 位，以英文字母或数字开头，可使用 . _ -。" Classes="muted" TextWrapping="Wrap" />
+              </StackPanel>
+              <WrapPanel ItemSpacing="8" LineSpacing="8">
+                <Button x:Name="SubmitGradeCreationButton" Content="创建年级" Classes="action accent" Click="SubmitGradeClicked" />
+                <Button x:Name="BackFromGradeCreationButton" Content="返回建班" Classes="action" Click="BackFromGradeCreationClicked" />
+              </WrapPanel>
+            </StackPanel>
             <StackPanel x:Name="CreationFields" Spacing="10" IsEnabled="False">
               <StackPanel Spacing="4">
                 <TextBlock Text="所属年级" Classes="label" />
@@ -45,7 +61,7 @@
             </StackPanel>
           </StackPanel>
         </Border>
-        <TextBlock x:Name="CreationFeedback" Classes="muted" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock x:Name="CreationFeedback" Classes="muted" IsVisible="False" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
       </StackPanel>
     </ScrollViewer>
     <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,10">

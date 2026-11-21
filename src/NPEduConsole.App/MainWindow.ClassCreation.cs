@@ -6,6 +6,7 @@ namespace NPEduConsole.App;
 public sealed partial class MainWindow
 {
     private readonly Dictionary<string, ClassCreationSubmission> _unconfirmedClassCreations = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, GradeCreationSubmission> _unconfirmedGradeCreations = new(StringComparer.Ordinal);
     private ClassCreationWindow? _classCreationWindow;
     private CreatedAdministrativeClass? _createdClassToOpen;
     private CreatedAdministrativeClass? _openingCreatedClass;
@@ -14,13 +15,20 @@ public sealed partial class MainWindow
     {
         if (_classCreationWindow is not null || _openingCreatedClass is not null || _classRosterWindow is not null ||
             _client is not { } client || _school is not { } school) return;
-        var window = new ClassCreationWindow(client, school, _unconfirmedClassCreations.GetValueOrDefault(school.Id));
+        var window = new ClassCreationWindow(client, school, _unconfirmedClassCreations.GetValueOrDefault(school.Id),
+            _unconfirmedGradeCreations.GetValueOrDefault(school.Id));
         _classCreationWindow = window;
         window.PendingChanged += pending =>
         {
             if (_classCreationWindow != window || _client != client || _school != school) return;
             if (pending is null) _unconfirmedClassCreations.Remove(school.Id);
             else _unconfirmedClassCreations[school.Id] = pending;
+        };
+        window.PendingGradeChanged += pending =>
+        {
+            if (_classCreationWindow != window || _client != client || _school != school) return;
+            if (pending is null) _unconfirmedGradeCreations.Remove(school.Id);
+            else _unconfirmedGradeCreations[school.Id] = pending;
         };
         window.SessionExpired += error =>
         {
@@ -40,7 +48,8 @@ public sealed partial class MainWindow
 
         if (created is null)
         {
-            if (_unconfirmedClassCreations.ContainsKey(school.Id)) ShowUnconfirmedClassCreation();
+            if (_unconfirmedGradeCreations.ContainsKey(school.Id)) ShowUnconfirmedGradeCreation();
+            else if (_unconfirmedClassCreations.ContainsKey(school.Id)) ShowUnconfirmedClassCreation();
             else if (window.CloseNotice is { } notice) SetClassCreationNotice(notice);
             else if (_createdClassToOpen is null) SetClassCreationNotice(null);
             OpenClassCreationButton.Focus();
@@ -88,18 +97,21 @@ public sealed partial class MainWindow
         _classCreationWindow = null;
         _createdClassToOpen = _openingCreatedClass = null;
         window?.CloseForScopeChange();
-        if (school is not null && _unconfirmedClassCreations.ContainsKey(school.Id)) ShowUnconfirmedClassCreation();
+        if (school is not null && _unconfirmedGradeCreations.ContainsKey(school.Id)) ShowUnconfirmedGradeCreation();
+        else if (school is not null && _unconfirmedClassCreations.ContainsKey(school.Id)) ShowUnconfirmedClassCreation();
         else SetClassCreationNotice(null);
     }
 
     private void ResetClassCreation()
     {
         _unconfirmedClassCreations.Clear();
+        _unconfirmedGradeCreations.Clear();
         ChangeClassCreationSchool(null);
         OpenClassCreationButton.IsEnabled = false;
     }
 
     private void ShowUnconfirmedClassCreation() => SetClassCreationNotice("上一笔建班结果未确认。重新打开「新建行政班」可用原请求重试确认。");
+    private void ShowUnconfirmedGradeCreation() => SetClassCreationNotice("上次创建年级的结果待核对。重新打开「新建行政班」，可查询原请求。");
 
     private void SetClassCreationNotice(string? notice)
     {

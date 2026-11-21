@@ -15,20 +15,23 @@ using Microsoft.Extensions.Logging;
 using NPEduConsole.App;
 using NPEduConsole.Core;
 
-internal static class Program
+internal static partial class Program
 {
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args is not ([_] or ["--live", _, _])) throw new ArgumentException("Specify an output directory or --live <fixture.json> <directory>.");
+        if (args is not ([_] or ["--live" or "--live-grade", _, _])) throw new ArgumentException("Specify an output directory or --live/--live-grade <fixture.json> <directory>.");
+        bool gradeCreation = args[0] == "--live-grade";
         using var fixture = args.Length == 1 ? new Fixture() : null;
         var access = fixture?.Access ?? JsonSerializer.Deserialize<Access>(File.ReadAllText(args[1]), JsonSerializerOptions.Web)!;
-        Check(access.AllowClassCreationTestWrites && new Uri(access.Origin).IsLoopback && new Uri(access.LostReplyOrigin).IsLoopback,
+        Check((gradeCreation ? access.AllowGradeCreationTestWrites : access.AllowClassCreationTestWrites) &&
+            new Uri(access.Origin).IsLoopback && new Uri(access.LostReplyOrigin).IsLoopback,
             "Use an isolated loopback fixture that explicitly allows desktop writes.");
         string output = args[^1];
         Directory.CreateDirectory(output);
         return AppBuilder.Configure<ConsoleApplication>().UsePlatformDetect()
-            .AfterSetup(builder => Dispatcher.UIThread.Post(() => { _ = VerifyAsync(access, fixture, output); }))
+            .AfterSetup(builder => Dispatcher.UIThread.Post(() =>
+            { _ = gradeCreation ? VerifyGradeAsync(access, output) : VerifyAsync(access, fixture, output); }))
             .StartWithClassicDesktopLifetime([]);
     }
 
@@ -224,7 +227,8 @@ internal static class Program
     }
 
     private sealed record Access(string Origin, string LostReplyOrigin, string SchoolCode, string Username, string Password,
-        string SchoolId, string EmptySchoolId, string EmptyGradeId, bool AllowClassCreationTestWrites);
+        string SchoolId, string EmptySchoolId, string EmptyGradeId, bool AllowClassCreationTestWrites,
+        string? ZeroGradeSchoolId = null, string? NextTermId = null, bool AllowGradeCreationTestWrites = false);
     private sealed record Body(string TermId, string GradeId, string Code, string Name, bool IsStudentSelectable, Guid RequestId);
 
     private sealed record CreationCall(string SchoolId, Body Body)

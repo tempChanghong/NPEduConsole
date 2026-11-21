@@ -16,12 +16,13 @@ import { nextStudyMonday, seedClassStudy } from './class-study-fixture.mjs';
 import { prepareSchoolAudit } from './school-audit-fixture.mjs';
 import { prepareClassRoster } from './class-roster-fixture.mjs';
 import { prepareClassCreation } from './class-creation-fixture.mjs';
+import { prepareGradeCreation } from './grade-creation-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
-  '--class-creation', '--serve-class-creation', '--first-screen', '--serve-first-screen', '--screen-replacement'].includes(mode)),
+  '--class-creation', '--serve-class-creation', '--grade-creation', '--first-screen', '--serve-first-screen', '--screen-replacement'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -31,9 +32,10 @@ const classStudy = mode === '--class-study' || mode === '--serve-class-study';
 const schoolAudit = mode === '--school-audit' || mode === '--serve-school-audit';
 const classRoster = mode === '--class-roster' || mode === '--serve-class-roster';
 const classCreation = mode === '--class-creation' || mode === '--serve-class-creation';
+const gradeCreation = mode === '--grade-creation';
 const replacement = mode === '--screen-replacement';
 const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen' || replacement;
-const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !firstScreen;
+const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !gradeCreation && !firstScreen;
 const kv = resolve(checkout);
 const fromKv = path => import(pathToFileURL(join(kv, path)).href);
 const kvRequire = createRequire(join(kv, 'package.json'));
@@ -416,7 +418,7 @@ async function runFixture() {
   const databasePort = await createDatabase();
   ({ prisma } = await fromKv('utils/prisma.js'));
   const fixture = await seed();
-  if (classRoster || classCreation) process.env.NPEP_ENABLED = 'false';
+  if (classRoster || classCreation || gradeCreation) process.env.NPEP_ENABLED = 'false';
   if (mode === '--server-status') delete process.env.KV_BACKUP_STATUS_DIR;
   const { default: app } = await fromKv('app.js');
   server = await new Promise((res, rej) => {
@@ -428,6 +430,7 @@ async function runFixture() {
   const audit = schoolAudit ? await prepareSchoolAudit(prisma, origin, fixture) : null;
   const roster = classRoster ? await prepareClassRoster(prisma, origin, fixture) : null;
   const creation = classCreation ? await prepareClassCreation(prisma, origin, fixture) : null;
+  const grades = gradeCreation ? await prepareGradeCreation(prisma, origin, fixture) : null;
   if (runDeviceFixture) {
     stopClassroom = await startClassroomDevice(origin, fixture.identity, fixture.classroomBearer,
       { checkIncompleteReceipts: !serve && !localAuthorization, simulateLocalAuthorization: localAuthorization,
@@ -446,6 +449,7 @@ async function runFixture() {
   else if (classStudy) lostReply = await loseWriteReply(origin, path => path.endsWith('/study-settings'));
   else if (!serve && classRoster) lostReply = await loseWriteReply(origin, path => path.endsWith('/students'), 'PUT');
   else if (classCreation) lostReply = await loseWriteReply(origin, path => path.endsWith('/current-term/administrative-classes'), 'POST', 201);
+  else if (gradeCreation) lostReply = await loseWriteReply(origin, path => path.endsWith('/current-term/grades'), 'POST', 201);
   else if (!serve && !softwareUpdate && runDeviceFixture) lostReply = await loseWriteReply(origin, path => path.endsWith('/equipment'));
   await writeFile(access, JSON.stringify({
     origin, schoolCode: fixture.school.code, username: 'admin', viewer: 'viewer', password: fixture.pin,
@@ -454,12 +458,14 @@ async function runFixture() {
     ...audit?.access,
     ...roster?.access,
     ...creation?.access,
+    ...grades?.access,
     ...(firstScreen ? {emptyClassId: fixture.classes[2], inactiveClassId: fixture.classes[3], termId: fixture.term.id,
       allowFirstScreenTestWrites: true, allowReplacementTestWrites: replacement} : {}),
     ...(softwareUpdate || classStudy ? { classroomBearer: fixture.classroomBearer, deviceIdentity: fixture.identity } : {}),
     ...(classStudy ? { termId: fixture.term.id, studyDate: fixture.studyDate } : {}),
   }), { mode: 0o600 });
-  const project = firstScreen ? './NPEduConsole.FirstScreenSmoke/NPEduConsole.FirstScreenSmoke.csproj' :
+  const project = gradeCreation ? './NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj' :
+    firstScreen ? './NPEduConsole.FirstScreenSmoke/NPEduConsole.FirstScreenSmoke.csproj' :
     classCreation ? './NPEduConsole.ClassCreationSmoke/NPEduConsole.ClassCreationSmoke.csproj' :
     classRoster ? './NPEduConsole.RosterSmoke/NPEduConsole.RosterSmoke.csproj' :
     schoolAudit ? './NPEduConsole.AuditSmoke/NPEduConsole.AuditSmoke.csproj' :
@@ -469,7 +475,9 @@ async function runFixture() {
     // The KV HTTP listener and database pool run on this event loop.
     const options = classAdmission ? ['--class-admission'] : softwareUpdate ? ['--software-update'] : localAuthorization ? [serve ? '--view-local-authorization' : '--local-authorization'] :
       serve ? ['--view-only'] : [];
-    const client = spawn('dotnet', ['run', '--project', smoke, '-c', 'Release', '--', access, ...options],
+    const args = gradeCreation ? ['--live-grade', access, fileURLToPath(new URL('../.artifacts/grade-creation/desktop-live', import.meta.url))]
+      : [access, ...options];
+    const client = spawn('dotnet', ['run', '--project', smoke, '-c', 'Release', '--', ...args],
       { windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'] });
     client.once('error', rej);
     client.once('close', code => code === 0 ? res() : rej(new Error('Desktop client smoke failed: ' + code)));
@@ -510,6 +518,13 @@ async function runFixture() {
     await creation.verify();
     run(process.execPath, ['--test', 'tests/managementDatabase.integration.test.js'], {...process.env, RUN_DATABASE_TESTS: 'true'});
     console.log('PASS: live KV database management tests, including actor-bound retries and desktop/web creation races.');
+  }
+  if (grades) {
+    assert.equal(lostReply.count(), 1, 'the intermediary lost the only successful grade write response');
+    assert.equal(lostReply.attempts(), 3, 'recovery uses GET, with POST only for the creation, explicit duplicate, and stale term checks');
+    await grades.verify();
+    run(process.execPath, ['--test', '--test-name-pattern=grade creation', 'tests/managementDatabase.integration.test.js'], {...process.env, RUN_DATABASE_TESTS: 'true'});
+    console.log('PASS: PostgreSQL request ownership, concurrent retries and locked-term refusal.');
   }
   if (!serve && roster) {
     assert.equal(lostReply.count(), 1);

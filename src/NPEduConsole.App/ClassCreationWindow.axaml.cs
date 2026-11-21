@@ -41,7 +41,7 @@ public sealed partial class ClassCreationWindow : Window
             if (!_allowClose && _submitting)
             {
                 args.Cancel = true;
-                SetFeedback("正在提交建班请求，请等待学校返回结果。");
+                SetFeedback("正在提交请求，请等待学校返回结果。");
             }
         };
         Closed += (_, _) =>
@@ -53,6 +53,7 @@ public sealed partial class ClassCreationWindow : Window
             _client = null;
             _school = null;
             _pending = null;
+            _pendingGrade = null;
             _context = null;
             ClearFields();
         };
@@ -64,13 +65,14 @@ public sealed partial class ClassCreationWindow : Window
         }, RoutingStrategies.Tunnel);
     }
 
-    internal ClassCreationWindow(ConsoleClient client, School school, ClassCreationSubmission? pending) : this()
+    internal ClassCreationWindow(ConsoleClient client, School school, ClassCreationSubmission? pending, GradeCreationSubmission? pendingGrade) : this()
     {
         _client = client;
         _school = school;
         _pending = pending;
         CreationSchool.Text = school.Name;
-        if (pending is null) Opened += (_, _) => _ = LoadContextAsync();
+        if (pendingGrade is not null) RestorePendingGrade(pendingGrade);
+        else if (pending is null) Opened += (_, _) => _ = LoadContextAsync();
         else
         {
             ShowContext(pending.Context, pending.Grade.Id);
@@ -90,7 +92,7 @@ public sealed partial class ClassCreationWindow : Window
 
     private async Task LoadContextAsync()
     {
-        if (_client is not { } client || _school is not { } school || _request is not null || _pending is not null || _blocked) return;
+        if (_client is not { } client || _school is not { } school || _request is not null || _pending is not null || _pendingGrade is not null || _blocked) return;
         using var request = new CancellationTokenSource();
         _request = request;
         string? selectedGrade = (CreationGrade.SelectedItem as ClassCreationGrade)?.Id;
@@ -107,8 +109,8 @@ public sealed partial class ClassCreationWindow : Window
             string? gradeId = firstDirectory && context.Grades.Count == 1 ? context.Grades[0].Id
                 : context.TermId == previousTerm ? selectedGrade : null;
             ShowContext(context, gradeId);
-            SetFeedback(context.TermId is null ? "该学校暂无生效学期，启用学期后可新建行政班。"
-                : context.Grades.Count == 0 ? "当前学期暂无年级。请先在学校管理页建立年级，再刷新。" : null);
+            SetFeedback(_editingGrade && previousTerm != context.TermId && context.TermId is not null
+                ? "已切换学期，请核对新学期后再提交。" : CreationContextMessage(context));
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
         catch (ConsoleApiException error)
@@ -130,7 +132,7 @@ public sealed partial class ClassCreationWindow : Window
 
     private async void SubmitClicked(object? sender, RoutedEventArgs args)
     {
-        if (_client is not { } client || _request is not null || _blocked || _contextInvalid) return;
+        if (_client is not { } client || _request is not null || _blocked || _contextInvalid || _editingGrade) return;
         var submission = _pending;
         if (submission is null)
         {
@@ -237,8 +239,11 @@ public sealed partial class ClassCreationWindow : Window
     {
         _blocked = true;
         SetPending(null);
+        SetPendingGrade(null);
         ClearFields();
-        CloseNotice = error.StatusCode == 403 ? "当前账号没有权限新建行政班。若此前结果未确认，请在恢复权限后核对班级列表。" : null;
+        CloseNotice = error.StatusCode != 403 ? null : _editingGrade
+            ? "当前账号没有权限创建年级。若此前结果未确认，请在恢复权限后核对年级。"
+            : "当前账号没有权限新建行政班。若此前结果未确认，请在恢复权限后核对班级列表。";
         SetFeedback(CloseNotice ?? "登录已失效，请重新登录。", error: true);
         if (error.StatusCode == 401) SessionExpired?.Invoke(error);
     }
@@ -256,6 +261,8 @@ public sealed partial class ClassCreationWindow : Window
         CreationGrade.ItemsSource = null;
         CreationName.Clear();
         CreationCode.Clear();
+        NewGradeName.Clear();
+        NewGradeCode.Clear();
     }
 
     private void EndRequest(CancellationTokenSource request)
@@ -279,13 +286,16 @@ public sealed partial class ClassCreationWindow : Window
         if (_closed || SubmitClassCreationButton is null) return;
         bool busy = _request is not null;
         bool ready = _context is { TermId: not null, Grades.Count: > 0 } && !_contextInvalid && !_blocked;
+        CreationFields.IsVisible = !_editingGrade;
         CreationFields.IsEnabled = ready && !busy && _pending is null;
-        ReloadCreationContext.IsEnabled = !busy && _pending is null && !_blocked;
+        ReloadCreationContext.IsEnabled = !busy && _pending is null && _pendingGrade is null && !_blocked;
         SubmitClassCreationButton.Content = _submitting ? "正在提交…" : _pending is not null ? "重试确认" : "创建并录入名单";
-        SubmitClassCreationButton.IsEnabled = !busy && !_blocked && (_pending is not null || ready &&
+        SubmitClassCreationButton.IsVisible = !_editingGrade;
+        SubmitClassCreationButton.IsEnabled = !_editingGrade && !busy && !_blocked && (_pending is not null || ready &&
             CreationGrade.SelectedItem is ClassCreationGrade && !string.IsNullOrWhiteSpace(CreationName.Text) && !string.IsNullOrWhiteSpace(CreationCode.Text));
         CloseClassCreationButton.IsEnabled = !_submitting;
-        CloseClassCreationButton.Content = !_submitting && _pending is not null ? "关闭，稍后确认" : "关闭";
+        CloseClassCreationButton.Content = !_submitting && (_pending is not null || _pendingGrade is not null) ? "关闭，稍后确认" : "关闭";
+        RenderGradeCreation(busy);
     }
 
     private async void ReloadClicked(object? sender, RoutedEventArgs args) => await LoadContextAsync();

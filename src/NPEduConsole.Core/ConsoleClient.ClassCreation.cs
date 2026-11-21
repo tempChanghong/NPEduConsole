@@ -28,8 +28,10 @@ public sealed partial class ConsoleClient
     private sealed record CreationGradeRow(string Id, string TermId, string Code, string Name);
     private sealed record CreationDirectory(CreationTerm? Term, CreationGradeRow[] Grades);
     private sealed record CreatedClass(string Id, string SchoolId, string TermId, string GradeId, Guid RequestId);
+    private sealed record GradeCreationReceipt(string SchoolId, string TermId, Guid RequestId, ClassCreationGrade? Grade);
 
     private const string CurrentClassesSuffix = "/current-term/administrative-classes";
+    private const string CurrentGradesSuffix = "/current-term/grades";
     private static string CurrentClassesPath(string schoolId) => $"api/v2/admin/schools/{Segment(schoolId)}{CurrentClassesSuffix}";
 
     public async Task<ClassCreationContext> GetClassCreationContextAsync(string schoolId, CancellationToken ct)
@@ -65,7 +67,7 @@ public sealed partial class ConsoleClient
             throw new ConsoleApiException(422, "请在当前学期选择已有年级。", "GRADE_INVALID");
         code = code.Trim().ToUpperInvariant();
         name = name.Trim();
-        if (!Regex.IsMatch(code, @"\A[A-Z0-9][A-Z0-9._-]{1,63}\z") || name.Length is < 1 or > 191 || requestId == Guid.Empty)
+        if (!ValidCreationCode(code) || name.Length is < 1 or > 191 || requestId == Guid.Empty)
             throw new ConsoleApiException(422, "请核对班级名称和代码。代码为 2 至 64 位，以字母或数字开头。", "ADMIN_CLASS_INVALID");
         var data = await RequestAsync<CreatedClass>(HttpMethod.Post, CurrentClassesPath(context.SchoolId), session.Token, ct,
             body: new { context.TermId, gradeId, code, name, isStudentSelectable, requestId });
@@ -75,6 +77,38 @@ public sealed partial class ConsoleClient
         _ = Segment(data.Id);
         return data.Id;
     }
+
+    public async Task<ClassCreationGrade> CreateCurrentGradeAsync(ClassCreationContext context, string code, string name,
+        Guid requestId, CancellationToken ct) =>
+        await RequestGradeReceiptAsync(context, code, name, requestId, ct, create: true) ?? throw InvalidResponse();
+
+    public Task<ClassCreationGrade?> GetCurrentGradeCreationResultAsync(ClassCreationContext context, string code, string name,
+        Guid requestId, CancellationToken ct) => RequestGradeReceiptAsync(context, code, name, requestId, ct, create: false);
+
+    private async Task<ClassCreationGrade?> RequestGradeReceiptAsync(ClassCreationContext context, string code, string name,
+        Guid requestId, CancellationToken ct, bool create)
+    {
+        var session = CurrentSession;
+        if (session.Id != context.SessionId) throw new ConsoleApiException(409, "登录账号已切换，请重新载入年级。", "SNAPSHOT_CHANGED");
+        code = code.Trim().ToUpperInvariant();
+        name = name.Trim();
+        if (context.TermId is not { } termId || requestId == Guid.Empty || !ValidCreationCode(code) || name.Length is < 1 or > 191)
+            throw new ConsoleApiException(422, "请核对当前学期、年级名称和代码。代码为 2 至 64 位，以字母或数字开头。", "GRADE_INVALID");
+        var path = $"api/v2/admin/schools/{Segment(context.SchoolId)}{CurrentGradesSuffix}";
+        var result = create
+            ? await RequestAsync<GradeCreationReceipt>(HttpMethod.Post, path, session.Token, ct, body: new { termId, requestId, code, name })
+            : await RequestAsync<GradeCreationReceipt>(HttpMethod.Get, $"{path}/{requestId:D}?termId={Segment(termId)}", session.Token, ct);
+        CheckCreationSession(session, ct);
+        if (result.SchoolId != context.SchoolId || result.TermId != termId || result.RequestId != requestId) throw InvalidResponse();
+        if (result.Grade is { } grade)
+        {
+            _ = Segment(grade.Id);
+            if (grade.Code != code || grade.Name != name) throw InvalidResponse();
+        }
+        return result.Grade;
+    }
+
+    private static bool ValidCreationCode(string code) => Regex.IsMatch(code, @"\A[A-Z0-9][A-Z0-9._-]{1,63}\z");
 
     private void CheckCreationSession(Session session, CancellationToken ct)
     {
@@ -94,6 +128,20 @@ public sealed partial class ConsoleClient
             "CLASS_CREATION_REQUEST_CONFLICT" => "此请求已用于其他建班操作，请核对班级列表。",
             "CLASS_CREATION_TARGET_CHANGED" => "上次请求已建班，该班之后有变动，请刷新班级列表。",
             "ADMIN_CLASS_INVALID" => "请核对班级名称、代码和所属年级。",
+            _ => HttpError(status, false).Message
+        }, code);
+    }
+
+    private static ConsoleApiException GradeCreationError(int status, string? code)
+    {
+        if (status is 404 or 426) return new(status, "当前 KV 缺少年级创建或核对接口，请升级 KV 后再试。", "GRADE_CREATION_UNSUPPORTED");
+        return new(status, code switch
+        {
+            "GRADE_CODE_EXISTS" => "该学期已有此年级代码，请换一个年级代码。",
+            "GRADE_CREATION_TERM_CHANGED" => "当前学期已变更，请刷新学期与年级。",
+            "GRADE_CREATION_TARGET_CHANGED" => "该请求已建立年级，但学期或原记录已变化。请刷新核对。",
+            "GRADE_CREATION_REQUEST_CONFLICT" => "此请求无法确认本次创建，请刷新核对年级。",
+            "GRADE_INVALID" => "请核对年级名称和代码。",
             _ => HttpError(status, false).Message
         }, code);
     }

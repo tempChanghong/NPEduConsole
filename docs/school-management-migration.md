@@ -22,13 +22,15 @@
 
 网页版仍承接 OAuth 管理账号和指定其他学期的名单维护。退役该入口前，需确认这两类使用场景都有可用的入口。
 
-## 在已有年级开班
+## 建年级并开班
 
-管理员选择学校后，点击「新建行政班」，选择当前学期的年级，填写班名和代码，按需调整「允许学生自行选择此行政班」。学校只有年级、还没有班时也可以操作。班级代码在整个学期的教学空间中唯一。
+管理员选择学校后，点击「新建行政班」。当前启用学期没有年级，或需要补建年级时，在同一个窗口点击「新建年级」，填写名称和代码。Console 收到本次创建回执并刷新年级后自动选中对应年级。可继续填写班名和代码，按需调整「允许学生自行选择此行政班」。年级代码在学期内唯一，班级代码在该学期的教学空间中唯一。
+
+年级重码时可更换代码。创建回包中断后点击「核对结果」，Console 按原请求编号查询。学校暂未记录该请求时，可用原编号重试。另一个管理员创建的同名或同码年级不会被自动选中。填写期间切换学期时，需刷新并核对后再提交。
 
 点击「创建并录入名单」后，Console 按 KV 返回的班级 ID 定位新班，打开学生名单。建班和名单保存分两步生效，关闭名单窗口后，已创建的班级仍可从班级列表进入。建班回包中断时，「重试确认」沿用原请求，KV 返回首次成功的班级 ID。切换学期或失去学校管理权限后，旧表单无法再写入。
 
-升级 KV 时需应用 `20261121000000_admin_class_creation` 数据库迁移。它保存建班请求与班级的对应关系，供重试时核对。桌面端的建班入口只办理当前学期。网页继续承接草稿学期、批量建班、班级编辑和 OAuth 管理员。
+升级 KV 时需应用 `20261121000000_admin_class_creation` 和 `20261121020000_current_grade_creation` 数据库迁移。它们保存建班和建年级的原请求回执。桌面入口只办理当前启用学期。网页继续承接指定其他学期的新建与编辑、年级编辑、批量建班和 OAuth 管理员。
 
 ## 给新班准备第一台教室大屏
 
@@ -42,7 +44,7 @@
 | --- | --- |
 | 审计记录 | 本地学校管理账号可在 Console 完成上述查询。 |
 | 管理总览 | 学校配置诊断和管理待办仍在网页。学校管理员登录 Console 后可自动查看所连 KV 的运行状态。 |
-| 组织与班级 | Console 可在当前学期的已有年级新建单个行政班并录入名单。年级、学科、班级编辑、批量建班及教学关系仍在网页。 |
+| 组织与班级 | Console 可在当前启用学期新建年级及单个行政班并录入名单。其他学期的创建、年级与班级编辑、学科、批量建班及教学关系仍在网页。 |
 | 学生名单 | Console 可维护当前学期一个行政班的名单，支持批量粘贴、差异预览、保存及冲突核对。 |
 | 教师分配 | 教师职责、任课分配和作业快捷输入配置仍在网页。 |
 | 大屏设备 | Console 可为新班登记首台 NPEduTools 大屏并查看连接状态。创建或重置网页大屏账号、维护作业快捷截止时间仍在网页。 |
@@ -64,12 +66,15 @@
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --school-audit
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-roster
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-creation
+node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --grade-creation
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --first-screen
 ```
 
 名单联调会停用夹具中的 NPEP，检查无设备班级、同名学生、屏幕并发写入、学期切换、历史考勤和保存结果核对。网页名单的行为可参照 NPClassworks 的 `src/components/admin/ClassRosterManager.vue` 和 `src/utils/classRoster.js`，服务端规则见 NPClassworksKV 的 `services/classroomToolsService.js`。
 
 建班联调从没有班级的年级开始，检查重码、并发请求、回包丢失后的手动重试、跨校与学期校验、首次名单保存及旧网页接口。使用 `--serve-class-creation` 可保留独立测试服务供桌面操作。
+
+建年级联调会运行 Windows Console，从零年级学校打开建班窗口，模拟创建回包丢失。核对原请求后选中新年级，建首班并保存一名学生。还会检查年级重码、填写时切换学期、请求归属与旧网页指定学期创建。桌面截图保存在 `.artifacts/grade-creation/desktop-live`。
 
 首台大屏联调在 Windows 上使用与 Console 同级的 NPEduTools 工作副本。夹具在另一所学校的同名班放置 205 台大屏，使新登记的大屏排在旧目录范围之外。测试通过教室端 Host 命令查找、翻页并按原口令接入，重启后在 Console 核对状态上报。服务和客户端使用独立的临时目录。`--serve-first-screen` 可保留服务供桌面验证。
 
