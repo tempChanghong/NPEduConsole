@@ -16,6 +16,7 @@ public partial class StudyEvidenceView : UserControl
     private StudyEvidenceReceipt? _receipt;
     private DeviceOption[] _devices = [];
     private string? _cursor;
+    private DateOnly? _date;
 
     public StudyEvidenceView()
     {
@@ -25,7 +26,7 @@ public partial class StudyEvidenceView : UserControl
         AttachedToVisualTree += (_, _) => { if (_receipt is not null) RenderReceipt(); };
     }
 
-    public void SetScope(ConsoleClient? client, string? schoolId, string? termId, Classroom? classroom)
+    public void SetScope(ConsoleClient? client, string? schoolId, string? termId, Classroom? classroom, DateOnly? date = null)
     {
         Cancel(ref _deviceRead);
         Cancel(ref _reportRead);
@@ -33,6 +34,7 @@ public partial class StudyEvidenceView : UserControl
         _receipt = null;
         _scope = null;
         _client = client;
+        _date = date;
         DevicePicker.ItemsSource = null;
         ReceiptTime.IsVisible = false;
         ReadReceiptButton.IsEnabled = false;
@@ -50,7 +52,7 @@ public partial class StudyEvidenceView : UserControl
         DevicePicker.ItemsSource = _devices;
         ReceiptStatus.Text = _devices.Length == 0 ? "本班暂无已接入的大屏。" : "请选择设备查看回执。";
         if (_devices.Length > 0) DevicePicker.SelectedIndex = 0;
-        ReportsStatus.Text = "可查询最近 30 天已上传的自习报告。";
+        ReportsStatus.Text = date is { } selected ? $"查询 {selected:M 月 d 日} 开始且已上传的场次。" : "可查询最近 30 天已上传的自习报告。";
         ReadReportsButton.IsEnabled = true;
     }
 
@@ -126,7 +128,7 @@ public partial class StudyEvidenceView : UserControl
         ReadReportsButton.IsEnabled = false;
         try
         {
-            var page = await client.ReadStudyReportsAsync(scope, cursor, read.Token);
+            var page = await client.ReadStudyReportsAsync(scope, cursor, read.Token, _date);
             if (_reportRead != read) return;
             var choices = page.Items.Select(report =>
             {

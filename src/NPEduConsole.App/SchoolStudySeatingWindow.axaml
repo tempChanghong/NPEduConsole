@@ -1,0 +1,65 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolStudySeatingWindow"
+        Title="自习座位图" Width="1050" Height="740" MinWidth="670" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,9">
+      <StackPanel Spacing="3">
+        <TextBlock x:Name="SeatTitle" FontSize="23" Classes="label"/>
+        <TextBlock x:Name="SeatPublished" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="7" Margin="13,8">
+      <TextBlock x:Name="SeatFeedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+      <TabControl x:Name="SeatTabs" Grid.Row="1">
+        <TabItem Header="预览与发布">
+          <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="7">
+            <WrapPanel ItemSpacing="6" LineSpacing="5">
+              <Button x:Name="SeatChoose" Classes="action" Click="ChooseFile" Content="选取图片"/>
+              <ComboBox x:Name="SeatVersions" Width="265" SelectionChanged="VersionSelected" PlaceholderText="查看历史版本"
+                        AutomationProperties.Name="选择座位图历史版本"/>
+              <Button x:Name="SeatRestore" Classes="action" Click="StageRestore" Content="准备重新发布"/>
+              <Button x:Name="SeatWithdraw" Classes="action" Click="StageWithdraw" Content="准备撤回"/>
+              <Button x:Name="SeatUseCurrent" Classes="action" Click="CancelDraft" Content="返回当前图"/>
+            </WrapPanel>
+            <TextBlock x:Name="SeatImageLabel" Grid.Row="1" Classes="label" TextWrapping="Wrap"/>
+            <Border Grid.Row="2" Classes="card" Padding="7">
+              <Image x:Name="SeatImage" Stretch="Uniform" AutomationProperties.Name="座位图预览"/>
+            </Border>
+            <TextBlock Grid.Row="3" Classes="muted" TextWrapping="Wrap" Text="座位图归本班。前屏已打开旧图时，关闭后再打开会采用已收到的新图。"/>
+          </Grid>
+        </TabItem>
+        <TabItem Header="逐屏核对">
+          <Grid RowDefinitions="Auto,*" RowSpacing="8">
+            <TextBlock x:Name="SeatDeviceNote" TextWrapping="Wrap" Classes="muted"/>
+            <ListBox x:Name="SeatDevices" Grid.Row="1" Classes="object-list" AutomationProperties.Name="逐台大屏的独立证据"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:StudySeatingDeviceView">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="{Binding Name}" Classes="label" FontSize="16" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Binding}" Classes="muted" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Configuration}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Download}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Applied}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Opened}" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
+        </TabItem>
+      </TabControl>
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0" Padding="13,8">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <WrapPanel ItemSpacing="6" LineSpacing="4">
+          <Button x:Name="SeatClose" Classes="action" Content="返回" Click="CloseSeat"/>
+          <Button x:Name="SeatRefresh" Classes="action" Content="刷新学校与大屏" Click="RefreshSeat"/>
+          <Button x:Name="SeatCheck" Classes="action" Content="核对本次发布" Click="CheckPending" IsVisible="False"/>
+        </WrapPanel>
+        <Button x:Name="SeatSave" Grid.Column="1" Classes="action accent" Content="确认发布" Click="Save"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

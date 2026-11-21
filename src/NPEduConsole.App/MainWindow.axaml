@@ -291,6 +291,7 @@
             <Button x:Name="ReturnToSchoolOverviewButton" Classes="action" Content="返回总览" Click="SchoolOverviewClicked" IsVisible="False" />
             <Button x:Name="OpenScreenClassButton" Classes="action" Content="查看所属班级" Click="OpenScreenClassClicked" IsVisible="False" />
             <Button x:Name="OpenClassMaintenanceButton" Classes="action" Content="维护班级" Click="OpenClassMaintenanceClicked" IsVisible="False" />
+            <Button x:Name="OpenSchoolStudyButton" Classes="action" Content="学校自习" Click="SchoolStudyClicked" IsVisible="False" />
             <Button x:Name="OpenClassStudyButton" Classes="action" Content="本班学校自习" Click="ClassStudyClicked" IsVisible="False" />
             <Button x:Name="OpenTermPreparationButton" Classes="action" Content="学期管理" Click="OpenTermPreparationClicked" IsVisible="False" />
             <Button x:Name="OpenGradeTeachingPlanButton" Classes="action" Content="年级教学安排" Click="OpenGradeTeachingPlanClicked" IsVisible="False" />

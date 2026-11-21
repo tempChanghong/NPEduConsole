@@ -34,6 +34,8 @@ internal static partial class Program
             return StartTermActivation(activationFixture, activationOutput);
         if (args is ["--live-term-preparation", var termFixture, var termOutput])
             return StartTermPreparation(termFixture, termOutput);
+        if (args is ["--live-school-study", var schoolStudyFixture, var schoolStudyOutput])
+            return StartSchoolStudy(schoolStudyFixture, schoolStudyOutput);
         if (args is ["--live-grade-teaching-plan", var gradePlanFixture, var gradePlanOutput])
             return StartGradeTeachingPlan(gradePlanFixture, gradePlanOutput);
         if (args is ["--live-course-groups", var walkingFixture, var walkingOutput])

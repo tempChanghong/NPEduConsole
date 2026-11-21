@@ -24,9 +24,10 @@ public sealed partial class ConsoleClient
         return result with { RequestStarted = started };
     }
 
-    public async Task<StudyReportPage> ReadStudyReportsAsync(StudyEvidenceScope scope, string? cursor, CancellationToken ct)
+    public async Task<StudyReportPage> ReadStudyReportsAsync(StudyEvidenceScope scope, string? cursor, CancellationToken ct, DateOnly? date = null)
     {
         var path = StudyReportsPath(scope);
+        if (date is { } day) path += "&date=" + StudyDate(day);
         if (cursor is not null) path += "&cursor=" + Uri.EscapeDataString(cursor);
         var page = await RequestAsync<StudyReportPage>(HttpMethod.Get, path, CurrentSession.Token, ct, version: "0.17");
         if (page.Items.Length > 20 || page.Items.Any(row => !ValidStudyGroup(row)) ||

@@ -1,0 +1,103 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolStudyEditWindow"
+        Title="编辑学校自习安排" Width="1160" Height="780" MinWidth="670" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,9">
+      <StackPanel Spacing="3">
+        <TextBlock x:Name="StudyEditTitle" FontSize="23" Classes="label"/>
+        <TextBlock x:Name="StudyEditScope" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="6" Margin="13,8">
+      <TextBlock x:Name="StudyEditStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+      <TabControl x:Name="StudyEditTabs" Grid.Row="1">
+        <TabItem Header="安排与例外">
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False">
+            <StackPanel Spacing="9" Margin="0,0,10,5">
+              <WrapPanel ItemSpacing="6" LineSpacing="5">
+                <ComboBox x:Name="StudyPolicyMode" Width="180" SelectionChanged="ModeChanged" AutomationProperties.Name="安排来源"/>
+                <ComboBox x:Name="StudyScheduleMode" Width="130" SelectionChanged="ScheduleModeChanged" AutomationProperties.Name="日常或考试"/>
+              </WrapPanel>
+              <TextBlock x:Name="StudyEditModeNote" Classes="muted" TextWrapping="Wrap"/>
+              <StackPanel x:Name="StudyScheduleFields" Spacing="9">
+                <Border Classes="card" Padding="10">
+                  <StackPanel Spacing="7">
+                    <TextBlock Text="生效范围" Classes="label"/>
+                    <WrapPanel ItemSpacing="8" LineSpacing="5">
+                      <CalendarDatePicker x:Name="StudyFrom" Width="155" PlaceholderText="生效日" SelectedDateChanged="DateBoundChanged" AutomationProperties.Name="生效日期"/>
+                      <CalendarDatePicker x:Name="StudyTo" Width="155" PlaceholderText="截止日（可空）" SelectedDateChanged="DateBoundChanged" AutomationProperties.Name="截止日期"/>
+                      <Button Classes="action" Content="清除截止日" Click="ClearEndDate"/>
+                    </WrapPanel>
+                  </StackPanel>
+                </Border>
+                <Border Classes="card" Padding="10">
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="每周时段" Classes="label"/>
+                    <ListBox x:Name="StudyRules" Classes="object-list" MaxHeight="164" AutomationProperties.Name="现有每周时段" SelectionChanged="RuleSelected"/>
+                    <WrapPanel x:Name="StudyRuleDays" ItemSpacing="8" LineSpacing="4"/>
+                    <WrapPanel ItemSpacing="6" LineSpacing="4">
+                      <TextBox x:Name="StudyRuleStart" Width="100" PlaceholderText="开始 HH:mm" MaxLength="5" AutomationProperties.Name="时段开始"/>
+                      <TextBox x:Name="StudyRuleEnd" Width="100" PlaceholderText="结束 HH:mm" MaxLength="5" AutomationProperties.Name="时段结束"/>
+                      <Button x:Name="StudyApplyRule" Classes="action" Click="ApplyRule" Content="加入时段"/>
+                      <Button x:Name="StudyNewRule" Classes="action" Click="NewRule" Content="新时段"/>
+                      <Button x:Name="StudyRemoveRule" Classes="action" Click="RemoveRule" Content="移除所选"/>
+                    </WrapPanel>
+                    <TextBlock Text="结束早于开始时跨午夜。每场 1 至 180 分钟。" Classes="muted" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </Border>
+                <Border Classes="card" Padding="10">
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="指定日期例外" Classes="label"/>
+                    <ListBox x:Name="StudyExceptions" Classes="object-list" MaxHeight="148" SelectionChanged="ExceptionSelected" AutomationProperties.Name="现有日期例外"/>
+                    <WrapPanel ItemSpacing="6" LineSpacing="4">
+                      <CalendarDatePicker x:Name="StudyExceptionDate" Width="145" AutomationProperties.Name="例外日期"/>
+                      <ComboBox x:Name="StudyExceptionKind" Width="128" SelectionChanged="ExceptionKindChanged" AutomationProperties.Name="例外处理方式"/>
+                      <ComboBox x:Name="StudyExceptionWeekday" Width="100" AutomationProperties.Name="补课采用的星期"/>
+                      <Button x:Name="StudyApplyException" Classes="action" Click="ApplyException" Content="加入例外"/>
+                      <Button x:Name="StudyNewException" Classes="action" Click="NewException" Content="新例外"/>
+                      <Button x:Name="StudyRemoveException" Classes="action" Click="RemoveException" Content="移除所选"/>
+                    </WrapPanel>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </TabItem>
+        <TabItem Header="逐班影响">
+          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="7">
+            <TextBlock x:Name="StudyImpactSummary" Classes="label" TextWrapping="Wrap"/>
+            <Grid Grid.Row="1" ColumnDefinitions="0.85*,1.4*,1.4*" ColumnSpacing="8" Margin="10,0,12,0">
+              <TextBlock Text="班级" Classes="muted"/><TextBlock Grid.Column="1" Text="当前" Classes="muted"/>
+              <TextBlock Grid.Column="2" Text="保存后" Classes="muted"/>
+            </Grid>
+            <ListBox x:Name="SchoolStudyImpact" Grid.Row="2" Classes="object-list" AutomationProperties.Name="逐班核对变更"
+                     ScrollViewer.AllowAutoHide="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:SchoolStudyImpactView">
+                  <Grid Classes="study-impact" Classes.changed="{Binding NeedsReview}" ColumnDefinitions="0.85*,1.4*,1.4*" ColumnSpacing="8">
+                    <StackPanel Spacing="3"><TextBlock Text="{Binding Name}" Classes="label" TextWrapping="Wrap"/><TextBlock Text="{Binding Action}" TextWrapping="Wrap"/></StackPanel>
+                    <TextBlock Grid.Column="1" Text="{Binding Before}" TextWrapping="Wrap"/>
+                    <TextBlock Grid.Column="2" Text="{Binding After}" TextWrapping="Wrap"/>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
+        </TabItem>
+      </TabControl>
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="13,8">
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+        <WrapPanel ItemSpacing="6" LineSpacing="4">
+          <Button x:Name="StudyEditClose" Classes="action" Content="返回" Click="CloseEditor"/>
+          <Button x:Name="StudyReadSave" Classes="action" Content="核对本次回执" Click="CheckSave" IsVisible="False"/>
+        </WrapPanel>
+        <Button x:Name="StudyEditPreview" Grid.Column="1" Classes="action" Content="预览逐班影响" Click="Preview"/>
+        <Button x:Name="StudyEditSave" Grid.Column="2" Classes="action accent" Content="确认保存" Click="Save"/>
+      </Grid>
+    </Border>
+  </Grid>
+  <Window.Styles>
+    <Style Selector="Grid.study-impact.changed"><Setter Property="Background" Value="{DynamicResource ErrorTintBrush}"/></Style>
+  </Window.Styles>
+</Window>

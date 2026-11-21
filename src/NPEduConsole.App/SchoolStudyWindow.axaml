@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolStudyWindow" Title="学校自习"
+        Width="1160" Height="780" MinWidth="670" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,9">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="3">
+          <TextBlock Text="学校自习" Classes="label" FontSize="24"/>
+          <TextBlock x:Name="SchoolStudyScope" Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+        <WrapPanel Grid.Column="1" ItemSpacing="6" LineSpacing="4" VerticalAlignment="Center">
+          <ComboBox x:Name="SchoolStudyGrade" MinWidth="135" PlaceholderText="选择年级" SelectionChanged="GradeChanged" AutomationProperties.Name="学校自习年级"/>
+          <Button x:Name="SchoolStudyEditGrade" Classes="action accent" Click="EditGrade" Content="编辑年级安排"/>
+        </WrapPanel>
+      </Grid>
+    </Border>
+    <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" RowSpacing="8" Margin="13,9">
+      <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="6">
+        <Button x:Name="StudyPriorWeek" Classes="action" Content="上周" Click="PriorWeek"/>
+        <Button x:Name="StudyThisWeek" Grid.Column="1" Classes="action" Content="本周" Click="ThisWeek"/>
+        <Button x:Name="StudyNextWeek" Grid.Column="2" Classes="action" Content="下周" Click="NextWeek"/>
+        <TextBlock x:Name="StudyWeekLabel" Grid.Column="3" Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap"/>
+        <CalendarDatePicker x:Name="StudyJumpDate" Grid.Column="4" Width="140" SelectedDateChanged="JumpDateChanged"
+                            AutomationProperties.Name="跳到指定日期"/>
+      </Grid>
+      <ListBox x:Name="StudyDays" Grid.Row="1" Classes="object-list" SelectionChanged="DayChanged" AutomationProperties.Name="选择本周日期"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+        <ListBox.ItemsPanel><ItemsPanelTemplate><UniformGrid Columns="7"/></ItemsPanelTemplate></ListBox.ItemsPanel>
+      </ListBox>
+      <Grid x:Name="StudyMainColumns" Grid.Row="2" ColumnDefinitions="3*,2*" ColumnSpacing="10">
+        <Border x:Name="StudyRoomPane" Classes="card" Padding="10">
+          <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6">
+            <TextBlock x:Name="StudyDateSummary" FontSize="17" Classes="label" TextWrapping="Wrap"/>
+            <ListBox x:Name="StudyRooms" Grid.Row="1" Classes="object-list" SelectionChanged="RoomChanged"
+                     AutomationProperties.Name="当天各班实际安排" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:SchoolStudyRoomRow">
+                  <Grid ColumnDefinitions="0.9*,1.3*,1.3*" ColumnSpacing="10">
+                    <StackPanel Spacing="3">
+                      <TextBlock Text="{Binding Name}" Classes="label" TextWrapping="Wrap"/>
+                      <TextBlock Text="{Binding Source}" Classes="muted" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Text="{Binding Daily}" TextWrapping="Wrap"/>
+                    <TextBlock Grid.Column="2" Text="{Binding Exam}" TextWrapping="Wrap"/>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <Button x:Name="StudyRoomOpenButton" Grid.Row="2" Classes="action" Click="StudyRoomOpen" Content="打开本班详情" IsVisible="False"/>
+          </Grid>
+        </Border>
+        <Border x:Name="StudyDetailPane" Grid.Column="1" Classes="card" Padding="12">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False">
+            <StackPanel Spacing="9" Margin="0,0,8,0">
+              <Button x:Name="StudyRoomBackButton" Classes="action" Content="返回当天班级列表" Click="StudyRoomBack" IsVisible="False"/>
+              <TextBlock x:Name="StudyRoomTitle" FontSize="20" Classes="label" TextWrapping="Wrap"/>
+              <TextBlock x:Name="StudyRoomSource" Classes="muted" TextWrapping="Wrap"/>
+              <TextBlock x:Name="StudyRoomDay" TextWrapping="Wrap"/>
+              <WrapPanel ItemSpacing="6" LineSpacing="4">
+                <Button x:Name="StudyEditClassButton" Classes="action" Click="EditClass" Content="编辑本班安排"/>
+                <Button x:Name="StudySeatingButton" Classes="action" Click="OpenSeating" Content="座位图与逐屏状态"/>
+                <Button x:Name="StudyReportsButton" Classes="action" Click="OpenReports" Content="本日场次与回执"/>
+              </WrapPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Grid>
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="13,8">
+      <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+        <Button x:Name="SchoolStudyClose" Classes="action" Content="返回" Click="CloseStudy"/>
+        <Button x:Name="SchoolStudyRefresh" Grid.Column="1" Classes="action" Content="刷新" Click="RefreshStudy"/>
+        <TextBlock x:Name="SchoolStudyStatus" Grid.Column="2" VerticalAlignment="Center" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

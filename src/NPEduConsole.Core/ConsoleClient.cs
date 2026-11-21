@@ -350,6 +350,14 @@ public sealed partial class ConsoleClient : IDisposable
                 if ((path.EndsWith(CurrentGradesSuffix, StringComparison.Ordinal) || path.Contains(CurrentGradesSuffix + "/", StringComparison.Ordinal)) &&
                     status is 404 or 409 or 422 or 426)
                     throw GradeCreationError(status, await AcademicErrorCodeAsync(response, ct));
+                if (version is not null && IsSchoolStudyAdminPath(path) && status is 400 or 403 or 404 or 409 or 413 or 426)
+                {
+                    Envelope? protocolError = null;
+                    try { protocolError = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct); }
+                    catch (JsonException) { }
+                    if (protocolError?.RequestId == requestId && protocolError.ProtocolVersion == version)
+                        throw SchoolStudyProtocolError(status, protocolError.Error?.Code);
+                }
                 if (version is not null && status == 409)
                 {
                     var error = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct);
@@ -398,6 +406,22 @@ public sealed partial class ConsoleClient : IDisposable
         }
         catch (JsonException) { return null; }
     }
+
+    private static ConsoleApiException SchoolStudyProtocolError(int status, string? code) => new(status, code switch
+    {
+        "SEATING_CHANGED" => "另一位管理员或教室已更新座位图。请核对新版本再发布。",
+        "IMAGE_NO_LONGER_RETAINED" => "该历史版本的图像已过保留期。",
+        "INVALID_IMAGE" or "IMAGE_DIMENSIONS" or "PAYLOAD_TOO_LARGE" => "服务器未接受该图片，请缩小后重新选择。",
+        "STUDY_PREVIEW_CHANGED" or "STUDY_SETTING_VERSION_CONFLICT" => "安排或受影响的班级已变化。本次未保存，请重新核对预览。",
+        "STUDY_SETTING_UPGRADE_REQUIRED" => "原策略含当前编辑器无法保留的设置，请用新版核对。",
+        "STUDY_SOURCE_UNAVAILABLE" => "现有策略引用的作业来源已不可用，请先核对原配置。",
+        "TERM_NOT_ACTIVE" or "BINDING_CHANGED" => "学期或班级已变化，请重新读取当前范围。",
+        "STUDY_REQUEST_NOT_FOUND" or "SEATING_REQUEST_NOT_FOUND" => "服务器暂未找到该次操作的回执。",
+        "INVALID_REQUEST" => "服务器未接受设置，请核对日期范围、重复例外、时段与现有规则。",
+        _ when status == 426 => "当前 KV 版本尚不支持这项学校自习操作。",
+        _ when status == 409 => ProtocolConflict(code).Message,
+        _ => HttpError(status, false).Message
+    }, code);
 
     private static ConsoleApiException InvalidResponse() => new(0, "KV 服务返回的数据与当前控制台不兼容，请核对服务地址或刷新。");
     private static ConsoleApiException ProtocolConflict(string? code) => new(409, code switch
