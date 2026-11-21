@@ -43,8 +43,12 @@
       <Setter Property="Background" Value="{DynamicResource CanvasBrush}" />
       <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="CornerRadius" Value="12" />
       <Setter Property="Padding" Value="10,8" />
+    </Style>
+    <Style Selector="Button.class-link:pointerover /template/ ContentPresenter, Button.class-link:focus-visible /template/ ContentPresenter">
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
     </Style>
   </UserControl.Styles>
   <ScrollViewer x:Name="OverviewScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -115,7 +119,7 @@
               </ComboBox>
             </Grid>
             <TextBlock x:Name="OverviewNoTasks" Text="此分类暂无待办。" Classes="muted" Margin="9" IsVisible="False" />
-            <ListBox x:Name="OverviewTasksList" Background="Transparent" MaxHeight="420"
+            <ListBox x:Name="OverviewTasksList" Classes="object-list" Background="Transparent" MaxHeight="420"
                      ItemTemplate="{StaticResource TaskRowTemplate}" AutomationProperties.Name="学校待办" />
           </StackPanel>
         </Border>

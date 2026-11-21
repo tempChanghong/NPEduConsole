@@ -1,64 +1,139 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="NPEduConsole.App.TeachingWindow" Title="行政班任课"
-        Width="820" Height="720" MinWidth="560" MinHeight="490" WindowStartupLocation="CenterOwner">
-  <Border Background="{DynamicResource CanvasBrush}" Padding="24">
-  <Grid RowDefinitions="Auto,*,Auto" RowSpacing="14">
-    <StackPanel Spacing="5">
-      <TextBlock Text="行政班任课" FontSize="24" FontWeight="SemiBold"/>
-      <TextBlock x:Name="TeachingContext" Classes="muted" TextWrapping="Wrap"/>
-      <TextBlock x:Name="TeachingFeedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
-      <Button x:Name="TeachingSubjectSetupButton" Classes="action" Content="配置授课科目" IsVisible="False" Click="SubjectSetupClicked"/>
-    </StackPanel>
-    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-      <StackPanel Spacing="12" Margin="0,0,10,0">
-        <StackPanel x:Name="TeachingFields" Spacing="12" IsEnabled="False">
-          <TextBlock Text="任教学科" FontWeight="SemiBold"/>
-          <ComboBox x:Name="TeachingSubjectPicker" SelectionChanged="SubjectChanged" HorizontalAlignment="Stretch"
-                    AutomationProperties.Name="任教学科"/>
-          <Border Classes="card" Padding="12">
-            <StackPanel Spacing="8">
-              <TextBlock Text="本班已有任课" FontWeight="SemiBold"/>
-              <TextBlock x:Name="TeachingExistingEmpty" Text="本班此科目暂无任课关系。" Classes="muted"/>
-              <ComboBox x:Name="TeachingExistingPicker" SelectionChanged="ExistingChanged" IsVisible="False"
-                        HorizontalAlignment="Stretch" AutomationProperties.Name="选择已有任课关系"/>
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="TeachingAddButton" Classes="action" Content="新增任课" Click="AddClicked"/>
-                <Button x:Name="TeachingChangeButton" Classes="action" Content="修改所选" IsEnabled="False" Click="ChangeClicked"/>
-                <Button x:Name="TeachingRemoveButton" Classes="action" Content="移除所选" IsEnabled="False" Click="RemoveClicked"/>
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.TeachingWindow" Title="行政班任课"
+        Width="1160" Height="780" MinWidth="740" MinHeight="480" WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="Border.teaching-row">
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="Border.teaching-row.issue">
+      <Setter Property="Background" Value="{DynamicResource WarningTintBrush}" />
+    </Style>
+    <Style Selector="ListBox.teaching-list ListBoxItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="ListBox.teaching-list ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}" />
+    </Style>
+    <Style Selector="TextBlock.teaching-status.issue">
+      <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
+    </Style>
+    <Style Selector="Button.teaching-action">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="8,4" />
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,12">
+      <StackPanel Spacing="3">
+        <TextBlock Text="行政班任课" FontSize="25" FontWeight="SemiBold"/>
+        <TextBlock x:Name="TeachingContext" Classes="muted" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="1" ColumnDefinitions="305,*" ColumnSpacing="12" Margin="20,12">
+      <Border Classes="card" ClipToBounds="True">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="12,10" Spacing="10">
+            <StackPanel x:Name="TeachingFields" Spacing="10" IsEnabled="False">
+              <StackPanel Spacing="4">
+                <TextBlock Text="任教学科" Classes="label"/>
+                <ComboBox x:Name="TeachingSubjectPicker" SelectionChanged="SubjectChanged" HorizontalAlignment="Stretch"
+                          AutomationProperties.Name="任教学科"/>
+              </StackPanel>
+              <StackPanel Spacing="5">
+                <TextBlock Text="本班已有任课" Classes="label"/>
+                <TextBlock x:Name="TeachingExistingEmpty" Text="此科目暂无任课关系。" Classes="muted"/>
+                <ComboBox x:Name="TeachingExistingPicker" SelectionChanged="ExistingChanged" IsVisible="False"
+                          HorizontalAlignment="Stretch" AutomationProperties.Name="选择已有任课关系"/>
+                <WrapPanel ItemSpacing="5" LineSpacing="4">
+                  <Button x:Name="TeachingAddButton" Classes="action teaching-action" Content="新增任课" Click="AddClicked"/>
+                  <Button x:Name="TeachingChangeButton" Classes="action teaching-action" Content="修改所选" IsEnabled="False" Click="ChangeClicked"/>
+                  <Button x:Name="TeachingRemoveButton" Classes="action teaching-action" Content="移除所选" IsEnabled="False" Click="RemoveClicked"/>
+                </WrapPanel>
+              </StackPanel>
+              <Border Height="1" Background="{DynamicResource LineBrush}"/>
+              <TextBlock x:Name="TeachingOperation" FontSize="16" Classes="label"/>
+              <Grid x:Name="TeachingAssignmentFields" ColumnDefinitions="*,98" ColumnSpacing="8">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="本校教师" Classes="label"/>
+                  <ComboBox x:Name="TeachingTeacherPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="本校教师"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="4">
+                  <TextBlock Text="任课身份" Classes="label"/>
+                  <ComboBox x:Name="TeachingPositionPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="任课身份" SelectedIndex="0">
+                    <ComboBoxItem Content="主讲"/>
+                    <ComboBoxItem Content="协同"/>
+                  </ComboBox>
+                </StackPanel>
+              </Grid>
+              <StackPanel x:Name="TeachingPeers" Spacing="5">
+                <TextBlock Text="同时办理同年级其他班" Classes="label"/>
+                <StackPanel x:Name="TeachingClassChoices" Spacing="2"/>
               </StackPanel>
             </StackPanel>
-          </Border>
-          <TextBlock x:Name="TeachingOperation" FontSize="17" FontWeight="SemiBold"/>
-          <Grid x:Name="TeachingAssignmentFields" ColumnDefinitions="*,175" ColumnSpacing="12">
-            <StackPanel Spacing="5">
-              <TextBlock Text="本校教师"/>
-              <ComboBox x:Name="TeachingTeacherPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
-                        AutomationProperties.Name="本校教师"/>
-            </StackPanel>
-            <StackPanel Grid.Column="1" Spacing="5">
-              <TextBlock Text="任课身份"/>
-              <ComboBox x:Name="TeachingPositionPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
-                        AutomationProperties.Name="任课身份" SelectedIndex="0">
-                <ComboBoxItem Content="主讲"/>
-                <ComboBoxItem Content="协同"/>
-              </ComboBox>
-            </StackPanel>
-          </Grid>
-          <StackPanel x:Name="TeachingPeers" Spacing="5">
-            <TextBlock Text="同时分配给同年级的其他班" FontWeight="SemiBold"/>
-            <StackPanel x:Name="TeachingClassChoices" Spacing="3"/>
+            <Button x:Name="TeachingSubjectSetupButton" Classes="action" Content="配置授课科目" IsVisible="False" Click="SubjectSetupClicked"/>
           </StackPanel>
-          <TextBlock x:Name="TeachingAccessNote" TextWrapping="Wrap" Classes="muted"/>
-        </StackPanel>
-        <StackPanel x:Name="TeachingRows" Spacing="6"/>
-      </StackPanel>
-    </ScrollViewer>
-    <WrapPanel Grid.Row="2" ItemSpacing="8" LineSpacing="8">
-      <Button x:Name="TeachingPreviewButton" Classes="action" Content="预览安排" Click="PreviewClicked" IsEnabled="False"/>
-      <Button x:Name="TeachingApplyButton" Classes="accent" Content="确认提交" Click="ApplyClicked" IsEnabled="False"/>
-      <Button x:Name="TeachingReadButton" Classes="action" Content="刷新安排" Click="ReadClicked"/>
-      <Button Content="返回" Classes="action" Click="CloseClicked"/>
-    </WrapPanel>
+        </ScrollViewer>
+      </Border>
+      <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*" RowSpacing="8">
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="10,7">
+          <TextBlock x:Name="TeachingFeedback" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+        </Border>
+        <TextBlock x:Name="TeachingAccessNote" Grid.Row="1" TextWrapping="Wrap" Classes="muted" />
+        <Border Grid.Row="2" Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,*">
+            <Border Background="{DynamicResource AccentSoftBrush}" BorderBrush="{DynamicResource LineBrush}"
+                    BorderThickness="0,0,0,1" Padding="10,8,28,8">
+              <Grid x:Name="TeachingPreviewHeader" ColumnDefinitions="125,*,*" ColumnSpacing="10">
+                <TextBlock Text="行政班" Classes="label"/>
+                <TextBlock x:Name="TeachingBeforeHeading" Grid.Column="1" Text="当前任课" Classes="label"/>
+                <TextBlock x:Name="TeachingAfterHeading" Grid.Column="2" Text="提交后" Classes="label"/>
+              </Grid>
+            </Border>
+            <ListBox x:Name="TeachingPreviewList" Grid.Row="1" Classes="teaching-list" Background="Transparent"
+                     AutomationProperties.Name="逐班任课对照" ScrollViewer.VerticalScrollBarVisibility="Visible"
+                     ScrollViewer.AllowAutoHide="False" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:TeachingPreviewRow">
+                  <Border Classes="teaching-row" Classes.issue="{Binding NeedsAttention}" Padding="10,7" Focusable="True"
+                          AutomationProperties.AutomationId="{Binding AutomationId}">
+                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="125,*,*" ColumnSpacing="10">
+                      <StackPanel Spacing="3">
+                        <TextBlock Text="{Binding ClassName}" Classes="label"/>
+                        <TextBlock Text="{Binding Status}" Classes="teaching-status muted" Classes.issue="{Binding NeedsAttention}" />
+                      </StackPanel>
+                      <TextBlock Grid.Column="1" Text="{Binding Before}" TextWrapping="Wrap"/>
+                      <TextBlock Grid.Column="2" Text="{Binding After}" TextWrapping="Wrap"/>
+                      <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,4,0,0"
+                                 Text="{Binding Reason}" Classes="muted" IsVisible="{Binding HasReason}"/>
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock x:Name="TeachingPreviewEmpty" Grid.Row="1" Text="预览后可逐班对照当前任课和本次变化。"
+                       Classes="muted" Margin="11" IsHitTestVisible="False"/>
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+    <Border x:Name="TeachingWorkspaceActions" Grid.Row="2" Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,8">
+      <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+        <WrapPanel ItemSpacing="7" LineSpacing="4">
+          <Button x:Name="CloseTeachingButton" Content="返回" Classes="action" Click="CloseClicked"/>
+          <Button x:Name="TeachingReadButton" Classes="action" Content="刷新安排" Click="ReadClicked"/>
+        </WrapPanel>
+        <TextBlock x:Name="TeachingTargetCount" Grid.Column="1" Classes="muted" VerticalAlignment="Center"/>
+        <WrapPanel Grid.Column="2" ItemSpacing="7" LineSpacing="4">
+          <Button x:Name="TeachingPreviewButton" Classes="action" Content="预览安排" Click="PreviewClicked" IsEnabled="False"/>
+          <Button x:Name="TeachingApplyButton" Classes="action accent" Content="确认提交" Click="ApplyClicked" IsEnabled="False"/>
+        </WrapPanel>
+      </Grid>
+    </Border>
   </Grid>
-  </Border>
 </Window>

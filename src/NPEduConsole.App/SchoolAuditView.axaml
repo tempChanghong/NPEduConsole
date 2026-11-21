@@ -56,7 +56,7 @@
       <Border Grid.Row="1" Classes="card" Padding="10">
         <Grid RowDefinitions="Auto,*,Auto" RowSpacing="7">
           <TextBlock x:Name="AuditStatus" Classes="muted" Margin="6,3,6,0" AutomationProperties.LiveSetting="Polite" IsVisible="False" />
-          <ListBox x:Name="AuditList" Grid.Row="1" Background="Transparent" AutomationProperties.Name="审计记录列表" KeyDown="AuditListKeyDown">
+          <ListBox x:Name="AuditList" Classes="object-list" Grid.Row="1" Background="Transparent" AutomationProperties.Name="审计记录列表" KeyDown="AuditListKeyDown">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="local:SchoolAuditRow">
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12" Margin="5,6">

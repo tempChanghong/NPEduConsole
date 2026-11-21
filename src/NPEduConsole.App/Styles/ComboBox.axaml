@@ -30,6 +30,7 @@
     <Setter Property="MaxWidth" Value="{Binding Bounds.Width, RelativeSource={RelativeSource TemplatedParent}}" />
   </Style>
   <Style Selector="ComboBox /template/ Border#PopupBorder">
+    <Setter Property="CornerRadius" Value="10" />
     <Setter Property="ClipToBounds" Value="True" />
   </Style>
 
@@ -40,7 +41,7 @@
     <Setter Property="MinHeight" Value="36" />
     <Setter Property="BorderThickness" Value="1" />
   </Style>
-  <Style Selector="ComboBoxItem:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+  <Style Selector="ComboBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter, ComboBoxItem:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
     <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
   </Style>
   <Style Selector="ComboBoxItem TextBlock">

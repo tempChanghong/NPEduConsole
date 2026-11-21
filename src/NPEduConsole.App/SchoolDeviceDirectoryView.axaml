@@ -16,7 +16,7 @@
     </Style>
     <Style Selector="ListBox#DeviceDirectoryRows > ListBoxItem">
       <Setter Property="Padding" Value="0" />
-      <Setter Property="Margin" Value="0" />
+      <Setter Property="Margin" Value="5,2" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
   </UserControl.Styles>
@@ -51,11 +51,11 @@
             <TextBlock Grid.Column="2" Text="网页大屏" Classes="column-caption" />
           </Grid>
         </Border>
-        <ListBox x:Name="DeviceDirectoryRows" Grid.Row="1" Background="Transparent" BorderThickness="0"
+        <ListBox x:Name="DeviceDirectoryRows" Classes="object-list" Grid.Row="1" Background="Transparent" BorderThickness="0"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="教室设备目录">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="local:OverviewScreenItem">
-              <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource LineBrush}" Padding="16,12">
+              <Border Padding="10,10">
                 <Grid ColumnDefinitions="1.2*,*,*,65" ColumnSpacing="12">
                   <StackPanel VerticalAlignment="Center" Spacing="3" ToolTip.Tip="{Binding ScreenId}">
                     <TextBlock Text="{Binding DisplayName}" FontSize="16" Classes="label" />

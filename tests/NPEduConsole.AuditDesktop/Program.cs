@@ -76,6 +76,7 @@ internal static class Program
                 await Until(() => list.ItemCount == 53 && !more.IsVisible, "live cursor ends on the selected date");
                 SelectSchool(credentials.SecondarySchoolId);
                 Check(list.ItemCount == 0 && !details.IsVisible && Detail("AuditDetailMetadata") == "", "Switching clears details immediately.");
+                OpenAuditFromOverview();
                 await Until(() => query.IsEnabled && list.ItemCount == 1 && MainControl<TextBlock>("ClassListMessage").Text == "该学校暂无可查看班级。",
                     "live audit logs for a school without an active term");
                 await Capture(main, output, "live-school-without-classes");
@@ -144,9 +145,11 @@ internal static class Program
             SelectSchool(credentials.SecondarySchoolId);
             Check(!details.IsVisible && Detail("AuditDetailMetadata") == "" && list.ItemCount == 0 && string.IsNullOrEmpty(from.Text),
                 "A school switch clears details, records, and the previous filters synchronously.");
+            OpenAuditFromOverview();
             var other = await fixture.NextAsync();
             Check(other.SchoolId == credentials.SecondarySchoolId && other.Query.Count == 1, "A new school starts at its own first page.");
             SelectSchool(credentials.SchoolId);
+            OpenAuditFromOverview();
             var current = await fixture.NextAsync();
             other.Reply(AuditFixture.Entry(credentials.SecondarySchoolId, "obsolete-school"));
             await Task.Delay(150);
@@ -188,6 +191,13 @@ internal static class Program
             DateTimeOffset Parse(string name) => DateTimeOffset.Parse(filtered.Query[name]!, CultureInfo.InvariantCulture);
 
             void SelectSchool(string id) => schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == id);
+
+            void OpenAuditFromOverview()
+            {
+                Check(MainControl<SchoolOverviewView>("SchoolOverviewWorkspace").IsEffectivelyVisible,
+                    "Switching schools opens the new school's overview.");
+                Click(open);
+            }
 
             async Task<Flyout> OpenCalendar(string name)
             {

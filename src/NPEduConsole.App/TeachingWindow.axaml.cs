@@ -2,7 +2,10 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
+using System.Runtime.CompilerServices;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
@@ -18,8 +21,10 @@ public sealed partial class TeachingWindow : Window
     private string _action = "ASSIGN";
     private TeachingAssignment? _original;
     private (TeachingDraft Draft, TeachingPreview Preview)? _preview;
-    private TeachingDraft? _unconfirmed;
-    private bool _busy, _closed, _submitting;
+    private static readonly ConditionalWeakTable<ConsoleClient,
+        Dictionary<(string School, string Term, string Class), TeachingPending>> PendingBySession = new();
+    private TeachingPending? _unconfirmed;
+    private bool _busy, _closed, _submitting, _scopeUnavailable;
     private bool _binding = true;
     public event Action<ConsoleApiException>? SessionExpired;
 
@@ -38,7 +43,20 @@ public sealed partial class TeachingWindow : Window
         _termId = termId;
         _classId = classId;
         TeachingContext.Text = school.Name;
-        Opened += async (_, _) => await RunAsync(() => ReadAsync(subjectId));
+        if (PendingBySession.TryGetValue(client, out var saved))
+            _unconfirmed = saved.GetValueOrDefault((_schoolId, _termId, _classId));
+        Opened += async (_, _) =>
+        {
+            BatchWorkspaceWindow.FitSchoolWindow(this);
+            await RunAsync(async () =>
+            {
+                await ReadAsync(_unconfirmed?.Draft.SubjectId ?? subjectId);
+                if (_closed || _unconfirmed is not { } pending) return;
+                TeachingFeedback.Text = "已恢复待核对的提交。请先读取服务器当前任课安排。";
+                ShowBeforeReadback(pending);
+            });
+            if (!_closed && _unconfirmed is not null) TeachingReadButton.Focus(NavigationMethod.Tab);
+        };
         Closing += (_, args) => args.Cancel = _submitting && !_closed;
         Closed += (_, _) =>
         {
@@ -56,9 +74,10 @@ public sealed partial class TeachingWindow : Window
     {
         var catalog = await _client.GetTeachingAsync(_schoolId, _termId, _classId, _lifetime.Token);
         if (_closed) return;
+        _scopeUnavailable = false;
         var teacherId = Teacher?.Id;
         _binding = true;
-        TeachingContext.Text = $"{_schoolName} · {catalog.Classroom.Name}";
+        TeachingContext.Text = $"{_schoolName} · 当前学期 · 从{catalog.Classroom.Name}进入";
         TeachingTeacherPicker.ItemsSource = catalog.Teachers;
         TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(row => row.Id == teacherId);
         TeachingSubjectPicker.ItemsSource = catalog.Subjects;
@@ -122,8 +141,8 @@ public sealed partial class TeachingWindow : Window
         TeachingAssignmentFields.IsVisible = _action != "REMOVE";
         TeachingPeers.IsVisible = _action == "ASSIGN" && _choices.Count > 0;
         TeachingAccessNote.Text = _action == "REMOVE"
-            ? "移除只删除这条任课关系。教师现有的班级访问权限会保留，包括因其他科目或职责获得的访问。"
-            : "分配主讲或协同时，KV 可能授予或提升教师的班级成员权限。修改任课会保留原有班级成员权限。";
+            ? "仅移除所选任课关系。教师现有的班级访问权限会保留。"
+            : "新增任课可能授予或提升教师的班级成员权限。原有权限会保留。";
         if (_action == "CHANGE" && original is not null)
         {
             TeachingTeacherPicker.SelectedItem = TeachingTeacherPicker.Items.Cast<TeachingTeacher>().FirstOrDefault(row => row.Id == original.AccountId);
@@ -140,7 +159,7 @@ public sealed partial class TeachingWindow : Window
     private void ResetPreview()
     {
         _preview = null;
-        TeachingRows.Children.Clear();
+        TeachingPreviewList.ItemsSource = null;
         UpdateControls();
     }
 
@@ -154,7 +173,7 @@ public sealed partial class TeachingWindow : Window
 
     private void UpdateControls()
     {
-        bool editable = !_busy && !_closed && _unconfirmed is null;
+        bool editable = !_busy && !_closed && !_scopeUnavailable && _unconfirmed is null;
         TeachingFields.IsEnabled = editable && TeachingSubjectPicker.Items.Count > 0;
         TeachingExistingPicker.IsEnabled = TeachingExistingPicker.ItemCount > 0;
         TeachingChangeButton.IsEnabled = TeachingRemoveButton.IsEnabled = TeachingExistingPicker.SelectedItem is TeachingAssignment;
@@ -163,11 +182,18 @@ public sealed partial class TeachingWindow : Window
         TeachingReadButton.IsEnabled = !_busy && !_closed;
         TeachingSubjectSetupButton.IsEnabled = editable;
         TeachingReadButton.Content = _unconfirmed is null ? "刷新安排" : "核对提交结果";
+        TeachingReadButton.Classes.Set("accent", _unconfirmed is not null);
+        TeachingPreviewButton.IsVisible = TeachingApplyButton.IsVisible = _unconfirmed is null;
+        TeachingPreviewEmpty.IsVisible = TeachingPreviewList.ItemCount == 0;
+        TeachingTargetCount.Text = _unconfirmed is { } pending
+            ? $"{pending.Draft.ClassIds.Length} 个班待核对"
+            : _preview is { } review ? $"本次预览 {review.Preview.Rows.Length} 个班"
+            : Draft() is { } draft ? $"当前选择 {draft.ClassIds.Length} 个班" : "";
     }
 
     private async void PreviewClicked(object? sender, RoutedEventArgs args)
     {
-        if (Draft() is not { } draft || _busy) return;
+        if (!TeachingPreviewButton.IsEnabled || Draft() is not { } draft) return;
         await RunAsync(async () =>
         {
             ResetPreview();
@@ -175,7 +201,9 @@ public sealed partial class TeachingWindow : Window
             var preview = await _client.PreviewTeachingAsync(_schoolId, _classId, draft, _lifetime.Token);
             if (_closed) return;
             _preview = (draft, preview);
-            ShowRows(preview.Rows);
+            TeachingBeforeHeading.Text = "当前任课";
+            TeachingAfterHeading.Text = "预计提交后";
+            ShowRows(preview.Rows.Select(row => TeachingPreviewRow.Planned(row, Teacher?.ToString(), draft)));
             TeachingFeedback.Text = !preview.CanApply ? "本批尚未写入。请核对以下班级，调整选择后重新预览。"
                 : preview.HasChanges ? "请核对逐班变化，然后确认提交。" : "服务器已有相同安排，无需提交。";
         });
@@ -196,7 +224,8 @@ public sealed partial class TeachingWindow : Window
             }
             catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
             {
-                _unconfirmed = pending.Draft;
+                SetUnconfirmed(new(pending.Draft, pending.Preview));
+                ShowBeforeReadback(_unconfirmed!);
                 await VerifyAsync();
                 return;
             }
@@ -205,7 +234,8 @@ public sealed partial class TeachingWindow : Window
             if (_closed) return;
             if (result.State != "APPLIED")
             {
-                ShowRows(result.Rows);
+                ShowRows(TeachingPreviewRow.Compare(result.Rows, new TeachingPending(pending.Draft, pending.Preview),
+                    result.State == "STALE" ? TeachingObservation.Stale : TeachingObservation.Blocked), observed: true);
                 var names = string.Join("、", result.Rows.Select(row => row.ClassName));
                 TeachingFeedback.Text = result.State == "STALE" ? $"服务器安排已变化：{names}。本批零写入，请核对当前安排并重新预览。"
                     : "本批零写入。请处理下列冲突，再重新预览。";
@@ -214,28 +244,25 @@ public sealed partial class TeachingWindow : Window
             int changed = result.Rows.Count(row => row.State is "ADD" or "CHANGE" or "REMOVE");
             TeachingFeedback.Text = $"已保存 {changed} 个班的任课变化。";
             await RefreshAfterResultAsync(pending.Draft.SubjectId);
-            if (!_closed) ShowRows(result.Rows);
+            if (!_closed) ShowRows(TeachingPreviewRow.Compare(result.Rows, new TeachingPending(pending.Draft, pending.Preview),
+                TeachingObservation.Applied), observed: true);
         });
     }
 
     private async Task VerifyAsync()
     {
-        if (_unconfirmed is not { } draft || _closed) return;
+        if (_unconfirmed is not { } pending || _closed) return;
+        var draft = pending.Draft;
         TeachingFeedback.Text = "提交回执未确认，正在只读核对服务器安排…";
         var current = await _client.PreviewTeachingAsync(_schoolId, _classId, draft, _lifetime.Token);
         if (_closed) return;
-        bool confirmed = current.Rows.All(row => draft.Action switch
-        {
-            "REMOVE" => row.State == "ALREADY_REMOVED",
-            "CHANGE" => row.Assignments.Any(item => item.AccountId == draft.AccountId && item.Position == draft.Position) &&
-                (row.State == "UNCHANGED" || row.Assignments.All(item => item.Id != draft.AssignmentId)),
-            _ => row.Assignments.Any(item => item.AccountId == draft.AccountId && item.Position == draft.Position)
-        });
-        _unconfirmed = null;
+        var observed = TeachingPreviewRow.Compare(current.Rows, pending, TeachingObservation.Readback);
+        bool confirmed = observed.All(row => !row.NeedsAttention);
+        SetUnconfirmed(null);
         TeachingFeedback.Text = confirmed ? "已核对，服务器当前安排与本次提交一致。"
             : "已核对，服务器当前安排与本次提交有差异。请检查下列实际安排。";
         if (confirmed) await RefreshAfterResultAsync(draft.SubjectId);
-        if (!_closed) ShowRows(current.Rows, observed: true);
+        if (!_closed) ShowRows(observed, observed: true);
     }
 
     private async Task RefreshAfterResultAsync(string subjectId)
@@ -247,23 +274,50 @@ public sealed partial class TeachingWindow : Window
         }
     }
 
-    private void ShowRows(IEnumerable<TeachingRow> rows, bool observed = false)
+    private void SetUnconfirmed(TeachingPending? pending)
     {
-        TeachingRows.Children.Clear();
-        Control? firstIssue = null;
-        foreach (var row in rows)
+        _unconfirmed = pending;
+        var key = (_schoolId, _termId, _classId);
+        var byScope = PendingBySession.GetOrCreateValue(_client);
+        if (pending is null) byScope.Remove(key);
+        else byScope[key] = pending;
+    }
+
+    private void ShowBeforeReadback(TeachingPending pending)
+    {
+        TeachingBeforeHeading.Text = "预览时";
+        TeachingAfterHeading.Text = "服务器当前";
+        ShowRows(pending.Preview.Rows.Select(row =>
         {
-            string assigned = string.Join("、", row.Assignments.Select(item => item.ToString()));
-            string detail = assigned.Length > 0 ? $" · 当前任课：{assigned}" : "";
-            var text = new TextBlock { Text = $"{row.ClassName} · {(observed && assigned.Length > 0 ? "服务器当前安排" : row.Message)}{detail}",
-                TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-            var card = new Border { Classes = { "card" }, Padding = new Thickness(10), Child = text };
-            TeachingRows.Children.Add(card);
-            if (row.State is "OTHER_PRIMARY" or "EXISTING_ROLE" or "INVALID") firstIssue ??= card;
+            var observed = TeachingPreviewRow.Observed(row, row, changed: false, applied: false);
+            return observed with { After = "待核对", Status = "回执待确认" };
+        }));
+    }
+
+    private void ShowRows(IEnumerable<TeachingPreviewRow> rows, bool observed = false)
+    {
+        if (observed)
+        {
+            TeachingBeforeHeading.Text = "预览时";
+            TeachingAfterHeading.Text = "服务器当前";
         }
-        if ((firstIssue ?? TeachingRows.Children.FirstOrDefault()) is { } first)
-            Dispatcher.UIThread.Post(() => { if (!_closed && first.IsEffectivelyVisible) first.BringIntoView(); },
-                DispatcherPriority.Loaded);
+        var items = rows.ToArray();
+        TeachingPreviewList.ItemsSource = items;
+        TeachingPreviewEmpty.IsVisible = items.Length == 0;
+        if (items.FirstOrDefault(row => row.NeedsAttention) is not { } target) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed || TeachingPreviewList.ItemsSource != items) return;
+            TeachingPreviewList.SelectedItem = target;
+            TeachingPreviewList.ScrollIntoView(target);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_closed || TeachingPreviewList.ItemsSource != items || !ReferenceEquals(TeachingPreviewList.SelectedItem, target)) return;
+                var row = TeachingPreviewList.GetVisualDescendants().OfType<Border>().FirstOrDefault(control =>
+                    AutomationProperties.GetAutomationId(control) == target.AutomationId);
+                row?.Focus(NavigationMethod.Tab);
+            }, DispatcherPriority.Background);
+        }, DispatcherPriority.Loaded);
     }
 
     private async void ReadClicked(object? sender, RoutedEventArgs args) =>
@@ -286,6 +340,15 @@ public sealed partial class TeachingWindow : Window
         {
             if (_closed) return;
             TeachingFeedback.Text = _unconfirmed is null ? error.Message : $"提交回执仍未确认。{error.Message}";
+            _scopeUnavailable |= error.Code is "TEACHING_TERM_CHANGED" or "TEACHING_CLASS_CHANGED" or "TEACHING_SUBJECT_CHANGED"
+                || error.StatusCode is 401 or 403;
+            if (error.StatusCode is 401 or 403)
+            {
+                SetUnconfirmed(null);
+                TeachingSubjectPicker.ItemsSource = null;
+                TeachingTeacherPicker.ItemsSource = null;
+                ResetPreview();
+            }
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
         }
         finally { _busy = false; if (!_closed) UpdateControls(); }

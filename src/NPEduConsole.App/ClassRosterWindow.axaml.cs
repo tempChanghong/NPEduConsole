@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -33,10 +34,7 @@ public sealed partial class ClassRosterWindow : Window
     private DiscardAction _discard;
 
     private enum DiscardAction { None, Close, Reload }
-    private sealed record CurrentStudent(int Position, RosterStudent Student)
-    {
-        public override string ToString() => $"{Position}. {Student.Name} · 学号 {Student.StudentNumber ?? "—"}";
-    }
+    private RosterDraftRow? _compared;
 
     public event Action<ConsoleApiException>? SessionExpired;
     internal bool HasConfirmedSave { get; private set; }
@@ -65,7 +63,11 @@ public sealed partial class ClassRosterWindow : Window
         _schoolId = schoolId;
         _classId = classId;
         RosterScope.Text = $"{schoolName} / {className}";
-        Opened += (_, _) => _ = LoadAsync(compare: false);
+        Opened += async (_, _) =>
+        {
+            BatchWorkspaceWindow.FitSchoolWindow(this);
+            await LoadAsync(compare: false);
+        };
     }
 
     internal void CloseForScopeChange()
@@ -198,10 +200,23 @@ public sealed partial class ClassRosterWindow : Window
         if (_rows.Count >= RosterEditor.MaxStudents) return;
         var row = AppendRow(new(null, "", null));
         UpdateRowPositions();
+        BringRosterRowIntoView(row, row.NameEditorId);
+    }
+
+    private void BringRosterRowIntoView(RosterDraftRow row, string? focusId = null)
+    {
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_closed && _rows.Contains(row))
-                RosterRows.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(box => box.DataContext == row)?.Focus();
+            if (_closed || !_rows.Contains(row)) return;
+            var controls = RosterRows.GetVisualDescendants().OfType<Control>();
+            var editor = controls.FirstOrDefault(control => AutomationProperties.GetAutomationId(control) == (focusId ?? row.NameEditorId));
+            if (editor is null || !editor.IsEffectivelyVisible) return;
+            editor.BringIntoView();
+            if (focusId is null) return;
+            if (!editor.IsEffectivelyEnabled)
+                editor = RosterRows.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(box =>
+                    AutomationProperties.GetAutomationId(box) == row.NameEditorId);
+            editor?.Focus(NavigationMethod.Tab);
         }, DispatcherPriority.Loaded);
     }
 
@@ -215,13 +230,24 @@ public sealed partial class ClassRosterWindow : Window
         if (index < 0 || index + delta < 0 || index + delta >= _rows.Count) return;
         _rows.Move(index, index + delta);
         UpdateRowPositions();
+        BringRosterRowIntoView(row, delta < 0 ? row.MoveUpId : row.MoveDownId);
     }
 
     private void RemoveClicked(object? sender, RoutedEventArgs args)
     {
-        if (sender is not Button { DataContext: RosterDraftRow row } || !_rows.Remove(row)) return;
+        if (sender is not Button { DataContext: RosterDraftRow row }) return;
+        int index = _rows.IndexOf(row);
+        if (index < 0) return;
+        _rows.RemoveAt(index);
         row.PropertyChanged -= RowChanged;
+        if (_compared == row) _compared = null;
         UpdateRowPositions();
+        if (_rows.Count == 0) AddRosterStudent.Focus(NavigationMethod.Tab);
+        else
+        {
+            var neighbor = _rows[Math.Min(index, _rows.Count - 1)];
+            BringRosterRowIntoView(neighbor, neighbor.NameEditorId);
+        }
     }
 
     private void ImportModeChanged(object? sender, SelectionChangedEventArgs args)
@@ -254,15 +280,17 @@ public sealed partial class ClassRosterWindow : Window
         try
         {
             var draft = RosterEditor.Validate(Rows());
-            var changes = RosterEditor.Changes(baseline.Students, draft);
+            var changes = RosterEditor.Compare(baseline.Students, draft);
             if (changes.Count == 0)
             {
                 SetFeedback("名单没有变化。", error: true);
                 return;
             }
             _preview = draft;
-            RosterChangesList.ItemsSource = changes;
-            RosterReviewSummary.Text = $"保存后从 {baseline.Students.Count} 人变为 {draft.Count} 人。移出学生仍保留历史考勤。";
+            RosterChangesList.ItemsSource = changes.Select(change => new RosterReviewRow(change)).ToArray();
+            RosterReviewSummary.Text = $"{baseline.Students.Count} 人 → {draft.Count} 人 · " +
+                $"新增 {changes.Count(change => change.Kind == RosterChangeKind.Add)} · 移出 {changes.Count(change => change.Kind == RosterChangeKind.Remove)} · " +
+                $"修改 {changes.Count(change => change.Kind == RosterChangeKind.Edit)} · 调序 {changes.Count(change => change.Kind == RosterChangeKind.Move)}。移出时保留历史考勤。";
             SetFeedback(null);
             Render();
             CancelRosterReview.Focus();
@@ -336,14 +364,27 @@ public sealed partial class ClassRosterWindow : Window
     private void SetCurrent(ClassRoster? current)
     {
         _current = current;
-        CurrentRosterRows.ItemsSource = current?.Students.Select((student, index) => new CurrentStudent(index + 1, student));
+        CurrentRosterRows.ItemsSource = current?.Students.Select((student, index) => new RosterCurrentRow(index + 1, student)).ToArray();
     }
 
-    private void CurrentSelectionChanged(object? sender, SelectionChangedEventArgs args) => Render();
+    private void CurrentSelectionChanged(object? sender, SelectionChangedEventArgs args) => HighlightCurrentStudent();
+
+    private void HighlightCurrentStudent()
+    {
+        if (_compared is not null) _compared.IsCompared = false;
+        _compared = CurrentRosterRows.SelectedItem is RosterCurrentRow { Student.Id: { } id }
+            ? _rows.FirstOrDefault(row => row.Id == id) : null;
+        if (_compared is { } match)
+        {
+            match.IsCompared = true;
+            BringRosterRowIntoView(match);
+        }
+        Render();
+    }
 
     private void UseCurrentStudentClicked(object? sender, RoutedEventArgs args)
     {
-        if (_request is not null || CurrentRosterRows.SelectedItem is not CurrentStudent selected) return;
+        if (_request is not null || CurrentRosterRows.SelectedItem is not RosterCurrentRow selected) return;
         var student = selected.Student;
         var existing = _rows.FirstOrDefault(row => row.Id == student.Id);
         if (existing is not null)
@@ -355,6 +396,7 @@ public sealed partial class ClassRosterWindow : Window
         {
             AppendRow(student);
             UpdateRowPositions();
+            HighlightCurrentStudent();
         }
         else
         {
@@ -409,7 +451,7 @@ public sealed partial class ClassRosterWindow : Window
 
     private void CloseOnEscape(object? sender, KeyEventArgs args)
     {
-        if (args.Key != Key.Escape) return;
+        if (args.Key != Key.Escape || RosterImportMode.IsDropDownOpen) return;
         args.Handled = true;
         if (_discard != DiscardAction.None) KeepEditingClicked(sender, args);
         else if (_preview is not null && !_saving) CancelReviewClicked(sender, args);
@@ -481,12 +523,12 @@ public sealed partial class ClassRosterWindow : Window
         RosterComparisonHint.Text = _current switch
         {
             { Students.Count: 0 } => "学校当前名单为空。左侧保留你的草稿。",
-            { } when _scopeChanged is not null => "可查看学校当前名单。请返回班级列表重新选择可编辑的班级。",
-            { } => $"学校当前有 {_current.Students.Count} 人。与左侧草稿核对后，可采用当前版本继续。",
+            { } when _scopeChanged is not null => "可核对学校当前名单。请返回班级列表重新选择可编辑的班级。",
+            { } => $"学校当前有 {_current.Students.Count} 人。选中学生可定位草稿中的同一学生。",
             _ => "尚未核实当前名单。可重新核对或复制草稿。"
         };
         RecheckRosterButton.IsEnabled = !busy;
-        UseCurrentStudentButton.IsEnabled = !busy && CurrentRosterRows.SelectedItem is CurrentStudent;
+        UseCurrentStudentButton.IsEnabled = !busy && CurrentRosterRows.SelectedItem is RosterCurrentRow;
         AdoptRosterRevisionButton.IsEnabled = !busy && _current is not null && _scopeChanged is null;
         ReloadRosterButton.IsEnabled = !busy && !_permissionLost && !confirmingDiscard && !reviewing && _scopeChanged is null;
         RosterDraftState.Text = loaded ? (IsDirty ? "有未保存的修改" : "草稿与当前版本一致") : null;
@@ -504,7 +546,23 @@ public sealed partial class ClassRosterWindow : Window
 
 internal sealed class RosterDraftRow(RosterStudent student) : INotifyPropertyChanged
 {
+    private readonly string _rowKey = student.Id ?? Guid.NewGuid().ToString("N");
     public string? Id { get; } = student.Id;
+    public string NameEditorId => $"RosterStudentName-{_rowKey}";
+    public string NumberEditorId => $"RosterStudentNumber-{_rowKey}";
+    public string MoveUpId => $"RosterStudentUp-{_rowKey}";
+    public string MoveDownId => $"RosterStudentDown-{_rowKey}";
+    private bool _isCompared;
+    public bool IsCompared
+    {
+        get => _isCompared;
+        set
+        {
+            if (_isCompared == value) return;
+            _isCompared = value;
+            PropertyChanged?.Invoke(this, new(nameof(IsCompared)));
+        }
+    }
     private string _name = student.Name;
     private string _number = student.StudentNumber ?? "";
 

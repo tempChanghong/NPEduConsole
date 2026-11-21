@@ -1,0 +1,61 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Style only the visible rail and thumb. The Fluent track retains its 16 DIP input area,
+       page and line buttons, drag calculations, and automatic visibility. -->
+  <Style Selector="ScrollBar /template/ Border#VerticalRoot, ScrollBar /template/ Border#HorizontalRoot">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+  </Style>
+  <Style Selector="ScrollBar /template/ Rectangle#TrackRect">
+    <Setter Property="Fill" Value="{DynamicResource ScrollRailBrush}" />
+    <Setter Property="Stroke" Value="Transparent" />
+    <Setter Property="RadiusX" Value="2" />
+    <Setter Property="RadiusY" Value="2" />
+  </Style>
+  <Style Selector="ScrollBar:vertical /template/ Rectangle#TrackRect">
+    <Setter Property="Width" Value="3" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="0,16" />
+  </Style>
+  <Style Selector="ScrollBar:horizontal /template/ Rectangle#TrackRect">
+    <Setter Property="Height" Value="3" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Margin" Value="16,0" />
+  </Style>
+  <Style Selector="ScrollBar /template/ Thumb">
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Background="Transparent">
+          <Border Name="ScrollGrip" Background="{DynamicResource ScrollGripBrush}" CornerRadius="5" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="ScrollBar:vertical /template/ Thumb">
+    <Setter Property="MinHeight" Value="26" />
+  </Style>
+  <Style Selector="ScrollBar:horizontal /template/ Thumb">
+    <Setter Property="MinWidth" Value="26" />
+  </Style>
+  <Style Selector="ScrollBar:vertical /template/ Thumb /template/ Border#ScrollGrip">
+    <Setter Property="Width" Value="5" />
+    <Setter Property="Margin" Value="0,1" />
+    <Setter Property="HorizontalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ScrollBar:horizontal /template/ Thumb /template/ Border#ScrollGrip">
+    <Setter Property="Height" Value="5" />
+    <Setter Property="Margin" Value="1,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <Style Selector="ScrollBar:vertical:pointerover /template/ Thumb /template/ Border#ScrollGrip">
+    <Setter Property="Width" Value="8" />
+  </Style>
+  <Style Selector="ScrollBar:horizontal:pointerover /template/ Thumb /template/ Border#ScrollGrip">
+    <Setter Property="Height" Value="8" />
+  </Style>
+  <Style Selector="ScrollBar:pointerover /template/ Thumb /template/ Border#ScrollGrip">
+    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="ScrollBar /template/ Thumb:pressed /template/ Border#ScrollGrip">
+    <Setter Property="Background" Value="{DynamicResource AccentStrongBrush}" />
+  </Style>
+</Styles>

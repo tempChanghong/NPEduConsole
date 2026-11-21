@@ -16,6 +16,10 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
   const subject = await prisma.subject.create({data: {schoolId: school.id, code: 'MATH', name: '数学'}});
   await prisma.administrativeClassSubject.createMany({data: [seven, eight, nine].map(room =>
     ({administrativeClassId: room.id, subjectId: subject.id, deliveryMode: 'ADMIN_CLASS'}))});
+  const historySubject = await prisma.subject.create({data: {schoolId: school.id, code: 'HISTORY', name: '历史'}});
+  const historyRooms = await Promise.all(Array.from({length: 23}, (_, index) => makeClass(index + 10)));
+  await prisma.administrativeClassSubject.createMany({data: [seven, ...historyRooms].map(room =>
+    ({administrativeClassId: room.id, subjectId: historySubject.id, deliveryMode: 'ADMIN_CLASS'}))});
   const candidate = await createTeacher('mathteacher', '陈老师');
   const primary = await createTeacher('originalteacher', '王老师');
   const admin2 = await createTeacher('teachingadmin2', '第二管理员', 'ADMIN');
@@ -47,7 +51,24 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
   const dest = new URL(origin);
   let swallowed = false;
   let commits = 0;
-  const relay = createServer((req, res) => {
+  let readbackFailed = false;
+  let changedByOtherAdmin = false;
+  const relay = createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === '/__teaching/change-history') {
+      try {
+        await api(path + '/teaching-assignments', {method: 'PUT', token: secondToken,
+          body: {workspaceId: historyRooms.at(-1).id, subjectId: historySubject.id, accountId: primary.id, position: 'CO_TEACHER'}});
+        changedByOtherAdmin = true;
+        res.writeHead(204).end();
+      } catch { res.writeHead(500).end(); }
+      return;
+    }
+    if (swallowed && !readbackFailed && req.method === 'POST' && req.url === assignmentPath(seven.id) + '/preview') {
+      readbackFailed = true;
+      req.resume();
+      res.writeHead(502).end();
+      return;
+    }
     const upstream = request(new URL(req.url, dest), {method: req.method, headers: {...req.headers, host: dest.host}}, reply => {
       if (req.method === 'POST' && req.url.startsWith(assignmentPath(seven.id)) && reply.statusCode === 200) {
         const data = [];
@@ -73,10 +94,12 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
     const access = join(directory, 'desktop.json');
     await writeFile(access, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port,
       schoolId: school.id, schoolCode: school.code, password: pin, sevenId: seven.id, eightId: eight.id, nineId: nine.id,
-      subjectId: subject.id, teacherId: candidate.id, allowTeachingTestWrites: true}), {mode: 0o600});
+      subjectId: subject.id, teacherId: candidate.id, historySubjectId: historySubject.id, historyPeerIds: historyRooms.map(room => room.id), allowTeachingTestWrites: true}), {mode: 0o600});
     await runDesktop(['--live-teaching', access, evidence]);
     assert.equal(commits, 1);
-    assert.ok(swallowed);
+    assert.ok(swallowed && readbackFailed && changedByOtherAdmin);
+    assert.equal(await prisma.teachingAssignment.count({where: {subjectId: historySubject.id}}), 1,
+      "the stale desktop batch wrote no assignments in any history class");
     assert.deepEqual(await missing(), [eight.id]);
     assert.equal((await prisma.teachingAssignment.findUniqueOrThrow({where: {id: original.id}})).position, 'PRIMARY');
     assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: eight.id, subjectId: subject.id}}), 0);
@@ -166,7 +189,11 @@ async function verifyBrowser({web, origin, school, term, admin, evidence}) {
       window.localStorage.setItem('classworks-v2-refresh-token', refreshToken);
     }, {accessToken: admin.access_token, refreshToken: admin.refresh_token});
     await page.goto(url + '/classworks-admin?section=overview&school=' + school.id + '&term=' + term.id);
-    const row = page.locator('.v-list-item').filter({hasText: '高一尚未设置年级组长'}).filter({visible: true}).first();
+    const responsibilities = page.locator('.v-expansion-panel').filter({
+      has: page.getByRole('button', {name: /岗位职责/}),
+    });
+    await responsibilities.getByRole('button', {name: /岗位职责/}).click();
+    const row = responsibilities.locator('.v-list-item').filter({hasText: '高一尚未设置年级组长'}).first();
     await row.getByRole('button', {name: '去处理'}).click({timeout: 20000});
     await page.waitForURL(next => next.searchParams.get('section') === 'teachers' &&
       next.searchParams.get('school') === school.id && next.searchParams.get('term') === term.id);

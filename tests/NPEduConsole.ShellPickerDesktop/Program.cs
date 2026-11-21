@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using NPEduConsole.App;
 
 internal static class Program
@@ -202,6 +203,8 @@ internal static class Program
             Check(Results(picker).ItemCount == picker.Results.Count, "结果列表与目录一致。");
             await Capture(shell, output, "07-high-contrast");
             await CapturePopup(picker, output, "08-high-contrast-popup");
+            RaiseKey(SearchBox(picker), Key.Escape);
+            await VerifyScrollBarsAsync(shell);
 
             End("PASS: 全校检索在 1160×780 与 400×300、高对比与键盘（F4/Ctrl+K/方向键/Enter/Esc）下均可用；"
                 + "同名靠详情区分、切校清空且不自动展开、目录不完整有范围说明；未连接任何服务器。", 0);
@@ -217,6 +220,37 @@ internal static class Program
             Console.WriteLine(message);
             Desktop.Shutdown(code);
         }
+    }
+
+    private static async Task VerifyScrollBarsAsync(Window window)
+    {
+        var viewer = new ScrollViewer
+        {
+            AllowAutoHide = false, HorizontalScrollBarVisibility = ScrollBarVisibility.Visible,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Visible,
+            Content = new Border { Width = 2400, Height = 2400 }
+        };
+        window.Content = viewer;
+        await Until(() => viewer.Viewport.Height > 0 && viewer.Extent.Height > viewer.Viewport.Height, "长内容完成布局");
+        var bars = viewer.GetVisualDescendants().OfType<ScrollBar>().Where(bar => bar.IsEffectivelyVisible).ToArray();
+        Check(bars.Length == 2, "横向和纵向滚动条都能独立显示。");
+        foreach (var bar in bars)
+        {
+            var thumb = bar.GetVisualDescendants().OfType<Thumb>().Single();
+            var grip = thumb.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "ScrollGrip");
+            bool vertical = bar.Orientation == Avalonia.Layout.Orientation.Vertical;
+            double hitSize = vertical ? thumb.Bounds.Width : thumb.Bounds.Height;
+            double visibleSize = vertical ? grip.Bounds.Width : grip.Bounds.Height;
+            Check(hitSize >= 15 && visibleSize is >= 4 and <= 9 && grip.CornerRadius.TopLeft >= 4,
+                "细圆角滑块保留完整拖动热区。");
+            Check(grip.Background is ISolidColorBrush brush && brush.Color == Colors.White,
+                "高对比模式下滑块使用窗口前景色。");
+        }
+        RaiseKey(viewer, Key.PageDown);
+        await Until(() => viewer.Offset.Y > 0, "PageDown 翻页");
+        RaiseKey(viewer, Key.PageUp);
+        await Until(() => viewer.Offset.Y == 0, "PageUp 回到顶部");
+        Console.WriteLine("PASS: 横纵圆角滑块保留完整热区，高对比使用窗口前景色，PageDown 和 PageUp 可往返翻页。");
     }
 
     private static (Window Shell, ShellObjectPicker Picker, TextBox Probe) BuildShell(double width, double height)

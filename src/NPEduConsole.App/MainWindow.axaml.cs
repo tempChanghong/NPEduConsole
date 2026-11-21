@@ -35,8 +35,8 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         SchoolPicker.ItemTemplate = new FuncDataTemplate<School>((school, _) =>
             new TextBlock { Text = school?.Name });
-        ClassPicker.ItemTemplate = new FuncDataTemplate<Classroom>((room, _) =>
-            new TextBlock { Text = ClassroomName(room), TextWrapping = TextWrapping.Wrap });
+        ClassSearch.TextChanged += ClassSearchChanged;
+        ClassSearch.KeyDown += ClassSearchKeyDown;
         MicrophonePicker.ItemTemplate = new FuncDataTemplate<MicrophoneChoice>((choice, _) =>
         {
             var label = new TextBlock { Text = choice?.Label };
@@ -195,18 +195,21 @@ public sealed partial class MainWindow : Window
             preparation.School != school || preparation.ClassId != restoredClass)) ResetFirstScreen();
         if (_school != school)
         {
+            _directoryTermId = null;
+            _directoryClasses = null;
+            ClassSearch.Clear();
             ChangeClassCreationSchool(school);
             ResetClassMaintenance();
         }
         _school = school;
         InactiveClassesFilter.IsEnabled = school is not null;
+        ClassSearch.IsEnabled = school is not null;
+        string? originalSearch = ClassSearch.Text;
         bool inactiveOnly = InactiveClassesFilter.IsChecked == true;
         OpenClassCreationButton.IsEnabled = school is not null;
         UpdateShellPage();
         RefreshButton.IsEnabled = school is not null;
-        _settingSelection = true;
-        ClassPicker.ItemsSource = null;
-        _settingSelection = false;
+        ClearClassDirectory();
         SetClassroom(null);
         ClassListMessage.Text = school is null ? "请先选择学校。" : "正在读取班级…";
         ClassListMessage.IsVisible = true;
@@ -226,16 +229,16 @@ public sealed partial class MainWindow : Window
         {
             IReadOnlyList<Classroom> rooms = inactiveOnly
                 ? (await client.GetInactiveCurrentClassesAsync(school.Id, request.Token)).Select(row =>
-                    new Classroom(row.Id, row.Name, row.GradeName, []) { TermId = row.TermId, IsActive = false }).ToArray()
+                    new Classroom(row.Id, row.Name, row.GradeName, []) { TermId = row.TermId, Code = row.Code, IsActive = false }).ToArray()
                 : await client.GetClassroomsAsync(school.Id, request.Token);
             if (!IsCurrent(request)) return false;
-            _settingSelection = true;
-            ClassPicker.ItemsSource = rooms;
-            selected = rooms.FirstOrDefault(room => room.Id == restoredClass);
-            ClassPicker.SelectedItem = selected;
-            _settingSelection = false;
-            ClassListMessage.IsVisible = rooms.Count == 0;
-            ClassListMessage.Text = inactiveOnly ? "当前学期暂无已停用行政班。" : "该学校暂无可查看班级。";
+            if (rooms.FirstOrDefault()?.TermId is { } termId)
+            {
+                if (_directoryTermId is not null && _directoryTermId != termId) ClassSearch.Clear();
+                _directoryTermId = termId;
+            }
+            _directoryClasses = rooms;
+            selected = FilterClassDirectory(restoredClass, revealTarget: originalSearch == ClassSearch.Text);
             SetWorkspaceMessage(rooms.Count == 0 ? ClassListMessage.Text : "请选择班级。");
             if (!inactiveOnly) SetSearchRooms(rooms, rooms.Count == 0 ? "当前学期没有可检索的行政班。" : "");
             loaded = true;
@@ -523,9 +526,12 @@ public sealed partial class MainWindow : Window
         CancelMicrophoneChanges();
         CancelSoftwareSession();
         _school = null;
+        _directoryTermId = null;
+        ClearClassDirectory();
+        ClassSearch.Clear();
         UpdateShellPage();
         _settingSelection = true;
-        SchoolPicker.ItemsSource = ClassPicker.ItemsSource = null;
+        SchoolPicker.ItemsSource = null;
         _settingSelection = false;
         SetClassroom(null);
         AccountName.Text = null;
@@ -597,12 +603,20 @@ public sealed partial class MainWindow : Window
         OpenClassStudyButton.IsVisible = _page != ShellPage.Screen && _classroom?.IsActive == true;
         OpenClassStudyButton.Content = show ? "返回班级详情" : "本班学校自习";
         var screen = _page == ShellPage.Screen ? _classroom?.Screens.FirstOrDefault(item => item.Id == _detailScreenId) : null;
-        ClassContext.Text = _classroom is null ? _school?.Name : $"{_school?.Name} / {ClassroomName(_classroom)}";
+        bool classHome = _page == ShellPage.Classes;
+        ClassEmblem.IsVisible = classHome;
+        ClassHeader.Classes.Set("class-home", classHome && _classroom is not null && !show);
+        ClassHeader.Classes.Set("active-class", classHome && _classroom?.IsActive == true);
+        ClassTeachingActions.IsVisible = classHome && !show && _classroom?.IsActive == true;
+        ClassContext.Text = _classroom is null ? _school?.Name : classHome && !show
+            ? string.Join("  /  ", new[] { _school?.Name, _classroom.GradeName, _classroom.Code,
+                _classroom.IsActive ? null : "已停用" }.Where(text => !string.IsNullOrWhiteSpace(text)))
+            : $"{_school?.Name} / {ClassroomName(_classroom)}";
         if (screen is not null && _classroom!.Screens.Any(item => item.Id != screen.Id && item.Name == screen.Name))
             ClassContext.Text += $" / 绑定 {screen.Id}";
-        ClassWorkspaceTitle.Text = show ? "本班学校自习" : _classroom?.IsActive == false ? "已停用班级"
-            : _page == ShellPage.Screen ? screen?.Name ?? "大屏详情" : "班级详情";
-        ToolTip.SetTip(ClassWorkspaceTitle, screen?.Name);
+        ClassWorkspaceTitle.Text = show ? "本班学校自习" : _page == ShellPage.Screen
+            ? screen?.Name ?? "大屏详情" : _classroom?.Name ?? "班级与教务";
+        ToolTip.SetTip(ClassWorkspaceTitle, ClassWorkspaceTitle.Text);
         ClassDeviceWorkspace.IsVisible = !show;
         StudyWorkspace.IsVisible = show;
         if (show) StudyWorkspace.SetScope(_client, _school?.Id, _classroom?.TermId, _classroom);

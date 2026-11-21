@@ -11,7 +11,7 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record TeachingAccess(string Origin, string SchoolId, string SchoolCode, string Password,
-        string SevenId, string EightId, string NineId, string SubjectId, string TeacherId, bool AllowTeachingTestWrites);
+        string SevenId, string EightId, string NineId, string SubjectId, string TeacherId, bool AllowTeachingTestWrites, string HistorySubjectId, string[] HistoryPeerIds);
 
     private static int StartTeaching(string path, string output)
     {
@@ -43,6 +43,7 @@ internal static partial class Program
         var rooms = Find<ListBox>(main, "ClassPicker");
         try
         {
+            VerifyMixedTeachingResults();
             Find<TextBox>(main, "ServerAddress").Text = access.Origin;
             Find<TextBox>(main, "SchoolCode").Text = access.SchoolCode;
             Find<TextBox>(main, "Username").Text = "admin";
@@ -68,6 +69,31 @@ internal static partial class Program
                 Find<TextBlock>(dialog, "TeachingContext").Text?.Contains("（7）") == true, "anchor class and exact math subject are selected");
             var teacher = Find<ComboBox>(dialog, "TeachingTeacherPicker");
             teacher.SelectedItem = teacher.Items.Cast<TeachingTeacher>().Single(row => row.Id == access.TeacherId);
+            using var fixture = new HttpClient { BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(10) };
+            Check(dialog.Width >= 1100 && dialog.Height >= 730, "the editor uses the full school workspace");
+            dialog.Width = 840;
+            dialog.Height = 480;
+            subject.SelectedItem = subject.Items.Cast<TeachingSubject>().Single(item => item.Id == access.HistorySubjectId);
+            foreach (string id in access.HistoryPeerIds) Peer(dialog, id).IsChecked = true;
+            Click(Find<Button>(dialog, "TeachingPreviewButton"));
+            var list = Find<ListBox>(dialog, "TeachingPreviewList");
+            await Until(() => list.ItemCount == 24 && Find<Button>(dialog, "TeachingApplyButton").IsEnabled,
+                "24 actual history classes in the narrow preview");
+            await AssertTeachingPreviewAsync(dialog, [list.Items[0]!, list.Items[^1]!]);
+            await Capture(dialog, output, "00-long-preview-compact");
+            using (var race = await fixture.PostAsync("/__teaching/change-history", null))
+                Check(race.IsSuccessStatusCode, "the second administrator changes the last selected history class");
+            Click(Find<Button>(dialog, "TeachingApplyButton"));
+            await Until(() => list.Items.Cast<TeachingPreviewRow>().Any(row => row.Row.ClassId == access.HistoryPeerIds[^1] &&
+                row.Before == "暂无任课" && row.After.Contains("王老师 · 协同")), "stale preview compares the exact original and latest assignments");
+            await AssertTeachingClassFocusAsync(dialog, list.Items.Cast<TeachingPreviewRow>().Single(), access.HistoryPeerIds[^1]);
+            Check(!Find<Button>(dialog, "TeachingApplyButton").IsEnabled &&
+                Peer(dialog, access.HistoryPeerIds[0]).IsChecked == true, "stale submission leaves the draft intact and requires a new preview");
+            await Capture(dialog, output, "00-concurrent-change-compact");
+
+            dialog.Width = 1160;
+            dialog.Height = 780;
+            subject.SelectedItem = subject.Items.Cast<TeachingSubject>().Single(item => item.Id == access.SubjectId);
             Peer(dialog, access.EightId).IsChecked = true;
             Peer(dialog, access.NineId).IsChecked = true;
             Click(Find<Button>(dialog, "TeachingPreviewButton"));
@@ -75,17 +101,44 @@ internal static partial class Program
             System.Console.WriteLine(Feedback(dialog) + " " + string.Join(" / ", RowText(dialog)));
             await Until(() => RowText(dialog).Any(row => row.Contains("（9）") && row.Contains("已有其他主讲")), "preview identifies the exact primary conflict");
             Check(!Find<Button>(dialog, "TeachingApplyButton").IsEnabled && Peer(dialog, access.EightId).IsChecked == true, "batch stays uncommittable and retains selections");
+            await AssertTeachingClassFocusAsync(dialog,
+                list.Items.Cast<TeachingPreviewRow>().Single(row => row.Row.ClassId == access.NineId), access.NineId);
             await Capture(dialog, output, "02-primary-conflict");
+
+            var role = Find<ComboBox>(dialog, "TeachingPositionPicker");
+            role.SelectedIndex = 1;
+            Click(Find<Button>(dialog, "TeachingPreviewButton"));
+            await Until(() => list.Items.Cast<TeachingPreviewRow>().Any(row => row.Row.ClassId == access.NineId &&
+                row.After.Contains("王老师 · 主讲") && row.After.Contains("陈老师（mathteacher） · 协同")),
+                "co-teaching preview retains the existing primary and shows the new co-teacher");
+            await Capture(dialog, output, "02-co-teacher-preview");
+            role.SelectedIndex = 0;
 
             Peer(dialog, access.NineId).IsChecked = false;
             Click(Find<Button>(dialog, "TeachingPreviewButton"));
             await Until(() => Find<Button>(dialog, "TeachingApplyButton").IsEnabled, "7 and 8 can be submitted atomically");
-            Check(RowText(dialog).Count(row => row.Contains("新增此项任课")) == 2, "preview contains both proposed changes");
+            Check(list.Items.Cast<TeachingPreviewRow>().Count(row => row.Row.State == "ADD" && row.After.Contains("主讲")) == 2, "preview contains both proposed changes");
             await Capture(dialog, output, "03-batch-preview");
             Click(Find<Button>(dialog, "TeachingApplyButton"));
-            await Until(() => Feedback(dialog).Contains("已核对，服务器当前安排与本次提交一致"), "lost successful reply triggers a server read");
+            await Until(() => Feedback(dialog).Contains("提交回执仍未确认") && Find<Button>(dialog, "TeachingReadButton").IsEnabled,
+                "save reply and first read fail without resubmitting");
+            Check(!Find<Button>(dialog, "TeachingApplyButton").IsEffectivelyVisible, "only readback is available");
+            await Capture(dialog, output, "04-waiting-readback");
+            dialog.Close();
+            await Until(() => !dialog.IsVisible && main.IsEnabled, "return before reopening the same scoped action");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            await Until(() => rooms.IsEffectivelyVisible && rooms.Items.Cast<Classroom>().Any(row => row.Id == access.SevenId), "find original class");
+            rooms.SelectedItem = rooms.Items.Cast<Classroom>().Single(row => row.Id == access.SevenId);
+            Click(Find<Button>(main, "OpenTeachingButton"));
+            dialog = await Editor();
+            var readback = Find<Button>(dialog, "TeachingReadButton");
+            await Until(() => readback.IsFocused && Equals(readback.Content, "核对提交结果") &&
+                Find<ListBox>(dialog, "TeachingPreviewList").ItemCount == 2, "same scope restores the original pending rows and readback focus");
+            Click(readback);
+            await Until(() => Feedback(dialog).Contains("已核对，服务器当前安排与本次提交一致"), "read-only comparison reconciles the committed assignment");
             await Capture(dialog, output, "04-receipt-reconciled");
             dialog.Close();
+            Click(Find<Button>(main, "OpenSchoolOverviewButton"));
             await Until(() => overview.IsEffectivelyVisible && tasks.ItemCount > 0 && !Missing(access.SevenId) && !Missing(access.EightId), "return reloads both resolved tasks");
             await Capture(main, output, "05-overview-after-save");
 
@@ -132,8 +185,8 @@ internal static partial class Program
         static CheckBox Peer(TeachingWindow dialog, string id) => Find<StackPanel>(dialog, "TeachingClassChoices").Children.OfType<CheckBox>()
             .Single(row => AutomationProperties.GetAutomationId(row) == "TeachingClass-" + id);
         static string Feedback(TeachingWindow dialog) => Find<TextBlock>(dialog, "TeachingFeedback").Text ?? "";
-        static IEnumerable<string> RowText(TeachingWindow dialog) => Find<StackPanel>(dialog, "TeachingRows").Children.OfType<Border>()
-            .Select(row => ((TextBlock)row.Child!).Text ?? "");
+        static IEnumerable<string> RowText(TeachingWindow dialog) => Find<ListBox>(dialog, "TeachingPreviewList").Items.Cast<TeachingPreviewRow>()
+            .Select(row => $"{row.ClassName} · {row.Status} · {row.Before} → {row.After}");
         async Task<TeachingWindow> Editor()
         {
             await Until(() => desktop.Windows.OfType<TeachingWindow>().Any(window =>
@@ -149,5 +202,27 @@ internal static partial class Program
                 desktop.Shutdown(code);
             }
         }
+    }
+
+    private static void VerifyMixedTeachingResults()
+    {
+        var draft = new TeachingDraft("term", "subject", "ASSIGN", ["seven", "eight"], "account", "PRIMARY", null);
+        var original = new TeachingPending(draft, new TeachingPreview([
+            new("seven", "7 班", "ADD", "", "", []),
+            new("eight", "8 班", "ADD", "", "", [])
+        ]));
+        var matched = new TeachingRow("seven", "7 班", "UNCHANGED", "相同安排", "",
+            [new("relation", "account", "陈老师", "PRIMARY")]);
+        var blocked = new TeachingRow("eight", "8 班", "OTHER_PRIMARY", "已有主讲", "",
+            [new("other-relation", "other", "王老师", "PRIMARY")]);
+        foreach (var mode in new[] { TeachingObservation.Blocked, TeachingObservation.Readback })
+        {
+            var rows = TeachingPreviewRow.Compare([matched, blocked], original, mode);
+            Check(rows is [{ NeedsAttention: false }, { NeedsAttention: true }] &&
+                rows.First(row => row.NeedsAttention).Row.ClassId == "eight",
+                $"mixed {mode} highlights and targets only the affected class");
+        }
+        var stale = TeachingPreviewRow.Compare([matched], original, TeachingObservation.Stale);
+        Check(stale is [{ NeedsAttention: true }], "a returned stale row needs review even when the new arrangement matches");
     }
 }

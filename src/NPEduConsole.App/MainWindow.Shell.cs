@@ -45,7 +45,7 @@ public sealed partial class MainWindow
         bool directory = _page != ShellPage.Screen;
         ClassDirectoryPanel.IsVisible = directory;
         ClassWorkspaceLayout.ColumnDefinitions[0].Width = new GridLength(
-            directory ? Workspace.Classes.Contains("compact") ? 174 : 221 : 0);
+            directory ? Workspace.Classes.Contains("compact") ? 183 : 218 : 0);
     }
 
     private void UpdateShellPage()
@@ -175,6 +175,7 @@ public sealed partial class MainWindow
         }
 
         ScreensHeading.IsVisible = _page == ShellPage.Classes && _overviewScreenCards.Count > 0;
+        ScreensHeading.Text = $"教室大屏  ·  {_overviewScreenCards.Count} 台";
         UpdateScreenEvidence();
         if (_page == ShellPage.Screen && _detailScreenId is { } expectedScreen && _classroom is not null)
         {

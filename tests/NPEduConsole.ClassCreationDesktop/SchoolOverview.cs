@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.Styling;
@@ -35,6 +36,9 @@ internal static partial class Program
         var view = Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace");
         var schools = Find<ComboBox>(main, "SchoolPicker");
         var classes = Find<ListBox>(main, "ClassPicker");
+        var classQuery = Find<TextBox>(main, "ClassSearch");
+        var classTitle = Find<TextBlock>(main, "ClassWorkspaceTitle");
+        var classContext = Find<TextBlock>(main, "ClassContext");
         var tasks = View<ListBox>("OverviewTasksList");
         var screenDirectory = Find<SchoolDeviceDirectoryView>(main, "DeviceDirectory");
         var screens = screenDirectory.FindControl<ListBox>("DeviceDirectoryRows")!;
@@ -95,6 +99,9 @@ internal static partial class Program
             await Until(() => picker.Results is [{ ScreenId: var targetId }] && targetId == access.WaitingScreenId,
                 "global search resolves the same rear screen");
             var lookup = picker.FindControl<TextBox>("SearchBox")!;
+            var resultsList = picker.FindControl<ListBox>("ResultsList")!;
+            await Until(() => resultsList.ContainerFromIndex(0) is ListBoxItem, "keyboard picker prepares its selected result");
+            Check(OutlineOf(resultsList, 0).CornerRadius.TopLeft >= 8, "the object picker outlines results like the class directory");
             lookup.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter, Source = lookup });
             await Until(() => !picker.IsOpen && IsOnlyScreenVisible(access.WaitingScreenId) && goBack.IsEffectivelyVisible,
                 "Enter routes from global search to the exact screen and remembers the overview");
@@ -111,6 +118,7 @@ internal static partial class Program
             Click(devicesNav);
             await Until(() => screenDirectory.IsEffectivelyVisible && screens.ItemCount > 1, "cross-class device directory opens");
             await Capture(main, output, "02-device-directory");
+            Check(OutlineOf(screens, 0).CornerRadius.TopLeft >= 8, "device directory entries use the same rounded outline");
             SelectStatus(nativeFilter, "AWAITING_PAIRING");
             SelectStatus(browserFilter, "ONLINE");
             deviceSearch.Text = "后排";
@@ -191,6 +199,28 @@ internal static partial class Program
             foreach (var name in new[] { "OpenClassCreationButton", "OpenTeachingButton", "OpenClassRosterButton",
                 "OpenSubjectSetupButton", "OpenClassMaintenanceButton", "OpenClassStudyButton" })
                 Check(Find<Button>(main, name).IsEffectivelyVisible && Find<Button>(main, name).IsEnabled, "reachable legacy entry " + name);
+            Check(classTitle.Text == "高二（8）班" && classContext.Text?.Contains("G2-8") == true, "class heading identifies the selected class and its code");
+            await Capture(main, output, "class-home");
+            var selectedClassRow = OutlineOf(classes, classes.SelectedIndex);
+            Check(selectedClassRow.CornerRadius.TopLeft >= 8 && selectedClassRow.BorderThickness.Left > 0 &&
+                Find<Border>(main, "ClassHeader").CornerRadius.TopLeft >= 8, "class entries and the class summary have rounded outlines");
+            Application.Current!.RequestedThemeVariant = ThemeVariant.Dark;
+            await Capture(main, output, "class-home-dark");
+            Application.Current.RequestedThemeVariant = ThemeVariant.Light;
+            classQuery.Text = "高二 g2-8";
+            await Until(() => classes.ItemCount == 1 && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId, "class search combines grade and code");
+            var rosterEntry = Find<Button>(main, "OpenClassRosterButton");
+            Click(rosterEntry);
+            await Until(() => desktop.Windows.OfType<ClassRosterWindow>().Any(w => w.IsVisible), "roster opens from this exact class");
+            desktop.Windows.OfType<ClassRosterWindow>().Single().Close();
+            await Until(() => rosterEntry.IsFocused && classes.ItemCount == 1 && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId,
+                "roster returns focus without clearing the class filter");
+            var teacherEntry = Find<Button>(main, "OpenTeachingButton");
+            Click(teacherEntry);
+            await Until(() => desktop.Windows.OfType<TeachingWindow>().Any(w => w.IsVisible), "teaching opens from the same class");
+            desktop.Windows.OfType<TeachingWindow>().Single().Close();
+            await Until(() => teacherEntry.IsFocused && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId,
+                "teaching returns to the same class and its action");
             var study = Find<Button>(main, "OpenClassStudyButton");
             Click(study);
             Check(Find<ClassStudyView>(main, "StudyWorkspace").IsEffectivelyVisible, "the existing study page opens");
@@ -205,7 +235,22 @@ internal static partial class Program
             await Until(() => prepare.IsEffectivelyVisible && goBack.IsEffectivelyVisible, "open the existing first-screen registration");
             Check(classes.SelectedItem is Classroom room && room.Id == access.ClassSevenId && room.Screens.Count == 0,
                 "no write occurred just by opening the task");
+            Check(string.IsNullOrEmpty(classQuery.Text), "an exact overview target outside the prior filter is revealed");
+            await Command("holdregistration");
             Click(prepare);
+            await Command("held");
+            classQuery.Text = "G2-8";
+            await Until(() => classes.SelectedItem is null && classes.ItemCount == 1, "a filter may hide a class awaiting its registration receipt");
+            await Command("release");
+            var firstScreenFeedback = Find<TextBlock>(main, "FirstScreenFeedback");
+            await Until(() => firstScreenFeedback.Text?.Contains("教室大屏已登记") == true, "the original request retains its receipt while filtered out");
+            Check(classes.SelectedItem is null && !firstScreenFeedback.IsEffectivelyVisible, "a late receipt does not change the filtered view");
+            classQuery.Clear();
+            await Until(() => classes.Items.Cast<Classroom>().Any(room => room.Id == access.ClassSevenId), "reveal the registered class");
+            classes.SelectedItem = classes.Items.Cast<Classroom>().First(room => room.Id == access.ClassSevenId);
+            var checkRegistration = Find<Button>(main, "RefreshFirstScreenButton");
+            await Until(() => checkRegistration.IsEffectivelyVisible && !prepare.IsEffectivelyVisible, "reopening the class offers readback of its registration");
+            Click(checkRegistration);
             await Until(() => Find<TextBlock>(main, "AdmissionScope").Text?.Contains("（7）") == true, "registered record opens its existing admission view");
             var sevenScreen = ((Classroom)classes.SelectedItem!).Screens.Single().Id;
             Click(goBack);
@@ -277,10 +322,12 @@ internal static partial class Program
             await Command("hold");
             Click(refresh);
             await Command("held");
+            classQuery.Text = "上个学校的班";
             picker.Open();
             picker.SearchText = "后排";
             Check(picker.Results.Any(item => item.ScreenId == access.WaitingScreenId), "school-scoped object picker includes the rear binding");
             SelectSchool(access.OtherSchoolId);
+            Check(string.IsNullOrEmpty(classQuery.Text), "switching schools clears the previous class query");
             Check(inactive.IsChecked == false && !picker.IsOpen && picker.Results.All(item => item.ScreenId != access.WaitingScreenId),
                 "switching schools resets the inactive filter and clears the open picker immediately");
             Check(nativeFilter.SelectedIndex == 0 && browserFilter.SelectedIndex == 0 && string.IsNullOrEmpty(deviceSearch.Text),
@@ -321,8 +368,11 @@ internal static partial class Program
             await Until(() => classes.Items.Cast<Classroom>().Any(room => room.Id == access.ClassEightId), "the original classes finish loading");
             classes.SelectedItem = classes.Items.Cast<Classroom>().Single(room => room.Id == access.ClassEightId);
             await Capture(main, output, "10-compact-class");
-            Check(Find<Button>(main, "OpenClassRosterButton").IsEffectivelyVisible && classes.IsEffectivelyVisible,
-                "class list and operation strip stay reachable in a compact window");
+            foreach (var entry in new[] { rosterEntry, teacherEntry, Find<Button>(main, "OpenSubjectSetupButton") })
+                Check(entry.IsEffectivelyVisible && entry.TranslatePoint(default, main) is { } pos &&
+                    pos.X >= 0 && pos.X + entry.Bounds.Width <= main.Bounds.Width &&
+                    pos.Y >= 0 && pos.Y + entry.Bounds.Height <= main.Bounds.Height,
+                    "compact class home shows the complete " + entry.Name + " action");
             await Command("scale");
             var watch = System.Diagnostics.Stopwatch.StartNew();
             Click(devicesNav);
@@ -346,11 +396,38 @@ internal static partial class Program
             await Until(() => screens.GetVisualDescendants().OfType<Button>().Any(b => b.IsFocused && b.Tag is OverviewScreenItem row && row.ScreenId == twins[1].ScreenId),
                 "return restores focus to the same-name screen by ID");
             Console.WriteLine($"Directory measurement: load 204 bindings {loadMs} ms; filter to two visible bindings {filterMs} ms; {realized} realized list items; scale {main.RenderScaling}.");
+            await Command("classlist");
+            Click(classesNav);
+            Click(Find<Button>(main, "RefreshButton"));
+            await Until(() => classes.ItemCount >= 105, "large current-term class directory");
+            classQuery.Text = "东区实验班";
+            await Until(() => classes.ItemCount == 2, "same-name classes are both available");
+            classQuery.Text = "东区 g3-east";
+            await Until(() => classes.ItemCount == 1, "search narrows the duplicate by class code");
+            classQuery.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter, Source = classQuery });
+            await Until(() => classes.SelectedItem is Classroom { Code: "G3-EAST" } && classContext.Text?.Contains("高三") == true,
+                "Enter selects the intended class by identity");
+            classQuery.Text = "不存在的班";
+            await Until(() => classes.ItemCount == 0 && classes.SelectedItem is null && !rosterEntry.IsEffectivelyVisible,
+                "a no-match search removes actions for the previous class");
+            classQuery.Text = "G3-PAUSE";
+            inactive.IsChecked = true;
+            await Until(() => classes.ItemCount == 1 && classes.Items.OfType<Classroom>().Single().Code == "G3-PAUSE",
+                "the retired directory supports code search");
+            classes.SelectedIndex = 0;
+            await Until(() => classContext.Text?.Contains("已停用") == true && !rosterEntry.IsEffectivelyVisible &&
+                Equals(Find<Button>(main, "OpenClassMaintenanceButton").Content, "重新启用"), "retired class exposes its recovery action only");
+            await Capture(main, output, "class-retired");
             Finish("PASS: Windows shell, cross-class dual-status filters, binding search, shared class and directory detail, independent dated browser and native evidence, filtered return and keyboard focus, registration → pairing → report, failed and late reads, legacy entries, compact and high-contrast views.", 0);
         }
         catch (Exception error) { Finish("FAIL: " + error, 1); }
 
         T View<T>(string name) where T : Control => view.FindControl<T>(name) ?? throw new InvalidDataException(name);
+        static ContentPresenter OutlineOf(ListBox list, int index)
+        {
+            var item = list.ContainerFromIndex(index) ?? throw new InvalidDataException("Missing list item");
+            return item.GetVisualDescendants().OfType<ContentPresenter>().First(presenter => presenter.TemplatedParent == item);
+        }
         void SelectSchool(string id) => schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == id);
         bool Matches(OverviewTaskItem item, string code, string? room, string? screen) =>
             item.Task.Code == code && (room is null || item.Task.ClassId == room) && (screen is null || item.Task.ScreenId == screen);

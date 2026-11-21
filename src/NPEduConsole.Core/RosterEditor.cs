@@ -2,6 +2,11 @@ namespace NPEduConsole.Core;
 
 public sealed record RosterStudent(string? Id, string Name, string? StudentNumber);
 
+public enum RosterChangeKind { Add, Edit, Move, Remove }
+
+public sealed record RosterChange(RosterChangeKind Kind, RosterStudent? Before, int? BeforePosition,
+    RosterStudent? After, int? AfterPosition);
+
 public static class RosterEditor
 {
     public const int MaxStudents = 120;
@@ -78,31 +83,41 @@ public static class RosterEditor
         ? candidate.StudentNumber?.Trim() == number
         : string.IsNullOrWhiteSpace(candidate.StudentNumber) && candidate.Name.Trim() == row.Name;
 
-    public static IReadOnlyList<string> Changes(IReadOnlyList<RosterStudent> before, IReadOnlyList<RosterStudent> after)
+    public static IReadOnlyList<string> Changes(IReadOnlyList<RosterStudent> before, IReadOnlyList<RosterStudent> after) =>
+        Compare(before, after).Select(change => change.Kind switch
+        {
+            RosterChangeKind.Add => $"新增第 {change.AfterPosition} 行　{Label(change.After!)}",
+            RosterChangeKind.Edit => $"修改第 {change.BeforePosition} 行　{Label(change.Before!)} → {Label(change.After!)}",
+            RosterChangeKind.Move => $"调整顺序　{Label(change.After!)}（第 {change.BeforePosition} 行 → 第 {change.AfterPosition} 行）",
+            _ => $"移出第 {change.BeforePosition} 行　{Label(change.Before!)}（保留历史考勤）"
+        }).ToArray();
+
+    public static IReadOnlyList<RosterChange> Compare(IReadOnlyList<RosterStudent> before, IReadOnlyList<RosterStudent> after)
     {
-        var original = before.Select((row, index) => (row, index))
+        var original = before.Select((row, index) => (row, position: index + 1))
             .Where(item => item.row.Id is not null).ToDictionary(item => item.row.Id!, StringComparer.Ordinal);
         var kept = new HashSet<string>(StringComparer.Ordinal);
-        var changes = new List<string>();
+        var changes = new List<RosterChange>();
         for (int index = 0; index < after.Count; index++)
         {
             var row = after[index];
+            int position = index + 1;
             if (row.Id is null || !original.TryGetValue(row.Id, out var old))
             {
-                changes.Add($"新增第 {index + 1} 行　{Label(row)}");
+                changes.Add(new(RosterChangeKind.Add, null, null, row, position));
                 continue;
             }
             kept.Add(row.Id);
             if (old.row.Name != row.Name || (old.row.StudentNumber ?? "") != (row.StudentNumber ?? ""))
-                changes.Add($"修改第 {old.index + 1} 行　{Label(old.row)} → {Label(row)}");
-            if (old.index != index)
-                changes.Add($"调整顺序　{Label(row)}（第 {old.index + 1} 行 → 第 {index + 1} 行）");
+                changes.Add(new(RosterChangeKind.Edit, old.row, old.position, row, position));
+            if (old.position != position)
+                changes.Add(new(RosterChangeKind.Move, old.row, old.position, row, position));
         }
         for (int index = 0; index < before.Count; index++)
         {
             var row = before[index];
             if (row.Id is not null && !kept.Contains(row.Id))
-                changes.Add($"移出第 {index + 1} 行　{Label(row)}（保留历史考勤）");
+                changes.Add(new(RosterChangeKind.Remove, row, index + 1, null, null));
         }
         return changes;
     }

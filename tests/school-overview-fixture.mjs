@@ -103,7 +103,8 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
     async renew() { nativeSession = await open(newcomer.bearer, nativeSession.statusEpoch); },
     async restart() { await open(newcomer.bearer, nativeSession.statusEpoch); },
     fail() { failNext = true; },
-    hold() { holdNext = true; },
+    hold() { holdNext = 'overview'; heldResponse = undefined; },
+    holdregistration() { holdNext = 'registration'; heldResponse = undefined; },
     async held() { for (let i = 0; !heldResponse && i < 100; i++) await new Promise(resolve => setTimeout(resolve, 25));
       assert.ok(heldResponse, 'the previous school response is waiting'); },
     release() { released = heldResponse !== undefined; heldResponse?.(); },
@@ -117,6 +118,15 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
         createdByAccountId: managerId, tokenHash: hash(randomSecret()),
       }));
       await prisma.classroomScreenBinding.createMany({data});
+    },
+    async classlist() {
+      const thirdGrade = await prisma.grade.create({data: {termId: term.id, name: '高三', code: 'G3'}});
+      await prisma.workspace.createMany({data: [
+        ...Array.from({length: 100}, (_, i) => ({termId: term.id, gradeId: thirdGrade.id,
+          name: '新班 ' + (i + 1), code: 'G3-N' + (i + 1), type: 'ADMIN_CLASS'})),
+        ...[[grade.id, 'G2-EAST'], [thirdGrade.id, 'G3-EAST'], [thirdGrade.id, 'G3-PAUSE']].map(([gradeId, code]) =>
+          ({termId: term.id, gradeId, name: '东区实验班', code, type: 'ADMIN_CLASS', isActive: code !== 'G3-PAUSE'})),
+      ]});
     },
   };
   const destination = new URL(origin);
@@ -138,7 +148,8 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
       overviewReads++;
       if (failNext) { failNext = false; res.writeHead(503).end(); return; }
     }
-    const hold = isOverview && holdNext;
+    const hold = (isOverview && holdNext === 'overview') ||
+      (req.method === 'POST' && req.url.endsWith('/first-screen') && holdNext === 'registration');
     if (hold) holdNext = false;
     const upstream = request({hostname: '127.0.0.1', port: destination.port, path: req.url, method: req.method,
       headers: {...req.headers, host: destination.host}}, response => {

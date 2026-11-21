@@ -1,0 +1,44 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Styles.Resources>
+    <StreamGeometry x:Key="RosterGlyph">M5 3.5 H19 Q20.5 3.5 20.5 5 V19 Q20.5 20.5 19 20.5 H5 Q3.5 20.5 3.5 19 V5 Q3.5 3.5 5 3.5 Z M7.5 9 A2.15 2.15 0 1 0 11.8 9 A2.15 2.15 0 1 0 7.5 9 M6.7 16.7 Q6.8 13.5 9.6 13.5 Q12.6 13.5 12.7 16.7 M15.3 8.5 H17.4 M15.3 12 H17.4 M15.3 15.5 H17.4</StreamGeometry>
+    <StreamGeometry x:Key="TeacherGlyph">M8.8 4 H20 Q21 4 21 5 V15 Q21 16 20 16 H14.8 M12.5 8 H17.7 M15.7 11 H17.7 M3.6 9.5 A2.8 2.8 0 1 0 9.2 9.5 A2.8 2.8 0 1 0 3.6 9.5 M2.5 20 V17.8 Q2.5 14.4 6.4 14.4 H9.2 L12.8 11.4 M9.5 16.7 V20</StreamGeometry>
+    <StreamGeometry x:Key="ClassGlyph">M3.5 19.8 H20.5 M5 19.8 V8.5 L12 3.7 L19 8.5 V19.8 M10 19.8 V14.7 H14 V19.8 M8.4 10.4 H9.5 M14.5 10.4 H15.6</StreamGeometry>
+  </Styles.Resources>
+  <Style Selector="Border#ClassHeader">
+    <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <Style Selector="Border#ClassHeader.class-home">
+    <Setter Property="Margin" Value="20,12,20,0" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+  </Style>
+  <Style Selector="Border#ClassHeader.active-class">
+    <Setter Property="Background" Value="{DynamicResource OverviewBannerBrush}" />
+  </Style>
+  <Style Selector="ListBox#ClassPicker > ListBoxItem">
+    <Setter Property="Padding" Value="8,5" />
+  </Style>
+  <Style Selector="ListBox#ClassPicker > ListBoxItem:selected Border.class-selection">
+    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+  </Style>
+  <Style Selector="Button.class-task">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="MinHeight" Value="60" />
+    <Setter Property="Padding" Value="5,8" />
+    <Setter Property="CornerRadius" Value="7" />
+  </Style>
+  <Style Selector="Button.class-task:pointerover /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+  </Style>
+  <Style Selector="Button.class-task:focus-visible /template/ ContentPresenter">
+    <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+  </Style>
+  <Style Selector="Button.class-task Path.shell-glyph, Border.class-emblem Path.shell-glyph">
+    <Setter Property="Stroke" Value="{DynamicResource AccentBrush}" />
+  </Style>
+</Styles>

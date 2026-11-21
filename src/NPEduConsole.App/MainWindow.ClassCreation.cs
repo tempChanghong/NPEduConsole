@@ -135,17 +135,14 @@ public sealed partial class MainWindow
         if (_client != client || _school != school) return false;
         var selected = _classroom;
         var selectedDevice = _device;
-        var previousRooms = (ClassPicker.ItemsSource as IEnumerable<Classroom>)?.ToArray() ?? [];
+        var previousRooms = _directoryClasses;
         bool refreshed = await LoadSchoolAsync(school, selected?.Id, selectedDevice);
         if (_client != client || _school != school) return false;
         if (refreshed || selected is null || ClassPicker.ItemsSource is not null) return refreshed;
 
         // A failed list refresh must not silently clear the class the manager was working in.
-        _settingSelection = true;
-        ClassPicker.ItemsSource = previousRooms;
-        var restored = previousRooms.FirstOrDefault(room => room.Id == selected.Id);
-        ClassPicker.SelectedItem = restored;
-        _settingSelection = false;
+        _directoryClasses = previousRooms;
+        var restored = FilterClassDirectory(selected.Id);
         if (restored is not null) await SelectClassroomAsync(restored, selectedDevice);
         return false;
     }

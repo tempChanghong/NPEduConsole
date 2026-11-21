@@ -70,7 +70,7 @@ public sealed partial class MainWindow
             }
         }
 
-        if (IsCurrentFirstScreen(preparation) && preparation.State == FirstScreenState.Registered && !_showClassStudy && !_showSchoolAudit && !_showSchoolOverview)
+        if (IsCurrentFirstScreen(preparation) && preparation.Matches(_classroom) && preparation.State == FirstScreenState.Registered && !_showClassStudy && !_showSchoolAudit && !_showSchoolOverview)
             await RefreshFirstScreenAsync(preparation);
     }
 
@@ -161,7 +161,8 @@ public sealed partial class MainWindow
     {
         var preparation = _firstScreen;
         bool eligible = _classroom?.CanPrepareFirstScreen == true;
-        FirstScreenCard.IsVisible = eligible || preparation is not null;
+        bool filteredOut = _classroom is null && !string.IsNullOrWhiteSpace(ClassSearch.Text);
+        FirstScreenCard.IsVisible = eligible || preparation is not null && !filteredOut;
         bool retry = preparation?.State == FirstScreenState.ReadyToRetry;
         PrepareFirstScreenButton.IsVisible = eligible && (preparation is null || retry);
         PrepareFirstScreenButton.IsEnabled = preparation?.Refreshing != true;

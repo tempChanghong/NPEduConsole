@@ -15,6 +15,8 @@
           <SolidColorBrush x:Key="InkBrush">#162B42</SolidColorBrush>
           <SolidColorBrush x:Key="MutedBrush">#486078</SolidColorBrush>
           <SolidColorBrush x:Key="LineBrush">#D5E0EB</SolidColorBrush>
+          <SolidColorBrush x:Key="ScrollGripBrush">#71869D</SolidColorBrush>
+          <SolidColorBrush x:Key="ScrollRailBrush">#DEE7F0</SolidColorBrush>
           <SolidColorBrush x:Key="AccentBrush">#2668B2</SolidColorBrush>
           <SolidColorBrush x:Key="AccentStrongBrush">#1B4878</SolidColorBrush>
           <SolidColorBrush x:Key="AccentTintBrush">#E3EEFC</SolidColorBrush>
@@ -60,6 +62,8 @@
           <SolidColorBrush x:Key="InkBrush">#E8F0FA</SolidColorBrush>
           <SolidColorBrush x:Key="MutedBrush">#AEC2D8</SolidColorBrush>
           <SolidColorBrush x:Key="LineBrush">#394B60</SolidColorBrush>
+          <SolidColorBrush x:Key="ScrollGripBrush">#8399AF</SolidColorBrush>
+          <SolidColorBrush x:Key="ScrollRailBrush">#354458</SolidColorBrush>
           <SolidColorBrush x:Key="AccentBrush">#82B9F2</SolidColorBrush>
           <SolidColorBrush x:Key="AccentStrongBrush">#B4D6FA</SolidColorBrush>
           <SolidColorBrush x:Key="AccentTintBrush">#293F59</SolidColorBrush>
@@ -100,7 +104,10 @@
       </FluentTheme.Palettes>
     </FluentTheme>
     <StyleInclude Source="avares://NPEduConsole.App/Styles/ComboBox.axaml" />
+    <StyleInclude Source="avares://NPEduConsole.App/Styles/Selection.axaml" />
+    <StyleInclude Source="avares://NPEduConsole.App/Styles/ScrollBar.axaml" />
     <StyleInclude Source="avares://NPEduConsole.App/Styles/ShellGraphics.axaml" />
+    <StyleInclude Source="avares://NPEduConsole.App/Styles/ClassWorkspace.axaml" />
     <StyleInclude Source="avares://NPEduConsole.App/Styles/ScreenEvidence.axaml" />
     <Style Selector="Window">
       <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI, sans-serif" />

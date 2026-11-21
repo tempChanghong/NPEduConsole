@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using Avalonia;
+using Avalonia.Automation;
+using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Interactivity;
@@ -21,8 +23,10 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args is not ([_] or ["--live" or "--live-save", _, _])) throw new ArgumentException("Specify a screenshot directory or --live/--live-save <fixture.json> <directory>.");
-        using var fixture = args.Length == 1 ? new RosterFixture() : null;
+        if (args is not ([_] or ["--native-scroll", _] or ["--live" or "--live-save", _, _]))
+            throw new ArgumentException("Specify [--native-scroll] <directory> or --live/--live-save <fixture.json> <directory>.");
+        bool nativeScroll = args is ["--native-scroll", _];
+        using var fixture = args.Length <= 2 ? new RosterFixture() : null;
         var access = fixture?.Access ?? JsonSerializer.Deserialize<Access>(File.ReadAllText(args[1]), JsonSerializerOptions.Web)!;
         Check(new Uri(access.Origin).IsLoopback, "The roster desktop test must use a loopback service.");
         bool saveToFixture = args[0] == "--live-save";
@@ -30,11 +34,11 @@ internal static class Program
         string output = args[^1];
         Directory.CreateDirectory(output);
         return AppBuilder.Configure<ConsoleApplication>().UsePlatformDetect()
-            .AfterSetup(builder => Dispatcher.UIThread.Post(() => { _ = VerifyAsync(access, fixture, output, saveToFixture); }))
+            .AfterSetup(builder => Dispatcher.UIThread.Post(() => { _ = VerifyAsync(access, fixture, output, saveToFixture, nativeScroll); }))
             .StartWithClassicDesktopLifetime([]);
     }
 
-    private static async Task VerifyAsync(Access access, RosterFixture? fixture, string output, bool saveToFixture)
+    private static async Task VerifyAsync(Access access, RosterFixture? fixture, string output, bool saveToFixture, bool nativeScroll)
     {
         var desktop = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
         try
@@ -48,7 +52,9 @@ internal static class Program
             Find<TextBox>(main, "Username").Text = access.Username;
             Find<TextBox>(main, "Password").Text = access.Password;
             Click(login);
-            await Until(() => classes.ItemCount >= 2, "classes load when device overview is unavailable");
+            await Until(() => Find<Button>(main, "OpenClassWorkspaceButton").IsEnabled, "login has selected the fixture school");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            await Until(() => classes.IsEffectivelyVisible && classes.ItemCount >= 2, "classes load when device overview is unavailable");
             Check(!open.IsEnabled, "A class must be selected before editing the roster.");
             SelectClass(access.ClassId);
             Check(main.GetVisualDescendants().OfType<TextBlock>().Any(block => block.Text == "设备状态暂不可用") &&
@@ -68,10 +74,28 @@ internal static class Program
 
             if (fixture is null)
             {
-                Action("AddRosterStudent");
-                await Edit(3, "桌面测试草稿", "009");
+                if (saveToFixture)
+                {
+                    Roster<ComboBox>("RosterImportMode").SelectedIndex = 1;
+                    paste.Text = "001\t陈晨修正\r\n002\t陈晨\r\n009\tExcel 新增";
+                    Action("ApplyRosterImport");
+                }
+                else
+                {
+                    Action("AddRosterStudent");
+                    await Edit(3, "桌面测试草稿", "009");
+                }
                 Click(preview);
-                await Until(() => Roster<ListBox>("RosterChangesList").ItemCount == 1, "preview in real KV workspace");
+                await Until(() => Roster<ListBox>("RosterChangesList").ItemCount == (saveToFixture ? 3 : 1),
+                    "preview in real KV workspace");
+                if (saveToFixture)
+                {
+                    var previewRows = Roster<ListBox>("RosterChangesList");
+                    await RosterWorkspaceFocus.AssertRosterPreviewAsync(window, previewRows.Items.Cast<object>().ToArray());
+                    Check(previewRows.GetVisualDescendants().OfType<Border>().Any(row =>
+                        AutomationProperties.GetAutomationId(row) == "RosterChange-roster-a-Edit"),
+                        "the review identifies the exact edited homonym");
+                }
                 await Capture(window, output, "live-preview");
                 if (saveToFixture)
                 {
@@ -81,15 +105,21 @@ internal static class Program
                     await Until(() => !window.IsVisible && open.IsEffectivelyEnabled, "close the saved roster");
                     Click(open);
                     window = desktop.Windows.OfType<ClassRosterWindow>().Single();
-                    await Until(() => listFor(window).ItemCount == 4, "read the saved roster again from KV");
-                    var fields = await RowControls<TextBox>(3);
-                    Check(fields.Any(field => field.Text == "桌面测试草稿") && fields.Any(field => field.Text == "009"),
-                        "reopened roster retains the submitted name and leading-zero number");
+                    await Until(() => listFor(window).ItemCount == 3, "read the saved roster again from KV");
+                    Check((await RowControls<TextBox>(2)).Any(field => field.Text == "009"), "reopened roster retains the leading-zero number");
+                    Check((await RowControls<TextBox>(0)).Any(field =>
+                        field.Text == "陈晨修正" && AutomationProperties.GetAutomationId(field) == "RosterStudentName-roster-a"),
+                        "reopened roster retains the original ID for the same-named student edited by number");
+                    Check((await RowControls<TextBox>(1)).Any(field =>
+                        field.Text == "陈晨" && AutomationProperties.GetAutomationId(field) == "RosterStudentName-roster-b"),
+                        "the other same-named student keeps the original identity");
+                    await Capture(window, output, "live-reopened");
                     Action("CloseRosterButton");
                 }
                 else
                 {
                     Action("CancelRosterReview");
+                    await RosterWorkspaceFocus.AssertRosterPreviewCancelFocusAsync(window);
                     Action("CloseRosterButton");
                     Action("ConfirmRosterDiscard");
                 }
@@ -105,6 +135,40 @@ internal static class Program
                     (saveToFixture ? "confirmed save and reopened roster." : "and an unsubmitted roster preview."), 0);
                 return;
             }
+
+            Check(window.Width >= 1100 && window.Height >= 730, "the editor uses its school's working area");
+            window.Width = 840;
+            window.Height = 480;
+            await Until(() => window.Content is Control { Bounds.Width: <= 845, Bounds.Height: <= 485 },
+                "narrow content has been arranged before measuring fixed bars");
+            paste.Text = string.Join(Environment.NewLine, Enumerable.Range(1, 97).Select(i => $"S{i:D3}\t长名单学生{i:D3}"));
+            Action("ApplyRosterImport");
+            await Until(() => list.ItemCount == 100, "import 97 rows alongside the original identities");
+            await Dispatcher.UIThread.InvokeAsync(window.UpdateLayout, DispatcherPriority.Loaded);
+            await RosterWorkspaceFocus.AssertRosterWorkspaceAsync(window, 100);
+            var hint = Roster<TextBlock>("RosterImportHint");
+            Check(paste.TranslatePoint(default, window) is { } pasteOrigin &&
+                hint.TranslatePoint(default, window) is { } hintOrigin &&
+                pasteOrigin.Y + paste.Bounds.Height <= hintOrigin.Y + 1,
+                "the compact paste box does not overlap import guidance");
+            await Capture(window, output, "00-long-editor-compact");
+            if (nativeScroll)
+            {
+                await RosterWorkspaceFocus.AssertNativeScrollAsync(window);
+                await Capture(window, output, "00-native-scroll-compact");
+            }
+            Click(preview);
+            await Until(() => Roster<ListBox>("RosterChangesList").ItemCount == 97, "97 explicit additions appear in the long preview");
+            var longPreview = Roster<ListBox>("RosterChangesList");
+            await RosterWorkspaceFocus.AssertRosterPreviewAsync(window, [longPreview.Items[0]!, longPreview.Items[^1]!]);
+            await Capture(window, output, "00-long-preview-compact");
+            window.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Source = window, Key = Key.Escape });
+            await RosterWorkspaceFocus.AssertRosterPreviewCancelFocusAsync(window);
+            Action("ReloadRosterButton");
+            Action("ConfirmRosterDiscard");
+            await Until(() => list.ItemCount == 3, "discard the isolated long draft without saving");
+            window.Width = 1160;
+            window.Height = 780;
 
             await Edit(0, "张晓", "007");
             await RowAction(1, "上移");
@@ -136,7 +200,7 @@ internal static class Program
 
             Click(preview);
             var changes = Roster<ListBox>("RosterChangesList");
-            Check(new[] { "新增", "修改", "调整顺序", "移出" }.All(kind => changes.Items.Cast<string>().Any(change => change.Contains(kind))) && fixture.Puts == 0,
+            Check(new[] { "新增", "修改", "调整顺序", "移出" }.All(kind => changes.Items.Cast<object>().Any(change => change.ToString()!.Contains(kind))) && fixture.Puts == 0,
                 "Preview shows all real change categories without saving.");
             await Capture(window, output, "02-preview");
             Action("ConfirmRosterSave");
@@ -148,16 +212,21 @@ internal static class Program
             await Until(() => current.ItemCount == 4 && Roster<Button>("AdoptRosterRevisionButton").IsEnabled, "409 reads current roster for comparison");
             Check(list.ItemCount == 5 && !preview.IsEnabled && fixture.Puts == 1, "Conflict preserves edits and prevents automatic resubmission.");
             await Capture(window, output, "03-conflict");
-            window.Width = window.MinWidth;
-            window.Height = window.MinHeight;
+            window.Width = 840;
+            window.Height = 480;
             await Capture(window, output, "03-conflict-compact");
-            window.Width = 950;
-            window.Height = 720;
+            window.Width = 1160;
+            window.Height = 780;
+            current.SelectedIndex = 0;
+            await Until(() => list.GetVisualDescendants().OfType<Border>().Any(box =>
+                box.Classes.Contains("compared") && box.GetVisualDescendants().OfType<TextBox>().Any(field =>
+                    AutomationProperties.GetAutomationId(field) == "RosterStudentName-id-1" && field.Text == "张晓")),
+                "compare locates the same student ID without replacing the draft text");
             current.SelectedIndex = 3;
             Action("UseCurrentStudentButton");
             Action("AdoptRosterRevisionButton");
             Click(preview);
-            Check(!changes.Items.Cast<string>().Any(change => change.Contains("移出") && change.Contains("另一位管理员新增")), "Adopting the visible row keeps the remote addition.");
+            Check(!changes.Items.Cast<object>().Any(change => change.ToString()!.Contains("移出") && change.ToString()!.Contains("另一位管理员新增")), "Adopting the visible row keeps the remote addition.");
             Action("ConfirmRosterSave");
             var second = await fixture.NextPut();
             Check(second.ExpectedRevision == "r2" && second.Students.Any(row => row.Id == "id-remote"), "Reconciled save preserves the remotely added student's ID.");
@@ -171,7 +240,7 @@ internal static class Program
             paste.Text = "010 另一位管理员新增";
             Action("ApplyRosterImport");
             Click(preview);
-            Check(changes.Items.Cast<string>().Count(change => change.Contains("移出")) == 5, "Whole-class replacement previews actual removals.");
+            Check(changes.Items.Cast<object>().Count(change => change.ToString()!.Contains("移出")) == 5, "Whole-class replacement previews actual removals.");
             Action("ConfirmRosterSave");
             var third = await fixture.NextPut();
             third.Reply(409, "CLASS_ROSTER_TERM_CHANGED");

@@ -1,72 +1,104 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.ClassRosterWindow"
-        Title="学生名单" Width="950" Height="720" MinWidth="790" MinHeight="530" WindowStartupLocation="CenterOwner">
+        Title="学生名单" Width="1160" Height="780" MinWidth="740" MinHeight="480" WindowStartupLocation="CenterOwner">
   <Window.Resources>
-    <DataTemplate x:Key="RosterTextRow">
-      <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+    <DataTemplate x:Key="RosterTextRow" x:DataType="local:RosterCurrentRow">
+      <TextBlock Text="{Binding Label}" TextWrapping="Wrap" AutomationProperties.AutomationId="{Binding AutomationId}" />
     </DataTemplate>
   </Window.Resources>
   <Window.Styles>
     <Style Selector="ListBoxItem">
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
+    <Style Selector="Border.roster-row">
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="Border.roster-row.compared">
+      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}" />
+    </Style>
+    <Style Selector="TextBox.roster-cell">
+      <Setter Property="MinHeight" Value="33" />
+      <Setter Property="Padding" Value="7,3" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+    </Style>
+    <Style Selector="ListBox.roster-compare ListBoxItem">
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Margin" Value="0" />
+    </Style>
+    <Style Selector="TextBlock.roster-change.added">
+      <Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" />
+    </Style>
+    <Style Selector="TextBlock.roster-change.removed">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
     <Style Selector="Button.roster-row-action">
-      <Setter Property="Padding" Value="7,5" />
-      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Padding" Value="6,3" />
+      <Setter Property="MinHeight" Value="32" />
     </Style>
     <Style Selector="TextBlock.roster-error">
       <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
   </Window.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
-    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="23,17">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,12">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
         <StackPanel Spacing="5">
-          <TextBlock x:Name="RosterScope" Classes="muted" />
           <TextBlock Text="学生名单" FontSize="25" FontWeight="SemiBold" />
+          <TextBlock x:Name="RosterScope" Classes="muted" />
         </StackPanel>
         <Button x:Name="ReloadRosterButton" Grid.Column="1" Content="重新载入" Classes="action" Click="ReloadClicked" VerticalAlignment="Center" />
       </Grid>
     </Border>
 
-    <Grid x:Name="RosterContentHost" Grid.Row="1" Margin="22,14" RowDefinitions="Auto,*" RowSpacing="10">
+    <Grid x:Name="RosterContentHost" Grid.Row="1" Margin="20,12" RowDefinitions="Auto,*" RowSpacing="8">
       <TextBlock x:Name="RosterFeedback" Classes="muted" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
 
-      <Grid x:Name="RosterEditorPane" Grid.Row="1" ColumnDefinitions="*,282" ColumnSpacing="12" IsVisible="False">
-        <Border Classes="card" Padding="12">
-          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="10">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+      <Grid x:Name="RosterEditorPane" Grid.Row="1" ColumnDefinitions="*,254" ColumnSpacing="12" IsVisible="False">
+        <Border Classes="card" ClipToBounds="True">
+          <Grid RowDefinitions="Auto,Auto,*">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="11,8">
               <TextBlock x:Name="RosterCount" FontSize="17" Classes="label" VerticalAlignment="Center" />
               <Button x:Name="AddRosterStudent" Grid.Column="1" Content="添加学生" Classes="action" Click="AddClicked" />
             </Grid>
-            <Grid Grid.Row="1" ColumnDefinitions="30,*,0.8*,148" ColumnSpacing="7" Margin="2,0,6,0">
-              <TextBlock Text="序号" Classes="muted" />
-              <TextBlock Grid.Column="1" Text="姓名" Classes="muted" />
-              <TextBlock Grid.Column="2" Text="学号（可空）" Classes="muted" />
-              <TextBlock Grid.Column="3" Text="行操作" Classes="muted" />
-            </Grid>
+            <Border Grid.Row="1" Background="{DynamicResource AccentSoftBrush}" BorderBrush="{DynamicResource LineBrush}"
+                    BorderThickness="0,0,0,1" Padding="10,7,28,7">
+              <Grid x:Name="RosterTableHeader" ColumnDefinitions="36,1.15*,*,125" ColumnSpacing="7">
+                <TextBlock Text="序号" Classes="label" />
+                <TextBlock Grid.Column="1" Text="姓名" Classes="label" />
+                <TextBlock Grid.Column="2" Text="学号（可空）" Classes="label" />
+                <TextBlock Grid.Column="3" Text="行操作" Classes="label" />
+              </Grid>
+            </Border>
             <Grid Grid.Row="2">
-              <ScrollViewer x:Name="RosterRowsScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <ScrollViewer x:Name="RosterList" VerticalScrollBarVisibility="Visible" AllowAutoHide="False"
+                            HorizontalScrollBarVisibility="Disabled">
                 <ItemsControl x:Name="RosterRows">
                   <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="local:RosterDraftRow">
-                      <Grid ColumnDefinitions="30,*,0.8*,148" ColumnSpacing="7" Margin="2,0,6,8">
-                        <TextBlock Text="{Binding Position}" Classes="muted" VerticalAlignment="Center" />
-                        <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 AutomationProperties.Name="学生姓名" />
-                        <TextBox Grid.Column="2" Text="{Binding StudentNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                 AutomationProperties.Name="学生学号" />
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                          <Button Content="上移" Classes="action roster-row-action" IsEnabled="{Binding CanMoveUp}" Click="MoveUpClicked" />
-                          <Button Content="下移" Classes="action roster-row-action" IsEnabled="{Binding CanMoveDown}" Click="MoveDownClicked" />
-                          <Button Content="移出" Classes="action roster-row-action" Click="RemoveClicked" />
-                        </StackPanel>
-                      </Grid>
+                      <Border Classes="roster-row" Classes.compared="{Binding IsCompared}" Padding="10,4">
+                        <Grid ColumnDefinitions="36,1.15*,*,125" ColumnSpacing="7">
+                          <TextBlock Text="{Binding Position}" Classes="muted" VerticalAlignment="Center" />
+                          <TextBox Grid.Column="1" Classes="roster-cell" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                   AutomationProperties.Name="学生姓名" AutomationProperties.AutomationId="{Binding NameEditorId}" />
+                          <TextBox Grid.Column="2" Classes="roster-cell" Text="{Binding StudentNumber, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                   AutomationProperties.Name="学生学号" AutomationProperties.AutomationId="{Binding NumberEditorId}" />
+                          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="3" VerticalAlignment="Center">
+                            <Button Content="上移" Classes="action roster-row-action" IsEnabled="{Binding CanMoveUp}" Click="MoveUpClicked"
+                                    AutomationProperties.AutomationId="{Binding MoveUpId}" />
+                            <Button Content="下移" Classes="action roster-row-action" IsEnabled="{Binding CanMoveDown}" Click="MoveDownClicked"
+                                    AutomationProperties.AutomationId="{Binding MoveDownId}" />
+                            <Button Content="移出" Classes="action roster-row-action" Click="RemoveClicked" />
+                          </StackPanel>
+                        </Grid>
+                      </Border>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
                 </ItemsControl>
               </ScrollViewer>
-              <TextBlock x:Name="EmptyRosterDraft" Classes="muted" Text="草稿暂无学生。可添加学生，或从右侧批量粘贴。"
+
+              <TextBlock x:Name="EmptyRosterDraft" Classes="muted" Text="暂无学生。可添加单行，或从 Excel 批量粘贴。"
                          IsHitTestVisible="False" Margin="2,10,2,0" IsVisible="False" />
             </Grid>
           </Grid>
@@ -74,15 +106,15 @@
 
         <Border Grid.Column="1" Classes="card" Padding="13">
           <Grid>
-            <Grid x:Name="RosterImportPane" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="9">
-              <TextBlock Text="批量粘贴" FontSize="17" Classes="label" />
-              <TextBlock Grid.Row="1" Classes="muted" Text="从 Excel 复制学号和姓名两列，不含表头。纯文本每行写姓名，或写学号、空格、姓名。" />
+            <Grid x:Name="RosterImportPane" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="6">
+              <TextBlock Text="从 Excel 批量粘贴" FontSize="17" Classes="label" />
+              <TextBlock Grid.Row="1" Classes="muted" Text="复制学号、姓名两列，省略表头。也可每行粘贴一个姓名。" />
               <ComboBox x:Name="RosterImportMode" Grid.Row="2" HorizontalAlignment="Stretch" AutomationProperties.Name="批量导入方式"
                         SelectionChanged="ImportModeChanged">
                 <ComboBoxItem Content="追加或更新" />
                 <ComboBoxItem Content="整班替换" />
               </ComboBox>
-              <TextBox x:Name="RosterPasteText" Grid.Row="3" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="70"
+              <TextBox x:Name="RosterPasteText" Grid.Row="3" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="53"
                        PlaceholderText="在此粘贴名单" TextChanged="DraftTextChanged" AutomationProperties.Name="批量粘贴名单" />
               <StackPanel Grid.Row="4" Spacing="7">
                 <TextBlock x:Name="RosterImportHint" Classes="muted" />
@@ -93,7 +125,7 @@
             <Grid x:Name="RosterComparisonPane" RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="9" IsVisible="False">
               <TextBlock Text="当前学校名单" FontSize="17" Classes="label" />
               <TextBlock x:Name="RosterComparisonHint" Grid.Row="1" Classes="muted" />
-              <ListBox x:Name="CurrentRosterRows" Grid.Row="2" AutomationProperties.Name="当前学校名单"
+              <ListBox x:Name="CurrentRosterRows" Grid.Row="2" Classes="object-list" AutomationProperties.Name="当前学校名单"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemTemplate="{StaticResource RosterTextRow}" SelectionChanged="CurrentSelectionChanged" />
               <WrapPanel Grid.Row="3" ItemSpacing="5" LineSpacing="5">
                 <Button x:Name="RecheckRosterButton" Classes="action roster-row-action" Content="重新核对" Click="RecheckClicked" />
@@ -105,17 +137,42 @@
         </Border>
       </Grid>
 
-      <Border x:Name="RosterReviewPane" Grid.Row="1" Classes="card" Padding="14" IsVisible="False">
-        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="9">
-          <TextBlock Text="核对本次变更" Classes="label" FontSize="17" />
-          <TextBlock x:Name="RosterReviewSummary" Grid.Row="1" Classes="muted" />
-          <ListBox x:Name="RosterChangesList" Grid.Row="2" AutomationProperties.Name="待保存的名单变更"
-                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemTemplate="{StaticResource RosterTextRow}" />
+      <Border x:Name="RosterReviewPane" Grid.Row="1" Classes="card" ClipToBounds="True" IsVisible="False">
+        <Grid RowDefinitions="Auto,Auto,*">
+          <StackPanel Spacing="4" Margin="12,9">
+            <TextBlock Text="核对本次变更" Classes="label" FontSize="17" />
+            <TextBlock x:Name="RosterReviewSummary" Classes="muted" />
+          </StackPanel>
+          <Border Grid.Row="1" Background="{DynamicResource AccentSoftBrush}" BorderBrush="{DynamicResource LineBrush}"
+                  BorderThickness="0,0,0,1" Padding="12,8,28,8">
+            <Grid x:Name="RosterPreviewTableHeader" ColumnDefinitions="102,*,*" ColumnSpacing="12">
+              <TextBlock Text="变更" Classes="label" />
+              <TextBlock Grid.Column="1" Text="原名单" Classes="label" />
+              <TextBlock Grid.Column="2" Text="保存后" Classes="label" />
+            </Grid>
+          </Border>
+          <ListBox x:Name="RosterChangesList" Grid.Row="2" Classes="roster-compare" Background="Transparent"
+                   AutomationProperties.Name="待保存的名单变更" ScrollViewer.AllowAutoHide="False"
+                   ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:RosterReviewRow">
+                <Border Classes="roster-row" Padding="12,6" AutomationProperties.AutomationId="{Binding AutomationId}">
+                  <Grid ColumnDefinitions="102,*,*" ColumnSpacing="12">
+                    <TextBlock Text="{Binding Kind}" Classes="label roster-change"
+                               Classes.added="{Binding IsAdd}" Classes.removed="{Binding IsRemove}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Before}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="{Binding After}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
         </Grid>
+
       </Border>
     </Grid>
 
-    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,10">
+    <Border x:Name="RosterWorkspaceActions" Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,10">
       <Grid>
         <Grid x:Name="RosterMainActions" ColumnDefinitions="*,Auto" ColumnSpacing="10">
           <TextBlock x:Name="RosterDraftState" VerticalAlignment="Center" Classes="muted" />

@@ -41,16 +41,9 @@
       <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
     </Style>
     <Style Selector="ListBoxItem" x:DataType="local:ShellSearchItem">
-      <Setter Property="CornerRadius" Value="8" />
       <Setter Property="Padding" Value="10,7" />
-      <Setter Property="Margin" Value="0,1" />
-      <Setter Property="BorderThickness" Value="1" />
       <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
       <Setter Property="AutomationProperties.HelpText" Value="{Binding Detail}" />
-    </Style>
-    <Style Selector="ListBoxItem:selected">
-      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     </Style>
     <Style Selector="TextBlock.picker-title">
       <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
@@ -96,7 +89,7 @@
                      AutomationProperties.LiveSetting="Polite" />
 
           <Grid Grid.Row="2">
-            <ListBox x:Name="ResultsList" Background="Transparent" BorderThickness="0"
+            <ListBox x:Name="ResultsList" Classes="object-list" Background="Transparent" BorderThickness="0"
                      MaxHeight="320" SelectionMode="Single"
                      AutomationProperties.Name="检索结果"
                      KeyDown="ResultsKeyDown" PointerReleased="ResultsReleased">
