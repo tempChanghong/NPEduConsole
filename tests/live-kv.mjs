@@ -21,7 +21,7 @@ const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
-  '--class-creation', '--serve-class-creation', '--first-screen', '--serve-first-screen'].includes(mode)),
+  '--class-creation', '--serve-class-creation', '--first-screen', '--serve-first-screen', '--screen-replacement'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -31,7 +31,8 @@ const classStudy = mode === '--class-study' || mode === '--serve-class-study';
 const schoolAudit = mode === '--school-audit' || mode === '--serve-school-audit';
 const classRoster = mode === '--class-roster' || mode === '--serve-class-roster';
 const classCreation = mode === '--class-creation' || mode === '--serve-class-creation';
-const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen';
+const replacement = mode === '--screen-replacement';
+const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen' || replacement;
 const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !firstScreen;
 const kv = resolve(checkout);
 const fromKv = path => import(pathToFileURL(join(kv, path)).href);
@@ -440,7 +441,8 @@ async function runFixture() {
   // Only local, short-lived, synthetic login data is made available to the desktop process.
   const access = join(directory, 'desktop.json');
   if (classAdmission) lostReply = await loseWriteReply(origin, path => path.includes('/class-management/'));
-  else if (firstScreen) lostReply = await loseWriteReply(origin, path => path.endsWith('/first-screen'), 'POST', 201);
+  else if (firstScreen) lostReply = await loseWriteReply(origin, path =>
+    path.endsWith('/first-screen') || (replacement && path === '/api/v2/npep/pairings/replacement'), 'POST', 201);
   else if (classStudy) lostReply = await loseWriteReply(origin, path => path.endsWith('/study-settings'));
   else if (!serve && classRoster) lostReply = await loseWriteReply(origin, path => path.endsWith('/students'), 'PUT');
   else if (classCreation) lostReply = await loseWriteReply(origin, path => path.endsWith('/current-term/administrative-classes'), 'POST', 201);
@@ -453,7 +455,7 @@ async function runFixture() {
     ...roster?.access,
     ...creation?.access,
     ...(firstScreen ? {emptyClassId: fixture.classes[2], inactiveClassId: fixture.classes[3], termId: fixture.term.id,
-      allowFirstScreenTestWrites: true} : {}),
+      allowFirstScreenTestWrites: true, allowReplacementTestWrites: replacement} : {}),
     ...(softwareUpdate || classStudy ? { classroomBearer: fixture.classroomBearer, deviceIdentity: fixture.identity } : {}),
     ...(classStudy ? { termId: fixture.term.id, studyDate: fixture.studyDate } : {}),
   }), { mode: 0o600 });
@@ -478,14 +480,27 @@ async function runFixture() {
   }
   if (!serve && audit) await audit.verifyRevocation();
   if (!serve && firstScreen) {
-    assert.equal(lostReply.count(), 1);
-    assert.equal(lostReply.attempts(), 2);
+    assert.equal(lostReply.count(), replacement ? 2 : 1);
+    assert.equal(lostReply.attempts(), replacement ? 4 : 2);
     const id = fixture.classes[2];
     const [binding] = await prisma.classroomScreenBinding.findMany({where: {administrativeClassId: id}});
     assert.equal(await prisma.classroomScreenBinding.count({where: {administrativeClassId: id}}), 1);
     assert.equal(binding.loginCode, null);
     assert.equal(binding.pinHash, null);
     assert.equal(await prisma.auditLog.count({where: {schoolId: fixture.school.id, entityId: binding.id, action: 'FIRST_CLASSROOM_SCREEN_PREPARED'}}), 1);
+    if (replacement) {
+      const where = {schoolId: fixture.school.id, screenBindingId: binding.id};
+      const candidate = await prisma.npepPairing.findFirstOrThrow({where: {...where, approvalSource: 'REPLACEMENT'}});
+      assert.equal(await prisma.npepPairing.count({where: {...where, approvalSource: 'REPLACEMENT'}}), 1);
+      assert.equal(candidate.state, 'ACTIVATED');
+      const incumbent = await prisma.npepDevice.findUniqueOrThrow({where: {id: candidate.approvalSnapshot.expectedDeviceId}});
+      assert.equal(incumbent.state, 'REVOKED');
+      assert.equal(incumbent.sessionId, null);
+      assert.deepEqual(await prisma.npepDevice.findMany({where: {...where, state: 'ACTIVE'}, select: {id: true}}), [{id: candidate.deviceId}]);
+      for (const action of ['REPLACEMENT_REQUESTED', 'REPLACEMENT_APPROVED', 'REPLACEMENT_ACTIVATED', 'REPLACEMENT_FIRST_REPORT'])
+        assert.equal(await prisma.npepAudit.count({where: {schoolId: fixture.school.id, objectId: candidate.id, action}}), 1, action);
+      console.log('PASS: one handover despite a lost write reply, one successor, old credential revoked, one first-report audit.');
+    }
     run(process.execPath, ['--test', '--test-name-pattern=first-screen', 'tests/managementDatabase.integration.test.js'], {...process.env, RUN_DATABASE_TESTS: 'true'});
     console.log('PASS: one screen, one audit, no web login or PIN, and one explicit retry after a lost reply.');
   }

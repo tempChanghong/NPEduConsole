@@ -52,22 +52,11 @@ var binding = await relay.PrepareFirstScreenAsync(empty, requestId, ct);
 await Expect(409, "FIRST_SCREEN_EXISTS", () => admin.PrepareFirstScreenAsync(original, Guid.NewGuid(), ct));
 var prepared = await admin.GetClassAdmissionAsync(fixture.SchoolId, empty.Id, binding, ct);
 Check(!prepared.Configured && !prepared.Enabled, "Registration alone cannot authorize password admission.");
+var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(20));
 
 await using (var runtime = new NpepRuntime(directory, "acceptance", () => new(Protocol.Version, Guid.NewGuid(), "Succeeded", null, "")))
 {
-    async Task<NpepState> Command(NpepCommand command)
-    {
-        var request = new HostRequest(Protocol.Version, Guid.NewGuid(), "npep.command", Npep: command with {Revision = runtime.Snapshot().Revision});
-        Check(Protocol.Validate(request) is null && runtime.Handle(request).Outcome == "Accepted", "Host must accept " + command.Action);
-        while (runtime.Snapshot().Busy) await Task.Delay(20, ct);
-        var response = runtime.Handle(new(Protocol.Version, Guid.NewGuid(), "npep.status"));
-        using var pipe = new MemoryStream();
-        await Protocol.WriteAsync(pipe, response, ct);
-        pipe.Position = 0;
-        var state = (await Protocol.ReadAsync<HostResponse>(pipe, ct)).Npep!;
-        Check(state.Error is null, "Host command failed: " + state.Error);
-        return state;
-    }
+    Task<NpepState> Command(NpepCommand command) => NativeClassroom.CommandAsync(runtime, command, ct);
     var inspected = await Command(new("inspect", 0, Origin: fixture.Origin));
     var catalogue = inspected.Catalogue!;
     Check((bool)catalogue["truncated"]! && catalogue["items"]!.AsArray().All(row => (string?)row?["screenBindingId"] != binding),
@@ -91,7 +80,6 @@ await using (var runtime = new NpepRuntime(directory, "acceptance", () => new(Pr
     var selected = scoped["items"]!.AsArray().Single()!;
     Check((string?)selected["screenBindingId"] == binding && (string?)selected["schoolId"] == fixture.SchoolId, "Search isolates the selected school.");
     Check((string?)selected["classId"] == empty.Id && !(bool)selected["preauthorized"]!, "Native catalogue shows the exact unapproved screen.");
-    var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(20));
     var enabled = await admin.EnableClassAdmissionAsync(prepared, secret, Guid.NewGuid(), ct);
     Check(enabled.IsReady, "A separate explicit action enables admission.");
     var paired = await Command(new("password-class", 0, fixture.Origin, "验收教室终端", find.ServerInstanceId, find.DeploymentEpoch,
@@ -109,6 +97,8 @@ using (var restarted = new NpepDevice(directory))
     Check(room.Screens.Single().Id == binding && room.Screens.Single().Devices.Single().Name == "验收教室终端",
         "Console receives the newly connected classroom device.");
 }
+if (fixture.AllowReplacementTestWrites)
+    await NativeClassroom.RunReplacementAsync(fixture, admin, directory, empty, binding, secret, ct);
 await relay.LogoutAsync(ct);
 await admin.LogoutAsync(ct);
 Console.WriteLine("PASS: global overflow, exact multi-school search, all 205 screens, Host IPC, explicit admission, restart and status in Console.");
@@ -124,4 +114,5 @@ static async Task Expect(int status, string? code, Func<Task> run)
     throw new InvalidDataException($"Missing expected refusal {status} {code}.");
 }
 internal sealed record Fixture(string Origin, string LostReplyOrigin, string SchoolCode, string Username, string Viewer,
-    string Password, string SchoolId, string OtherSchoolId, string EmptyClassId, string InactiveClassId, bool AllowFirstScreenTestWrites);
+    string Password, string SchoolId, string OtherSchoolId, string EmptyClassId, string InactiveClassId, bool AllowFirstScreenTestWrites,
+    bool AllowReplacementTestWrites = false);
