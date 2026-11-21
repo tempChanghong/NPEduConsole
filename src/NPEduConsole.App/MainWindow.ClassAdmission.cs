@@ -27,12 +27,11 @@ public sealed partial class MainWindow
             screen.DeviceOverviewUnavailable || screen.Devices.Count != 0 || ReferenceEquals(_admissionTarget?.Screen, screen)) return;
 
         CloseClassAdmission();
+        CloseScreenReplacement();
         CloseSoftwareMaintenance();
         var target = new AdmissionTarget(school, classroom, screen, opener);
         _admissionTarget = target;
-        string screenLabel = classroom.Screens.Count(item => item.Name == screen.Name) > 1
-            ? $"{screen.Name}（编号 {screen.Id}）" : screen.Name;
-        AdmissionScope.Text = $"{school.Name} / {ClassroomName(classroom)} / {screenLabel}";
+        AdmissionScope.Text = $"{school.Name} / {ClassroomName(classroom)} / {ScreenDisplayName(screen)}";
         ClassAdmissionCard.IsVisible = true;
         await ReadClassAdmissionAsync();
         if (_admissionTarget != target) return;

@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.ScreenReplacementView">
+  <Border Classes="card" Padding="20">
+    <StackPanel Spacing="12">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="4">
+          <TextBlock Text="大屏换机审核" FontSize="18" FontWeight="SemiBold" />
+          <TextBlock x:Name="ReplacementScope" Classes="muted" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+          <Button x:Name="RefreshReplacementButton" Classes="action" Content="刷新进度" Click="RefreshClicked" />
+          <Button x:Name="CloseReplacementButton" Classes="action" Content="关闭" Click="CloseClicked" />
+        </StackPanel>
+      </Grid>
+      <TextBlock x:Name="ReplacementFeedback" Classes="muted" IsVisible="False" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+      <Button x:Name="RetryReplacementButton" Classes="action" Content="重试原审核" Click="RetryClicked" IsVisible="False" />
+      <Border x:Name="ReplacementLatest" Classes="card" Padding="12" IsVisible="False">
+        <StackPanel Spacing="5">
+          <TextBlock Text="最近一次交接" Classes="label" />
+          <TextBlock x:Name="ReplacementLatestText" Classes="muted" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+      <TextBlock x:Name="ReplacementStatus" Classes="label" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+      <StackPanel x:Name="ReplacementItems" Spacing="8" />
+      <Border x:Name="ReplacementConfirmation" Classes="card" Padding="12" IsVisible="False">
+        <StackPanel Spacing="8">
+          <TextBlock x:Name="ReplacementReviewText" Classes="label" TextWrapping="Wrap" />
+          <WrapPanel ItemSpacing="8" LineSpacing="8">
+            <Button x:Name="ConfirmReplacementButton" Classes="action accent" Click="ConfirmClicked" />
+            <Button Classes="action" Content="返回" Click="CancelReviewClicked" />
+          </WrapPanel>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </Border>
+</UserControl>

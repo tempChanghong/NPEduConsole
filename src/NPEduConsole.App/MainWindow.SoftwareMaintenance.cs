@@ -28,6 +28,7 @@ public sealed partial class MainWindow
     private async void OpenSoftwareMaintenanceClicked(object? sender, RoutedEventArgs args)
     {
         if (EquipmentKey is not { } key || SoftwareMaintenanceCard.IsVisible) return;
+        CloseScreenReplacement();
         SoftwareMaintenanceScope.Text = EquipmentScopeText;
         SoftwareMaintenanceCard.IsVisible = true;
         RenderSoftwareMaintenance();

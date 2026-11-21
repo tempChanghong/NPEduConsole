@@ -140,6 +140,7 @@
             </Border>
             <TextBlock x:Name="ScreensHeading" Text="绑定大屏和设备" FontSize="18" FontWeight="SemiBold" IsVisible="False" />
             <StackPanel x:Name="ScreenCards" Spacing="12" />
+            <local:ScreenReplacementView x:Name="ScreenReplacementWorkspace" IsVisible="False" />
             <Border x:Name="ClassAdmissionCard" Classes="card" Padding="20" IsVisible="False">
               <StackPanel Spacing="12">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">

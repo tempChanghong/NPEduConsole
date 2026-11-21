@@ -31,6 +31,12 @@ if (args.Length == 2 && args[1] == "--class-admission")
     return;
 }
 
+if (args is [var replacementFixture, "--screen-replacement"])
+{
+    await ScreenReplacementSmoke.RunAsync(replacementFixture);
+    return;
+}
+
 if (args.Length is < 1 or > 2 ||
     args.Length == 2 && args[1] is not ("--view-only" or "--local-authorization" or "--view-local-authorization"))
     throw new ArgumentException("Expected the live KV fixture path and an optional test mode.");

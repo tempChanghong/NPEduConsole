@@ -49,6 +49,9 @@ public sealed partial class MainWindow : Window
         _softwarePoll.Tick += PollSoftware;
         _schoolStatusTimer.Tick += PollSchoolServerStatus;
         StudyWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
+        ScreenReplacementWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
+        ScreenReplacementWorkspace.CloseRequested += () => CloseScreenReplacement(restoreFocus: true);
+        ScreenReplacementWorkspace.HandoverObserved += RetireReplacedDevice;
         SchoolAuditWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
         SchoolAuditWorkspace.BackRequested += () =>
         {
@@ -250,7 +253,13 @@ public sealed partial class MainWindow : Window
     {
         var list = new StackPanel { Spacing = 8 };
         var card = new Border { Child = list, Padding = new Thickness(17, 13), Classes = { "card" } };
-        list.Children.Add(new TextBlock { Text = screen.Name, FontSize = 16, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
+        var summary = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 12 };
+        summary.Children.Add(new TextBlock { Text = ScreenDisplayName(screen), FontSize = 16, FontWeight = FontWeight.SemiBold,
+            TextWrapping = TextWrapping.Wrap, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
+        var replacement = BuildScreenReplacementButton(screen);
+        Grid.SetColumn(replacement, 1);
+        summary.Children.Add(replacement);
+        list.Children.Add(summary);
         if (screen.DeviceOverviewUnavailable)
         {
             list.Children.Add(new TextBlock { Text = "设备状态暂不可用", Classes = { "muted" } });
@@ -296,6 +305,7 @@ public sealed partial class MainWindow : Window
         if (sender is Button button && _deviceButtons.TryGetValue(button, out var selection))
         {
             CloseClassAdmission();
+            CloseScreenReplacement();
             await LoadDeviceAsync(selection, scrollIntoView: true);
         }
     }
@@ -452,6 +462,7 @@ public sealed partial class MainWindow : Window
         if (_classroom?.Id != room?.Id || _classroom?.TermId != room?.TermId) CloseClassRoster();
         OpenClassRosterButton.IsEnabled = room is not null;
         CloseClassAdmission();
+        CloseScreenReplacement();
         CloseSoftwareMaintenance();
         ResetEquipmentView();
         _classroom = room;
@@ -482,6 +493,7 @@ public sealed partial class MainWindow : Window
     private void UpdateSchoolAuditWorkspace()
     {
         bool show = _showSchoolAudit && _school is not null;
+        if (show) CloseScreenReplacement();
         OpenSchoolAuditButton.IsEnabled = _school is not null;
         OpenSchoolAuditButton.Classes.Set("accent", show);
         ClassPickerHeading.IsVisible = ClassPickerPanel.IsVisible = ClassManagementWorkspace.IsVisible = !show;
@@ -492,6 +504,7 @@ public sealed partial class MainWindow : Window
     private void UpdateStudyWorkspace()
     {
         bool show = _showClassStudy && _classroom is not null;
+        if (show) CloseScreenReplacement();
         OpenClassStudyButton.IsVisible = _classroom is not null;
         OpenClassStudyButton.Content = show ? "返回教室设备" : "本班学校自习";
         ClassWorkspaceTitle.Text = show ? "本班学校自习" : "教室设备";
