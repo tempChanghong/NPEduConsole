@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>教室管理 · NPEduConsole 交互样稿</title>
+  <link rel="stylesheet" href="classroom.css">
+  <script src="classroom.js" defer></script>
+</head>
+<body>
+  <header class="titlebar">
+    <div class="brand"><span class="brand-symbol" aria-hidden="true">N</span>NPEduConsole</div>
+    <span class="title-rule"></span><span class="app-caption">学校控制台</span>
+    <span class="preview-label">交互样稿 · 示例数据</span>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar" aria-label="学校和班级">
+      <div class="school"><span class="glyph school-icon" aria-hidden="true">&#xe7ee;</span>
+        <div><strong>示范中学</strong><span>学校管理</span></div>
+      </div>
+      <div class="class-heading"><h2>班级</h2><span>高二年级</span></div>
+      <label class="search"><span class="glyph" aria-hidden="true">&#xe721;</span>
+        <input type="search" id="class-search" aria-label="查找班级" placeholder="查找班级" autocomplete="off">
+      </label>
+      <nav id="class-list" aria-label="选择班级"></nav>
+      <p id="empty-search" class="muted" hidden>没有匹配的班级。</p>
+    </aside>
+
+    <main class="surface" id="workspace">
+      <div class="content">
+        <div class="breadcrumb">教室管理 <span class="glyph" aria-hidden="true">&#xe76c;</span> 高二年级</div>
+        <h1 id="class-name"></h1>
+        <section aria-labelledby="screen-label">
+          <div class="section-heading"><h2 id="screen-label">教室大屏</h2><span id="screen-count"></span></div>
+          <div class="screen-switch" id="screen-switch" aria-label="选择大屏" hidden></div>
+          <article class="device" id="device-card"></article>
+        </section>
+        <section aria-labelledby="action-label">
+          <div class="section-heading"><h2 id="action-label">待办事项</h2></div>
+          <div id="action-card"></div>
+        </section>
+        <section id="settings" aria-labelledby="settings-label">
+          <div class="section-heading"><h2 id="settings-label">设备管理</h2></div>
+          <div class="settings-group">
+            <button class="setting-row" type="button" id="microphone">
+              <span class="glyph setting-icon" aria-hidden="true">&#xe720;</span>
+              <span class="row-text"><strong>麦克风策略</strong><span id="mic-summary"></span></span>
+              <span class="row-value" id="mic-status"></span><span class="glyph arrow" aria-hidden="true">&#xe76c;</span>
+            </button>
+            <button class="setting-row" type="button" id="software">
+              <span class="glyph setting-icon" aria-hidden="true">&#xe895;</span>
+              <span class="row-text"><strong>软件维护</strong><span id="software-summary"></span></span>
+              <span class="row-value" id="software-status"></span><span class="glyph arrow" aria-hidden="true">&#xe76c;</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog id="drawer" aria-labelledby="drawer-title">
+    <div class="drawer-head"><div><p class="eyebrow" id="drawer-scope"></p><h2 id="drawer-title"></h2></div>
+      <button class="icon-button" id="close" type="button" aria-label="关闭详情"><span class="glyph" aria-hidden="true">&#xe711;</span></button>
+    </div>
+    <div id="drawer-body"></div>
+  </dialog>
+  <div id="announcement" role="status" class="visually-hidden"></div>
+</body>
+</html>
