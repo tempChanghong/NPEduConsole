@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using NPEduTools.Integrations.Npep;
 
-if (args is not [var phase, var fixtureFile, var dataRoot] || phase is not ("pair" or "report") || !OperatingSystem.IsWindows()) return 2;
+if (args is not [var phase, var fixtureFile, var dataRoot] || phase is not ("pair" or "report" or "invalidated" or "repair-first" or "report-first") || !OperatingSystem.IsWindows()) return 2;
 string step = "read fixture";
 try
 {
@@ -17,16 +17,31 @@ try
     admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fixture.Text("adminToken"));
     string schoolId = fixture.Text("schoolId"), classId = fixture.Text("classId");
     var bindingIds = ((JsonArray)fixture["bindingIds"]!).Select(row => row!.GetValue<string>()).ToArray();
-    if (bindingIds.Length != 2 || bindingIds.Distinct().Count() != 2) return 2;
+    var classIds = fixture["classIds"] is JsonArray supplied
+        ? supplied.Select(row => row!.GetValue<string>()).ToArray() : bindingIds.Select(_ => classId).ToArray();
+    if (bindingIds.Length is < 2 or > 3 || bindingIds.Distinct().Count() != bindingIds.Length || classIds.Length != bindingIds.Length) return 2;
+    bool firstOnly = phase is "repair-first" or "report-first";
 
-    for (int slot = 0; slot < bindingIds.Length; slot++)
+    for (int slot = 0; slot < (firstOnly ? 1 : bindingIds.Length); slot++)
     {
         string binding = bindingIds[slot];
         string data = Path.Combine(dataRoot, $"device-{slot + 1}");
         step = "open isolated native profile";
         using var device = new NpepDevice(data);
-        if (phase == "pair")
+        if (phase == "invalidated")
         {
+            step = "check rejected original credential";
+            try { await device.OpenSessionAsync(); }
+            catch (NpepException error) when (error is {Code: "AUTH_INVALID", Status: 401})
+            {
+                Console.WriteLine($"PASS old credential rejected for display {slot + 1} ({binding}).");
+                continue;
+            }
+            throw new NpepException("ORIGINAL_CREDENTIAL_STILL_VALID");
+        }
+        if (phase is "pair" or "repair-first")
+        {
+            if (phase == "repair-first") await device.UnpairAsync();
             step = "inspect isolated server";
             var info = await device.InspectServerAsync(origin);
             step = "begin native pairing";
@@ -41,21 +56,26 @@ try
             approvalBody["capabilities"] = new JsonArray("device.status");
             await AdminAsync($"schools/{schoolId}/pairings/{pairing.Text("pairingId")}/approve", "approvedPairingResponse", approvalBody);
             var approved = (JsonObject)(await device.PollApprovalAsync())["approval"]!;
-            if (approved.Text("schoolId") != schoolId || approved.Text("administrativeClassId") != classId ||
+            if (approved.Text("schoolId") != schoolId || approved.Text("administrativeClassId") != classIds[slot] ||
                 approved.Text("screenBindingId") != binding) throw new NpepException("BINDING_MISMATCH");
             step = "confirm native pairing";
             await device.ConfirmAsync(approved.Text("approvalId"));
         }
         if (device.View().Text("state") != "ACTIVE") throw new NpepException("ORIGINAL_PAIRING_NOT_ACTIVE");
-        step = "open session for original device";
+        if (phase == "repair-first")
+        {
+            Console.WriteLine($"PASS display 1 ({binding}) re-paired to {classIds[slot]} without a report.");
+            continue;
+        }
+        step = "open session for native device";
         await device.OpenSessionAsync();
         var status = new NpepSample(NpepStatusReader.Map(null, "1.1.10"), Stopwatch.GetTimestamp());
         var receipt = await device.ReportAsync(status);
         if (receipt.Number("acceptedSequence") != 1) throw new NpepException("STATUS_NOT_ACCEPTED");
         var registration = (JsonObject)device.View()["registration"]!;
-        if (registration.Text("schoolId") != schoolId || registration.Text("administrativeClassId") != classId ||
+        if (registration.Text("schoolId") != schoolId || registration.Text("administrativeClassId") != classIds[slot] ||
             registration.Text("screenBindingId") != binding) throw new NpepException("ORIGINAL_BINDING_CHANGED");
-        Console.WriteLine($"PASS {phase} display {slot + 1}: original binding, active DPAPI pairing and accepted native status.");
+        Console.WriteLine($"PASS {phase} display {slot + 1}: verified binding, active DPAPI pairing and accepted native status.");
     }
     return 0;
 

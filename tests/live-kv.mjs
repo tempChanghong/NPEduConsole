@@ -25,6 +25,7 @@ import { verifyCurrentTeaching } from './teaching-fixture.mjs';
 import { verifySubjectSetup } from './subject-setup-fixture.mjs';
 import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
 import { verifyStaffResponsibilities } from './staff-responsibilities-fixture.mjs';
+import { verifyTermActivation } from './term-activation-fixture.mjs';
 import { verifyTermPreparation } from './term-preparation-fixture.mjs';
 import { verifyCourseGroups } from './course-groups-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
@@ -35,7 +36,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
-  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation'].includes(mode)),
+  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -54,6 +55,8 @@ const currentTeaching = mode === '--current-teaching';
 const subjectSetup = mode === '--current-subject-setup';
 const schoolSubjects = mode === '--school-subjects';
 const termPreparation = mode === '--term-preparation';
+const termActivation = mode === '--term-activation';
+const termActivationDatabase = mode === '--term-activation-db';
 const courseGroups = mode === '--current-course-groups';
 const teacherAccounts = mode === '--teacher-accounts';
 const currentStaff = mode === '--current-staff';
@@ -190,7 +193,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || termPreparation ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || termPreparation || termActivation || termActivationDatabase ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -480,7 +483,34 @@ async function runFixture() {
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
+  if (termActivationDatabase) {
+    const evidence = resolve(process.env.NP_CONSOLE_TERM_ACTIVATION_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/term-activation', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    const report = 'term-activation-postgres.log';
+    try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/termActivation.integration.test.js',
+      'tests/termPreparation.integration.test.js', 'tests/schoolManagementOverview.integration.test.js'],
+    {...process.env, RUN_DATABASE_TESTS: 'true'}, report); }
+    finally { await copyFile(join(directory, report), join(evidence, report)); }
+    return;
+  }
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (termActivation) {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
+    const {localProviderId} = await fromKv('domain/localAccount.js');
+    const evidence = process.env.NP_CONSOLE_TERM_ACTIVATION_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/term-activation/desktop', import.meta.url));
+    const createTeacher = async username => {
+      const teacher = await prisma.account.create({data: {provider: 'school-local',
+        providerId: localProviderId(fixture.school.code, username), localUsername: username, name: username,
+        localPasswordHash: await bcrypt.hash(fixture.pin, 10), providerData: {schoolCode: fixture.school.code}}});
+      await prisma.schoolMember.create({data: {schoolId: fixture.school.id, accountId: teacher.id, role: 'VIEWER'}});
+      return teacher;
+    };
+    return verifyTermActivation({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'), createTeacher,
+      runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args)});
+  }
   if (termPreparation) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));

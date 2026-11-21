@@ -7,7 +7,7 @@ public sealed record SchoolOverviewScreen(string ClassId, string ClassName, stri
     SchoolScreenObservation Browser, SchoolScreenObservation Native);
 public sealed record SchoolOverviewTask(string Code, string Source, string Severity, string Message, string Action,
     string? ClassId = null, string? ScreenId = null, string? TargetTab = null, DateTimeOffset? LastReportedAt = null, string? SubjectId = null,
-    string? GradeId = null, string? AccountId = null, string? CourseGroupId = null);
+    string? GradeId = null, string? AccountId = null, string? CourseGroupId = null, string? SourceTermId = null);
 public sealed record SchoolOverview(School School, SchoolOverviewTerm? Term, SchoolOverviewCounts Counts,
     IReadOnlyList<SchoolOverviewScreen> Screens, IReadOnlyList<SchoolOverviewTask> Tasks, DateTimeOffset GeneratedAt,
     string? AdminUrl = null);

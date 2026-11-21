@@ -13,7 +13,7 @@ namespace NPEduConsole.App;
 
 public sealed partial class TermPreparationWindow : Window
 {
-    private enum Page { Directory, Create, Check }
+    private enum Page { Directory, Create, Check, ActivationResult }
     private sealed record Operation(string SourceId, TermDraftSettings Target, TermDraftPreview Preview, Guid RequestId);
     private sealed record PreviewSelection(string Name, string Details) { public override string ToString() => Name; }
     private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<string, Operation>> PendingByClient = new();
@@ -42,6 +42,16 @@ public sealed partial class TermPreparationWindow : Window
             BatchWorkspaceWindow.FitSchoolWindow(this);
             await RunAsync(async () =>
             {
+                if (PendingActivation is { } activation)
+                {
+                    _check = activation.Check;
+                    _reviewId = activation.Check.Term.Id;
+                    _activeTerm = _check.ActiveTerm;
+                    SetPage(Page.Check);
+                    ShowCheck();
+                    await VerifyActivationAsync(activation);
+                    return;
+                }
                 await LoadCatalogAsync();
                 if (_closed) return;
                 if (Pending is { } pending)
@@ -77,6 +87,7 @@ public sealed partial class TermPreparationWindow : Window
         var catalog = await _client.GetTermPreparationAsync(_school.Id, _lifetime.Token);
         if (_closed) return;
         _catalog = catalog;
+        _latestActivationId = catalog.LatestActivationRequestId;
         _activeTerm = catalog.ActiveTerm;
         _binding = true;
         PreparedTerms.ItemsSource = catalog.Drafts;
@@ -84,7 +95,7 @@ public sealed partial class TermPreparationWindow : Window
         _binding = false;
         ActiveTermName.Text = _activeTerm?.Name ?? "暂无启用学期";
         ActiveTermDates.Text = _activeTerm is { } term ? $"{term.Period} · {term.Dates}" :
-            catalog.HasAnyTerm ? "可核对下方的草稿。启用请进入网页学期管理。" : "本校尚无来源学期，请先完成网页初始化。";
+            catalog.HasAnyTerm ? "可打开下方草稿，核对后启用。" : "本校尚无来源学期，请先完成网页初始化。";
         DraftListEmpty.Text = catalog.Drafts.Length > 0 ? null : "本校暂无学期草稿。";
         DraftListEmpty.IsVisible = DraftListEmpty.Text is not null;
         PreparedTerms.IsVisible = catalog.Drafts.Length > 0;
@@ -279,6 +290,8 @@ public sealed partial class TermPreparationWindow : Window
     private async void PrimaryClicked(object? sender, RoutedEventArgs args)
     {
         if (!TermPrimary.IsEnabled) return;
+        if (_page == Page.ActivationResult) { OpenActivationScreen(); return; }
+        if (_page == Page.Check || PendingActivation is not null) { await OpenActivationActionAsync(); return; }
         if (Pending is { } pending)
         {
             if (_canRetry) await RunAsync(() => SaveAsync(pending));
@@ -382,6 +395,7 @@ public sealed partial class TermPreparationWindow : Window
 
     private async Task OpenCheckAsync(string termId)
     {
+        _confirmation = null;
         _reviewId = termId;
         _selectedDraftId = termId;
         _check = null;
@@ -393,6 +407,8 @@ public sealed partial class TermPreparationWindow : Window
 
     private async Task ReadCheckAsync(string termId, bool reveal = false)
     {
+        _confirmation = null;
+        TermActivationChanges.IsVisible = false;
         if (TermScreenRows.SelectedItem is TermDraftScreenImpact selection) _screenId = selection.BindingId;
         bool listFocused = TermScreenRows.IsKeyboardFocusWithin;
         _check = null;
@@ -434,7 +450,7 @@ public sealed partial class TermPreparationWindow : Window
             Focus(TermScreenRows);
             return;
         }
-        Focus(TermRefresh);
+        Focus(CanConfirmActivation ? TermPrimary : TermRefresh);
     }
 
     private void ShowCheck()
@@ -444,7 +460,7 @@ public sealed partial class TermPreparationWindow : Window
         TermCheckDates.Text = _check is { } check ? $"{check.Term.Period} · {check.Term.Dates}" : "可刷新服务器检查结果。";
         TermCheckStatus.Text = _check is not { } status ? "正在读取服务器检查结果…" :
             status.ActiveTerm is { } running
-                ? $"该学期尚未启用。全校当前启用：{running.Name}；启用本草稿后它会归档。"
+                ? $"归档 {running.Name} 后，仍在原学期的 NPEduTools 授权也会失效。"
                 : "该学期尚未启用，全校当前没有启用学期。";
         TermCheckReceiptCounts.IsVisible = _receipt is not null;
         TermCheckReceiptCounts.Text = _receipt is { } received ? "本次继承：" + Counts(received.Counts) : null;
@@ -508,6 +524,9 @@ public sealed partial class TermPreparationWindow : Window
 
     private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
     {
+        if (PendingActivation is { } activation) { await VerifyActivationAsync(activation); return; }
+        if (_page == Page.ActivationResult && _activation?.Receipt is { } receipt)
+        { await RefreshActivationAsync(receipt.RequestId, receipt.Term.Id); return; }
         if (Pending is { } pending) { await VerifyAsync(pending); return; }
         if (_page == Page.Check && _reviewId is { } check) { await ReadCheckAsync(check); return; }
         await LoadCatalogAsync();
@@ -519,7 +538,7 @@ public sealed partial class TermPreparationWindow : Window
     private async void BackClicked(object? sender, RoutedEventArgs args)
     {
         if (_busy) return;
-        if (Pending is not null || _page == Page.Directory) { Close(); return; }
+        if (Pending is not null || PendingActivation is not null || _page == Page.Directory) { Close(); return; }
         if (_page == Page.Create && _dirty) { OfferDiscard(); return; }
         var destination = _page == Page.Check ? _checkBack : Page.Directory;
         _receipt = null;
@@ -578,6 +597,8 @@ public sealed partial class TermPreparationWindow : Window
     {
         string? active = _activeTerm?.Id;
         bool setup = _catalog?.HasAnyTerm == false;
+        _confirmation = null;
+        Render();
         var url = setup
             ? SafeSetupUrl(_catalog?.SetupUrl)
             : SchoolAdminBrowser.Link(_catalog?.AdminUrl, _school.Id, active, "terms");
@@ -613,7 +634,8 @@ public sealed partial class TermPreparationWindow : Window
             {
                 ClearSchoolScope();
             }
-            if (!_closed) Notice(Pending is null ? error.Message : $"草稿回执待核对。{error.Message}", true);
+            if (!_closed) Notice(PendingActivation is not null ? $"启用回执待核对。{error.Message}" :
+                Pending is not null ? $"草稿回执待核对。{error.Message}" : error.Message, true);
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
         }
         finally { _busy = _writing = false; if (!_closed) Render(); }
@@ -635,6 +657,12 @@ public sealed partial class TermPreparationWindow : Window
     private void ClearSchoolScope()
     {
         _catalog = null;
+        _latestActivationId = null;
+        _confirmation = null;
+        _activation = null;
+        Activations.Remove(_school.Id);
+        TermActivatedScreens.ItemsSource = null;
+        TermActivationChanges.IsVisible = false;
         _activeTerm = null;
         _check = null;
         PreparedTerms.ItemsSource = null;
@@ -657,6 +685,7 @@ public sealed partial class TermPreparationWindow : Window
             Page.Create => "建立新学期草稿",
             Page.Check when _check is { } current => $"启用前检查 · {current.Term.Name}",
             Page.Check => "启用前检查",
+            Page.ActivationResult => "学期启用结果",
             _ => "学期管理"
         };
         ToolTip.SetTip(TermHeading, TermHeading.Text);
@@ -687,6 +716,7 @@ public sealed partial class TermPreparationWindow : Window
         TermRefresh.Content = pending ? "核对回执" : _page == Page.Check ? "刷新检查" : "刷新";
         TermDiscard.Content = pending ? "结束本次核对" : "放弃输入";
         TermBack.IsEnabled = TermRefresh.IsEnabled = TermDiscard.IsEnabled = !_busy;
+        RenderActivation();
         ApplyLayout();
     }
 

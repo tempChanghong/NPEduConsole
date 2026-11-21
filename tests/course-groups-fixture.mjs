@@ -153,7 +153,7 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   }
 }
 
-export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId}) {
+export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent}) {
   const require = createRequire(join(web, 'package.json'));
   const {chromium} = require('@playwright/test');
   const outDir = join(directory, 'walking-web-build');
@@ -208,6 +208,7 @@ export async function verifyStudentBrowser({origin, web, directory, evidence, sc
       await page.close();
       page = null;
     }
+    if (afterStudent) await afterStudent(browser, url);
   } catch (error) {
     if (page) await page.screenshot({path: join(evidence, 'browser-failure.png')});
     throw error;

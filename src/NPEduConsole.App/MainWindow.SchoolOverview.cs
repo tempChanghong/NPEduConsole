@@ -36,7 +36,7 @@ public sealed partial class MainWindow
         {
             if (task.Action == "OPEN_TERM_PREPARATION")
             {
-                await ShowTermPreparationAsync(client, school);
+                await ShowTermPreparationAsync(client, school, () => { if (StillHere()) _overviewNavigation = null; });
                 if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
@@ -146,7 +146,7 @@ public sealed partial class MainWindow
     {
         string section = task.TargetTab is "organization" or "terms" or "structure" or "teachers" or "screens" or "accounts"
             ? task.TargetTab : "overview";
-        if (SchoolAdminBrowser.Link(overview.AdminUrl, school.Id, overview.Term?.Id, section, task.ScreenId, task.ClassId) is not { } link)
+        if (SchoolAdminBrowser.Link(overview.AdminUrl, school.Id, task.SourceTermId ?? overview.Term?.Id, section, task.ScreenId, task.ClassId) is not { } link)
         {
             SchoolOverviewWorkspace.ShowNavigationMessage("KV 未提供网页地址。请在原 NPClassworks 网页的「学校管理」打开对应入口。");
             return;

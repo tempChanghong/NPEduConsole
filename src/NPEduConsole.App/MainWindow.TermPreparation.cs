@@ -14,7 +14,7 @@ public sealed partial class MainWindow
         if (_client == client && _school == school && _page == ShellPage.Classes) OpenTermPreparationButton.Focus();
     }
 
-    private async Task ShowTermPreparationAsync(ConsoleClient client, School school)
+    private async Task ShowTermPreparationAsync(ConsoleClient client, School school, Action? beforeNavigate = null)
     {
         if (_termPreparationWindow is not null || _client != client || _school != school) return;
         var window = new TermPreparationWindow(client, school)
@@ -28,6 +28,23 @@ public sealed partial class MainWindow
         {
             window.Closed -= Release;
             Release(null, EventArgs.Empty);
+        }
+        if (_client != client || _school != school || !window.ActivationObserved) return;
+        SetInactiveClassesFilter(false);
+        if (window.ActivationDestination is { } target)
+        {
+            beforeNavigate?.Invoke();
+            await OpenShellTargetAsync(target.ClassId, target.ScreenId, target.TermId);
+            if (_client == client && _school == school && _detailScreenId == target.ScreenId && _page == ShellPage.Screen &&
+                target.NeedsPairing && _classroom?.Screens.FirstOrDefault(row => row.Id == target.ScreenId) is { } screen &&
+                _admissionButtons.TryGetValue(target.ScreenId, out var opener))
+                await OpenClassAdmissionAsync(screen, opener);
+        }
+        else
+        {
+            await LoadSchoolAsync(school);
+            if (_client == client && _school == school)
+                await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
         }
 
         void Release(object? sender, EventArgs args)

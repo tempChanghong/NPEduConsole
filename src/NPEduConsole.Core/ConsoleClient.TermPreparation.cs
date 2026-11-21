@@ -11,7 +11,7 @@ public sealed record ManagedAcademicTerm(string Id, string Name, int AcademicYea
     public override string ToString() => $"{Name} · {Period}";
 }
 public sealed record TermPreparationCatalog(string SchoolId, ManagedAcademicTerm? ActiveTerm, ManagedAcademicTerm[] Drafts,
-    bool HasAnyTerm, string? AdminUrl, string? SetupUrl);
+    bool HasAnyTerm, string? AdminUrl, string? SetupUrl, Guid? LatestActivationRequestId = null);
 public sealed record TermDraftSettings(int AcademicYear, int Semester, string Name, string? StartsAt, string? EndsAt,
     bool CarryWorkspaceMembers = true, bool CarryTeachingAssignments = true, bool CarryLeaderships = true, bool CarryPendingInvitations = false);
 public sealed record TermDraftTarget(string Name, int AcademicYear, int Semester, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt);
@@ -41,20 +41,22 @@ public sealed record TermDraftReceipt(Guid RequestId, string TermId, TermDraftCo
 public sealed record TermDraftResult(string State, TermDraftPreview? Preview = null, TermDraftReceipt? Receipt = null);
 public sealed record TermDraftDiagnostic(string Source, string Severity, string Code, string Message, string? TargetTab = null);
 public sealed record TermDraftOriginalClass(string Id, string Name, string Code, string TermId, string TermName);
-public sealed record TermDraftScreenImpact(string BindingId, string Name, TermDraftOriginalClass? FromClass,
-    TermDraftClass? TargetClass, string NativeImpact)
+public record TermDraftScreenImpact(string BindingId, string Name, TermDraftOriginalClass? FromClass,
+    TermDraftClass? TargetClass, string NativeImpact, bool ArchiveInvalidatesNative = false)
 {
     public string Original => FromClass is { } room ? $"{room.Name}（{room.Code}） · {room.TermName}" : "原班待核对";
     public string Target => TargetClass is { } room ? $"{room.Name}（{room.Code}）" : "无匹配的新班";
     public string Impact => FromClass is null ? "原绑定证据不足，请核对。" : NativeImpact switch
     {
-        "REPAIR_REQUIRED" => "若按默认规则改绑，原 NPEduTools 需在现场重新配对。",
-        "NO_REBIND" => "按默认规则没有改绑目标，请核对启用后教室安排。",
-        _ => "原生配对影响待核对。班级代码匹配仅用于拟迁移绑定。"
+        "REPAIR_REQUIRED" => "启用时改绑；原配对会失效，需到教室重新配对。",
+        "NO_REBIND" when ArchiveInvalidatesNative => "无匹配，仍绑定原班；归档会使原配对失效。",
+        "NO_REBIND" => "无匹配，仍绑定原班，待安排。原生配对影响待核对。",
+        _ => "启用时改绑；原生配对影响待核对。"
     };
 }
 public sealed record TermPreparationCheck(string SchoolId, ManagedAcademicTerm Term, ManagedAcademicTerm? ActiveTerm,
-    TermDraftDiagnostic[] BlockingDiagnostics, TermDraftDiagnostic[] Reminders, TermDraftScreenImpact[] Screens);
+    TermDraftDiagnostic[] BlockingDiagnostics, TermDraftDiagnostic[] Reminders, TermDraftScreenImpact[] Screens,
+    TermActivationProof? ActivationProof = null);
 
 public sealed partial class ConsoleClient
 {
@@ -90,6 +92,11 @@ public sealed partial class ConsoleClient
             "TERM_DRAFT_RECEIPT_NOT_FOUND" => "暂未找到原请求的草稿回执。",
             "TERM_DRAFT_REQUEST_INVALID" => "请先核对继承预览，再建立草稿。",
             "TERM_DRAFT_REQUEST_CONFLICT" => "该请求编号已用于其他操作，请先核对原结果。",
+            "TERM_ACTIVATION_CHANGED" => "当前学期或启用依据已变化，请重新核对。",
+            "TERM_ACTIVATION_REQUEST_INVALID" => "请重新读取启用检查后再确认。",
+            "TERM_ACTIVATION_REQUEST_CONFLICT" => "启用请求编号已用于其他操作，请先核对原结果。",
+            "TERM_ACTIVATION_RECEIPT_NOT_FOUND" => "暂未找到本次启用回执。",
+            "TERM_NOT_READY" => "本次检查有教务阻断，无法启用。",
             "TERM_NOT_FOUND" => "该草稿不存在或不在当前学校。",
             _ when status is 404 or 405 or 426 => "当前 KV 尚未提供桌面学期管理，请使用原网页。",
             _ => HttpError(status, false).Message
@@ -154,12 +161,18 @@ public sealed partial class ConsoleClient
         var session = CurrentSession;
         var result = await RequestAsync<TermPreparationCheck>(HttpMethod.Get, $"{TermPreparationPath(school)}/drafts/{Segment(term)}/check", session.Token, ct);
         CheckCreationSession(session, ct);
+        ValidateTermCheck(result, school, term);
+        return result;
+    }
+
+    private static void ValidateTermCheck(TermPreparationCheck result, string school, string term)
+    {
         if (result.SchoolId != school || !ValidTerm(result.Term, "DRAFT") || result.Term.Id != term ||
             result.ActiveTerm is { } active && !ValidTerm(active, "ACTIVE") || result.Screens is null ||
             result.BlockingDiagnostics is null || result.Reminders is null ||
             result.Screens.Any(row => string.IsNullOrWhiteSpace(row.BindingId) || row.NativeImpact is not ("NO_REBIND" or "VERIFY" or "REPAIR_REQUIRED")) ||
-            result.Screens.Select(row => row.BindingId).Distinct().Count() != result.Screens.Length) throw InvalidResponse();
-        return result;
+            result.Screens.Select(row => row.BindingId).Distinct().Count() != result.Screens.Length ||
+            result.ActivationProof is not null && !ValidActivationProof(result.ActivationProof, result.Screens)) throw InvalidResponse();
     }
 
     private static bool ValidTerm(ManagedAcademicTerm? term, string status) =>
