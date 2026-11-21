@@ -216,6 +216,16 @@ async function seed() {
     });
   }
   const studyDate = classStudy ? nextStudyMonday() : null;
+  if (firstScreen) {
+    // Fill the old global prefix with a different school's identically named class.
+    const otherTerm = await prisma.academicTerm.create({data: {schoolId: other.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: term.name}});
+    const otherGrade = await prisma.grade.create({data: {termId: otherTerm.id, name: grade.name, code: grade.code}});
+    const duplicate = await prisma.workspace.create({data: {termId: otherTerm.id, gradeId: otherGrade.id, name: '高二（3）班', code: 'G2-3', type: 'ADMIN_CLASS'}});
+    await prisma.classroomScreenBinding.createMany({data: Array.from({length: 205}, (_, i) => ({
+      id: '000-screen-' + String(i).padStart(3, '0'), schoolId: other.id, administrativeClassId: duplicate.id,
+      name: '教学屏' + (i + 1), tokenHash: randomBytes(32).toString('hex'), createdByAccountId: manager.id,
+    }))});
+  }
   if (studyDate) await seedClassStudy(prisma, { school, term, manager, grade, classes, date: studyDate });
   return { school, other, term, classes, devices, revokedDeviceId, pin, identity, classroomBearer, studyDate };
 }

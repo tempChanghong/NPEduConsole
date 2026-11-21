@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using NPEduConsole.Core;
+using NPEduTools.Contracts;
 using NPEduTools.Integrations.Npep;
 
 var file = Path.GetFullPath(args.Single());
@@ -52,19 +53,52 @@ await Expect(409, "FIRST_SCREEN_EXISTS", () => admin.PrepareFirstScreenAsync(ori
 var prepared = await admin.GetClassAdmissionAsync(fixture.SchoolId, empty.Id, binding, ct);
 Check(!prepared.Configured && !prepared.Enabled, "Registration alone cannot authorize password admission.");
 
-using (var native = new NpepDevice(directory))
+await using (var runtime = new NpepRuntime(directory, "acceptance", () => new(Protocol.Version, Guid.NewGuid(), "Succeeded", null, "")))
 {
-    var info = await native.InspectServerAsync(fixture.Origin, ct);
-    var catalogue = await native.ClassCatalogueAsync(fixture.Origin, ct);
-    var selected = catalogue["items"]!.AsArray().Single(row => (string?)row?["screenBindingId"] == binding)!;
+    async Task<NpepState> Command(NpepCommand command)
+    {
+        var request = new HostRequest(Protocol.Version, Guid.NewGuid(), "npep.command", Npep: command with {Revision = runtime.Snapshot().Revision});
+        Check(Protocol.Validate(request) is null && runtime.Handle(request).Outcome == "Accepted", "Host must accept " + command.Action);
+        while (runtime.Snapshot().Busy) await Task.Delay(20, ct);
+        var response = runtime.Handle(new(Protocol.Version, Guid.NewGuid(), "npep.status"));
+        using var pipe = new MemoryStream();
+        await Protocol.WriteAsync(pipe, response, ct);
+        pipe.Position = 0;
+        var state = (await Protocol.ReadAsync<HostResponse>(pipe, ct)).Npep!;
+        Check(state.Error is null, "Host command failed: " + state.Error);
+        return state;
+    }
+    var inspected = await Command(new("inspect", 0, Origin: fixture.Origin));
+    var catalogue = inspected.Catalogue!;
+    Check((bool)catalogue["truncated"]! && catalogue["items"]!.AsArray().All(row => (string?)row?["screenBindingId"] != binding),
+        "The new screen must be outside the legacy global preview.");
+    var find = new NpepCommand("find-class", 0, fixture.Origin, ServerInstanceId: (string?)inspected.Server!["serverInstanceId"],
+        DeploymentEpoch: (string?)inspected.Server["deploymentEpoch"], SchoolQuery: "OTHER", ClassQuery: empty.Name);
+    var seen = new HashSet<string>();
+    string? cursor = null;
+    do {
+        var page = (await Command(find with { CatalogueAfter = cursor })).Catalogue!;
+        var rows = page["items"]!.AsArray();
+        Check(rows.Count is > 0 and <= 24 && rows.All(r => (string?)r?["schoolId"] == fixture.OtherSchoolId && seen.Add((string)r!["screenBindingId"]!)),
+            "Scope and unique screen identities must survive pagination.");
+        cursor = (string?)page["nextCursor"];
+    } while (cursor is not null);
+    Check(seen.Count == 205, "All 205 same-name screens at the other school must be reachable.");
+    foreach (string term in new[] { "高二", "%", "G2-4" })
+        Check((await Command(find with {SchoolQuery = fixture.SchoolCode, ClassQuery = term})).Catalogue!["items"]!.AsArray().Count == 0,
+            "Partial names, wildcards and retired screens must not match.");
+    var scoped = (await Command(find with { SchoolQuery = fixture.SchoolCode.ToLowerInvariant(), ClassQuery = "g2-3" })).Catalogue!;
+    var selected = scoped["items"]!.AsArray().Single()!;
+    Check((string?)selected["screenBindingId"] == binding && (string?)selected["schoolId"] == fixture.SchoolId, "Search isolates the selected school.");
     Check((string?)selected["classId"] == empty.Id && !(bool)selected["preauthorized"]!, "Native catalogue shows the exact unapproved screen.");
     var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(20));
     var enabled = await admin.EnableClassAdmissionAsync(prepared, secret, Guid.NewGuid(), ct);
     Check(enabled.IsReady, "A separate explicit action enables admission.");
-    await native.BeginClassAsync(fixture.Origin, info, "验收教室终端", "acceptance", binding, secret, ct);
-    var approval = (await native.PollApprovalAsync(ct))["approval"]!;
-    Check((string?)approval["administrativeClassId"] == empty.Id && (string?)approval["screenBindingId"] == binding, "Native confirms the selected class and screen.");
-    await native.ConfirmAsync((string)approval["approvalId"]!, ct);
+    var paired = await Command(new("password-class", 0, fixture.Origin, "验收教室终端", find.ServerInstanceId, find.DeploymentEpoch,
+        ScreenBindingId: binding, ManagementSecret: secret));
+    Check(paired.State == "ACTIVE" && paired.Catalogue is null, "Selected screen should be active.");
+    Check(runtime.Handle(new(Protocol.Version, Guid.NewGuid(), "npep.command", Npep: find with {Revision = paired.Revision})).Outcome == "Rejected",
+        "An active device cannot start an admission lookup.");
 }
 using (var restarted = new NpepDevice(directory))
 {
@@ -77,7 +111,7 @@ using (var restarted = new NpepDevice(directory))
 }
 await relay.LogoutAsync(ct);
 await admin.LogoutAsync(ct);
-Console.WriteLine("PASS: isolated Console -> KV -> native NPEduTools client, acknowledgement recovery, explicit admission, native restart and status in Console.");
+Console.WriteLine("PASS: global overflow, exact multi-school search, all 205 screens, Host IPC, explicit admission, restart and status in Console.");
 
 static void Check(bool value, string message)
 {
