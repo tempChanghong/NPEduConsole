@@ -20,7 +20,9 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args is not ([_] or ["--live" or "--live-grade", _, _])) throw new ArgumentException("Specify an output directory or --live/--live-grade <fixture.json> <directory>.");
+        if (args is not ([_] or ["--live" or "--live-grade", _, _] or ["--live-grade-rename", _, _]))
+            throw new ArgumentException("Specify an output directory, --live/--live-grade <fixture.json> <directory>, or --live-grade-rename <fixture.json> <directory>.");
+        if (args[0] == "--live-grade-rename") return StartGradeRename(args[1], args[^1]);
         bool gradeCreation = args[0] == "--live-grade";
         using var fixture = args.Length == 1 ? new Fixture() : null;
         var access = fixture?.Access ?? JsonSerializer.Deserialize<Access>(File.ReadAllText(args[1]), JsonSerializerOptions.Web)!;

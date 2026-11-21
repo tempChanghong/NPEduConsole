@@ -43,8 +43,12 @@
             <StackPanel x:Name="CreationFields" Spacing="10" IsEnabled="False">
               <StackPanel Spacing="4">
                 <TextBlock Text="所属年级" Classes="label" />
-                <ComboBox x:Name="CreationGrade" PlaceholderText="选择现有年级" HorizontalAlignment="Stretch"
-                          AutomationProperties.Name="所属年级" SelectionChanged="FieldsChanged" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <ComboBox x:Name="CreationGrade" PlaceholderText="选择现有年级" HorizontalAlignment="Stretch"
+                            AutomationProperties.Name="所属年级" SelectionChanged="FieldsChanged" />
+                  <Button x:Name="OpenGradeRenameButton" Grid.Column="1" Content="修改名称" Classes="action"
+                          Click="OpenGradeRenameClicked" IsEnabled="False" AutomationProperties.Name="修改年级名称" />
+                </Grid>
               </StackPanel>
               <StackPanel Spacing="4">
                 <TextBlock Text="班级名称" Classes="label" />
@@ -58,6 +62,26 @@
                 <TextBlock Text="2–64 位，以英文字母或数字开头，可使用 . _ -，保存时自动转为大写。" Classes="muted" />
               </StackPanel>
               <CheckBox x:Name="CreationStudentSelectable" Content="允许学生自行选择此行政班" IsChecked="True" />
+            </StackPanel>
+            <StackPanel x:Name="GradeRenameFields" Spacing="10" IsVisible="False">
+              <TextBlock x:Name="GradeRenameTarget" Classes="muted" TextWrapping="Wrap" />
+              <StackPanel Spacing="4">
+                <TextBlock Text="年级名称（仅修改名称）" Classes="label" />
+                <TextBox x:Name="RenameGradeName" PlaceholderText="输入新的年级名称" AutomationProperties.Name="新年级名称"
+                         TextChanged="GradeRenameFieldsChanged" />
+                <TextBlock x:Name="GradeRenameServerName" Classes="muted" TextWrapping="Wrap" IsVisible="False"
+                           AutomationProperties.LiveSetting="Polite" />
+              </StackPanel>
+              <WrapPanel ItemSpacing="8" LineSpacing="8">
+                <Button x:Name="SubmitGradeRenameButton" Content="保存名称" Classes="action accent"
+                        Click="SubmitGradeRenameClicked" />
+                <Button x:Name="CheckGradeRenameButton" Content="只读核对" Classes="action" IsVisible="False"
+                        Click="CheckGradeRenameClicked" />
+                <Button x:Name="CancelGradeRenameButton" Content="返回建班" Classes="action"
+                        Click="CancelGradeRenameClicked" />
+              </WrapPanel>
+              <TextBlock Text="改名期间建班表单临时收起，班级代码、年级代码、学生名单和已填写的班级草稿都会保留；返回建班后继续。" Classes="muted"
+                         TextWrapping="Wrap" />
             </StackPanel>
           </StackPanel>
         </Border>

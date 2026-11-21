@@ -1,8 +1,12 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace NPEduConsole.Core;
 
-public sealed record ClassCreationGrade(string Id, string Code, string Name);
+public sealed record ClassCreationGrade(string Id, string Code, string Name)
+{
+    public string? UpdatedAt { get; init; }
+}
 
 public sealed class ClassCreationContext
 {
@@ -25,14 +29,17 @@ public sealed class ClassCreationContext
 public sealed partial class ConsoleClient
 {
     private sealed record CreationTerm(string Id, string SchoolId, string Name, string Status);
-    private sealed record CreationGradeRow(string Id, string TermId, string Code, string Name);
+    private sealed record CreationGradeRow(string Id, string TermId, string Code, string Name, string? UpdatedAt = null);
     private sealed record CreationDirectory(CreationTerm? Term, CreationGradeRow[] Grades);
     private sealed record CreatedClass(string Id, string SchoolId, string TermId, string GradeId, Guid RequestId);
     private sealed record GradeCreationReceipt(string SchoolId, string TermId, Guid RequestId, ClassCreationGrade? Grade);
+    private sealed record GradeRenameRow(string Id, string Code, string Name, string? UpdatedAt);
+    private sealed record GradeRenameReceipt(string SchoolId, string TermId, GradeRenameRow Grade);
 
     private const string CurrentClassesSuffix = "/current-term/administrative-classes";
     private const string CurrentGradesSuffix = "/current-term/grades";
     private static string CurrentClassesPath(string schoolId) => $"api/v2/admin/schools/{Segment(schoolId)}{CurrentClassesSuffix}";
+    private static string CurrentGradesPath(string schoolId) => $"api/v2/admin/schools/{Segment(schoolId)}{CurrentGradesSuffix}";
 
     public async Task<ClassCreationContext> GetClassCreationContextAsync(string schoolId, CancellationToken ct)
     {
@@ -53,7 +60,7 @@ public sealed partial class ConsoleClient
         {
             if (grade is null || grade.TermId != term.Id || string.IsNullOrWhiteSpace(grade.Id) || !seen.Add(grade.Id) ||
                 string.IsNullOrWhiteSpace(grade.Code) || string.IsNullOrWhiteSpace(grade.Name)) throw InvalidResponse();
-            grades.Add(new(grade.Id, grade.Code, grade.Name));
+            grades.Add(new(grade.Id, grade.Code, grade.Name) { UpdatedAt = ValidateUpdatedAt(grade.UpdatedAt) });
         }
         return new(session.Id, schoolId, term.Id, term.Name, grades.ToArray());
     }
@@ -85,6 +92,33 @@ public sealed partial class ConsoleClient
     public Task<ClassCreationGrade?> GetCurrentGradeCreationResultAsync(ClassCreationContext context, string code, string name,
         Guid requestId, CancellationToken ct) => RequestGradeReceiptAsync(context, code, name, requestId, ct, create: false);
 
+    public async Task<ClassCreationGrade> RenameCurrentGradeAsync(ClassCreationContext context, string gradeId, string name,
+        CancellationToken ct)
+    {
+        var session = CurrentSession;
+        if (session.Id != context.SessionId) throw new ConsoleApiException(409, "登录账号已切换，请重新载入年级。", "SNAPSHOT_CHANGED");
+        if (context.TermId is not { } termId)
+            throw new ConsoleApiException(422, "当前学校暂无启用学期，无法修改年级名称。", "GRADE_INVALID");
+        var current = context.Grades.FirstOrDefault(grade => grade.Id == gradeId);
+        if (current is null)
+            throw new ConsoleApiException(404, "当前年级已不在本学期，请刷新年级列表。", "GRADE_NOT_FOUND");
+        if (current.UpdatedAt is null)
+            throw new ConsoleApiException(409, "当前年级缺少版本信息，无法安全修改名称。请刷新年级列表或升级 KV。",
+                "GRADE_RENAME_UNAVAILABLE");
+        name = name.Trim();
+        if (name.Length is < 1 or > 191)
+            throw new ConsoleApiException(422, "年级名称需为 1 至 191 个字符。", "GRADE_INVALID");
+
+        var path = $"{CurrentGradesPath(context.SchoolId)}/{Segment(gradeId)}/name";
+        var receipt = await RequestAsync<GradeRenameReceipt>(HttpMethod.Patch, path, session.Token, ct,
+            body: new { termId, name, expectedUpdatedAt = current.UpdatedAt });
+        CheckCreationSession(session, ct);
+        if (receipt.SchoolId != context.SchoolId || receipt.TermId != termId || receipt.Grade is not { } grade ||
+            grade.Id != gradeId || grade.Code != current.Code || grade.Name != name) throw InvalidResponse();
+        _ = Segment(grade.Id);
+        return new(grade.Id, grade.Code, grade.Name) { UpdatedAt = ValidateUpdatedAt(grade.UpdatedAt) ?? throw InvalidResponse() };
+    }
+
     private async Task<ClassCreationGrade?> RequestGradeReceiptAsync(ClassCreationContext context, string code, string name,
         Guid requestId, CancellationToken ct, bool create)
     {
@@ -94,7 +128,7 @@ public sealed partial class ConsoleClient
         name = name.Trim();
         if (context.TermId is not { } termId || requestId == Guid.Empty || !ValidCreationCode(code) || name.Length is < 1 or > 191)
             throw new ConsoleApiException(422, "请核对当前学期、年级名称和代码。代码为 2 至 64 位，以字母或数字开头。", "GRADE_INVALID");
-        var path = $"api/v2/admin/schools/{Segment(context.SchoolId)}{CurrentGradesSuffix}";
+        var path = CurrentGradesPath(context.SchoolId);
         var result = create
             ? await RequestAsync<GradeCreationReceipt>(HttpMethod.Post, path, session.Token, ct, body: new { termId, requestId, code, name })
             : await RequestAsync<GradeCreationReceipt>(HttpMethod.Get, $"{path}/{requestId:D}?termId={Segment(termId)}", session.Token, ct);
@@ -104,11 +138,24 @@ public sealed partial class ConsoleClient
         {
             _ = Segment(grade.Id);
             if (grade.Code != code || grade.Name != name) throw InvalidResponse();
+            _ = ValidateUpdatedAt(grade.UpdatedAt);
         }
         return result.Grade;
     }
 
     private static bool ValidCreationCode(string code) => Regex.IsMatch(code, @"\A[A-Z0-9][A-Z0-9._-]{1,63}\z");
+
+    private static string? ValidateUpdatedAt(string? updatedAt)
+    {
+        if (updatedAt is null) return null;
+        if (!DateTimeOffset.TryParseExact(updatedAt, "yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal, out _)) throw InvalidResponse();
+        return updatedAt;
+    }
+
+    private static bool IsGradeRenamePath(string path) =>
+        path.Contains(CurrentGradesSuffix + "/", StringComparison.Ordinal) &&
+        path.EndsWith("/name", StringComparison.Ordinal);
 
     private void CheckCreationSession(Session session, CancellationToken ct)
     {
@@ -143,6 +190,27 @@ public sealed partial class ConsoleClient
             "GRADE_CREATION_REQUEST_CONFLICT" => "此请求无法确认本次创建，请刷新核对年级。",
             "GRADE_INVALID" => "请核对年级名称和代码。",
             _ => HttpError(status, false).Message
+        }, code);
+    }
+
+    private static ConsoleApiException GradeRenameError(int status, string? code)
+    {
+        if ((status is 404 or 405 or 426) && code != "GRADE_NOT_FOUND")
+            return new(status, "当前 KV 缺少年级改名接口，请升级 KV 后重试。", "GRADE_RENAME_UNSUPPORTED");
+        return new(status, code switch
+        {
+            "ORGANIZATION_VERSION_CONFLICT" => "年级名称已被其他管理员修改，请核对服务器当前名称后再确认。",
+            "GRADE_RENAME_TERM_CHANGED" => "当前启用学期已变更，请刷新学期与年级后重新选择。",
+            "GRADE_NOT_FOUND" => "该年级已不在当前学期，请刷新年级列表。",
+            "GRADE_INVALID" => "请核对年级名称（1 至 191 个字符）。",
+            "EXPECTED_UPDATED_AT_INVALID" => "年级版本信息已失效，请刷新年级列表后重新选择。",
+            "GRADE_RENAME_UNAVAILABLE" => "当前年级缺少版本信息，请刷新年级列表或升级 KV。",
+            _ => status switch
+            {
+                409 => "年级名称已在服务器变化，请刷新后核对。",
+                422 => "KV 未接受该年级名称，请核对后重试。",
+                _ => HttpError(status, false).Message
+            }
         }, code);
     }
 }

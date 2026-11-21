@@ -323,6 +323,8 @@ public sealed partial class ConsoleClient : IDisposable
                 int status = (int)response.StatusCode;
                 if (path.EndsWith(CurrentClassesSuffix, StringComparison.Ordinal) && status is 404 or 409 or 422)
                     throw ClassCreationError(status, await AcademicErrorCodeAsync(response, ct));
+                if (IsGradeRenamePath(path))
+                    throw GradeRenameError(status, await AcademicErrorCodeAsync(response, ct));
                 if ((path.EndsWith(CurrentGradesSuffix, StringComparison.Ordinal) || path.Contains(CurrentGradesSuffix + "/", StringComparison.Ordinal)) &&
                     status is 404 or 409 or 422 or 426)
                     throw GradeCreationError(status, await AcademicErrorCodeAsync(response, ct));

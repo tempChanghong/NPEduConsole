@@ -48,9 +48,23 @@ public sealed partial class MainWindow
 
         if (created is null)
         {
+            bool gradeRefreshed = false;
+            if (window.GradeDirectoryChanged)
+            {
+                gradeRefreshed = await RefreshAfterGradeRenameAsync(client, school);
+                if (_client != client || _school != school || _classCreationWindow is not null) return;
+            }
             if (_unconfirmedGradeCreations.ContainsKey(school.Id)) ShowUnconfirmedGradeCreation();
             else if (_unconfirmedClassCreations.ContainsKey(school.Id)) ShowUnconfirmedClassCreation();
+            else if (window.RenameConfirmed && window.RenamedGradeName is { } renamed)
+                SetClassCreationNotice(gradeRefreshed
+                    ? $"本次保存的名称「{renamed}」已确认。班级列表已刷新。"
+                    : $"本次保存的名称「{renamed}」已确认。班级列表暂未刷新，可点击「刷新」重试。");
             else if (window.CloseNotice is { } notice) SetClassCreationNotice(notice);
+            else if (window.GradeDirectoryChanged)
+                SetClassCreationNotice(gradeRefreshed
+                    ? "已按服务器当前名称刷新年级，所选班级已保留。"
+                    : "年级名称可能已在服务器更新，但班级列表暂未刷新；所选班级已保留，可点击「刷新」重试。");
             else if (_createdClassToOpen is null) SetClassCreationNotice(null);
             OpenClassCreationButton.Focus();
             return;
@@ -89,6 +103,26 @@ public sealed partial class MainWindow
         {
             if (_openingCreatedClass == created) _openingCreatedClass = null;
         }
+    }
+
+    private async Task<bool> RefreshAfterGradeRenameAsync(ConsoleClient client, School school)
+    {
+        if (_client != client || _school != school) return false;
+        var selected = _classroom;
+        var selectedDevice = _device;
+        var previousRooms = (ClassPicker.ItemsSource as IEnumerable<Classroom>)?.ToArray() ?? [];
+        bool refreshed = await LoadSchoolAsync(school, selected?.Id, selectedDevice);
+        if (_client != client || _school != school) return false;
+        if (refreshed || selected is null || ClassPicker.ItemsSource is not null) return refreshed;
+
+        // A failed list refresh must not silently clear the class the manager was working in.
+        _settingSelection = true;
+        ClassPicker.ItemsSource = previousRooms;
+        var restored = previousRooms.FirstOrDefault(room => room.Id == selected.Id);
+        ClassPicker.SelectedItem = restored;
+        _settingSelection = false;
+        if (restored is not null) await SelectClassroomAsync(restored, selectedDevice);
+        return false;
     }
 
     private void ChangeClassCreationSchool(School? school)

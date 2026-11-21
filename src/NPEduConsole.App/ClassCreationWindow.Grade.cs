@@ -102,7 +102,8 @@ public sealed partial class ClassCreationWindow
             _editingGrade = _contextInvalid = false;
             NewGradeName.Clear();
             NewGradeCode.Clear();
-            bool exactGrade = directory.TermId == submission.Context.TermId && directory.Grades.Contains(grade);
+            bool exactGrade = directory.TermId == submission.Context.TermId && directory.Grades.Any(candidate =>
+                candidate.Id == grade.Id && candidate.Code == grade.Code && candidate.Name == grade.Name);
             ShowContext(directory, exactGrade ? grade.Id : null);
             CloseNotice = exactGrade ? $"已创建年级「{grade.Name}」，可继续新建行政班。"
                 : "年级已创建，但当前学期或原年级记录已变化，请核对年级列表。";
@@ -159,7 +160,8 @@ public sealed partial class ClassCreationWindow
     private void RenderGradeCreation(bool busy)
     {
         OpenGradeCreationButton.IsVisible = !_editingGrade;
-        OpenGradeCreationButton.IsEnabled = !busy && GradeContextReady && !_gradeUnsupported && _pending is null;
+        OpenGradeCreationButton.IsEnabled = !busy && GradeContextReady && !_gradeUnsupported && _pending is null &&
+            !_editingGradeRename;
         GradeCreationFields.IsVisible = _editingGrade;
         NewGradeName.IsEnabled = NewGradeCode.IsEnabled = !busy && GradeContextReady && !_gradeUnsupported && _pendingGrade is null;
         SubmitGradeCreationButton.Content = _pendingGrade is null ? "创建年级" : _gradeRetryReady ? "重试原请求" : "核对结果";
