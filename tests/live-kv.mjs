@@ -15,11 +15,13 @@ import { cameras, microphones, startClassroomDevice } from './classroom-device.m
 import { nextStudyMonday, seedClassStudy } from './class-study-fixture.mjs';
 import { prepareSchoolAudit } from './school-audit-fixture.mjs';
 import { prepareClassRoster } from './class-roster-fixture.mjs';
+import { prepareClassCreation } from './class-creation-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
-  '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster'].includes(mode)),
+  '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
+  '--class-creation', '--serve-class-creation'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -28,7 +30,8 @@ const classAdmission = mode === '--class-admission' || mode === '--serve-class-a
 const classStudy = mode === '--class-study' || mode === '--serve-class-study';
 const schoolAudit = mode === '--school-audit' || mode === '--serve-school-audit';
 const classRoster = mode === '--class-roster' || mode === '--serve-class-roster';
-const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster;
+const classCreation = mode === '--class-creation' || mode === '--serve-class-creation';
+const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation;
 const kv = resolve(checkout);
 const fromKv = path => import(pathToFileURL(join(kv, path)).href);
 const kvRequire = createRequire(join(kv, 'package.json'));
@@ -44,7 +47,7 @@ let prisma, server, stopClassroom, lostReply;
 
 // Model a gateway losing an acknowledgement after KV has already committed.
 // The destination is pinned to this run's loopback fixture for every request.
-async function loseWriteReply(origin, matches, method = 'POST') {
+async function loseWriteReply(origin, matches, method = 'POST', dropStatus = 200) {
   const target = new URL(origin);
   let committedRequests = 0;
   let attempts = 0;
@@ -53,7 +56,7 @@ async function loseWriteReply(origin, matches, method = 'POST') {
     if (watched) attempts++;
     const forward = httpRequest({ hostname: '127.0.0.1', port: target.port, method: req.method,
       path: req.url, headers: { ...req.headers, host: target.host } }, upstream => {
-      if (watched && upstream.statusCode === 200) {
+      if (watched && upstream.statusCode === dropStatus) {
         committedRequests++;
         upstream.resume();
         upstream.on('end', () => { res.writeHead(502); res.end(); });
@@ -397,7 +400,7 @@ async function runFixture() {
   const databasePort = await createDatabase();
   ({ prisma } = await fromKv('utils/prisma.js'));
   const fixture = await seed();
-  if (classRoster) process.env.NPEP_ENABLED = 'false';
+  if (classRoster || classCreation) process.env.NPEP_ENABLED = 'false';
   if (mode === '--server-status') delete process.env.KV_BACKUP_STATUS_DIR;
   const { default: app } = await fromKv('app.js');
   server = await new Promise((res, rej) => {
@@ -408,6 +411,7 @@ async function runFixture() {
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   const audit = schoolAudit ? await prepareSchoolAudit(prisma, origin, fixture) : null;
   const roster = classRoster ? await prepareClassRoster(prisma, origin, fixture) : null;
+  const creation = classCreation ? await prepareClassCreation(prisma, origin, fixture) : null;
   if (runDeviceFixture) {
     stopClassroom = await startClassroomDevice(origin, fixture.identity, fixture.classroomBearer,
       { checkIncompleteReceipts: !serve && !localAuthorization, simulateLocalAuthorization: localAuthorization,
@@ -423,6 +427,7 @@ async function runFixture() {
   if (classAdmission) lostReply = await loseWriteReply(origin, path => path.includes('/class-management/'));
   else if (classStudy) lostReply = await loseWriteReply(origin, path => path.endsWith('/study-settings'));
   else if (!serve && classRoster) lostReply = await loseWriteReply(origin, path => path.endsWith('/students'), 'PUT');
+  else if (classCreation) lostReply = await loseWriteReply(origin, path => path.endsWith('/current-term/administrative-classes'), 'POST', 201);
   else if (!serve && !softwareUpdate && runDeviceFixture) lostReply = await loseWriteReply(origin, path => path.endsWith('/equipment'));
   await writeFile(access, JSON.stringify({
     origin, schoolCode: fixture.school.code, username: 'admin', viewer: 'viewer', password: fixture.pin,
@@ -430,10 +435,12 @@ async function runFixture() {
     lostReplyOrigin: lostReply?.origin,
     ...audit?.access,
     ...roster?.access,
+    ...creation?.access,
     ...(softwareUpdate || classStudy ? { classroomBearer: fixture.classroomBearer, deviceIdentity: fixture.identity } : {}),
     ...(classStudy ? { termId: fixture.term.id, studyDate: fixture.studyDate } : {}),
   }), { mode: 0o600 });
-  const project = classRoster ? './NPEduConsole.RosterSmoke/NPEduConsole.RosterSmoke.csproj' :
+  const project = classCreation ? './NPEduConsole.ClassCreationSmoke/NPEduConsole.ClassCreationSmoke.csproj' :
+    classRoster ? './NPEduConsole.RosterSmoke/NPEduConsole.RosterSmoke.csproj' :
     schoolAudit ? './NPEduConsole.AuditSmoke/NPEduConsole.AuditSmoke.csproj' :
     classStudy ? './NPEduConsole.StudySmoke/NPEduConsole.StudySmoke.csproj' : './NPEduConsole.Smoke/NPEduConsole.Smoke.csproj';
   const smoke = fileURLToPath(new URL(project, import.meta.url));
@@ -451,6 +458,13 @@ async function runFixture() {
     console.log('PASS: KV committed exactly one write through the lost-reply relay.');
   }
   if (!serve && audit) await audit.verifyRevocation();
+  if (!serve && creation) {
+    assert.equal(lostReply.count(), 1, 'only the original creation returned 201');
+    assert.equal(lostReply.attempts(), 2, 'the original and the explicit confirmation retry');
+    await creation.verify();
+    run(process.execPath, ['--test', 'tests/managementDatabase.integration.test.js'], {...process.env, RUN_DATABASE_TESTS: 'true'});
+    console.log('PASS: live KV database management tests, including actor-bound retries and desktop/web creation races.');
+  }
   if (!serve && roster) {
     assert.equal(lostReply.count(), 1);
     assert.equal(lostReply.attempts(), 1, 'no automatic resubmission after a lost roster reply');

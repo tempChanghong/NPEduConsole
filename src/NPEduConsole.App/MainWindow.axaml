@@ -93,14 +93,18 @@
                     AutomationProperties.Name="获授权学校" SelectionChanged="SchoolChanged" />
           <Button x:Name="OpenSchoolAuditButton" Grid.Row="2" Content="审计记录" Classes="action"
                   HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SchoolAuditClicked" IsEnabled="False" />
-          <TextBlock x:Name="ClassPickerHeading" Grid.Row="3" Text="班级" Classes="label" Margin="0,9,0,1" />
+          <Grid x:Name="ClassPickerHeading" Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,5,0,0">
+            <TextBlock Text="班级" Classes="label" VerticalAlignment="Center" />
+            <Button x:Name="OpenClassCreationButton" Grid.Column="1" Classes="action" MinHeight="36" Content="新建行政班"
+                    Click="OpenClassCreationClicked" IsEnabled="False" />
+          </Grid>
           <Grid x:Name="ClassPickerPanel" Grid.Row="4">
             <ListBox x:Name="ClassPicker" Background="Transparent" SelectionChanged="ClassChanged" AutomationProperties.Name="班级" />
             <TextBlock x:Name="ClassListMessage" Classes="muted" IsHitTestVisible="False" Text="请先选择学校。" Margin="3,8,3,0" />
           </Grid>
         </Grid>
       </Border>
-      <Grid x:Name="ClassManagementWorkspace" Grid.Column="1" RowDefinitions="Auto,*">
+      <Grid x:Name="ClassManagementWorkspace" Grid.Column="1" RowDefinitions="Auto,Auto,*">
         <Grid ColumnDefinitions="*,Auto" Margin="29,24,29,12">
           <StackPanel Spacing="5">
             <TextBlock x:Name="ClassContext" Classes="muted" />
@@ -112,7 +116,10 @@
             <Button x:Name="RefreshButton" Classes="action" Content="刷新" Click="RefreshClicked" IsEnabled="False" />
           </StackPanel>
         </Grid>
-        <ScrollViewer x:Name="ClassWorkspaceScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <Border x:Name="ClassCreationNotice" Grid.Row="1" Classes="card" Margin="29,0,29,12" Padding="14,10" IsVisible="False">
+          <TextBlock x:Name="ClassCreationNoticeText" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+        </Border>
+        <ScrollViewer x:Name="ClassWorkspaceScroll" Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="29,0,29,25" Spacing="16">
             <StackPanel x:Name="ClassDeviceWorkspace" Spacing="16">
             <ProgressBar x:Name="WorkspaceProgress" IsVisible="False" IsIndeterminate="True" Height="4" />

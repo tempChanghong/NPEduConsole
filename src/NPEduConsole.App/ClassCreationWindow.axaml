@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPEduConsole.App.ClassCreationWindow" Title="新建行政班" Width="530" Height="660" MinWidth="440" MinHeight="480"
+        WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="TextBlock.creation-error">
+      <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{StaticResource CanvasBrush}">
+    <Border Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,16">
+      <StackPanel Spacing="5">
+        <TextBlock x:Name="CreationSchool" Classes="muted" />
+        <TextBlock Text="新建行政班" FontSize="24" FontWeight="SemiBold" />
+      </StackPanel>
+    </Border>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="22,14" Spacing="10">
+        <Border Classes="card" Padding="16">
+          <StackPanel Spacing="12">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <StackPanel Spacing="3" VerticalAlignment="Center">
+                <TextBlock Text="当前学期" Classes="label" />
+                <TextBlock x:Name="CreationTerm" Classes="muted" />
+              </StackPanel>
+              <Button x:Name="ReloadCreationContext" Grid.Column="1" Content="刷新学期与年级" Classes="action" Click="ReloadClicked" />
+            </Grid>
+            <StackPanel x:Name="CreationFields" Spacing="10" IsEnabled="False">
+              <StackPanel Spacing="4">
+                <TextBlock Text="所属年级" Classes="label" />
+                <ComboBox x:Name="CreationGrade" PlaceholderText="选择现有年级" HorizontalAlignment="Stretch"
+                          AutomationProperties.Name="所属年级" SelectionChanged="FieldsChanged" />
+              </StackPanel>
+              <StackPanel Spacing="4">
+                <TextBlock Text="班级名称" Classes="label" />
+                <TextBox x:Name="CreationName" PlaceholderText="例如：高二（1）班" AutomationProperties.Name="班级名称"
+                         TextChanged="FieldsChanged" />
+              </StackPanel>
+              <StackPanel Spacing="4">
+                <TextBlock Text="班级代码" Classes="label" />
+                <TextBox x:Name="CreationCode" PlaceholderText="例如：G2-C01" AutomationProperties.Name="班级代码"
+                         TextChanged="FieldsChanged" LostFocus="NormalizeCode" />
+                <TextBlock Text="2–64 位，以英文字母或数字开头，可使用 . _ -，保存时自动转为大写。" Classes="muted" />
+              </StackPanel>
+              <CheckBox x:Name="CreationStudentSelectable" Content="允许学生自行选择此行政班" IsChecked="True" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <TextBlock x:Name="CreationFeedback" Classes="muted" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,10">
+      <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+        <Button x:Name="CloseClassCreationButton" Content="关闭" Classes="action" Click="CloseClicked" />
+        <Button x:Name="SubmitClassCreationButton" Content="创建并录入名单" Classes="action accent" Click="SubmitClicked" IsEnabled="False" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

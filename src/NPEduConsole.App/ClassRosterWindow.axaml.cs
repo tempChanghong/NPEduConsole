@@ -39,6 +39,7 @@ public sealed partial class ClassRosterWindow : Window
     }
 
     public event Action<ConsoleApiException>? SessionExpired;
+    internal bool HasConfirmedSave { get; private set; }
 
     public ClassRosterWindow()
     {
@@ -94,6 +95,7 @@ public sealed partial class ClassRosterWindow : Window
                      _rawSubmittedDraft is { } raw && Rows().SequenceEqual(raw))
             {
                 SetBaseline(roster);
+                HasConfirmedSave = true;
                 SetFeedback("已核对，服务器名单与本次提交一致。");
             }
             else
@@ -295,6 +297,7 @@ public sealed partial class ClassRosterWindow : Window
             var saved = await client.SaveClassRosterAsync(baseline, preview, request.Token);
             if (_request != request) return;
             SetBaseline(saved);
+            HasConfirmedSave = true;
             SetFeedback("名单已保存。在线大屏将在同步时更新。");
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }

@@ -22,13 +22,21 @@
 
 网页版仍承接 OAuth 管理账号和指定其他学期的名单维护。退役该入口前，需确认这两类使用场景都有可用的入口。
 
+## 在已有年级开班
+
+管理员选择学校后，点击「新建行政班」，选择当前学期的年级，填写班名和代码，按需调整「允许学生自行选择此行政班」。学校只有年级、还没有班时也可以操作。班级代码在整个学期的教学空间中唯一。
+
+点击「创建并录入名单」后，Console 按 KV 返回的班级 ID 定位新班，打开学生名单。建班和名单保存分两步生效，关闭名单窗口后，已创建的班级仍可从班级列表进入。建班回包中断时，「重试确认」沿用原请求，KV 返回首次成功的班级 ID。切换学期或失去学校管理权限后，旧表单无法再写入。
+
+升级 KV 时需应用 `20261121000000_admin_class_creation` 数据库迁移。它保存建班请求与班级的对应关系，供重试时核对。桌面端的建班入口只办理当前学期。网页继续承接草稿学期、批量建班、班级编辑和 OAuth 管理员。
+
 ## 十三个旧入口的去向
 
 | 旧网页入口 | 已有桌面能力或仍需网页完成的业务 |
 | --- | --- |
 | 审计记录 | 本地学校管理账号可在 Console 完成上述查询。 |
 | 管理总览 | 学校配置诊断和管理待办仍在网页。学校管理员登录 Console 后可自动查看所连 KV 的运行状态。 |
-| 组织与班级 | Console 可浏览当前学校的班级。维护年级、学科、班级与教学关系仍在网页。 |
+| 组织与班级 | Console 可在当前学期的已有年级新建单个行政班并录入名单。年级、学科、班级编辑、批量建班及教学关系仍在网页。 |
 | 学生名单 | Console 可维护当前学期一个行政班的名单，支持批量粘贴、差异预览、保存及冲突核对。 |
 | 教师分配 | 教师职责、任课分配和作业快捷输入配置仍在网页。 |
 | 大屏设备 | Console 可查看班级大屏和已接入的终端。创建或重置网页大屏账号、维护作业快捷截止时间仍在网页。 |
@@ -40,7 +48,7 @@
 | 服务器迁移 | 学校迁移包导出等操作仍在网页，与 KV 自动备份状态分别管理。 |
 | 学期运维 | 建立学期草稿、启用检查及切换学期仍在网页。 |
 
-下一项建议接上**在已有年级创建行政班并录入首份名单**。目前管理员遇到新开班仍要回网页创建班级，建班后才能在 Console 选择它。
+下一项建议接上**给新班准备第一台教室大屏**。目前 Console 的接入设置需要先选中已有大屏，新班还需要通过网页建立大屏记录。下一轮应核对创建大屏和提前配置接入口令的衔接，区分新设备登记与已有设备重新绑定。
 
 ## 本地复验
 
@@ -49,9 +57,18 @@
 ```powershell
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --school-audit
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-roster
+node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-creation
 ```
 
 名单联调会停用夹具中的 NPEP，检查无设备班级、同名学生、屏幕并发写入、学期切换、历史考勤和保存结果核对。网页名单的行为可参照 NPClassworks 的 `src/components/admin/ClassRosterManager.vue` 和 `src/utils/classRoster.js`，服务端规则见 NPClassworksKV 的 `services/classroomToolsService.js`。
+
+建班联调从没有班级的年级开始，检查重码、并发请求、回包丢失后的手动重试、跨校与学期校验、首次名单保存及旧网页接口。使用 `--serve-class-creation` 可保留独立测试服务供桌面操作。
+
+要在 Windows 桌面复验建班，用该服务打印的临时文件运行以下命令。测试从班级栏打开窗口，模拟丢失建班回包，重试确认后保存首份名单，并导出窗口截图。
+
+```powershell
+dotnet run --project tests/NPEduConsole.ClassCreationDesktop -c Release -- --live '<测试目录>/desktop.json' '.artifacts/class-creation-ui/desktop-live'
+```
 
 要复验 Windows 桌面上的实际保存，把上面的名单命令改为 `--serve-class-roster`，保留临时服务。另开终端运行以下命令，将第一个占位路径替换为服务打印的测试登录文件，最后按回车关闭临时服务。
 

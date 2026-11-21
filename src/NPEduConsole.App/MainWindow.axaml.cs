@@ -154,11 +154,13 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task LoadSchoolAsync(School? school, string? restoredClass = null, DeviceSelection? restoredDevice = null)
+    private async Task<bool> LoadSchoolAsync(School? school, string? restoredClass = null, DeviceSelection? restoredDevice = null)
     {
-        if (_client is not { } client) return;
+        if (_client is not { } client) return false;
         using var request = StartRequest();
+        if (_school != school) ChangeClassCreationSchool(school);
         _school = school;
+        OpenClassCreationButton.IsEnabled = school is not null;
         UpdateSchoolAuditWorkspace();
         RefreshButton.IsEnabled = school is not null;
         _settingSelection = true;
@@ -171,16 +173,17 @@ public sealed partial class MainWindow : Window
         {
             SetWorkspaceMessage("请选择学校和班级。");
             FinishRequest(request);
-            return;
+            return false;
         }
 
         WorkspaceProgress.IsVisible = true;
         SetWorkspaceMessage("正在读取该学校的班级…");
         Classroom? selected = null;
+        bool loaded = false;
         try
         {
             var rooms = await client.GetClassroomsAsync(school.Id, request.Token);
-            if (!IsCurrent(request)) return;
+            if (!IsCurrent(request)) return false;
             _settingSelection = true;
             ClassPicker.ItemsSource = rooms;
             selected = rooms.FirstOrDefault(room => room.Id == restoredClass);
@@ -189,6 +192,7 @@ public sealed partial class MainWindow : Window
             ClassListMessage.IsVisible = rooms.Count == 0;
             ClassListMessage.Text = "该学校暂无可查看班级。";
             SetWorkspaceMessage(rooms.Count == 0 ? "该学校暂无可查看班级。" : "请选择班级。");
+            loaded = true;
         }
         catch (Exception error) when (IsServiceError(error))
         {
@@ -205,6 +209,7 @@ public sealed partial class MainWindow : Window
 
         if (selected is not null && _client == client && _school == school)
             await SelectClassroomAsync(selected, restoredDevice, userRefresh: restoredDevice is not null);
+        return loaded;
     }
 
     private async void ClassChanged(object? sender, SelectionChangedEventArgs args)
@@ -346,8 +351,12 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async void RefreshClicked(object? sender, RoutedEventArgs args) =>
-        await LoadSchoolAsync(_school, _classroom?.Id, _device);
+    private async void RefreshClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_createdClassToOpen is { } created && _client is { } client && _school is { } school)
+            await OpenCreatedClassRosterAsync(client, school, created);
+        else await LoadSchoolAsync(_school, _classroom?.Id, _device);
+    }
 
     private async void LogoutClicked(object? sender, RoutedEventArgs args) => await SignOutAsync();
 
@@ -406,6 +415,7 @@ public sealed partial class MainWindow : Window
         CancelRequest();
         ResetSchoolServerStatus();
         CloseClassRoster();
+        ResetClassCreation();
         _client = null;
         _showClassStudy = false;
         _showSchoolAudit = false;
