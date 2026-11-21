@@ -43,6 +43,13 @@ public sealed partial class MainWindow
         _overviewNavigation = navigation;
         try
         {
+            if (task.Action == "OPEN_TEACHING" && overview.Term is { } teachingTerm &&
+                task.ClassId is { } teachingClass && task.SubjectId is { } subjectId)
+            {
+                await ShowTeachingAsync(client, school, teachingTerm.Id, teachingClass, subjectId);
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync();
+                return;
+            }
             if (task.Action is "CREATE_GRADE" or "CREATE_CLASS")
             {
                 await OpenClassCreationAsync(task.Action == "CREATE_GRADE" ? overview.Term?.Id : null);

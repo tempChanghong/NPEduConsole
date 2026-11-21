@@ -325,6 +325,8 @@ public sealed partial class ConsoleClient : IDisposable
                     throw await ClassBatchErrorAsync(response, ct);
                 if (IsClassMaintenancePath(path))
                     throw ClassMaintenanceError(status, await AcademicErrorCodeAsync(response, ct));
+                if (IsCurrentTeachingPath(path))
+                    throw CurrentTeachingError(status, await AcademicErrorCodeAsync(response, ct));
                 if (path.EndsWith(CurrentClassesSuffix, StringComparison.Ordinal) && status is 404 or 409 or 422)
                     throw ClassCreationError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsGradeRenamePath(path))

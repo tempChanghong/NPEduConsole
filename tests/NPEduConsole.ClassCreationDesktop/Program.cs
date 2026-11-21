@@ -22,6 +22,8 @@ internal static partial class Program
     {
         if (args is ["--live-school-overview", var overviewFixture, var overviewOutput])
             return StartSchoolOverview(overviewFixture, overviewOutput);
+        if (args is ["--live-teaching", var teachingFixture, var teachingOutput])
+            return StartTeaching(teachingFixture, teachingOutput);
         if (args is ["--live-class-maintenance" or "--live-class-maintenance-reopen", var maintenanceFixture, var maintenanceOutput])
             return StartClassMaintenance(maintenanceFixture, maintenanceOutput, reopen: args[0].EndsWith("-reopen"));
         if (args is ["--live-class-batch" or "--live-class-batch-reopen", var batchFixture, var batchOutput])

@@ -6,7 +6,7 @@ public sealed record SchoolScreenObservation(string State, DateTimeOffset? LastR
 public sealed record SchoolOverviewScreen(string ClassId, string ClassName, string ScreenId, string ScreenName,
     SchoolScreenObservation Browser, SchoolScreenObservation Native);
 public sealed record SchoolOverviewTask(string Code, string Source, string Severity, string Message, string Action,
-    string? ClassId = null, string? ScreenId = null, string? TargetTab = null, DateTimeOffset? LastReportedAt = null);
+    string? ClassId = null, string? ScreenId = null, string? TargetTab = null, DateTimeOffset? LastReportedAt = null, string? SubjectId = null);
 public sealed record SchoolOverview(School School, SchoolOverviewTerm? Term, SchoolOverviewCounts Counts,
     IReadOnlyList<SchoolOverviewScreen> Screens, IReadOnlyList<SchoolOverviewTask> Tasks, DateTimeOffset GeneratedAt,
     string? AdminUrl = null);
@@ -44,7 +44,8 @@ public sealed partial class ConsoleClient
         foreach (var task in overview.Tasks)
         {
             if (task is null || string.IsNullOrWhiteSpace(task.Code) || string.IsNullOrWhiteSpace(task.Message) ||
-                task.Action is not ("OPEN_WEB" or "OPEN_SCREEN" or "PREPARE_SCREEN" or "CREATE_GRADE" or "CREATE_CLASS") ||
+                task.Action is not ("OPEN_WEB" or "OPEN_SCREEN" or "PREPARE_SCREEN" or "CREATE_GRADE" or "CREATE_CLASS" or "OPEN_TEACHING") ||
+                task.Action == "OPEN_TEACHING" && (string.IsNullOrWhiteSpace(task.ClassId) || string.IsNullOrWhiteSpace(task.SubjectId)) ||
                 task.Action == "PREPARE_SCREEN" && string.IsNullOrWhiteSpace(task.ClassId) ||
                 task.Action == "OPEN_SCREEN" && (task.ScreenId is null || !screens.TryGetValue(task.ScreenId, out var room) || room != task.ClassId))
                 throw InvalidResponse();

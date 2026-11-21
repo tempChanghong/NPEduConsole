@@ -8,7 +8,8 @@ namespace NPEduConsole.App;
 public sealed record OverviewTaskItem(SchoolOverviewTask Task, string ActionLabel, string Evidence)
 {
     public string Message => Task.Message;
-    public string AutomationId => "SchoolOverviewTask-" + Task.Code + "-" + (Task.ScreenId ?? Task.ClassId ?? "school");
+    public string AutomationId => "SchoolOverviewTask-" + Task.Code + "-" + (Task.ScreenId ?? Task.ClassId ?? "school") +
+        (Task.Action == "OPEN_TEACHING" ? "-" + Task.SubjectId : "");
 }
 
 public sealed record OverviewScreenItem(string Title, string Browser, string Native);
@@ -111,6 +112,7 @@ public sealed partial class SchoolOverviewView : UserControl
             "CREATE_CLASS" => "进入建班",
             "PREPARE_SCREEN" => "前往登记",
             "OPEN_SCREEN" => "定位大屏",
+            "OPEN_TEACHING" => "分配任课",
             _ => "网页办理"
         };
         string source = task.Source switch
