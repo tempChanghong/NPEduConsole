@@ -10,6 +10,7 @@ public sealed partial class ConsoleApplication : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        ConsoleHighContrast.FollowPlatform(this);
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
             desktop.MainWindow = new MainWindow();
         base.OnFrameworkInitializationCompleted();

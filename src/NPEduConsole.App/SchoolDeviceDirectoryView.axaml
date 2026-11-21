@@ -1,0 +1,40 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolDeviceDirectoryView">
+  <Grid Margin="25,20,25,22" RowDefinitions="Auto,Auto,*" RowSpacing="11">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <TextBlock Text="教室设备" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center" />
+      <Button Grid.Column="1" Content="刷新设备目录" Classes="action" Click="RefreshClicked" />
+    </Grid>
+    <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="16">
+      <TextBlock x:Name="DeviceDirectoryFeedback" Classes="muted" VerticalAlignment="Center"
+                 AutomationProperties.LiveSetting="Polite" />
+      <TextBox x:Name="DeviceSearch" Grid.Column="1" Width="245" PlaceholderText="筛选班级或大屏名称"
+               TextChanged="SearchChanged" AutomationProperties.Name="筛选教室设备" />
+    </Grid>
+    <Border x:Name="DeviceTable" Grid.Row="2" Classes="card" ClipToBounds="True" VerticalAlignment="Top" Padding="3">
+      <ListBox x:Name="DeviceDirectoryRows" Background="Transparent" BorderThickness="0" AutomationProperties.Name="教室设备目录">
+        <ListBox.Styles>
+          <Style Selector="ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          </Style>
+        </ListBox.Styles>
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="local:OverviewScreenItem">
+            <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource LineBrush}" Padding="16,12">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="{Binding Title}" FontSize="16" Classes="label" />
+                  <TextBlock Text="{Binding Native}" Classes="muted" />
+                  <TextBlock Text="{Binding Browser}" Classes="muted" FontSize="12" IsVisible="{Binding HasBrowserObservation}" />
+                </StackPanel>
+                <Button Grid.Column="1" Classes="action" Content="打开大屏" Tag="{Binding}" Click="OpenClicked"
+                        AutomationProperties.AutomationId="{Binding AutomationId}" VerticalAlignment="Center" />
+              </Grid>
+            </Border>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </Border>
+  </Grid>
+</UserControl>

@@ -2,7 +2,7 @@
              xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolAuditView">
   <UserControl.Styles>
     <Style Selector="TextBlock.audit-failed">
-      <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
     <Style Selector="ListBoxItem">
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -14,7 +14,7 @@
         <TextBlock x:Name="AuditSchoolName" Classes="muted" />
         <TextBlock Text="审计记录" FontSize="27" FontWeight="SemiBold" />
       </StackPanel>
-      <Button Grid.Column="1" Content="返回班级管理" Classes="action" Click="BackClicked" VerticalAlignment="Center" />
+      <Button Grid.Column="1" Content="返回工作区" Classes="action" Click="BackClicked" VerticalAlignment="Center" />
     </Grid>
 
     <Grid x:Name="AuditSearch" Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="12">
@@ -106,7 +106,7 @@
             </Grid>
             <StackPanel x:Name="AuditDetailParameters" Spacing="6" IsVisible="False">
               <TextBlock Text="脱敏后的操作参数" Classes="label" />
-              <Border Background="{StaticResource CanvasBrush}" Padding="12" CornerRadius="8">
+              <Border Background="{DynamicResource CanvasBrush}" Padding="12" CornerRadius="8">
                 <SelectableTextBlock x:Name="AuditDetailMetadata" FontFamily="Consolas, Microsoft YaHei UI" TextWrapping="Wrap" />
               </Border>
             </StackPanel>

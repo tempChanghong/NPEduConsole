@@ -3,11 +3,11 @@
         Width="610" Height="760" MinWidth="480" MinHeight="440" WindowStartupLocation="CenterOwner">
   <Window.Styles>
     <Style Selector="TextBlock.server-unavailable">
-      <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
   </Window.Styles>
-  <Grid RowDefinitions="Auto,*" Background="{StaticResource CanvasBrush}">
-    <Border Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="24,16">
+  <Grid RowDefinitions="Auto,*" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="24,16">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
         <StackPanel Spacing="5">
           <TextBlock Text="服务器状态" FontSize="24" FontWeight="SemiBold" />
@@ -41,8 +41,8 @@
           </StackPanel>
         </Border>
         <TextBlock x:Name="OpsActivity" Classes="muted" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
-        <Border x:Name="OpsError" Background="{StaticResource ErrorTintBrush}" Padding="14,11" CornerRadius="8" IsVisible="False">
-          <TextBlock x:Name="OpsErrorMessage" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+        <Border x:Name="OpsError" Background="{DynamicResource ErrorTintBrush}" Padding="14,11" CornerRadius="8" IsVisible="False">
+          <TextBlock x:Name="OpsErrorMessage" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
         </Border>
         <StackPanel x:Name="OpsSnapshot" Spacing="14" IsVisible="False">
           <Border Classes="card" Padding="16">
@@ -60,7 +60,7 @@
                   <TextBlock x:Name="OpsCatalogHint" Classes="muted" />
                 </StackPanel>
               </Grid>
-              <Border Background="{StaticResource CanvasBrush}" CornerRadius="8" Padding="10">
+              <Border Background="{DynamicResource CanvasBrush}" CornerRadius="8" Padding="10">
                 <Grid ColumnDefinitions="*,*" ColumnSpacing="18">
                   <StackPanel Spacing="3">
                     <TextBlock Text="KV 版本" Classes="muted" />

@@ -11,7 +11,7 @@ internal sealed record TermRow(string Id, string Status);
 internal sealed record SchoolRow(string Id, string Name, TermRow[] Terms);
 internal sealed record Membership(string Role, SchoolRow School);
 internal sealed record GradeRow(string Name);
-internal sealed record ClassRow(string Id, string Name, bool IsActive, GradeRow? Grade);
+internal sealed record ClassRow(string Id, string Name, bool IsActive, GradeRow? Grade, string? Code = null);
 internal sealed record Structure(TermRow Term, ClassRow[] AdministrativeClasses);
 internal sealed record ScreenRow(string Id, string SchoolId, string? AdministrativeClassId,
     string Name, bool IsActive, long NpepBindingRevision);

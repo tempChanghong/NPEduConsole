@@ -1,23 +1,5 @@
 <Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Styles.Resources>
-    <SolidColorBrush x:Key="ComboBoxBackground">#F8FCFA</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxBorderBrush">#91ACA1</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver">#EFF8F3</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver">#648F80</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxBackgroundPressed">#E4F1EA</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxBorderBrushPressed">#397D68</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxBackgroundUnfocused">Transparent</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushFocused">#136E58</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxDropDownBackground">#FCFEFD</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush">#AAC5B8</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver">#EDF6F1</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed">#DAEEE4</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected">#DEEFE6</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelected">#82B9A7</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver">#D3EADF</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPointerOver">#6AA491</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed">#C7E4D7</SolidColorBrush>
-    <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPressed">#599884</SolidColorBrush>
     <Thickness x:Key="ComboBoxDropdownBorderPadding">5</Thickness>
     <Thickness x:Key="ComboBoxDropdownContentMargin">0</Thickness>
   </Styles.Resources>

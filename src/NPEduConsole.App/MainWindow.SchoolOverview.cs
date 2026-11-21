@@ -8,7 +8,7 @@ namespace NPEduConsole.App;
 public sealed partial class MainWindow
 {
     private readonly Dictionary<string, Border> _overviewScreenCards = new(StringComparer.Ordinal);
-    private bool _showSchoolOverview, _overviewJourney;
+    private bool _overviewJourney;
     private object? _overviewNavigation;
     private (ConsoleClient Client, School School)? _overviewWebReturn;
 
@@ -20,17 +20,10 @@ public sealed partial class MainWindow
             await SchoolOverviewWorkspace.RefreshAsync();
             return;
         }
-        _overviewNavigation = null;
-        _showSchoolAudit = _showClassStudy = false;
-        _showSchoolOverview = true;
-        _overviewJourney = false;
-        ClearOverviewSidebarSelection();
-        CloseClassAdmission();
-        CloseScreenReplacement();
-        CloseSoftwareMaintenance();
-        UpdateStudyWorkspace();
-        UpdateSchoolAuditWorkspace();
-        OpenSchoolOverviewButton.Focus();
+        bool returnFromTask = _overviewJourney;
+        ChangePage(ShellPage.Overview);
+        await SchoolOverviewWorkspace.RefreshAsync(restoreTask: returnFromTask);
+        if (!returnFromTask && _showSchoolOverview) OpenSchoolOverviewButton.Focus();
     }
 
     private async Task OpenSchoolOverviewTaskAsync(SchoolOverview overview, SchoolOverviewTask task)
@@ -45,13 +38,13 @@ public sealed partial class MainWindow
                 task.ClassId is { } teachingClass && task.SubjectId is { } subjectId)
             {
                 await ShowTeachingAsync(client, school, teachingTerm.Id, teachingClass, subjectId);
-                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync();
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
             if (task.Action is "CREATE_GRADE" or "CREATE_CLASS")
             {
                 await OpenClassCreationAsync(task.Action == "CREATE_GRADE" ? overview.Term?.Id : null);
-                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync();
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
             if (task.Action == "OPEN_WEB")
@@ -63,7 +56,7 @@ public sealed partial class MainWindow
             if (overview.Term is not { } term || task.ClassId is not { } classId) return;
             SchoolOverviewWorkspace.ShowNavigationMessage("正在核对待办对应的班级和大屏…");
             SetInactiveClassesFilter(false);
-            bool loaded = await LoadSchoolAsync(school, classId);
+            bool loaded = await LoadSchoolAsync(school, classId, selectDefaultDevice: false);
             if (!StillHere() || !SchoolOverviewWorkspace.Shows(overview)) return;
             if (!loaded)
             {
@@ -80,7 +73,7 @@ public sealed partial class MainWindow
             {
                 if (room.CanPrepareFirstScreen)
                 {
-                    ShowOverviewTarget(PrepareFirstScreenButton);
+                    ShowOverviewTarget(PrepareFirstScreenButton, null);
                 }
                 else
                 {
@@ -96,7 +89,7 @@ public sealed partial class MainWindow
                 if (StillHere()) SchoolOverviewWorkspace.ShowNavigationMessage("大屏已变更。请核对刷新后的待办。");
                 return;
             }
-            ShowOverviewTarget(card);
+            ShowOverviewTarget(card, screen.Id);
             if (task.Code is "SCREEN_AWAITING_PAIRING" or "SCREEN_REPAIR_REQUIRED" &&
                 _admissionButtons.TryGetValue(screenId, out var opener))
                 await OpenClassAdmissionAsync(screen, opener);
@@ -104,34 +97,22 @@ public sealed partial class MainWindow
         finally
         {
             if (_overviewNavigation == navigation)
-            {
                 _overviewNavigation = null;
-                if (_showSchoolOverview) ClearOverviewSidebarSelection();
-            }
         }
 
         bool StillHere() => _client == client && _school == school && _showSchoolOverview && _overviewNavigation == navigation;
 
-        void ShowOverviewTarget(Control target)
+        void ShowOverviewTarget(Control target, string? screenId)
         {
-            _showSchoolOverview = false;
+            _overviewNavigation = null;
+            ChangePage(screenId is null ? ShellPage.Classes : ShellPage.Screen);
+            _detailScreenId = screenId;
             _overviewJourney = true;
-            UpdateSchoolAuditWorkspace();
-            Dispatcher.UIThread.Post(() =>
-            {
-                if (_client != client || _school != school || _showSchoolOverview || !target.IsEffectivelyVisible) return;
-                target.BringIntoView();
-                if (_admissionTarget is null) target.Focus();
-            }, DispatcherPriority.Loaded);
+            UpdateShellPage();
+            ApplyScreenVisibility();
+            UpdateStudyWorkspace();
+            FocusScreenTarget(target, client, school);
         }
-    }
-
-    private void ClearOverviewSidebarSelection()
-    {
-        if (ClassPicker.SelectedItem is null) return;
-        _settingSelection = true;
-        ClassPicker.SelectedItem = null;
-        _settingSelection = false;
     }
 
     private void OpenOverviewWebTask(ConsoleClient client, School school, SchoolOverview overview, SchoolOverviewTask task)
@@ -156,6 +137,6 @@ public sealed partial class MainWindow
     {
         if (_overviewWebReturn is not { } scope) return;
         _overviewWebReturn = null;
-        if (_showSchoolOverview && _client == scope.Client && _school == scope.School) _ = SchoolOverviewWorkspace.RefreshAsync();
+        if (_showSchoolOverview && _client == scope.Client && _school == scope.School) _ = SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
     }
 }

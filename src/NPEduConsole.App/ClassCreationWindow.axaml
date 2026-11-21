@@ -4,11 +4,11 @@
         WindowStartupLocation="CenterOwner">
   <Window.Styles>
     <Style Selector="TextBlock.creation-error">
-      <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
   </Window.Styles>
-  <Grid RowDefinitions="Auto,*,Auto" Background="{StaticResource CanvasBrush}">
-    <Border Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,16">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,16">
       <StackPanel Spacing="5">
         <TextBlock x:Name="CreationSchool" Classes="muted" />
         <TextBlock Text="新建行政班" FontSize="24" FontWeight="SemiBold" />
@@ -171,7 +171,7 @@
         <TextBlock x:Name="CreationFeedback" Classes="muted" IsVisible="False" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
       </StackPanel>
     </ScrollViewer>
-    <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,10">
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,10">
       <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
         <Button x:Name="CloseClassCreationButton" Content="关闭" Classes="action" Click="CloseClicked" />
         <Button x:Name="SubmitClassCreationButton" Content="创建并录入名单" Classes="action accent" Click="SubmitClicked" IsEnabled="False" />

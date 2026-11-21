@@ -144,6 +144,7 @@ public sealed partial class ConsoleClient : IDisposable
             classrooms.Add(new Classroom(room.Id, room.Name, room.Grade?.Name, roomScreens)
             {
                 TermId = term.Id,
+                Code = room.Code,
                 HasInactiveScreens = bindings.Any(screen => !screen.IsActive),
                 FirstScreen = devices is not null && !bindings.Any() ? new(session.Id, schoolId, term.Id, room.Id) : null
             });

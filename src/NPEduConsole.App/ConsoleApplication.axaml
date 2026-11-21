@@ -1,30 +1,114 @@
 <Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="NPEduConsole.App.ConsoleApplication" RequestedThemeVariant="Light">
+             x:Class="NPEduConsole.App.ConsoleApplication">
   <Application.Resources>
-    <SolidColorBrush x:Key="CanvasBrush">#F4F7F7</SolidColorBrush>
-    <SolidColorBrush x:Key="InkBrush">#152E2A</SolidColorBrush>
-    <SolidColorBrush x:Key="MutedBrush">#51635F</SolidColorBrush>
-    <SolidColorBrush x:Key="LineBrush">#DCE7E3</SolidColorBrush>
-    <SolidColorBrush x:Key="AccentBrush">#136E58</SolidColorBrush>
-    <SolidColorBrush x:Key="AccentTintBrush">#E2F2EA</SolidColorBrush>
-    <SolidColorBrush x:Key="ErrorBrush">#9B2D36</SolidColorBrush>
-    <SolidColorBrush x:Key="ErrorTintBrush">#FDF0F0</SolidColorBrush>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <LinearGradientBrush x:Key="OverviewBannerBrush" StartPoint="0%,0%" EndPoint="100%,75%">
+            <GradientStop Offset="0" Color="#D9E9FB" />
+            <GradientStop Offset="0.52" Color="#EAF2FC" />
+            <GradientStop Offset="1" Color="#F2F6FC" />
+          </LinearGradientBrush>
+          <SolidColorBrush x:Key="CanvasBrush">#F3F6FA</SolidColorBrush>
+          <SolidColorBrush x:Key="SidebarBrush">#E7EEF6</SolidColorBrush>
+          <SolidColorBrush x:Key="SurfaceBrush">#FFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="InkBrush">#162B42</SolidColorBrush>
+          <SolidColorBrush x:Key="MutedBrush">#486078</SolidColorBrush>
+          <SolidColorBrush x:Key="LineBrush">#D5E0EB</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentBrush">#2668B2</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentStrongBrush">#1B4878</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentTintBrush">#E3EEFC</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentSoftBrush">#F2F7FF</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentButtonForeground">#FFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="FocusBrush">#2668B2</SolidColorBrush>
+          <SolidColorBrush x:Key="ErrorBrush">#9B2D36</SolidColorBrush>
+          <SolidColorBrush x:Key="ErrorTintBrush">#FDF0F0</SolidColorBrush>
+          <SolidColorBrush x:Key="WarningBrush">#775017</SolidColorBrush>
+          <SolidColorBrush x:Key="WarningTintBrush">#FCF2E1</SolidColorBrush>
+          <SolidColorBrush x:Key="SuccessBrush">#20654D</SolidColorBrush>
+          <SolidColorBrush x:Key="SuccessTintBrush">#E5F4ED</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBackground">#FFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBorderBrush">#D5E0EB</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver">#F2F7FF</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver">#2668B2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBackgroundPressed">#E3EEFC</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBorderBrushPressed">#2668B2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushFocused">#2668B2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxDropDownBackground">#FFFFFF</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush">#D5E0EB</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver">#F2F7FF</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed">#E3EEFC</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected">#E3EEFC</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelected">#2668B2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver">#E3EEFC</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPointerOver">#2668B2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed">#E3EEFC</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPressed">#2668B2</SolidColorBrush>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <LinearGradientBrush x:Key="OverviewBannerBrush" StartPoint="0%,0%" EndPoint="100%,75%">
+            <GradientStop Offset="0" Color="#284462" />
+            <GradientStop Offset="0.52" Color="#22364D" />
+            <GradientStop Offset="1" Color="#1C2D40" />
+          </LinearGradientBrush>
+          <SolidColorBrush x:Key="AccentButtonForeground">#142639</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentButtonForegroundPointerOver">#142639</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentButtonForegroundPressed">#142639</SolidColorBrush>
+          <SolidColorBrush x:Key="CanvasBrush">#141D27</SolidColorBrush>
+          <SolidColorBrush x:Key="SidebarBrush">#1A2633</SolidColorBrush>
+          <SolidColorBrush x:Key="SurfaceBrush">#202D3A</SolidColorBrush>
+          <SolidColorBrush x:Key="InkBrush">#E8F0FA</SolidColorBrush>
+          <SolidColorBrush x:Key="MutedBrush">#AEC2D8</SolidColorBrush>
+          <SolidColorBrush x:Key="LineBrush">#394B60</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentBrush">#82B9F2</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentStrongBrush">#B4D6FA</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentTintBrush">#293F59</SolidColorBrush>
+          <SolidColorBrush x:Key="AccentSoftBrush">#202F43</SolidColorBrush>
+          <SolidColorBrush x:Key="FocusBrush">#8ABDFA</SolidColorBrush>
+          <SolidColorBrush x:Key="ErrorBrush">#FFB3B6</SolidColorBrush>
+          <SolidColorBrush x:Key="ErrorTintBrush">#492B37</SolidColorBrush>
+          <SolidColorBrush x:Key="WarningBrush">#F5CE8E</SolidColorBrush>
+          <SolidColorBrush x:Key="WarningTintBrush">#45382B</SolidColorBrush>
+          <SolidColorBrush x:Key="SuccessBrush">#93D7B8</SolidColorBrush>
+          <SolidColorBrush x:Key="SuccessTintBrush">#224239</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBackground">#202D3A</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBorderBrush">#394B60</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBackgroundPointerOver">#202F43</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBorderBrushPointerOver">#82B9F2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBackgroundPressed">#293F59</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBorderBrushPressed">#82B9F2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxBackgroundBorderBrushFocused">#8ABDFA</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxDropDownBackground">#202D3A</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush">#394B60</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundPointerOver">#202F43</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundPressed">#293F59</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundSelected">#293F59</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelected">#82B9F2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPointerOver">#293F59</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPointerOver">#82B9F2</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBackgroundSelectedPressed">#293F59</SolidColorBrush>
+          <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPressed">#82B9F2</SolidColorBrush>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
   </Application.Resources>
   <Application.Styles>
     <FluentTheme>
       <FluentTheme.Palettes>
-        <ColorPaletteResources x:Key="Light" Accent="#136E58" />
+        <ColorPaletteResources x:Key="Light" Accent="#2668B2" />
+        <ColorPaletteResources x:Key="Dark" Accent="#70ADE6" />
       </FluentTheme.Palettes>
     </FluentTheme>
     <StyleInclude Source="avares://NPEduConsole.App/Styles/ComboBox.axaml" />
+    <StyleInclude Source="avares://NPEduConsole.App/Styles/ShellGraphics.axaml" />
     <Style Selector="Window">
       <Setter Property="FontFamily" Value="Microsoft YaHei UI, Segoe UI, sans-serif" />
       <Setter Property="FontSize" Value="14" />
-      <Setter Property="Foreground" Value="{StaticResource InkBrush}" />
-      <Setter Property="Background" Value="{StaticResource CanvasBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+      <Setter Property="Background" Value="{DynamicResource CanvasBrush}" />
     </Style>
     <Style Selector="TextBlock.muted">
-      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style Selector="TextBlock.label">
@@ -32,28 +116,41 @@
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style Selector="Border.card">
-      <Setter Property="Background" Value="White" />
-      <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
       <Setter Property="BorderThickness" Value="1" />
       <Setter Property="CornerRadius" Value="14" />
     </Style>
     <Style Selector="TextBox">
+      <Setter Property="PlaceholderForeground" Value="{DynamicResource MutedBrush}" />
       <Setter Property="MinHeight" Value="42" />
       <Setter Property="CornerRadius" Value="8" />
     </Style>
     <Style Selector="Button.action">
-      <Setter Property="MinHeight" Value="42" />
-      <Setter Property="Padding" Value="15,8" />
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="Padding" Value="14,8" />
       <Setter Property="CornerRadius" Value="8" />
     </Style>
+    <Style Selector="Button.action:not(.accent):not(.device)">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Button.action:not(.accent):not(.device):pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+    </Style>
+    <Style Selector="Button.action:not(.accent):not(.device):pressed /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}" />
+    </Style>
     <Style Selector="Button.device">
-      <Setter Property="Background" Value="#F5F8F7" />
-      <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
       <Setter Property="BorderThickness" Value="1" />
     </Style>
     <Style Selector="Button.device.selected">
-      <Setter Property="Background" Value="#E2F2EA" />
-      <Setter Property="BorderBrush" Value="#82B9A7" />
+      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
     </Style>
   </Application.Styles>
 </Application>

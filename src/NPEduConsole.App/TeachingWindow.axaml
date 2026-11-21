@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="NPEduConsole.App.TeachingWindow" Title="行政班任课"
         Width="820" Height="720" MinWidth="560" MinHeight="490" WindowStartupLocation="CenterOwner">
-  <Border Background="{StaticResource CanvasBrush}" Padding="24">
+  <Border Background="{DynamicResource CanvasBrush}" Padding="24">
   <Grid RowDefinitions="Auto,*,Auto" RowSpacing="14">
     <StackPanel Spacing="5">
       <TextBlock Text="行政班任课" FontSize="24" FontWeight="SemiBold"/>

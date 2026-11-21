@@ -15,11 +15,11 @@
       <Setter Property="MinHeight" Value="36" />
     </Style>
     <Style Selector="TextBlock.roster-error">
-      <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
     </Style>
   </Window.Styles>
-  <Grid RowDefinitions="Auto,*,Auto" Background="{StaticResource CanvasBrush}">
-    <Border Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="23,17">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="23,17">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
         <StackPanel Spacing="5">
           <TextBlock x:Name="RosterScope" Classes="muted" />
@@ -115,7 +115,7 @@
       </Border>
     </Grid>
 
-    <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,10">
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,10">
       <Grid>
         <Grid x:Name="RosterMainActions" ColumnDefinitions="*,Auto" ColumnSpacing="10">
           <TextBlock x:Name="RosterDraftState" VerticalAlignment="Center" Classes="muted" />

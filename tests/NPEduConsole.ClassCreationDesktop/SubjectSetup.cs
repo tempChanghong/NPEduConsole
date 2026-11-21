@@ -41,7 +41,8 @@ internal static partial class Program
             await Until(() => schools.Items.Cast<School>().Any(item => item.Id == access.SchoolId), "the fixture school");
             schools.SelectedItem = schools.Items.Cast<School>().Single(item => item.Id == access.SchoolId);
             var rooms = Find<ListBox>(main, "ClassPicker");
-            await Until(() => rooms.Items.Cast<Classroom>().Any(item => item.Id == access.SevenId), "school classes");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            await Until(() => rooms.IsEffectivelyVisible && rooms.Items.Cast<Classroom>().Any(item => item.Id == access.SevenId), "school classes");
             rooms.SelectedItem = rooms.Items.Cast<Classroom>().Single(item => item.Id == access.SevenId);
             await Until(() => Find<Button>(main, "OpenSubjectSetupButton").IsEffectivelyVisible, "class details setup entry");
             Click(Find<Button>(main, "OpenSubjectSetupButton"));
@@ -101,12 +102,14 @@ internal static partial class Program
             empty.Close();
             Click(Find<Button>(main, "OpenSchoolOverviewButton"));
             var overview = Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace");
+            await ExpandTaskQueue(overview);
             var tasks = overview.FindControl<ListBox>("OverviewTasksList")!;
             await Until(() => overview.IsEffectivelyVisible && tasks.ItemCount > 0 &&
                 !tasks.Items.Cast<OverviewTaskItem>().Any(item => item.Task.Code == "ADMIN_CLASS_SUBJECT_WITHOUT_TEACHER" &&
                     item.Task.SubjectId == access.MathId), "fresh overview no longer has the math assignment task");
             await Capture(main, output, "03-overview-after-teaching");
 
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
             Click(Find<Button>(main, "OpenClassCreationButton"));
             await Until(() => desktop.Windows.OfType<ClassCreationWindow>().Any(window => window.IsVisible), "class creation form");
             var creation = desktop.Windows.OfType<ClassCreationWindow>().Single(window => window.IsVisible);
@@ -132,7 +135,8 @@ internal static partial class Program
             setup.Close();
             creation.Close();
             schools.SelectedItem = schools.Items.Cast<School>().Single(item => item.Id == access.EmptySchoolId);
-            await Until(() => rooms.Items.Cast<Classroom>().Any(item => item.Id == access.EmptyClassId), "school with no existing subjects");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            await Until(() => rooms.IsEffectivelyVisible && rooms.Items.Cast<Classroom>().Any(item => item.Id == access.EmptyClassId), "school with no existing subjects");
             rooms.SelectedItem = rooms.Items.Cast<Classroom>().Single(item => item.Id == access.EmptyClassId);
             await Until(() => Find<Button>(main, "OpenSubjectSetupButton").IsEffectivelyVisible, "open setup with no subjects");
             Click(Find<Button>(main, "OpenSubjectSetupButton"));

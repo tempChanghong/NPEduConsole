@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>NPEduConsole.App</AssemblyName>
+    <ApplicationIcon>../../images/branding/npeduconsole.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
@@ -10,5 +11,9 @@
     <PackageReference Include="Avalonia.Desktop" Version="12.1.6" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
     <ProjectReference Include="../NPEduConsole.Core/NPEduConsole.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaResource Include="../../images/branding/png/npeduconsole-64.png" Link="Assets/Branding/npeduconsole-64.png" />
+    <AvaloniaResource Include="../../images/branding/png/npeduconsole-256.png" Link="Assets/Branding/npeduconsole-256.png" />
   </ItemGroup>
 </Project>

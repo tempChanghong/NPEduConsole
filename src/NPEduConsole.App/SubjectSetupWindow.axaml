@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SubjectSetupWindow"
         Title="配置授课科目" Width="820" Height="735" MinWidth="560" MinHeight="540" WindowStartupLocation="CenterOwner">
-  <Border Background="{StaticResource CanvasBrush}" Padding="24">
+  <Border Background="{DynamicResource CanvasBrush}" Padding="24">
     <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
       <StackPanel Spacing="6">
         <TextBlock Text="配置授课科目" FontSize="24" FontWeight="SemiBold"/>

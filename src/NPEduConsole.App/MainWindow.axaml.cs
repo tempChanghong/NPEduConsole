@@ -26,7 +26,6 @@ public sealed partial class MainWindow : Window
     private bool _allowClose;
     private bool _closeAfterSignOut;
     private bool _showClassStudy;
-    private bool _showSchoolAudit;
     private bool _serverStatusOpen;
 
     private sealed record DeviceSelection(string ScreenId, string ScreenName, Device Device);
@@ -53,14 +52,28 @@ public sealed partial class MainWindow : Window
         ScreenReplacementWorkspace.CloseRequested += () => CloseScreenReplacement(restoreFocus: true);
         ScreenReplacementWorkspace.HandoverObserved += RetireReplacedDevice;
         SchoolAuditWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
-        SchoolAuditWorkspace.BackRequested += () =>
+        SchoolAuditWorkspace.BackRequested += async () =>
         {
-            _showSchoolAudit = false;
-            UpdateSchoolAuditWorkspace();
-            OpenSchoolAuditButton.Focus();
+            _page = _pageBeforeAudit;
+            UpdateShellPage();
+            if (_showSchoolOverview) await SchoolOverviewWorkspace.RefreshAsync();
+            if (_showSchoolOverview) OpenSchoolOverviewButton.Focus();
+            else if (_page == ShellPage.Classes) OpenClassWorkspaceButton.Focus();
+            else OpenDeviceDirectoryButton.Focus();
         };
         SchoolOverviewWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
         SchoolOverviewWorkspace.TaskRequested += async (overview, task) => await OpenSchoolOverviewTaskAsync(overview, task);
+        SchoolOverviewWorkspace.SnapshotChanged += OverviewSnapshotChanged;
+        SchoolOverviewWorkspace.ClassDirectoryRequested += async () => await OpenClassDirectoryAsync();
+        SchoolOverviewWorkspace.ClassRequested += async room =>
+        {
+            if (_showSchoolOverview && room.TermId is { } termId) await OpenShellTargetAsync(room.Id, null, termId);
+        };
+        DeviceDirectory.RefreshRequested += async () => await SchoolOverviewWorkspace.RefreshAsync();
+        DeviceDirectory.ScreenRequested += async (snapshot, row) => await OpenDeviceDirectoryTargetAsync(snapshot, row);
+        ObjectPicker.TargetChosen += async item => await OpenSearchTargetAsync(item);
+        SizeChanged += (_, args) => ApplyLoginLayout(args.NewSize);
+        UpdateShellPage();
         Activated += (_, _) => RefreshAfterWebOverviewTask();
         LoginView.AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
@@ -125,7 +138,10 @@ public sealed partial class MainWindow : Window
             _settingSelection = false;
             SchoolPicker.IsEnabled = schools.Count > 0;
             AccountName.Text = username;
+            LoginShell.IsVisible = false;
             LoginView.IsVisible = false;
+            UpdateShellPage();
+            SchoolSelectionMessage.Text = schools.Count == 0 ? "此账号暂无获授权学校。" : "请在顶部选择有权管理的学校。";
             Workspace.IsVisible = AccountBar.IsVisible = true;
             _ = RefreshSchoolServerStatusAsync();
             ClassListMessage.Text = schools.Count == 0 ? "此账号暂无获授权学校。" : "请先选择学校。";
@@ -156,11 +172,14 @@ public sealed partial class MainWindow : Window
         if (!_settingSelection && _client is not null)
         {
             _showClassStudy = false;
-            _showSchoolAudit = false;
+            _page = ShellPage.Overview;
             var school = SchoolPicker.SelectedItem as School;
             CloseTeaching();
             _subjectSetup.Close();
-            _showSchoolOverview = school is not null;
+            _detailScreenId = _directoryReturnScreenId = null;
+            SetInactiveClassesFilter(false);
+            DeviceDirectory.ResetSearch();
+            SetSearchRooms([], "正在读取该学校的班级和大屏。");
             _overviewJourney = false;
             _overviewNavigation = null;
             _overviewWebReturn = null;
@@ -168,7 +187,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task<bool> LoadSchoolAsync(School? school, string? restoredClass = null, DeviceSelection? restoredDevice = null)
+    private async Task<bool> LoadSchoolAsync(School? school, string? restoredClass = null, DeviceSelection? restoredDevice = null, bool selectDefaultDevice = true)
     {
         if (_client is not { } client) return false;
         using var request = StartRequest();
@@ -183,7 +202,7 @@ public sealed partial class MainWindow : Window
         InactiveClassesFilter.IsEnabled = school is not null;
         bool inactiveOnly = InactiveClassesFilter.IsChecked == true;
         OpenClassCreationButton.IsEnabled = school is not null;
-        UpdateSchoolAuditWorkspace();
+        UpdateShellPage();
         RefreshButton.IsEnabled = school is not null;
         _settingSelection = true;
         ClassPicker.ItemsSource = null;
@@ -198,6 +217,7 @@ public sealed partial class MainWindow : Window
             return false;
         }
 
+        if (!inactiveOnly) SetSearchRooms([], "正在读取该学校的班级和大屏。");
         WorkspaceProgress.IsVisible = true;
         SetWorkspaceMessage("正在读取该学校的班级…");
         Classroom? selected = null;
@@ -217,12 +237,14 @@ public sealed partial class MainWindow : Window
             ClassListMessage.IsVisible = rooms.Count == 0;
             ClassListMessage.Text = inactiveOnly ? "当前学期暂无已停用行政班。" : "该学校暂无可查看班级。";
             SetWorkspaceMessage(rooms.Count == 0 ? ClassListMessage.Text : "请选择班级。");
+            if (!inactiveOnly) SetSearchRooms(rooms, rooms.Count == 0 ? "当前学期没有可检索的行政班。" : "");
             loaded = true;
         }
         catch (Exception error) when (IsServiceError(error))
         {
             if (IsCurrent(request) && !ReturnToLoginIfExpired(error))
             {
+                if (!inactiveOnly) SetSearchRooms([], "班级目录读取失败，请刷新后重试。");
                 ClassListMessage.Text = "读取失败，可点击刷新重试。";
                 SetWorkspaceMessage(ServiceMessage(error), isError: true);
             }
@@ -233,7 +255,7 @@ public sealed partial class MainWindow : Window
         }
 
         if (selected is not null && _client == client && _school == school)
-            await SelectClassroomAsync(selected, restoredDevice, userRefresh: restoredDevice is not null);
+            await SelectClassroomAsync(selected, restoredDevice, userRefresh: restoredDevice is not null, selectDefaultDevice: selectDefaultDevice);
         return loaded;
     }
 
@@ -242,19 +264,12 @@ public sealed partial class MainWindow : Window
         if (!_settingSelection && _client is not null)
         {
             var room = ClassPicker.SelectedItem as Classroom;
-            if (room is not null && _showSchoolOverview)
-            {
-                _showSchoolOverview = false;
-                _overviewNavigation = null;
-                _overviewJourney = true;
-                UpdateSchoolAuditWorkspace();
-            }
             if (_firstScreen is { } preparation && !preparation.Matches(room)) ResetFirstScreen();
             await SelectClassroomAsync(room);
         }
     }
 
-    private async Task SelectClassroomAsync(Classroom? room, DeviceSelection? restoredDevice = null, bool userRefresh = false)
+    private async Task SelectClassroomAsync(Classroom? room, DeviceSelection? restoredDevice = null, bool userRefresh = false, bool selectDefaultDevice = true)
     {
         CancelRequest();
         WorkspaceProgress.IsVisible = false;
@@ -275,9 +290,14 @@ public sealed partial class MainWindow : Window
         ScreensHeading.IsVisible = room.Screens.Count > 0;
         SetWorkspaceMessage(room.Screens.Count > 0 || room.CanPrepareFirstScreen ? "" : room.HasInactiveScreens
             ? "本班有停用的大屏记录，请核对原有大屏。" : "本班暂无可用大屏。可刷新班级，核对当前大屏状态。");
+        ApplyScreenVisibility();
         var previous = restoredDevice is null ? null : _deviceButtons.Values.FirstOrDefault(device =>
             device.ScreenId == restoredDevice.ScreenId && device.Device.Id == restoredDevice.Device.Id);
-        var selected = previous ?? (_deviceButtons.Count == 1 ? _deviceButtons.Values.Single() : null);
+        var available = _page == ShellPage.Screen
+            ? _deviceButtons.Values.Where(device => device.ScreenId == _detailScreenId)
+            : _deviceButtons.Values;
+        var candidates = selectDefaultDevice ? available.Take(2).ToArray() : [];
+        var selected = previous ?? (candidates is [var only] ? only : null);
         if (selected is not null) await LoadDeviceAsync(selected, userRefresh: userRefresh);
     }
 
@@ -479,20 +499,24 @@ public sealed partial class MainWindow : Window
         ResetFirstScreen();
         _client = null;
         _showClassStudy = false;
-        _showSchoolAudit = false;
-        _showSchoolOverview = _overviewJourney = false;
+        _page = ShellPage.Overview;
+        _overviewJourney = false;
+        _detailScreenId = _directoryReturnScreenId = null;
+        DeviceDirectory.ResetSearch();
+        SetSearchRooms([], "");
         _overviewWebReturn = null;
         _overviewNavigation = null;
         CancelMicrophoneChanges();
         CancelSoftwareSession();
         _school = null;
-        UpdateSchoolAuditWorkspace();
+        UpdateShellPage();
         _settingSelection = true;
         SchoolPicker.ItemsSource = ClassPicker.ItemsSource = null;
         _settingSelection = false;
         SetClassroom(null);
         AccountName.Text = null;
         WorkspaceProgress.IsVisible = Workspace.IsVisible = AccountBar.IsVisible = false;
+        LoginShell.IsVisible = true;
         LoginView.IsVisible = true;
         Password.Clear();
     }
@@ -502,11 +526,11 @@ public sealed partial class MainWindow : Window
         if (_classroom?.Id != room?.Id || _classroom?.TermId != room?.TermId) CloseClassRoster();
         if (_teachingWindow is not null && !_showSchoolOverview &&
             (_classroom?.Id != room?.Id || _classroom?.TermId != room?.TermId)) CloseTeaching();
-        OpenTeachingButton.IsVisible = room?.IsActive == true && room.TermId is not null;
+        OpenTeachingButton.IsVisible = _page != ShellPage.Screen && room?.IsActive == true && room.TermId is not null;
         OpenSubjectSetupButton.IsVisible = OpenTeachingButton.IsVisible;
         OpenClassRosterButton.IsEnabled = room?.IsActive == true;
-        OpenClassRosterButton.IsVisible = room?.IsActive != false;
-        OpenClassMaintenanceButton.IsVisible = room?.TermId is not null;
+        OpenClassRosterButton.IsVisible = _page != ShellPage.Screen && room?.IsActive != false;
+        OpenClassMaintenanceButton.IsVisible = _page != ShellPage.Screen && room?.TermId is not null;
         OpenClassMaintenanceButton.Content = room?.IsActive == false ? "重新启用" : "维护班级";
         CloseClassAdmission();
         CloseScreenReplacement();
@@ -534,37 +558,34 @@ public sealed partial class MainWindow : Window
 
     private void SchoolAuditClicked(object? sender, RoutedEventArgs args)
     {
-        _showSchoolOverview = false;
-        _overviewNavigation = null;
-        _showSchoolAudit = !_showSchoolAudit;
-        UpdateSchoolAuditWorkspace();
-    }
-
-    private void UpdateSchoolAuditWorkspace()
-    {
-        bool show = _showSchoolAudit && _school is not null;
-        bool overview = _showSchoolOverview && _school is not null && !show;
-        if (show) CloseScreenReplacement();
-        OpenSchoolAuditButton.IsEnabled = _school is not null;
-        OpenSchoolAuditButton.Classes.Set("accent", show);
-        ClassPickerHeading.IsVisible = ClassPickerPanel.IsVisible = InactiveClassesFilter.IsVisible = !show;
-        ClassManagementWorkspace.IsVisible = !show && !overview;
-        ReturnToSchoolOverviewButton.IsVisible = ClassManagementWorkspace.IsVisible && _overviewJourney;
-        SchoolAuditWorkspace.IsVisible = show;
-        SchoolAuditWorkspace.SetScope(show ? _client : null, show ? _school : null);
-        OpenSchoolOverviewButton.IsEnabled = _school is not null;
-        OpenSchoolOverviewButton.Classes.Set("accent", overview);
-        SchoolOverviewWorkspace.IsVisible = overview;
-        SchoolOverviewWorkspace.SetScope(overview ? _client : null, overview ? _school : null);
+        if (_showSchoolAudit)
+        {
+            _page = _pageBeforeAudit;
+            UpdateShellPage();
+            if (_showSchoolOverview) _ = SchoolOverviewWorkspace.RefreshAsync();
+            return;
+        }
+        _pageBeforeAudit = _page;
+        if (_overviewNavigation is not null)
+        {
+            _overviewNavigation = null;
+            CancelRequest();
+        }
+        CloseScreenReplacement();
+        _page = ShellPage.Audit;
+        UpdateShellPage();
     }
 
     private void UpdateStudyWorkspace()
     {
         bool show = _showClassStudy && _classroom?.IsActive == true;
         if (show) CloseScreenReplacement();
-        OpenClassStudyButton.IsVisible = _classroom?.IsActive == true;
-        OpenClassStudyButton.Content = show ? "返回教室设备" : "本班学校自习";
-        ClassWorkspaceTitle.Text = show ? "本班学校自习" : _classroom?.IsActive == false ? "已停用班级" : "教室设备";
+        OpenClassStudyButton.IsVisible = _page != ShellPage.Screen && _classroom?.IsActive == true;
+        OpenClassStudyButton.Content = show ? "返回班级详情" : "本班学校自习";
+        string? screenName = _page == ShellPage.Screen
+            ? _classroom?.Screens.FirstOrDefault(screen => screen.Id == _detailScreenId)?.Name : null;
+        ClassWorkspaceTitle.Text = show ? "本班学校自习" : _classroom?.IsActive == false ? "已停用班级"
+            : _page == ShellPage.Screen ? screenName ?? "大屏详情" : "班级详情";
         ClassDeviceWorkspace.IsVisible = !show;
         StudyWorkspace.IsVisible = show;
         if (show) StudyWorkspace.SetScope(_client, _school?.Id, _classroom?.TermId, _classroom);
@@ -612,15 +633,13 @@ public sealed partial class MainWindow : Window
     {
         WorkspaceNotice.IsVisible = message.Length > 0;
         WorkspaceMessage.Text = message;
-        if (isError) WorkspaceMessage.Foreground = Brush.Parse("#9B2D36");
-        else WorkspaceMessage.ClearValue(TextBlock.ForegroundProperty);
+        WorkspaceMessage.Classes.Set("school-server-warning", isError);
     }
 
     private void SetEquipmentStatus(string message, bool isError = false)
     {
         EquipmentStatus.Text = message;
-        if (isError) EquipmentStatus.Foreground = Brush.Parse("#9B2D36");
-        else EquipmentStatus.ClearValue(TextBlock.ForegroundProperty);
+        EquipmentStatus.Classes.Set("school-server-warning", isError);
     }
 
     private static string ClassroomName(Classroom? room) =>

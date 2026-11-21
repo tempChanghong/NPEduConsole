@@ -57,7 +57,7 @@
         <TextBlock x:Name="StudyDateBefore" Classes="muted" TextWrapping="Wrap" />
         <TextBlock x:Name="StudyEditorMessage" Classes="muted" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
         <Button x:Name="PreviewStudyButton" Classes="action" Content="预览新增时段" Click="PreviewStudyClicked" />
-        <Border x:Name="StudyPreviewCard" Classes="card" Background="{StaticResource CanvasBrush}" Padding="14" IsVisible="False">
+        <Border x:Name="StudyPreviewCard" Classes="card" Background="{DynamicResource CanvasBrush}" Padding="14" IsVisible="False">
           <StackPanel Spacing="8">
             <TextBlock x:Name="StudyPreviewHeading" Classes="label" TextWrapping="Wrap" />
             <TextBlock x:Name="StudyPreviewWindows" TextWrapping="Wrap" />

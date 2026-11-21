@@ -1,8 +1,8 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.ClassMaintenanceWindow"
         Title="维护行政班" Width="560" Height="650" MinWidth="450" MinHeight="440" WindowStartupLocation="CenterOwner">
-  <Grid RowDefinitions="Auto,*,Auto" Background="{StaticResource CanvasBrush}">
-    <Border Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,16">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,16">
       <StackPanel Spacing="5">
         <TextBlock x:Name="MaintenanceSchool" Classes="muted" />
         <TextBlock x:Name="MaintenanceHeading" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" />
@@ -39,7 +39,7 @@
         </Border>
       </StackPanel>
     </ScrollViewer>
-    <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,12">
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="22,12">
       <StackPanel Spacing="8">
         <ProgressBar x:Name="MaintenanceProgress" IsIndeterminate="True" IsVisible="False" Height="4" />
         <TextBlock x:Name="MaintenanceScreenEffect" IsVisible="False" TextWrapping="Wrap"

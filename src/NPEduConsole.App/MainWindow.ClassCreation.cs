@@ -18,7 +18,6 @@ public sealed partial class MainWindow
         await OpenClassCreationAsync();
         if (_showSchoolOverview && _school == school)
         {
-            ClearOverviewSidebarSelection();
             await SchoolOverviewWorkspace.RefreshAsync();
         }
     }

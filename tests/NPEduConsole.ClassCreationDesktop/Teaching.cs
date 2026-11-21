@@ -24,6 +24,15 @@ internal static partial class Program
             .StartWithClassicDesktopLifetime([]);
     }
 
+    private static async Task ExpandTaskQueue(SchoolOverviewView overview)
+    {
+        var all = overview.FindControl<Button>("ShowAllOverviewButton")!;
+        var tasks = overview.FindControl<ListBox>("OverviewTasksList")!;
+        await Until(() => all.IsEffectivelyVisible, "the school overview has actionable results");
+        if (!tasks.IsEffectivelyVisible) Click(all);
+        await Until(() => tasks.IsEffectivelyVisible, "all tasks are visible");
+    }
+
     private static async Task VerifyTeachingAsync(TeachingAccess access, string output)
     {
         var desktop = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
@@ -41,6 +50,7 @@ internal static partial class Program
             Click(Find<Button>(main, "LoginButton"));
             await Until(() => schools.Items.Cast<School>().Any(school => school.Id == access.SchoolId), "current school");
             schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == access.SchoolId);
+            await ExpandTaskQueue(overview);
             await Until(() => Missing(access.SevenId) && Missing(access.EightId), "7 and 8 both have a math task");
             Check(!Missing(access.NineId), "the existing primary leaves 9 without a missing-assignment task");
             System.Console.WriteLine("Windows: two missing math tasks resolved by ID.");
@@ -79,7 +89,8 @@ internal static partial class Program
             await Until(() => overview.IsEffectivelyVisible && tasks.ItemCount > 0 && !Missing(access.SevenId) && !Missing(access.EightId), "return reloads both resolved tasks");
             await Capture(main, output, "05-overview-after-save");
 
-            await Until(() => rooms.Items.Cast<Classroom>().Any(row => row.Id == access.EightId), "8 remains selectable in the sidebar");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            await Until(() => rooms.IsEffectivelyVisible && rooms.Items.Cast<Classroom>().Any(row => row.Id == access.EightId), "8 remains selectable in the class directory");
             rooms.SelectedItem = rooms.Items.Cast<Classroom>().Single(row => row.Id == access.EightId);
             var classroomEntry = Find<Button>(main, "OpenTeachingButton");
             await Until(() => classroomEntry.IsEffectivelyVisible, "class detail exposes teaching entry");

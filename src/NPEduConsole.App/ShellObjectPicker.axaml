@@ -1,0 +1,123 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App"
+             x:Class="NPEduConsole.App.ShellObjectPicker">
+  <UserControl.Styles>
+    <Style Selector="Button.picker-trigger">
+      <Setter Property="MinHeight" Value="36" />
+      <Setter Property="Padding" Value="10,5" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+    <Style Selector="Button.picker-trigger.open">
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Padding" Value="9,4" />
+    </Style>
+    <Style Selector="Button.picker-trigger:focus-visible">
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+      <Setter Property="BorderThickness" Value="2" />
+      <Setter Property="Padding" Value="9,4" />
+    </Style>
+    <Style Selector="TextBlock.picker-placeholder">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.keyhint">
+      <Setter Property="Background" Value="{DynamicResource CanvasBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Padding" Value="5,1" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.keyhint TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+    </Style>
+    <Style Selector="ListBoxItem" x:DataType="local:ShellSearchItem">
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="Margin" Value="0,1" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="AutomationProperties.Name" Value="{Binding Title}" />
+      <Setter Property="AutomationProperties.HelpText" Value="{Binding Detail}" />
+    </Style>
+    <Style Selector="ListBoxItem:selected">
+      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+    </Style>
+    <Style Selector="TextBlock.picker-title">
+      <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="TextBlock.picker-detail">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid>
+    <Button x:Name="TriggerButton" Classes="picker-trigger" Click="TriggerClicked"
+            AutomationProperties.Name="查找班级或大屏"
+            AutomationProperties.HelpText="按 Ctrl+K 或 F4 打开全校检索">
+      <Grid ColumnDefinitions="Auto,*,Auto">
+        <Path Width="13" Height="13" Stretch="Uniform" VerticalAlignment="Center"
+              Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.4" StrokeLineCap="Round"
+              Data="M 6,1.5 A 4.5,4.5 0 1 0 6,10.5 A 4.5,4.5 0 1 0 6,1.5 Z M 9.4,9.4 L 12,12" />
+        <TextBlock x:Name="TriggerText" Grid.Column="1" Margin="8,0,8,0" Classes="picker-placeholder"
+                   Text="查找班级或大屏" />
+        <Border Grid.Column="2" Classes="keyhint" IsVisible="True">
+          <TextBlock Text="Ctrl+K" />
+        </Border>
+      </Grid>
+    </Button>
+
+    <Popup x:Name="PickerPopup" IsLightDismissEnabled="True" Placement="BottomEdgeAlignedLeft"
+           VerticalOffset="6" HorizontalOffset="0" Opened="PickerOpened" Closed="PickerClosed">
+      <Border x:Name="PopupSurface" CornerRadius="12" BorderThickness="1" Padding="8"
+              Background="{DynamicResource SurfaceBrush}"
+              BorderBrush="{DynamicResource LineBrush}"
+              BoxShadow="0 8 24 0 #22152A41">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+          <TextBox x:Name="SearchBox" PlaceholderText="输入班名、代码或大屏名" MinHeight="36"
+                   Margin="2,2,2,6" TextChanged="SearchChanged" KeyDown="SearchKeyDown"
+                   AutomationProperties.Name="查找班级或大屏"
+                   AutomationProperties.HelpText="方向键选择，Enter 打开，Esc 关闭" />
+
+          <TextBlock x:Name="ScopeText" Grid.Row="1" Classes="muted" FontSize="12"
+                     Margin="2,0,2,6" IsVisible="False" TextWrapping="Wrap"
+                     AutomationProperties.LiveSetting="Polite" />
+
+          <Grid Grid.Row="2">
+            <ListBox x:Name="ResultsList" Background="Transparent" BorderThickness="0"
+                     MaxHeight="320" SelectionMode="Single"
+                     AutomationProperties.Name="检索结果"
+                     KeyDown="ResultsKeyDown" PointerReleased="ResultsReleased">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:ShellSearchItem">
+                  <StackPanel Spacing="2">
+                    <TextBlock Classes="picker-title" Text="{Binding Title}" FontSize="14" />
+                    <TextBlock Classes="picker-detail" Text="{Binding Detail}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock x:Name="EmptyText" Classes="muted" Margin="10,12" IsVisible="False"
+                       TextWrapping="Wrap" VerticalAlignment="Top" IsHitTestVisible="False" />
+          </Grid>
+
+          <TextBlock x:Name="FooterHint" Grid.Row="3" Classes="muted" FontSize="12"
+                     Margin="2,6,2,0" TextWrapping="Wrap"
+                     Text="↑↓ 选择 · Enter 打开 · Esc 关闭" />
+        </Grid>
+      </Border>
+    </Popup>
+  </Grid>
+</UserControl>
