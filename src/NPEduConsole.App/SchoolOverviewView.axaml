@@ -1,0 +1,69 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolOverviewView">
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12" Margin="29,24,29,25">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <StackPanel Spacing="5">
+        <TextBlock x:Name="OverviewSchool" Classes="muted" />
+        <TextBlock Text="学校管理总览" FontSize="27" FontWeight="SemiBold" />
+      </StackPanel>
+      <Button x:Name="RefreshSchoolOverviewButton" Grid.Column="1" Classes="action" Content="刷新"
+              Click="RefreshClicked" VerticalAlignment="Center" />
+    </Grid>
+    <StackPanel Grid.Row="1" Spacing="6">
+      <ProgressBar x:Name="OverviewProgress" IsIndeterminate="True" Height="4" IsVisible="False" />
+      <TextBlock x:Name="OverviewFeedback" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+      <TextBlock x:Name="OverviewNavigationFeedback" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+    </StackPanel>
+    <Grid x:Name="OverviewResults" Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="10" IsVisible="False">
+      <Border Classes="card" Padding="16,13">
+        <StackPanel Spacing="5">
+          <TextBlock x:Name="OverviewTermName" Classes="label" />
+          <TextBlock x:Name="OverviewCounts" Classes="muted" />
+        </StackPanel>
+      </Border>
+      <TabControl Grid.Row="1" x:Name="SchoolOverviewTabs" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+        <TabItem Header="管理待办">
+          <Grid>
+            <ListBox x:Name="OverviewTasksList" AutomationProperties.Name="学校待办" Background="Transparent"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:OverviewTaskItem">
+                  <Border Classes="card" Padding="12,9">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                      <StackPanel Spacing="4" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Message}" Classes="label" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Evidence}" Classes="muted" />
+                      </StackPanel>
+                      <Button Grid.Column="1" Classes="action" Content="{Binding ActionLabel}" Tag="{Binding}"
+                              AutomationProperties.AutomationId="{Binding AutomationId}" VerticalAlignment="Center" Click="TaskClicked" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock x:Name="OverviewNoTasks" Text="本次检查未发现待办。" Classes="muted" IsVisible="False" Margin="4,12" />
+          </Grid>
+        </TabItem>
+        <TabItem Header="大屏状态">
+          <Grid>
+            <ListBox x:Name="OverviewScreensList" AutomationProperties.Name="大屏状态" Background="Transparent"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:OverviewScreenItem">
+                  <Border Classes="card" Padding="12,9">
+                    <StackPanel Spacing="5">
+                      <TextBlock Text="{Binding Title}" Classes="label" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding Browser}" Classes="muted" />
+                      <TextBlock Text="{Binding Native}" Classes="muted" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock x:Name="OverviewNoScreens" Text="当前学期暂无启用的大屏。" Classes="muted" IsVisible="False" Margin="4,12" />
+          </Grid>
+        </TabItem>
+      </TabControl>
+    </Grid>
+  </Grid>
+</UserControl>

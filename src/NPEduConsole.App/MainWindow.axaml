@@ -91,8 +91,12 @@
           <TextBlock Text="学校与班级" FontSize="19" FontWeight="SemiBold" />
           <ComboBox x:Name="SchoolPicker" Grid.Row="1" HorizontalAlignment="Stretch" PlaceholderText="选择已授权学校"
                     AutomationProperties.Name="获授权学校" SelectionChanged="SchoolChanged" />
-          <Button x:Name="OpenSchoolAuditButton" Grid.Row="2" Content="审计记录" Classes="action"
-                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SchoolAuditClicked" IsEnabled="False" />
+          <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="8">
+            <Button x:Name="OpenSchoolOverviewButton" Content="学校总览" Classes="action"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SchoolOverviewClicked" IsEnabled="False" />
+            <Button x:Name="OpenSchoolAuditButton" Grid.Column="1" Content="审计记录" Classes="action"
+                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Click="SchoolAuditClicked" IsEnabled="False" />
+          </Grid>
           <Grid x:Name="ClassPickerHeading" Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,5,0,0">
             <TextBlock Text="班级" Classes="label" VerticalAlignment="Center" />
             <Button x:Name="OpenClassCreationButton" Grid.Column="1" Classes="action" MinHeight="36" Content="新建行政班"
@@ -113,6 +117,7 @@
             <TextBlock x:Name="ClassWorkspaceTitle" Text="教室设备" FontSize="27" FontWeight="SemiBold" />
           </StackPanel>
           <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button x:Name="ReturnToSchoolOverviewButton" Classes="action" Content="返回总览" Click="SchoolOverviewClicked" IsVisible="False" />
             <Button x:Name="OpenClassMaintenanceButton" Classes="action" Content="维护班级" Click="OpenClassMaintenanceClicked" IsVisible="False" />
             <Button x:Name="OpenClassRosterButton" Classes="action" Content="学生名单" Click="OpenClassRosterClicked" IsEnabled="False" />
             <Button x:Name="OpenClassStudyButton" Classes="action" Content="本班学校自习" Click="ClassStudyClicked" IsVisible="False" />
@@ -294,6 +299,7 @@
         </ScrollViewer>
       </Grid>
       <local:SchoolAuditView x:Name="SchoolAuditWorkspace" Grid.Column="1" IsVisible="False" />
+      <local:SchoolOverviewView x:Name="SchoolOverviewWorkspace" Grid.Column="1" IsVisible="False" />
     </Grid>
   </Grid>
 </Window>

@@ -25,6 +25,7 @@ public sealed partial class ClassCreationWindow : Window
     private bool _blocked;
     private bool _closed;
     private bool _allowClose;
+    private string? _initialGradeTermId;
 
     internal event Action<ClassCreationSubmission?>? PendingChanged;
     internal event Action<ConsoleApiException>? SessionExpired;
@@ -69,7 +70,7 @@ public sealed partial class ClassCreationWindow : Window
     }
 
     internal ClassCreationWindow(ConsoleClient client, School school, ClassCreationSubmission? pending, GradeCreationSubmission? pendingGrade,
-        ClassBatchSubmission? pendingBatch) : this()
+        ClassBatchSubmission? pendingBatch, string? initialGradeTermId = null) : this()
     {
         _client = client;
         _school = school;
@@ -81,7 +82,11 @@ public sealed partial class ClassCreationWindow : Window
             Opened += (_, _) => _ = LoadContextAsync();
         }
         else if (pendingGrade is not null) RestorePendingGrade(pendingGrade);
-        else if (pending is null) Opened += (_, _) => _ = LoadContextAsync();
+        else if (pending is null)
+        {
+            _initialGradeTermId = initialGradeTermId;
+            Opened += (_, _) => _ = LoadContextAsync();
+        }
         else
         {
             ShowContext(pending.Context, pending.Grade.Id);
@@ -132,6 +137,11 @@ public sealed partial class ClassCreationWindow : Window
             else SetFeedback(error.Message, error: true);
         }
         finally { EndRequest(request); }
+        if (_initialGradeTermId is { } targetTerm && _request is null && _context is { } current && !_closed)
+        {
+            _initialGradeTermId = null;
+            if (current.TermId == targetTerm) OpenGradeCreation();
+        }
     }
 
     private void ShowContext(ClassCreationContext context, string? gradeId)

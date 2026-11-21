@@ -29,7 +29,9 @@ public sealed partial class ClassCreationWindow
         ShowGradeUnconfirmed();
     }
 
-    private void OpenGradeCreationClicked(object? sender, RoutedEventArgs args)
+    private void OpenGradeCreationClicked(object? sender, RoutedEventArgs args) => OpenGradeCreation();
+
+    private void OpenGradeCreation()
     {
         if (!GradeContextReady || _gradeUnsupported || _editingBatch || _request is not null || _pending is not null) return;
         _editingGrade = true;

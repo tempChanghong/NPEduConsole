@@ -1,5 +1,15 @@
 # 学校管理网页迁移清单
 
+## 学校管理总览与待办
+
+学校管理员选择学校后进入「学校总览」，也可从左栏随时返回。「管理待办」按当前启用学期列出学校配置、具体班级和具体大屏。建年级、单班或批量开班沿用「新建行政班」。对未登记首屏的班级，点击「前往登记」进入原登记区，再由管理员确认登记。对待接入或待上报的大屏，点击「定位大屏」按原班级和绑定 ID 打开对应入口。返回总览时重新读取学校服务。
+
+「大屏状态」分别显示网页首次登录和值守心跳，以及 NPEduTools 配对和有效上报。Console 登记首屏后会出现 NPEduTools 接入待办，登记网页账号也会独立显示首次登录待办。终端成功上报后，同一绑定的首次上报待办消除。KV 保留最近一次有效上报的时间，终端重开 Host 会话仍可查阅该记录。旧数据若已在升级前丢失上报证据，显示「待核对」。原班重新启用后，既有规则判定旧 NPEduTools 授权已失效时，待办提示现场重新配对。
+
+教师职责、任课、教师账号、网页大屏和学期启用仍打开原网页学校管理对应入口。网页地址取自 KV 的 `FRONTEND_URL`。地址未配置时，Console 显示原网页办理提示。无需另填监控凭据。
+
+上线先部署 KV 并应用迁移 `20261121040000_npep_device_last_report`，再更新 Console 和网页。旧网页仍可查询指定学期。新接口位于 `/api/v2/admin/schools/:schoolId/management-overview/current`。
+
 ## 学校审计记录的退役条件
 
 使用本地学校管理账号登录 NPEduConsole，选择学校后即可查看审计记录。即使学校尚无启用学期、班级或大屏，也可以查阅。该入口读取 KV 的学校 `AuditLog`。每次查询时，KV 都会核对当前账号在该校的 OWNER 或 ADMIN 权限。
@@ -92,6 +102,7 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/Postgr
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --grade-rename
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-batch
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-maintenance
+node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --school-overview
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --first-screen
 ```
 
@@ -106,6 +117,8 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/Postgr
 批量开班联调用 Windows Console 验证 12 班预览、第 7 行冲突与零写入、修正后成功回包丢失、按回执打开名单、重启后从普通班级列表打开同一份名单。HTTP 和数据库检查覆盖管理员竞争、批次归属、旧网页并发占码触发整批回滚、切换学期、跨校请求与旧网页指定学期写入。桌面截图保存在 `.artifacts/class-batch/desktop-live`。
 
 行政班维护联调用 Windows Console 验证代码冲突、并发编辑、停用摘要读取失败、新增大屏后的二次确认、重启后恢复原班及打开原名单。HTTP 和数据库检查覆盖大屏等量替换、学期切换、跨校与只读角色拒绝、旧网页归档学期维护，以及停用前后同一大屏凭据的服务端行为。桌面截图保存在 `.artifacts/class-maintenance/desktop-live`。
+
+学校总览联调用 Windows Console 贯穿旧学期同码、同班两屏、待办定位和返回刷新，并通过真实 NPEP HTTP 配对、首报及新 Host 会话核对回执。另覆盖班级恢复后重新配对提醒、无启用学期、建年级和建班入口、读取失败、切校迟到响应和历史网页查询。桌面截图保存在 `.artifacts/school-overview/desktop-live`。
 
 首台大屏联调在 Windows 上使用与 Console 同级的 NPEduTools 工作副本。夹具在另一所学校的同名班放置 205 台大屏，使新登记的大屏排在旧目录范围之外。测试通过教室端 Host 命令查找、翻页并按原口令接入，重启后在 Console 核对状态上报。服务和客户端使用独立的临时目录。`--serve-first-screen` 可保留服务供桌面验证。
 

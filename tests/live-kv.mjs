@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { closeSync, openSync } from 'node:fs';
-import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
@@ -20,12 +20,13 @@ import { prepareGradeCreation } from './grade-creation-fixture.mjs';
 import { prepareGradeRename } from './grade-rename-fixture.mjs';
 import { prepareClassBatch } from './class-batch-fixture.mjs';
 import { verifyClassMaintenance } from './class-maintenance-fixture.mjs';
+import { verifySchoolOverview } from './school-overview-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
-  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance',
+  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
@@ -40,6 +41,7 @@ const gradeCreation = mode === '--grade-creation';
 const gradeRename = mode === '--grade-rename';
 const classBatch = mode === '--class-batch';
 const classMaintenance = mode === '--class-maintenance';
+const schoolOverview = mode === '--school-overview';
 const replacement = mode === '--screen-replacement';
 const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen' || replacement;
 const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !gradeCreation && !gradeRename && !firstScreen;
@@ -83,8 +85,8 @@ async function loseWriteReply(origin, matches, method = 'POST', dropStatus = 200
   return { server: relay, origin: 'http://127.0.0.1:' + relay.address().port, count: () => committedRequests, attempts: () => attempts };
 }
 
-function run(command, args, env = process.env) {
-  const logfile = join(directory, basename(command) + '.log');
+function run(command, args, env = process.env, logName = basename(command) + '.log') {
+  const logfile = join(directory, logName);
   const log = openSync(logfile, 'a');
   let result;
   try {
@@ -173,7 +175,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -238,7 +240,7 @@ async function seed() {
     }))});
   }
   if (studyDate) await seedClassStudy(prisma, { school, term, manager, grade, classes, date: studyDate });
-  return { school, other, term, classes, devices, revokedDeviceId, pin, identity, classroomBearer, studyDate };
+  return { school, other, term, classes, devices, revokedDeviceId, pin, identity, classroomBearer, studyDate, managerId: manager.id };
 }
 
 async function verify(origin, fixture) {
@@ -464,6 +466,23 @@ async function runFixture() {
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (schoolOverview) {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = process.env.NP_CONSOLE_OVERVIEW_EVIDENCE
+      || fileURLToPath(new URL('../.artifacts/school-overview/desktop-live', import.meta.url));
+    const runDatabase = async () => {
+      const report = 'postgres-regressions.log';
+      try {
+        run(process.execPath, ['--test', 'tests/schoolManagementOverview.integration.test.js'],
+          {...process.env, RUN_DATABASE_TESTS: 'true', NPEP_OVERVIEW_TEST_IDENTITY: JSON.stringify(fixture.identity)}, report);
+      } finally {
+        await copyFile(join(directory, report), join(evidence, report));
+      }
+    };
+    const {secretHash} = await fromKv('domain/npep/wire.js');
+    return verifySchoolOverview({prisma, origin, fixture, directory, evidence, secretHash,
+      runDesktop: args => runDesktop(project, args), runDatabase});
+  }
   if (classMaintenance) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = process.env.NP_CONSOLE_CLASS_MAINTENANCE_EVIDENCE

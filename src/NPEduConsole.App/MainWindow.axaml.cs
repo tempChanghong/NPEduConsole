@@ -59,6 +59,9 @@ public sealed partial class MainWindow : Window
             UpdateSchoolAuditWorkspace();
             OpenSchoolAuditButton.Focus();
         };
+        SchoolOverviewWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
+        SchoolOverviewWorkspace.TaskRequested += async (overview, task) => await OpenSchoolOverviewTaskAsync(overview, task);
+        Activated += (_, _) => RefreshAfterWebOverviewTask();
         LoginView.AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         Closing += OnClosing;
     }
@@ -153,7 +156,13 @@ public sealed partial class MainWindow : Window
         if (!_settingSelection && _client is not null)
         {
             _showClassStudy = false;
-            await LoadSchoolAsync(SchoolPicker.SelectedItem as School);
+            _showSchoolAudit = false;
+            var school = SchoolPicker.SelectedItem as School;
+            _showSchoolOverview = school is not null;
+            _overviewJourney = false;
+            _overviewNavigation = null;
+            _overviewWebReturn = null;
+            await LoadSchoolAsync(school);
         }
     }
 
@@ -231,6 +240,13 @@ public sealed partial class MainWindow : Window
         if (!_settingSelection && _client is not null)
         {
             var room = ClassPicker.SelectedItem as Classroom;
+            if (room is not null && _showSchoolOverview)
+            {
+                _showSchoolOverview = false;
+                _overviewNavigation = null;
+                _overviewJourney = true;
+                UpdateSchoolAuditWorkspace();
+            }
             if (_firstScreen is { } preparation && !preparation.Matches(room)) ResetFirstScreen();
             await SelectClassroomAsync(room);
         }
@@ -266,7 +282,9 @@ public sealed partial class MainWindow : Window
     private Control BuildScreenCard(CoreScreen screen)
     {
         var list = new StackPanel { Spacing = 8 };
-        var card = new Border { Child = list, Padding = new Thickness(17, 13), Classes = { "card" } };
+        var card = new Border { Child = list, Padding = new Thickness(17, 13), Classes = { "card" }, Focusable = true };
+        AutomationProperties.SetAutomationId(card, "SchoolScreen-" + screen.Id);
+        _overviewScreenCards[screen.Id] = card;
         var summary = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 12 };
         summary.Children.Add(new TextBlock { Text = ScreenDisplayName(screen), FontSize = 16, FontWeight = FontWeight.SemiBold,
             TextWrapping = TextWrapping.Wrap, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
@@ -458,6 +476,9 @@ public sealed partial class MainWindow : Window
         _client = null;
         _showClassStudy = false;
         _showSchoolAudit = false;
+        _showSchoolOverview = _overviewJourney = false;
+        _overviewWebReturn = null;
+        _overviewNavigation = null;
         CancelMicrophoneChanges();
         CancelSoftwareSession();
         _school = null;
@@ -487,6 +508,7 @@ public sealed partial class MainWindow : Window
         _device = null;
         _deviceButtons.Clear();
         _admissionButtons.Clear();
+        _overviewScreenCards.Clear();
         ScreenCards.Children.Clear();
         ScreensHeading.IsVisible = EquipmentCard.IsVisible = EquipmentDetails.IsVisible = false;
         EquipmentDevice.Text = EquipmentStatus.Text = null;
@@ -504,6 +526,8 @@ public sealed partial class MainWindow : Window
 
     private void SchoolAuditClicked(object? sender, RoutedEventArgs args)
     {
+        _showSchoolOverview = false;
+        _overviewNavigation = null;
         _showSchoolAudit = !_showSchoolAudit;
         UpdateSchoolAuditWorkspace();
     }
@@ -511,12 +535,19 @@ public sealed partial class MainWindow : Window
     private void UpdateSchoolAuditWorkspace()
     {
         bool show = _showSchoolAudit && _school is not null;
+        bool overview = _showSchoolOverview && _school is not null && !show;
         if (show) CloseScreenReplacement();
         OpenSchoolAuditButton.IsEnabled = _school is not null;
         OpenSchoolAuditButton.Classes.Set("accent", show);
-        ClassPickerHeading.IsVisible = ClassPickerPanel.IsVisible = InactiveClassesFilter.IsVisible = ClassManagementWorkspace.IsVisible = !show;
+        ClassPickerHeading.IsVisible = ClassPickerPanel.IsVisible = InactiveClassesFilter.IsVisible = !show;
+        ClassManagementWorkspace.IsVisible = !show && !overview;
+        ReturnToSchoolOverviewButton.IsVisible = ClassManagementWorkspace.IsVisible && _overviewJourney;
         SchoolAuditWorkspace.IsVisible = show;
         SchoolAuditWorkspace.SetScope(show ? _client : null, show ? _school : null);
+        OpenSchoolOverviewButton.IsEnabled = _school is not null;
+        OpenSchoolOverviewButton.Classes.Set("accent", overview);
+        SchoolOverviewWorkspace.IsVisible = overview;
+        SchoolOverviewWorkspace.SetScope(overview ? _client : null, overview ? _school : null);
     }
 
     private void UpdateStudyWorkspace()

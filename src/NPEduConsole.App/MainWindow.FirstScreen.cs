@@ -31,7 +31,7 @@ public sealed partial class MainWindow
     private async void PrepareFirstScreenClicked(object? sender, RoutedEventArgs args)
     {
         if (_firstScreenRequest is not null || _client is not { } client || _school is not { } school ||
-            _classroom is not { CanPrepareFirstScreen: true } room || _showClassStudy || _showSchoolAudit) return;
+            _classroom is not { CanPrepareFirstScreen: true } room || _showClassStudy || _showSchoolAudit || _showSchoolOverview) return;
         if (_firstScreen is { } earlier && (earlier.State != FirstScreenState.ReadyToRetry || earlier.Refreshing || !earlier.Matches(room))) return;
 
         var preparation = _firstScreen ??= new FirstScreenPreparation(client, school, room);
@@ -70,7 +70,7 @@ public sealed partial class MainWindow
             }
         }
 
-        if (IsCurrentFirstScreen(preparation) && preparation.State == FirstScreenState.Registered && !_showClassStudy && !_showSchoolAudit)
+        if (IsCurrentFirstScreen(preparation) && preparation.State == FirstScreenState.Registered && !_showClassStudy && !_showSchoolAudit && !_showSchoolOverview)
             await RefreshFirstScreenAsync(preparation);
     }
 
@@ -136,7 +136,8 @@ public sealed partial class MainWindow
             preparation.Message = "教室大屏已登记，刷新时已查到接入设备。";
             return;
         }
-        if (_showClassStudy || _showSchoolAudit || !_admissionButtons.TryGetValue(id, out var opener) || opener.Tag is not CoreScreen target || !ReferenceEquals(screen, target)) return;
+        if (_showClassStudy || _showSchoolAudit || _showSchoolOverview || !_admissionButtons.TryGetValue(id, out var opener) ||
+            opener.Tag is not CoreScreen target || !ReferenceEquals(screen, target)) return;
 
         preparation.State = FirstScreenState.Finished;
         preparation.Message = "教室大屏已登记。请核对下方口令接入设置，登记本身不会开放接入。";
