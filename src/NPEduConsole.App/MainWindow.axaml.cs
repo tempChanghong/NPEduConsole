@@ -237,7 +237,13 @@ public sealed partial class MainWindow : Window
     private Control BuildScreenCard(CoreScreen screen)
     {
         var list = new StackPanel { Spacing = 8 };
+        var card = new Border { Child = list, Padding = new Thickness(17, 13), Classes = { "card" } };
         list.Children.Add(new TextBlock { Text = screen.Name, FontSize = 16, FontWeight = FontWeight.SemiBold, TextWrapping = TextWrapping.Wrap });
+        if (screen.DeviceOverviewUnavailable)
+        {
+            list.Children.Add(new TextBlock { Text = "设备状态暂不可用", Classes = { "muted" } });
+            return card;
+        }
         if (screen.Devices.Count == 0)
         {
             list.Children.Add(new TextBlock { Text = "该大屏暂无有效绑定设备。", Classes = { "muted" } });
@@ -269,7 +275,7 @@ public sealed partial class MainWindow : Window
             list.Children.Add(button);
         }
 
-        return new Border { Child = list, Padding = new Thickness(17, 13), Classes = { "card" } };
+        return card;
     }
 
     private async void DeviceClicked(object? sender, RoutedEventArgs args)
@@ -399,6 +405,7 @@ public sealed partial class MainWindow : Window
     {
         CancelRequest();
         ResetSchoolServerStatus();
+        CloseClassRoster();
         _client = null;
         _showClassStudy = false;
         _showSchoolAudit = false;
@@ -418,6 +425,8 @@ public sealed partial class MainWindow : Window
 
     private void SetClassroom(Classroom? room)
     {
+        if (_classroom?.Id != room?.Id || _classroom?.TermId != room?.TermId) CloseClassRoster();
+        OpenClassRosterButton.IsEnabled = room is not null;
         CloseClassAdmission();
         CloseSoftwareMaintenance();
         ResetEquipmentView();

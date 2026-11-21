@@ -118,14 +118,15 @@ public sealed partial class ConsoleClient : IDisposable
         if (term is null) return [];
 
         var structureTask = RequestAsync<Structure>(HttpMethod.Get, path + "/academic-structure?termId=" + Segment(term.Id), token, ct);
-        var devicesTask = ReadDevicesAsync(schoolId, token, ct);
+        var devicesTask = ReadOptionalDevicesAsync(schoolId, token, ct);
         await Task.WhenAll(structureTask, devicesTask);
         var structure = await structureTask;
         if (structure.Term.Id != term.Id || structure.Term.Status != "ACTIVE")
             throw new ConsoleApiException(409, "学校已切换学期，请刷新班级列表。");
 
         // A screen account may already exist before NPEduTools pairs. Keep it visible in that state.
-        var byScreen = (await devicesTask).ToLookup(d => (d.AdministrativeClassId, d.ScreenBindingId, d.BindingRevision));
+        var devices = await devicesTask;
+        var byScreen = (devices ?? []).ToLookup(d => (d.AdministrativeClassId, d.ScreenBindingId, d.BindingRevision));
         var byClass = screens.Where(s => s.IsActive && s.SchoolId == schoolId && s.AdministrativeClassId is not null)
             .ToLookup(s => s.AdministrativeClassId!);
         var classrooms = new List<Classroom>();
@@ -136,11 +137,17 @@ public sealed partial class ConsoleClient : IDisposable
             {
                 var matched = byScreen[(room.Id, screen.Id, screen.NpepBindingRevision)];
                 var connected = matched.Select(d => new Device(d.DeviceId, d.DeviceName, d.Connectivity, d.LastSeenAt));
-                roomScreens.Add(new Screen(screen.Id, screen.Name, connected.ToArray()));
+                roomScreens.Add(new Screen(screen.Id, screen.Name, connected.ToArray()) { DeviceOverviewUnavailable = devices is null });
             }
             classrooms.Add(new Classroom(room.Id, room.Name, room.Grade?.Name, roomScreens) { TermId = term.Id });
         }
         return classrooms;
+    }
+
+    private async Task<List<DeviceRow>?> ReadOptionalDevicesAsync(string schoolId, string token, CancellationToken ct)
+    {
+        try { return await ReadDevicesAsync(schoolId, token, ct); }
+        catch (ConsoleApiException ex) when (ex.StatusCode is 404 or 426 or 503) { return null; }
     }
 
     private async Task<List<DeviceRow>> ReadDevicesAsync(string schoolId, string token, CancellationToken ct)
@@ -311,6 +318,22 @@ public sealed partial class ConsoleClient : IDisposable
                     if (error?.RequestId == requestId && error.ProtocolVersion == version)
                         throw ProtocolConflict(error.Error?.Code);
                 }
+                if (version is null && method == HttpMethod.Put && status is 409 or 422 or 428)
+                {
+                    var code = await AcademicErrorCodeAsync(response, ct);
+                    throw new ConsoleApiException(status, code switch
+                    {
+                        "CLASS_ROSTER_CLASS_INACTIVE" => "该班已停用，不能保存名单。",
+                        "CLASS_ROSTER_TERM_CHANGED" => "该班所属学期已切换，请核对新学期的班级。",
+                        "CLASS_ROSTER_CONFLICT" => "其他管理员或大屏已修改名单，请核对最新名单。",
+                        "CLASS_ROSTER_VERSION_REQUIRED" => "KV 需要名单版本，请重新载入名单。",
+                        "CLASS_ROSTER_STUDENT_INVALID" => "学生身份与当前班级不匹配，请重新核对。",
+                        "CLASS_ROSTER_INVALID" or "CLASS_ROSTER_TOO_LARGE" or "CLASS_ROSTER_NAME_REQUIRED" or
+                        "CLASS_ROSTER_DUPLICATE_NUMBER" or "CLASS_ROSTER_DUPLICATE_ID" =>
+                            "KV 未接受这份名单，请核对姓名、学号、人数和重复项目。",
+                        _ => HttpError(status, false).Message
+                    }, code);
+                }
                 throw HttpError(status, token is null);
             }
             var envelope = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct) ?? throw InvalidResponse();
@@ -324,6 +347,18 @@ public sealed partial class ConsoleClient : IDisposable
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         { throw new ConsoleApiException(0, "KV 服务响应超时，请检查连接后重试。"); }
         catch (HttpRequestException) { throw new ConsoleApiException(0, "无法连接 KV 服务，请检查地址、网络和服务证书。"); }
+    }
+
+    private static async Task<string?> AcademicErrorCodeAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ct), cancellationToken: ct);
+            var root = document.RootElement;
+            return root.ValueKind == JsonValueKind.Object && root.TryGetProperty("code", out var code) &&
+                code.ValueKind == JsonValueKind.String ? code.GetString() : null;
+        }
+        catch (JsonException) { return null; }
     }
 
     private static ConsoleApiException InvalidResponse() => new(0, "KV 服务返回的数据与当前控制台不兼容，请核对服务地址或刷新。");
