@@ -18,12 +18,14 @@ import { prepareClassRoster } from './class-roster-fixture.mjs';
 import { prepareClassCreation } from './class-creation-fixture.mjs';
 import { prepareGradeCreation } from './grade-creation-fixture.mjs';
 import { prepareGradeRename } from './grade-rename-fixture.mjs';
+import { prepareClassBatch } from './class-batch-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
-  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--first-screen', '--serve-first-screen', '--screen-replacement'].includes(mode)),
+  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch',
+  '--first-screen', '--serve-first-screen', '--screen-replacement'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -35,6 +37,7 @@ const classRoster = mode === '--class-roster' || mode === '--serve-class-roster'
 const classCreation = mode === '--class-creation' || mode === '--serve-class-creation';
 const gradeCreation = mode === '--grade-creation';
 const gradeRename = mode === '--grade-rename';
+const classBatch = mode === '--class-batch';
 const replacement = mode === '--screen-replacement';
 const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen' || replacement;
 const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !gradeCreation && !gradeRename && !firstScreen;
@@ -49,7 +52,7 @@ const data = join(directory, 'data');
 const passwordFile = join(directory, 'password');
 const databasePassword = randomBytes(32).toString('hex');
 const pg = command => join(resolve(binaries), command + (process.platform === 'win32' ? '.exe' : ''));
-let prisma, server, stopClassroom, lostReply, rename;
+let prisma, server, stopClassroom, lostReply, rename, batch;
 
 // Model a gateway losing an acknowledgement after KV has already committed.
 // The destination is pinned to this run's loopback fixture for every request.
@@ -160,7 +163,7 @@ async function seed() {
   }
   const manager = await account('admin', 'ADMIN');
   await account('viewer', 'VIEWER');
-  if (gradeRename) await account('admin2', 'ADMIN');
+  if (gradeRename || classBatch) await account('admin2', 'ADMIN');
   const term = await prisma.academicTerm.create({ data: {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
   } });
@@ -408,6 +411,34 @@ async function verifyServerStatus(origin, fixture, databasePort) {
   console.log('PASS: school account without a monitoring credential, live role revocation, independent deployment diagnostics, database outage and recovery.');
 }
 
+function runDesktop(project, args) {
+  return new Promise((res, rej) => {
+    // The KV HTTP listener and database pool run on this event loop.
+    const client = spawn('dotnet', ['run', '--project', project, '-c', 'Release', '--', ...args],
+      { windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'] });
+    client.once('error', rej);
+    client.once('close', code => code === 0 ? res() : rej(new Error('Desktop client smoke failed: ' + code)));
+  });
+}
+
+async function verifyClassBatch(origin, fixture) {
+  batch = await prepareClassBatch(prisma, origin, fixture);
+  const access = join(directory, 'desktop.json');
+  const login = {schoolId: fixture.school.id, schoolCode: fixture.school.code, username: 'admin', password: fixture.pin, ...batch.access};
+  await writeFile(access, JSON.stringify(login), { mode: 0o600 });
+  const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+  const output = process.env.NP_CONSOLE_CLASS_BATCH_EVIDENCE
+    || fileURLToPath(new URL('../.artifacts/class-batch/desktop-live', import.meta.url));
+  await runDesktop(project, ['--live-class-batch', access, output]);
+  const saved = await batch.checkDesktop();
+  await writeFile(access, JSON.stringify({...login, ...saved, origin: login.directOrigin}), { mode: 0o600 });
+  await runDesktop(project, ['--live-class-batch-reopen', access, join(output, 'reopen')]);
+  await batch.verifyOtherPaths();
+  run(process.execPath, ['--test', '--test-name-pattern=current class batch', 'tests/managementDatabase.integration.test.js'],
+    {...process.env, RUN_DATABASE_TESTS: 'true'});
+  console.log('PASS: real PostgreSQL batch receipt ownership and rollback after a racing legacy insert.');
+}
+
 async function runFixture() {
   // Node's POSIX file modes have no ACL equivalent on Windows. Restrict the
   // new directory before any credentials, database files, or logs are written.
@@ -421,7 +452,7 @@ async function runFixture() {
   const databasePort = await createDatabase();
   ({ prisma } = await fromKv('utils/prisma.js'));
   const fixture = await seed();
-  if (classRoster || classCreation || gradeCreation || gradeRename) process.env.NPEP_ENABLED = 'false';
+  if (classRoster || classCreation || gradeCreation || gradeRename || classBatch) process.env.NPEP_ENABLED = 'false';
   if (mode === '--server-status') delete process.env.KV_BACKUP_STATUS_DIR;
   const { default: app } = await fromKv('app.js');
   server = await new Promise((res, rej) => {
@@ -430,6 +461,7 @@ async function runFixture() {
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
+  if (classBatch) return verifyClassBatch(origin, fixture);
   const audit = schoolAudit ? await prepareSchoolAudit(prisma, origin, fixture) : null;
   const roster = classRoster ? await prepareClassRoster(prisma, origin, fixture) : null;
   const creation = classCreation ? await prepareClassCreation(prisma, origin, fixture) : null;
@@ -477,19 +509,15 @@ async function runFixture() {
     schoolAudit ? './NPEduConsole.AuditSmoke/NPEduConsole.AuditSmoke.csproj' :
     classStudy ? './NPEduConsole.StudySmoke/NPEduConsole.StudySmoke.csproj' : './NPEduConsole.Smoke/NPEduConsole.Smoke.csproj';
   const smoke = fileURLToPath(new URL(project, import.meta.url));
-  if (!serve || (runDeviceFixture && !softwareUpdate)) await new Promise((res, rej) => {
-    // The KV HTTP listener and database pool run on this event loop.
+  if (!serve || (runDeviceFixture && !softwareUpdate)) {
     const options = classAdmission ? ['--class-admission'] : softwareUpdate ? ['--software-update'] : localAuthorization ? [serve ? '--view-local-authorization' : '--local-authorization'] :
       serve ? ['--view-only'] : [];
     const args = gradeRename ? ['--live-grade-rename', access, process.env.NP_CONSOLE_GRADE_RENAME_EVIDENCE
       || fileURLToPath(new URL('../.artifacts/grade-rename/desktop-live', import.meta.url))]
       : gradeCreation ? ['--live-grade', access, fileURLToPath(new URL('../.artifacts/grade-creation/desktop-live', import.meta.url))]
       : [access, ...options];
-    const client = spawn('dotnet', ['run', '--project', smoke, '-c', 'Release', '--', ...args],
-      { windowsHide: true, stdio: ['ignore', 'inherit', 'inherit'] });
-    client.once('error', rej);
-    client.once('close', code => code === 0 ? res() : rej(new Error('Desktop client smoke failed: ' + code)));
-  });
+    await runDesktop(smoke, args);
+  }
   if (!serve && (classAdmission || classStudy)) {
     assert.equal(lostReply.count(), 1, 'a lost acknowledgement caused no automatic write retry');
     console.log('PASS: KV committed exactly one write through the lost-reply relay.');
@@ -582,7 +610,7 @@ try {
     try { await stopClassroom(); }
     catch (error) { passed = false; process.exitCode = 1; console.error('Fixture device stopped:', error.message); }
   }
-  for (const listener of [lostReply?.server, rename?.server, server].filter(Boolean)) {
+  for (const listener of [lostReply?.server, rename?.server, batch?.server, server].filter(Boolean)) {
     const closed = new Promise(res => listener.close(res));
     listener.closeAllConnections();
     await closed;

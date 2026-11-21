@@ -1,4 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App"
         x:Class="NPEduConsole.App.ClassCreationWindow" Title="新建行政班" Width="530" Height="660" MinWidth="440" MinHeight="480"
         WindowStartupLocation="CenterOwner">
   <Window.Styles>
@@ -43,11 +44,13 @@
             <StackPanel x:Name="CreationFields" Spacing="10" IsEnabled="False">
               <StackPanel Spacing="4">
                 <TextBlock Text="所属年级" Classes="label" />
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                   <ComboBox x:Name="CreationGrade" PlaceholderText="选择现有年级" HorizontalAlignment="Stretch"
                             AutomationProperties.Name="所属年级" SelectionChanged="FieldsChanged" />
                   <Button x:Name="OpenGradeRenameButton" Grid.Column="1" Content="修改名称" Classes="action"
                           Click="OpenGradeRenameClicked" IsEnabled="False" AutomationProperties.Name="修改年级名称" />
+                  <Button x:Name="OpenClassBatchButton" Grid.Column="2" Content="批量开班" Classes="action"
+                          Click="OpenClassBatchClicked" IsEnabled="False" AutomationProperties.Name="按年级批量开班" />
                 </Grid>
               </StackPanel>
               <StackPanel Spacing="4">
@@ -82,6 +85,84 @@
               </WrapPanel>
               <TextBlock Text="改名期间建班表单临时收起，班级代码、年级代码、学生名单和已填写的班级草稿都会保留；返回建班后继续。" Classes="muted"
                          TextWrapping="Wrap" />
+            </StackPanel>
+            <StackPanel x:Name="BatchFields" Spacing="10" IsVisible="False">
+              <TextBlock x:Name="BatchTarget" Classes="muted" TextWrapping="Wrap" />
+              <StackPanel x:Name="BatchDraftPane" Spacing="10">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="起始编号" Classes="label" />
+                    <TextBox x:Name="BatchStartNumber" AutomationProperties.Name="起始编号" TextChanged="BatchInputChanged" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="4">
+                    <TextBlock Text="结束编号" Classes="label" />
+                    <TextBox x:Name="BatchEndNumber" AutomationProperties.Name="结束编号" TextChanged="BatchInputChanged" />
+                  </StackPanel>
+                </Grid>
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="班级名称前缀" Classes="label" />
+                    <TextBox x:Name="BatchNamePrefix" AutomationProperties.Name="班级名称前缀" TextChanged="BatchInputChanged" />
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="4">
+                    <TextBlock Text="班级代码前缀" Classes="label" />
+                    <TextBox x:Name="BatchCodePrefix" AutomationProperties.Name="班级代码前缀" TextChanged="BatchInputChanged" />
+                  </StackPanel>
+                </Grid>
+                <TextBlock Text="名称和代码按编号生成。一次最多开出 100 个班。" Classes="muted" TextWrapping="Wrap" />
+                <WrapPanel ItemSpacing="8" LineSpacing="8">
+                  <Button x:Name="BatchPreviewButton" Content="生成预览" Classes="action" Click="BatchPreviewClicked" />
+                  <Button x:Name="BatchValidateButton" Content="核对" Classes="action" IsEnabled="False" Click="BatchValidateClicked" />
+                  <Button x:Name="BatchSubmitButton" Content="保存开班" Classes="action accent" IsEnabled="False" Click="BatchSubmitClicked" />
+                  <Button x:Name="BatchVerifyReceiptButton" Content="核对结果" Classes="action" IsVisible="False" Click="BatchVerifyReceiptClicked" />
+                  <Button x:Name="BatchCancelButton" Content="返回建班" Classes="action" Click="BatchCancelClicked" />
+                </WrapPanel>
+                <TextBlock x:Name="BatchSummary" Classes="muted" IsVisible="False" TextWrapping="Wrap"
+                           AutomationProperties.LiveSetting="Polite" />
+                <Grid x:Name="BatchColumnLabels" ColumnDefinitions="26,104,*,Auto" ColumnSpacing="6" Margin="2,0,5,0">
+                  <TextBlock Text="序" Classes="muted" />
+                  <TextBlock Grid.Column="1" Text="班级代码" Classes="muted" />
+                  <TextBlock Grid.Column="2" Text="班级名称" Classes="muted" />
+                  <TextBlock Grid.Column="3" Text="学生自选" Classes="muted" />
+                </Grid>
+                <ScrollViewer x:Name="BatchRowScroll" MaxHeight="238" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                  <ItemsControl x:Name="BatchRows">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="local:BatchDraftRow">
+                        <Grid RowDefinitions="Auto,Auto" Margin="2,0,5,8">
+                          <Grid ColumnDefinitions="26,104,*,Auto" ColumnSpacing="6">
+                            <TextBlock Text="{Binding Position}" Classes="muted" VerticalAlignment="Center" />
+                            <TextBox Grid.Column="1" Text="{Binding Code, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     AutomationProperties.Name="班级代码" />
+                            <TextBox Grid.Column="2" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     AutomationProperties.Name="班级名称" />
+                            <CheckBox Grid.Column="3" IsChecked="{Binding IsStudentSelectable, Mode=TwoWay}"
+                                      AutomationProperties.Name="允许学生自选" />
+                          </Grid>
+                          <TextBlock Grid.Row="1" Text="{Binding Error}" Classes="creation-error" TextWrapping="Wrap"
+                                     IsVisible="{Binding HasError}" />
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </StackPanel>
+              <StackPanel x:Name="BatchResultPane" Spacing="8" IsVisible="False">
+                <TextBlock Text="已创建班级（服务器回执）" Classes="label" />
+                <TextBlock x:Name="BatchResultSummary" Classes="muted" TextWrapping="Wrap" />
+                <ListBox x:Name="BatchResults" MaxHeight="250" SelectionChanged="BatchResultSelectionChanged">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="local:BatchResultItem">
+                      <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+                <WrapPanel ItemSpacing="8" LineSpacing="8">
+                  <Button x:Name="BatchOpenRosterButton" Content="打开所选班级名单" Classes="action accent" IsEnabled="False"
+                          Click="BatchOpenRosterClicked" />
+                  <Button Content="返回建班" Classes="action" Click="BatchCancelClicked" />
+                </WrapPanel>
+              </StackPanel>
             </StackPanel>
           </StackPanel>
         </Border>

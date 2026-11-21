@@ -20,6 +20,8 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--live-class-batch" or "--live-class-batch-reopen", var batchFixture, var batchOutput])
+            return StartClassBatch(batchFixture, batchOutput, reopen: args[0] == "--live-class-batch-reopen");
         if (args is not ([_] or ["--live" or "--live-grade", _, _] or ["--live-grade-rename", _, _]))
             throw new ArgumentException("Specify an output directory, --live/--live-grade <fixture.json> <directory>, or --live-grade-rename <fixture.json> <directory>.");
         if (args[0] == "--live-grade-rename") return StartGradeRename(args[1], args[^1]);

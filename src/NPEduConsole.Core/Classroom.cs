@@ -105,4 +105,5 @@ public sealed class ConsoleApiException(int statusCode, string message, string? 
 {
     public int StatusCode { get; } = statusCode;
     public string? Code { get; } = code;
+    public IReadOnlyList<BatchClassIssue> BatchIssues { get; init; } = [];
 }

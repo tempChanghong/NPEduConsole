@@ -27,9 +27,9 @@ public sealed partial class ClassCreationWindow
 
     private void OpenGradeRenameClicked(object? sender, RoutedEventArgs args)
     {
-        if (_closed || _editingGradeRename || _editingGrade || _request is not null || _submitting || _renameSubmitting ||
-            _renameChecking || _blocked || _renameUnsupported || _gradeRenameVersionStale || _pending is not null ||
-            _pendingGrade is not null || !GradeContextReady) return;
+        if (_closed || _editingGradeRename || _editingGrade || _editingBatch || _request is not null || _submitting ||
+            _renameSubmitting || _renameChecking || _blocked || _renameUnsupported || _gradeRenameVersionStale ||
+            _pending is not null || _pendingGrade is not null || !GradeContextReady) return;
         if (CreationGrade.SelectedItem is not ClassCreationGrade grade || grade.UpdatedAt is null) return;
 
         _editingGradeRename = true;
@@ -427,7 +427,7 @@ public sealed partial class ClassCreationWindow
         GradeRenameFields.IsVisible = _editingGradeRename;
         ShowRenameTarget(_editingGradeRename ? _renameGrade : null);
         OpenGradeRenameButton.IsEnabled = !busy && GradeContextReady && !_editingGrade && !_editingGradeRename &&
-            _pending is null && _pendingGrade is null && !_gradeRenameVersionStale &&
+            !_editingBatch && _pending is null && _pendingGrade is null && !_gradeRenameVersionStale &&
             CreationGrade.SelectedItem is ClassCreationGrade { UpdatedAt: not null };
         if (!_editingGradeRename) return;
 

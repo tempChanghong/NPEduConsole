@@ -36,7 +36,15 @@
 
 选择学校并打开「新建行政班」。在「所属年级」选中目标年级，点击「修改名称」。保存后仍选中这个年级，可以随时关闭窗口。已有班级和名单的年级也能改名。年级 ID、代码、排序、所属学期以及班级和学生关联保持原样。
 
-多人编辑发生冲突时，Console 保留输入并显示学校的最新名称。回包中断时先读取该年级，提示学校当前名称是否与本次输入一致。启用学期变更后，需重新载入并选择年级。改名入口需要新版 KV 的年级版本字段和当前学期改名接口，无需新增数据库迁移。网页继续承接指定其他学期的新建与编辑、年级代码及排序调整、批量建班和 OAuth 管理员。
+多人编辑发生冲突时，Console 保留输入并显示学校的最新名称。回包中断时先读取该年级，提示学校当前名称是否与本次输入一致。启用学期变更后，需重新载入并选择年级。改名入口需要新版 KV 的年级版本字段和当前学期改名接口，无需新增数据库迁移。网页继续承接指定其他学期的新建与编辑、年级代码及排序调整和 OAuth 管理员。
+
+## 按年级批量开班
+
+选择学校并打开「新建行政班」。在「所属年级」选中已有年级，再点击「批量开班」。输入起止编号和可调整的名称、代码前缀，例如用高一年级生成 1 至 12 班。点击「生成预览」，可逐行修改名称、代码及学生自选设置；一次可创建 1 至 100 个班。
+
+点击「核对」可提前查看代码冲突。保存时 KV 重新确认学校权限、启用学期、目标年级和代码占用。冲突会标到相应行并保留草稿，整批成功或整批不建班。回包丢失时点击「核对结果」，Console 按原批次编号查询管理员自己的回执。在同一次登录中关闭建班窗口后，重新打开可继续核对。若服务器暂未记录，可用同一编号重试未改动的草稿。
+
+成功后任选一条服务器回执打开名单。Console 重新启动后，班级也可从常规班级列表找到。上线前需应用 KV 的 `20261121030000_current_class_batch_creation` 迁移。旧网页仍可为指定学期批量建班。
 
 ## 给新班准备第一台教室大屏
 
@@ -50,7 +58,7 @@
 | --- | --- |
 | 审计记录 | 本地学校管理账号可在 Console 完成上述查询。 |
 | 管理总览 | 学校配置诊断和管理待办仍在网页。学校管理员登录 Console 后可自动查看所连 KV 的运行状态。 |
-| 组织与班级 | Console 可在当前启用学期新建年级、修改年级名称及新建单个行政班并录入名单。其他学期的管理、年级代码和排序、班级编辑、学科、批量建班及教学关系仍在网页。 |
+| 组织与班级 | Console 可在当前启用学期新建年级、修改年级名称、单个或按已有年级批量新建行政班并录入名单。其他学期的管理、年级代码和排序、班级编辑、学科及教学关系仍在网页。 |
 | 学生名单 | Console 可维护当前学期一个行政班的名单，支持批量粘贴、差异预览、保存及冲突核对。 |
 | 教师分配 | 教师职责、任课分配和作业快捷输入配置仍在网页。 |
 | 大屏设备 | Console 可为新班登记首台 NPEduTools 大屏并查看连接状态。创建或重置网页大屏账号、维护作业快捷截止时间仍在网页。 |
@@ -74,6 +82,7 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/Postgr
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-creation
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --grade-creation
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --grade-rename
+node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-batch
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --first-screen
 ```
 
@@ -84,6 +93,8 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/Postgr
 建年级联调会运行 Windows Console，从零年级学校打开建班窗口，模拟创建回包丢失。核对原请求后选中新年级，建首班并保存一名学生。还会检查年级重码、填写时切换学期、请求归属与旧网页指定学期创建。桌面截图保存在 `.artifacts/grade-creation/desktop-live`。
 
 改名联调从 Windows Console 的建班窗口操作已有班级和学生的年级，覆盖两位管理员的旧版本冲突、回包丢失核对及学期切换，并在 PostgreSQL 核对原年级、班级和学生记录。桌面截图保存在 `.artifacts/grade-rename/desktop-live`。
+
+批量开班联调用 Windows Console 验证 12 班预览、第 7 行冲突与零写入、修正后成功回包丢失、按回执打开名单、重启后从普通班级列表打开同一份名单。HTTP 和数据库检查覆盖管理员竞争、批次归属、旧网页并发占码触发整批回滚、切换学期、跨校请求与旧网页指定学期写入。桌面截图保存在 `.artifacts/class-batch/desktop-live`。
 
 首台大屏联调在 Windows 上使用与 Console 同级的 NPEduTools 工作副本。夹具在另一所学校的同名班放置 205 台大屏，使新登记的大屏排在旧目录范围之外。测试通过教室端 Host 命令查找、翻页并按原口令接入，重启后在 Console 核对状态上报。服务和客户端使用独立的临时目录。`--serve-first-screen` 可保留服务供桌面验证。
 

@@ -38,7 +38,8 @@ public sealed partial class ClassCreationWindow : Window
             new TextBlock { Text = grade is null ? null : $"{grade.Name}（{grade.Code}）" });
         Closing += (_, args) =>
         {
-            if (!_allowClose && (_submitting || _renameSubmitting || _renameChecking))
+            if (!_allowClose && (_submitting || _renameSubmitting || _renameChecking ||
+                                 _batchSubmitting || _batchValidating || _batchChecking))
             {
                 args.Cancel = true;
                 SetFeedback("正在提交请求，请等待学校返回结果。");
@@ -56,6 +57,7 @@ public sealed partial class ClassCreationWindow : Window
             _pendingGrade = null;
             _context = null;
             ResetRenameState();
+            ResetBatchState();
             ClearFields();
         };
         AddHandler(KeyDownEvent, (_, args) =>
@@ -66,13 +68,19 @@ public sealed partial class ClassCreationWindow : Window
         }, RoutingStrategies.Tunnel);
     }
 
-    internal ClassCreationWindow(ConsoleClient client, School school, ClassCreationSubmission? pending, GradeCreationSubmission? pendingGrade) : this()
+    internal ClassCreationWindow(ConsoleClient client, School school, ClassCreationSubmission? pending, GradeCreationSubmission? pendingGrade,
+        ClassBatchSubmission? pendingBatch) : this()
     {
         _client = client;
         _school = school;
         _pending = pending;
         CreationSchool.Text = school.Name;
-        if (pendingGrade is not null) RestorePendingGrade(pendingGrade);
+        if (pendingBatch is not null)
+        {
+            RestorePendingBatch(pendingBatch);
+            Opened += (_, _) => _ = LoadContextAsync();
+        }
+        else if (pendingGrade is not null) RestorePendingGrade(pendingGrade);
         else if (pending is null) Opened += (_, _) => _ = LoadContextAsync();
         else
         {
@@ -112,6 +120,7 @@ public sealed partial class ClassCreationWindow : Window
                 : context.TermId == previousTerm ? selectedGrade : null;
             ShowContext(context, gradeId);
             if (_editingGradeRename) ApplyRenameContextRefresh(context);
+            else if (_editingBatch) ApplyBatchContextRefresh(context);
             else SetFeedback(_editingGrade && previousTerm != context.TermId && context.TermId is not null
                 ? "已切换学期，请核对新学期后再提交。" : CreationContextMessage(context));
         }
@@ -136,7 +145,7 @@ public sealed partial class ClassCreationWindow : Window
     private async void SubmitClicked(object? sender, RoutedEventArgs args)
     {
         if (_client is not { } client || _request is not null || _blocked || _contextInvalid || _editingGrade ||
-            _editingGradeRename) return;
+            _editingGradeRename || _editingBatch) return;
         var submission = _pending;
         if (submission is null)
         {
@@ -244,7 +253,9 @@ public sealed partial class ClassCreationWindow : Window
         _blocked = true;
         SetPending(null);
         SetPendingGrade(null);
+        SetPendingBatch(null);
         ResetRenameState();
+        ResetBatchState();
         ClearFields();
         CloseNotice = error.StatusCode != 403 ? null : _editingGrade
             ? "当前账号没有权限创建年级。若此前结果未确认，请在恢复权限后核对年级。"
@@ -294,20 +305,22 @@ public sealed partial class ClassCreationWindow : Window
         if (_closed || SubmitClassCreationButton is null) return;
         bool busy = _request is not null;
         bool ready = _context is { TermId: not null, Grades.Count: > 0 } && !_contextInvalid && !_blocked;
-        // 改名期间收起建班表单：控件不销毁，已填的班级草稿保留；避免在 530×660 下把改名按钮挤出视野。
-        CreationFields.IsVisible = !_editingGrade && !_editingGradeRename;
-        CreationFields.IsEnabled = ready && !busy && _pending is null && !_editingGradeRename;
+        // 改名/批量开班期间收起建班表单：控件不销毁，已填的班级草稿保留；避免在 530×660 下把当前模式的按钮挤出视野。
+        CreationFields.IsVisible = !_editingGrade && !_editingGradeRename && !_editingBatch;
+        CreationFields.IsEnabled = ready && !busy && _pending is null && !_editingGradeRename && !_editingBatch;
         ReloadCreationContext.IsEnabled = !busy && _pending is null && _pendingGrade is null && !_blocked;
         SubmitClassCreationButton.Content = _submitting ? "正在提交…" : _pending is not null ? "重试确认" : "创建并录入名单";
-        SubmitClassCreationButton.IsVisible = !_editingGrade && !_editingGradeRename;
-        SubmitClassCreationButton.IsEnabled = !_editingGrade && !_editingGradeRename && !busy && !_blocked &&
+        SubmitClassCreationButton.IsVisible = !_editingGrade && !_editingGradeRename && !_editingBatch;
+        SubmitClassCreationButton.IsEnabled = !_editingGrade && !_editingGradeRename && !_editingBatch && !busy && !_blocked &&
             (_pending is not null || ready && CreationGrade.SelectedItem is ClassCreationGrade &&
                 !string.IsNullOrWhiteSpace(CreationName.Text) && !string.IsNullOrWhiteSpace(CreationCode.Text));
-        CloseClassCreationButton.IsEnabled = !_submitting && !_renameSubmitting && !_renameChecking;
-        CloseClassCreationButton.Content = !_submitting && !_renameSubmitting && !_renameChecking &&
-            (_pending is not null || _pendingGrade is not null) ? "关闭，稍后确认" : "关闭";
+        bool batchBusy = _batchSubmitting || _batchValidating || _batchChecking;
+        CloseClassCreationButton.IsEnabled = !_submitting && !_renameSubmitting && !_renameChecking && !batchBusy;
+        CloseClassCreationButton.Content = !_submitting && !_renameSubmitting && !_renameChecking && !batchBusy &&
+            (_pending is not null || _pendingGrade is not null || _batchUncertain) ? "关闭，稍后确认" : "关闭";
         RenderGradeCreation(busy);
         RenderGradeRename(busy);
+        RenderBatch(busy);
     }
 
     private async void ReloadClicked(object? sender, RoutedEventArgs args) => await LoadContextAsync();

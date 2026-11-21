@@ -31,7 +31,7 @@ public sealed partial class ClassCreationWindow
 
     private void OpenGradeCreationClicked(object? sender, RoutedEventArgs args)
     {
-        if (!GradeContextReady || _gradeUnsupported || _request is not null || _pending is not null) return;
+        if (!GradeContextReady || _gradeUnsupported || _editingBatch || _request is not null || _pending is not null) return;
         _editingGrade = true;
         SetFeedback(null);
         Render();
@@ -160,7 +160,7 @@ public sealed partial class ClassCreationWindow
     private void RenderGradeCreation(bool busy)
     {
         OpenGradeCreationButton.IsVisible = !_editingGrade;
-        OpenGradeCreationButton.IsEnabled = !busy && GradeContextReady && !_gradeUnsupported && _pending is null &&
+        OpenGradeCreationButton.IsEnabled = !busy && GradeContextReady && !_gradeUnsupported && !_editingBatch && _pending is null &&
             !_editingGradeRename;
         GradeCreationFields.IsVisible = _editingGrade;
         NewGradeName.IsEnabled = NewGradeCode.IsEnabled = !busy && GradeContextReady && !_gradeUnsupported && _pendingGrade is null;
