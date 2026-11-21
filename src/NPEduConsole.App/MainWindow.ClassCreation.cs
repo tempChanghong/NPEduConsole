@@ -16,6 +16,7 @@ public sealed partial class MainWindow
     {
         if (_classCreationWindow is not null || _openingCreatedClass is not null || _classRosterWindow is not null ||
             _client is not { } client || _school is not { } school) return;
+        SetClassMaintenanceNotice(null);
         var window = new ClassCreationWindow(client, school, _unconfirmedClassCreations.GetValueOrDefault(school.Id),
             _unconfirmedGradeCreations.GetValueOrDefault(school.Id), _unconfirmedClassBatches.GetValueOrDefault(school.Id));
         _classCreationWindow = window;
@@ -83,6 +84,7 @@ public sealed partial class MainWindow
         }
 
         _createdClassToOpen = created;
+        SetInactiveClassesFilter(false);
         await OpenCreatedClassRosterAsync(client, school, created);
     }
 

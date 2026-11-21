@@ -163,8 +163,14 @@ public sealed partial class MainWindow : Window
         using var request = StartRequest();
         if (_firstScreen is { } preparation && (preparation.State == FirstScreenState.Finished ||
             preparation.School != school || preparation.ClassId != restoredClass)) ResetFirstScreen();
-        if (_school != school) ChangeClassCreationSchool(school);
+        if (_school != school)
+        {
+            ChangeClassCreationSchool(school);
+            ResetClassMaintenance();
+        }
         _school = school;
+        InactiveClassesFilter.IsEnabled = school is not null;
+        bool inactiveOnly = InactiveClassesFilter.IsChecked == true;
         OpenClassCreationButton.IsEnabled = school is not null;
         UpdateSchoolAuditWorkspace();
         RefreshButton.IsEnabled = school is not null;
@@ -187,7 +193,10 @@ public sealed partial class MainWindow : Window
         bool loaded = false;
         try
         {
-            var rooms = await client.GetClassroomsAsync(school.Id, request.Token);
+            IReadOnlyList<Classroom> rooms = inactiveOnly
+                ? (await client.GetInactiveCurrentClassesAsync(school.Id, request.Token)).Select(row =>
+                    new Classroom(row.Id, row.Name, row.GradeName, []) { TermId = row.TermId, IsActive = false }).ToArray()
+                : await client.GetClassroomsAsync(school.Id, request.Token);
             if (!IsCurrent(request)) return false;
             _settingSelection = true;
             ClassPicker.ItemsSource = rooms;
@@ -195,8 +204,8 @@ public sealed partial class MainWindow : Window
             ClassPicker.SelectedItem = selected;
             _settingSelection = false;
             ClassListMessage.IsVisible = rooms.Count == 0;
-            ClassListMessage.Text = "该学校暂无可查看班级。";
-            SetWorkspaceMessage(rooms.Count == 0 ? "该学校暂无可查看班级。" : "请选择班级。");
+            ClassListMessage.Text = inactiveOnly ? "当前学期暂无已停用行政班。" : "该学校暂无可查看班级。";
+            SetWorkspaceMessage(rooms.Count == 0 ? ClassListMessage.Text : "请选择班级。");
             loaded = true;
         }
         catch (Exception error) when (IsServiceError(error))
@@ -235,6 +244,11 @@ public sealed partial class MainWindow : Window
         if (room is null)
         {
             SetWorkspaceMessage("请选择班级。");
+            return;
+        }
+        if (!room.IsActive)
+        {
+            SetWorkspaceMessage("该班已停用。可重新启用原班，再查看学生名单与大屏。");
             return;
         }
 
@@ -439,6 +453,7 @@ public sealed partial class MainWindow : Window
         ResetSchoolServerStatus();
         CloseClassRoster();
         ResetClassCreation();
+        ResetClassMaintenance();
         ResetFirstScreen();
         _client = null;
         _showClassStudy = false;
@@ -460,7 +475,10 @@ public sealed partial class MainWindow : Window
     private void SetClassroom(Classroom? room)
     {
         if (_classroom?.Id != room?.Id || _classroom?.TermId != room?.TermId) CloseClassRoster();
-        OpenClassRosterButton.IsEnabled = room is not null;
+        OpenClassRosterButton.IsEnabled = room?.IsActive == true;
+        OpenClassRosterButton.IsVisible = room?.IsActive != false;
+        OpenClassMaintenanceButton.IsVisible = room?.TermId is not null;
+        OpenClassMaintenanceButton.Content = room?.IsActive == false ? "重新启用" : "维护班级";
         CloseClassAdmission();
         CloseScreenReplacement();
         CloseSoftwareMaintenance();
@@ -496,18 +514,18 @@ public sealed partial class MainWindow : Window
         if (show) CloseScreenReplacement();
         OpenSchoolAuditButton.IsEnabled = _school is not null;
         OpenSchoolAuditButton.Classes.Set("accent", show);
-        ClassPickerHeading.IsVisible = ClassPickerPanel.IsVisible = ClassManagementWorkspace.IsVisible = !show;
+        ClassPickerHeading.IsVisible = ClassPickerPanel.IsVisible = InactiveClassesFilter.IsVisible = ClassManagementWorkspace.IsVisible = !show;
         SchoolAuditWorkspace.IsVisible = show;
         SchoolAuditWorkspace.SetScope(show ? _client : null, show ? _school : null);
     }
 
     private void UpdateStudyWorkspace()
     {
-        bool show = _showClassStudy && _classroom is not null;
+        bool show = _showClassStudy && _classroom?.IsActive == true;
         if (show) CloseScreenReplacement();
-        OpenClassStudyButton.IsVisible = _classroom is not null;
+        OpenClassStudyButton.IsVisible = _classroom?.IsActive == true;
         OpenClassStudyButton.Content = show ? "返回教室设备" : "本班学校自习";
-        ClassWorkspaceTitle.Text = show ? "本班学校自习" : "教室设备";
+        ClassWorkspaceTitle.Text = show ? "本班学校自习" : _classroom?.IsActive == false ? "已停用班级" : "教室设备";
         ClassDeviceWorkspace.IsVisible = !show;
         StudyWorkspace.IsVisible = show;
         if (show) StudyWorkspace.SetScope(_client, _school?.Id, _classroom?.TermId, _classroom);

@@ -20,6 +20,8 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--live-class-maintenance" or "--live-class-maintenance-reopen", var maintenanceFixture, var maintenanceOutput])
+            return StartClassMaintenance(maintenanceFixture, maintenanceOutput, reopen: args[0].EndsWith("-reopen"));
         if (args is ["--live-class-batch" or "--live-class-batch-reopen", var batchFixture, var batchOutput])
             return StartClassBatch(batchFixture, batchOutput, reopen: args[0] == "--live-class-batch-reopen");
         if (args is not ([_] or ["--live" or "--live-grade", _, _] or ["--live-grade-rename", _, _]))

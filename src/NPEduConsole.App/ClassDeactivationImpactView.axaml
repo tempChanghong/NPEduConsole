@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.ClassDeactivationImpactView">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.impact-error">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+  </UserControl.Styles>
+  <Border Classes="card" Padding="16">
+    <StackPanel Spacing="10">
+      <TextBlock Text="停用影响" FontSize="16" FontWeight="SemiBold" />
+      <TextBlock x:Name="ImpactStatus" Classes="label" AutomationProperties.LiveSetting="Polite" />
+      <TextBlock x:Name="ImpactMessage" Classes="muted" IsVisible="False" TextWrapping="Wrap" />
+      <Border x:Name="ImpactKeyPanel" IsVisible="False" CornerRadius="10" Padding="12"
+              Background="{DynamicResource AccentTintBrush}">
+        <StackPanel Spacing="4">
+          <TextBlock Text="需要先确认" Classes="label" />
+          <TextBlock x:Name="ImpactKeySummary" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+      <StackPanel x:Name="ImpactCounts" Spacing="6" />
+      <TextBlock x:Name="ImpactNote" Classes="muted" IsVisible="False"
+                 Text="停用只改变班级的启用状态；学生名单、大屏绑定和作业与通知发布记录都会保留原记录。重新启用后可从正常班级列表继续维护。" />
+    </StackPanel>
+  </Border>
+</UserControl>

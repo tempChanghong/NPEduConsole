@@ -46,6 +46,14 @@
 
 成功后任选一条服务器回执打开名单。Console 重新启动后，班级也可从常规班级列表找到。上线前需应用 KV 的 `20261121030000_current_class_batch_creation` 迁移。旧网页仍可为指定学期批量建班。
 
+## 当前学期行政班维护
+
+选择学校和班级，在班级详情点「维护班级」。可以修改名称、代码和学生自选设置。代码在同一学期的教学空间内唯一。版本冲突时，先点「核对服务器班级」，查看服务器名称、代码和状态，再决定是否保存保留的草稿。保存并刷新后，Console 按原班级 ID 选中该班。
+
+点「查看停用影响」，核对学生、大屏、任课及正在生效的作业或通知等关联。读取失败时可以重试。KV 会在写入时核对当前启用学期、权限、班级版本和预览的关联内容；关联变化后，必须以新摘要为准再次确认。停用后在侧栏勾选「已停用」，选中原班并点「重新启用」。重新启用会回到正常列表并选中原班，原名单、大屏绑定和历史发布记录仍对应原 ID。
+
+停用期间，现有网页大屏访问该班会被 KV 拒绝。重新启用后，未过期、未另行重置的原网页大屏令牌可继续使用。NPEduTools 按既有数据库规则处理：停用会推进大屏绑定版本，并使旧设备配对授权失效。重新启用保留原大屏与设备历史记录，教室端需重新配对。旧网页仍可管理指定学期。本次升级需要部署支持行政班维护接口的 KV 和 Console，无新增数据库迁移。
+
 ## 给新班准备第一台教室大屏
 
 在「教室设备」选中当前学期的新班，点击「准备教室大屏」。收到登记确认后，Console 会按返回的大屏 ID 打开「配置口令接入」。本班已设管理口令时可直接沿用。首次设置时，在此预设班级管理口令并确认开放。现场在 NPEduTools 的「学校互联」选择对应学校、班级和大屏，输入班级管理口令。终端上报后，管理员刷新即可看到设备。
@@ -58,7 +66,7 @@
 | --- | --- |
 | 审计记录 | 本地学校管理账号可在 Console 完成上述查询。 |
 | 管理总览 | 学校配置诊断和管理待办仍在网页。学校管理员登录 Console 后可自动查看所连 KV 的运行状态。 |
-| 组织与班级 | Console 可在当前启用学期新建年级、修改年级名称、单个或按已有年级批量新建行政班并录入名单。其他学期的管理、年级代码和排序、班级编辑、学科及教学关系仍在网页。 |
+| 组织与班级 | Console 可在当前启用学期新建年级、修改年级名称、单个或按已有年级批量新建班级、编辑班级资料、核对影响后停用、重新启用及录入名单。其他学期的管理、年级代码和排序、学科及教学关系仍在网页。 |
 | 学生名单 | Console 可维护当前学期一个行政班的名单，支持批量粘贴、差异预览、保存及冲突核对。 |
 | 教师分配 | 教师职责、任课分配和作业快捷输入配置仍在网页。 |
 | 大屏设备 | Console 可为新班登记首台 NPEduTools 大屏并查看连接状态。创建或重置网页大屏账号、维护作业快捷截止时间仍在网页。 |
@@ -83,6 +91,7 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/Postgr
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --grade-creation
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --grade-rename
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-batch
+node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-maintenance
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --first-screen
 ```
 
@@ -95,6 +104,8 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/Postgr
 改名联调从 Windows Console 的建班窗口操作已有班级和学生的年级，覆盖两位管理员的旧版本冲突、回包丢失核对及学期切换，并在 PostgreSQL 核对原年级、班级和学生记录。桌面截图保存在 `.artifacts/grade-rename/desktop-live`。
 
 批量开班联调用 Windows Console 验证 12 班预览、第 7 行冲突与零写入、修正后成功回包丢失、按回执打开名单、重启后从普通班级列表打开同一份名单。HTTP 和数据库检查覆盖管理员竞争、批次归属、旧网页并发占码触发整批回滚、切换学期、跨校请求与旧网页指定学期写入。桌面截图保存在 `.artifacts/class-batch/desktop-live`。
+
+行政班维护联调用 Windows Console 验证代码冲突、并发编辑、停用摘要读取失败、新增大屏后的二次确认、重启后恢复原班及打开原名单。HTTP 和数据库检查覆盖大屏等量替换、学期切换、跨校与只读角色拒绝、旧网页归档学期维护，以及停用前后同一大屏凭据的服务端行为。桌面截图保存在 `.artifacts/class-maintenance/desktop-live`。
 
 首台大屏联调在 Windows 上使用与 Console 同级的 NPEduTools 工作副本。夹具在另一所学校的同名班放置 205 台大屏，使新登记的大屏排在旧目录范围之外。测试通过教室端 Host 命令查找、翻页并按原口令接入，重启后在 Console 核对状态上报。服务和客户端使用独立的临时目录。`--serve-first-screen` 可保留服务供桌面验证。
 

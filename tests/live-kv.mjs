@@ -19,12 +19,13 @@ import { prepareClassCreation } from './class-creation-fixture.mjs';
 import { prepareGradeCreation } from './grade-creation-fixture.mjs';
 import { prepareGradeRename } from './grade-rename-fixture.mjs';
 import { prepareClassBatch } from './class-batch-fixture.mjs';
+import { verifyClassMaintenance } from './class-maintenance-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
-  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch',
+  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance',
   '--first-screen', '--serve-first-screen', '--screen-replacement'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
@@ -38,6 +39,7 @@ const classCreation = mode === '--class-creation' || mode === '--serve-class-cre
 const gradeCreation = mode === '--grade-creation';
 const gradeRename = mode === '--grade-rename';
 const classBatch = mode === '--class-batch';
+const classMaintenance = mode === '--class-maintenance';
 const replacement = mode === '--screen-replacement';
 const firstScreen = mode === '--first-screen' || mode === '--serve-first-screen' || replacement;
 const runDeviceFixture = !classAdmission && !classStudy && !schoolAudit && !classRoster && !classCreation && !gradeCreation && !gradeRename && !firstScreen;
@@ -163,7 +165,7 @@ async function seed() {
   }
   const manager = await account('admin', 'ADMIN');
   await account('viewer', 'VIEWER');
-  if (gradeRename || classBatch) await account('admin2', 'ADMIN');
+  if (gradeRename || classBatch || classMaintenance) await account('admin2', 'ADMIN');
   const term = await prisma.academicTerm.create({ data: {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
   } });
@@ -462,6 +464,12 @@ async function runFixture() {
   const origin = 'http://127.0.0.1:' + server.address().port;
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (classMaintenance) {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = process.env.NP_CONSOLE_CLASS_MAINTENANCE_EVIDENCE
+      || fileURLToPath(new URL('../.artifacts/class-maintenance/desktop-live', import.meta.url));
+    return verifyClassMaintenance({prisma, origin, fixture, directory, evidence, runDesktop: args => runDesktop(project, args)});
+  }
   const audit = schoolAudit ? await prepareSchoolAudit(prisma, origin, fixture) : null;
   const roster = classRoster ? await prepareClassRoster(prisma, origin, fixture) : null;
   const creation = classCreation ? await prepareClassCreation(prisma, origin, fixture) : null;

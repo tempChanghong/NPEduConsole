@@ -1,0 +1,153 @@
+using System.Text.Json;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using NPEduConsole.App;
+using NPEduConsole.Core;
+
+internal static partial class Program
+{
+    private sealed record ClassMaintenanceAccess(string Origin, string SchoolId, string SchoolCode, string Username,
+        string Password, string ClassId, string ScreenId, bool AllowClassMaintenanceTestWrites);
+
+    private static int StartClassMaintenance(string fixturePath, string output, bool reopen)
+    {
+        var access = JsonSerializer.Deserialize<ClassMaintenanceAccess>(File.ReadAllText(fixturePath), JsonSerializerOptions.Web)
+            ?? throw new InvalidDataException("Missing maintenance fixture.");
+        Check(access.AllowClassMaintenanceTestWrites && IsLoopback(access.Origin), "Use an isolated loopback maintenance fixture.");
+        Directory.CreateDirectory(output);
+        return AppBuilder.Configure<ConsoleApplication>().UsePlatformDetect()
+            .AfterSetup(builder => Dispatcher.UIThread.Post(() => { _ = VerifyMaintenanceAsync(access, output, reopen); }))
+            .StartWithClassicDesktopLifetime([]);
+    }
+
+    private static async Task VerifyMaintenanceAsync(ClassMaintenanceAccess access, string output, bool reopen)
+    {
+        var desktop = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
+        try
+        {
+            if (!reopen) VerifyClassDeactivationImpactView();
+            var main = (MainWindow)desktop.MainWindow!;
+            var schools = Find<ComboBox>(main, "SchoolPicker");
+            var classes = Find<ListBox>(main, "ClassPicker");
+            var inactive = Find<CheckBox>(main, "InactiveClassesFilter");
+            var entry = Find<Button>(main, "OpenClassMaintenanceButton");
+            Find<TextBox>(main, "ServerAddress").Text = access.Origin;
+            Find<TextBox>(main, "SchoolCode").Text = access.SchoolCode;
+            Find<TextBox>(main, "Username").Text = access.Username;
+            Find<TextBox>(main, "Password").Text = access.Password;
+            Click(Find<Button>(main, "LoginButton"));
+            await Until(() => schools.Items.Cast<School>().Any(school => school.Id == access.SchoolId), "authorized school");
+            schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == access.SchoolId);
+            await Until(() => classes.ItemCount >= 2, "active school class list");
+            if (reopen)
+            {
+                Check(!classes.Items.Cast<Classroom>().Any(room => room.Id == access.ClassId), "Inactive class is absent from the normal list.");
+                inactive.IsChecked = true;
+                await Until(() => classes.Items.Cast<Classroom>().Any(room => room.Id == access.ClassId && !room.IsActive), "the original class appears under 已停用");
+                SelectRoom();
+                Check(entry.Content is "重新启用" && !Find<Button>(main, "OpenClassRosterButton").IsEnabled, "Inactive row has a restore entry.");
+                await Capture(main, output, "01-inactive-filter");
+                var restore = await OpenMaintenance();
+                await Until(() => Find<Button>(restore, "ReactivateClassButton").IsEffectivelyVisible, "restore confirmation");
+                Click(Find<Button>(restore, "ReactivateClassButton"));
+                await Until(() => inactive.IsChecked == false && classes.SelectedItem is Classroom room && room.Id == access.ClassId &&
+                    room.IsActive && room.Screens.Any(screen => screen.Id == access.ScreenId), "original class is selected in active list");
+                await VerifyRoster();
+                Finish("PASS: Windows reopened the inactive class by ID, restored it, and returned to its original roster and screen.", 0);
+                return;
+            }
+
+            SelectRoom();
+            await VerifyRoster();
+            var window = await OpenMaintenance();
+            var name = Find<TextBox>(window, "MaintenanceName");
+            var code = Find<TextBox>(window, "MaintenanceCode");
+            var save = Find<Button>(window, "SaveMaintenanceButton");
+            var feedback = Find<TextBlock>(window, "MaintenanceFeedback");
+            await Until(() => save.IsEffectivelyVisible ||
+                !Find<ProgressBar>(window, "MaintenanceProgress").IsVisible && !string.IsNullOrWhiteSpace(feedback.Text),
+                "class settings loaded");
+            Check(save.IsEffectivelyVisible, "Could not load class settings: " + feedback.Text);
+            var newName = "高二（1）班 · 已修正";
+            name.Text = newName;
+            code.Text = "G2-2";
+            Find<CheckBox>(window, "MaintenanceStudentSelectable").IsChecked = false;
+            Click(save);
+            await Until(() => feedback.Text?.Contains("已有教学空间使用此代码") == true && save.IsEnabled, "duplicate code can be corrected locally");
+            Check(code.Text == "G2-2" && name.Text == newName && code.IsFocused, "Code conflict preserves the draft and focuses code.");
+            await Capture(window, output, "01-code-conflict");
+
+            code.Text = "G2.DESK";
+            Click(save);
+            var check = Find<Button>(window, "CheckMaintenanceButton");
+            await Until(() => feedback.Text?.Contains("另一位管理员") == true && check.IsVisible && !save.IsEnabled,
+                "a stale concurrent write requires server review");
+            Click(check);
+            await Until(() => Find<TextBlock>(window, "MaintenanceServerState").Text?.Contains("另一管理员最新名称") == true && save.IsEnabled,
+                "latest server data is shown beside the original draft");
+            Check(name.Text == newName && code.Text == "G2.DESK", "Concurrent editor retains both draft fields.");
+            await Capture(window, output, "02-concurrent-server-value");
+            Click(save);
+            await Until(() => classes.SelectedItem is Classroom room && room.Id == access.ClassId && room.Name == newName &&
+                room.Screens.Any(screen => screen.Id == access.ScreenId), "rename reselects by original ID and keeps screen");
+            await VerifyRoster();
+
+            window = await OpenMaintenance();
+            var summary = Find<ClassDeactivationImpactView>(window, "MaintenanceImpactSummary");
+            var preview = Find<Button>(window, "ReadDeactivationImpactButton");
+            var confirm = Find<Button>(window, "ConfirmDeactivateButton");
+            await Until(() => preview.IsEffectivelyVisible, "deactivation action");
+            Click(preview);
+            await Until(() => summary.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "无法读取停用影响") &&
+                Find<Button>(window, "RefreshImpactButton").IsVisible && !confirm.IsEnabled, "failed impact never looks like no relations or permits deactivation");
+            await Capture(window, output, "03-impact-unavailable");
+            Click(Find<Button>(window, "RefreshImpactButton"));
+            await Until(() => confirm.IsEnabled && SummaryContains("大屏绑定 1 台") && SummaryContains("学生 1 人") && SummaryContains("任课安排 1 条") &&
+                SummaryContains("生效中的作业或通知 1 条"),
+                "real preview shows bound screen and active notice");
+            Check(Find<TextBlock>(window, "MaintenanceScreenEffect") is { IsEffectivelyVisible: true, Text: { } warning } &&
+                warning.Contains("重新配对"), "The existing native device authorization impact is disclosed before confirmation.");
+            await Capture(window, output, "04-impact-reviewed");
+            Click(confirm);
+            await Until(() => Find<TextBlock>(window, "MaintenanceFeedback").Text?.Contains("关联已变化") == true &&
+                confirm.IsEnabled && SummaryContains("大屏绑定 2 台"), "stale preview is replaced and must be confirmed again");
+            Check(window.IsVisible, "A changed impact does not close or deactivate the class.");
+            await Capture(window, output, "05-impact-changed");
+            Click(confirm);
+            await Until(() => inactive.IsChecked == true && classes.SelectedItem is Classroom stopped && stopped.Id == access.ClassId &&
+                !stopped.IsActive, "deactivation selects the same ID in inactive list");
+            await Capture(main, output, "06-inactive");
+            Finish("PASS: Windows impact component, draft retention, concurrent edit, scoped rename, impact failure, fresh confirmation, and deactivation.", 0);
+
+            bool SummaryContains(string text) => summary.GetVisualDescendants().OfType<TextBlock>()
+                .Any(item => item.IsEffectivelyVisible && item.Text?.Contains(text) == true);
+            void SelectRoom() => classes.SelectedItem = classes.Items.Cast<Classroom>().Single(room => room.Id == access.ClassId);
+            async Task<ClassMaintenanceWindow> OpenMaintenance()
+            {
+                Click(entry);
+                await Until(() => desktop.Windows.OfType<ClassMaintenanceWindow>().Any(window => window.IsVisible), "class maintenance window opens from class details");
+                return desktop.Windows.OfType<ClassMaintenanceWindow>().Single();
+            }
+            async Task VerifyRoster()
+            {
+                Click(Find<Button>(main, "OpenClassRosterButton"));
+                await Until(() => desktop.Windows.OfType<ClassRosterWindow>().Any(window => window.IsVisible &&
+                    window.GetVisualDescendants().OfType<TextBox>().Any(field => field.Text == "原班模拟学生")), "original student roster is visible");
+                var roster = desktop.Windows.OfType<ClassRosterWindow>().Single();
+                if (reopen) await Capture(roster, output, "02-original-roster");
+                roster.Close();
+            }
+        }
+        catch (Exception error) { Finish("FAIL: " + error, 1); }
+
+        void Finish(string message, int exitCode)
+        {
+            File.WriteAllText(Path.Combine(output, "result.txt"), message);
+            Console.WriteLine(message);
+            desktop.Shutdown(exitCode);
+        }
+    }
+}
