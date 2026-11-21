@@ -330,6 +330,8 @@ public sealed partial class ConsoleClient : IDisposable
                     throw CurrentTeachingError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSubjectSetupPath(path))
                     throw SubjectSetupError(status, await AcademicErrorCodeAsync(response, ct));
+                if (IsSchoolSubjectPath(path))
+                    throw SchoolSubjectError(status, await AcademicErrorCodeAsync(response, ct));
                 if (path.EndsWith(CurrentClassesSuffix, StringComparison.Ordinal) && status is 404 or 409 or 422)
                     throw ClassCreationError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsGradeRenamePath(path))

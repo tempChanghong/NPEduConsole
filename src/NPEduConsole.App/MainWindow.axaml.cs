@@ -174,6 +174,7 @@ public sealed partial class MainWindow : Window
             _showClassStudy = false;
             _page = ShellPage.Overview;
             var school = SchoolPicker.SelectedItem as School;
+            CloseSchoolSubjects();
             CloseTeaching();
             _subjectSetup.Close();
             _detailScreenId = _directoryReturnScreenId = null;
@@ -511,6 +512,7 @@ public sealed partial class MainWindow : Window
         CloseClassRoster();
         CloseTeaching();
         _subjectSetup.Close();
+        CloseSchoolSubjects();
         ResetClassCreation();
         ResetClassMaintenance();
         ResetFirstScreen();

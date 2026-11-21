@@ -1,0 +1,98 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolSubjectCatalogWindow"
+        Title="学科目录" Width="1160" Height="780" MinWidth="680" MinHeight="460" WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="TextBlock.catalog-feedback.error">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,12">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="CatalogTitle" Text="学科目录" FontSize="25" FontWeight="SemiBold" MaxLines="1" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="CatalogScope" Classes="muted" TextTrimming="CharacterEllipsis"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="1" Margin="20,12" RowDefinitions="Auto,*" RowSpacing="8">
+      <TextBlock x:Name="CatalogFeedback" Classes="catalog-feedback" IsVisible="False" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+      <Grid x:Name="CatalogWorkspace" Grid.Row="1">
+        <Border x:Name="SubjectDirectoryPane" Classes="card" Padding="12">
+          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+              <TextBox x:Name="SubjectSearch" PlaceholderText="按名称或代码查找" TextChanged="FilterChanged"
+                       AutomationProperties.Name="查找学科"/>
+              <Button x:Name="EditSubjectButton" Grid.Column="1" Classes="action" Click="EditClicked" Content="编辑所选"/>
+              <Button x:Name="NewSubjectButton" Grid.Column="2" Classes="action accent" Click="NewClicked" Content="新建学科"/>
+            </Grid>
+            <Grid x:Name="SubjectDirectoryHeaders" Grid.Row="1" ColumnDefinitions="1.35*,*,80,65" ColumnSpacing="10" Margin="9,0,14,0">
+              <TextBlock Text="名称" Classes="label"/><TextBlock Grid.Column="1" Text="代码" Classes="label"/>
+              <TextBlock Grid.Column="2" Text="类别" Classes="label"/><TextBlock Grid.Column="3" Text="顺序" Classes="label"/>
+            </Grid>
+            <ListBox x:Name="SubjectDirectoryRows" Grid.Row="2" Classes="object-list" Background="Transparent" BorderThickness="0" SelectionChanged="SubjectSelected"
+                     KeyDown="DirectoryKeyDown"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.AllowAutoHide="False"
+                     AutomationProperties.Name="本校学科">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:SubjectDirectoryRow">
+                  <Grid ColumnDefinitions="1.35*,*,80,65" ColumnSpacing="10" AutomationProperties.AutomationId="{Binding AutomationId}">
+                    <TextBlock Text="{Binding Subject.Name}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Subject.Name}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding Subject.Code}" Classes="muted" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Subject.Code}"/>
+                    <TextBlock Grid.Column="2" Text="{Binding CategoryName}"/>
+                    <TextBlock Grid.Column="3" Text="{Binding Subject.SortOrder}" Classes="muted"/>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock x:Name="SubjectDirectoryEmpty" Grid.Row="2" Margin="12,8" Classes="muted" TextWrapping="Wrap" IsHitTestVisible="False"/>
+          </Grid>
+        </Border>
+        <Border x:Name="SubjectEditorPane" Classes="card" IsVisible="False" Padding="18,14">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="8">
+              <TextBlock x:Name="SubjectEditorTitle" FontSize="19" Classes="label"/>
+              <Grid ColumnDefinitions="*,*" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="8">
+                <StackPanel Spacing="4">
+                  <TextBlock Text="名称" Classes="label"/>
+                  <TextBox x:Name="SubjectName" AutomationProperties.Name="学科名称" TextChanged="FieldChanged"/>
+                  <TextBlock x:Name="SubjectNameError" Foreground="{DynamicResource ErrorBrush}" IsVisible="False" TextWrapping="Wrap"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="4">
+                  <TextBlock Text="本校唯一代码" Classes="label"/>
+                  <TextBox x:Name="SubjectCode" AutomationProperties.Name="学科代码" TextChanged="FieldChanged"/>
+                  <TextBlock x:Name="SubjectCodeError" Foreground="{DynamicResource ErrorBrush}" IsVisible="False" TextWrapping="Wrap"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Spacing="4">
+                  <TextBlock Text="类别" Classes="label"/>
+                  <ComboBox x:Name="SubjectCategory" HorizontalAlignment="Stretch" AutomationProperties.Name="学科类别" SelectionChanged="CategoryChanged"/>
+                </StackPanel>
+                <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                  <TextBlock Text="显示顺序" Classes="label"/>
+                  <TextBox x:Name="SubjectOrder" AutomationProperties.Name="学科显示顺序" TextChanged="FieldChanged"/>
+                  <TextBlock x:Name="SubjectOrderError" Foreground="{DynamicResource ErrorBrush}" IsVisible="False" TextWrapping="Wrap"/>
+                </StackPanel>
+              </Grid>
+              <Border x:Name="SubjectConflict" IsVisible="False" Background="{DynamicResource WarningTintBrush}" CornerRadius="8" Padding="12,9">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="学校当前值" Classes="label"/>
+                  <TextBlock x:Name="SubjectServerValues" TextWrapping="Wrap"/>
+                  <Button x:Name="AdoptSubjectVersionButton" Classes="action accent" Click="AdoptClicked" Content="采用当前版本，保留草稿"/>
+                </StackPanel>
+              </Border>
+              <TextBlock x:Name="SubjectCreateScope" Text="学科保存到全校目录。授课规则在返回开科后另行确认。" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Grid>
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,8">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <WrapPanel ItemSpacing="8" LineSpacing="5">
+          <Button x:Name="CloseSubjectCatalogButton" Classes="action" Click="CloseClicked" Content="返回"/>
+          <Button x:Name="ReloadSubjectsButton" Classes="action" Click="ReloadClicked" Content="刷新目录"/>
+          <Button x:Name="DiscardSubjectButton" IsVisible="False" Classes="action" Click="DiscardClicked" Content="放弃草稿"/>
+        </WrapPanel>
+        <Button x:Name="SaveSubjectButton" Grid.Column="1" Classes="action accent" Click="SaveClicked" Content="保存学科" IsVisible="False"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

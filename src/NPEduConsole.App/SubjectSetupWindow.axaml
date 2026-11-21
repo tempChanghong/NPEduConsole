@@ -74,10 +74,16 @@
         </Border>
         <Border Grid.Column="1" Classes="card" Padding="10,6">
           <Grid RowDefinitions="Auto,*" RowSpacing="4">
-            <TextBlock Text="本校学科" Classes="label"/>
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock Text="本校学科" Classes="label" VerticalAlignment="Center"/>
+              <Button x:Name="SubjectSetupNewSubjectButton" Grid.Column="1" Classes="setup-context-action"
+                      Content="新建学科" Click="NewSchoolSubjectClicked"/>
+            </Grid>
             <ScrollViewer Grid.Row="1" Height="91" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
               <StackPanel x:Name="SubjectSetupSubjects"/>
             </ScrollViewer>
+            <TextBlock x:Name="SubjectSetupEmptySubjects" Grid.Row="1" IsVisible="False" Text="全校学科目录为空。"
+                       Classes="muted" Margin="3,7" IsHitTestVisible="False"/>
           </Grid>
         </Border>
       </Grid>

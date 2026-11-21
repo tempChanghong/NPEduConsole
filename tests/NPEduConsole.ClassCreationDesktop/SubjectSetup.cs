@@ -239,7 +239,8 @@ internal static partial class Program
             await Until(() => Find<Button>(main, "OpenSubjectSetupButton").IsEffectivelyVisible, "open setup with no subjects");
             Click(Find<Button>(main, "OpenSubjectSetupButton"));
             setup = await FindSetup();
-            Check(Find<TextBlock>(setup, "SubjectSetupFeedback").Text?.Contains("学校尚无学科") == true &&
+            Check(Find<TextBlock>(setup, "SubjectSetupFeedback").Text?.Contains("学校还没有学科") == true &&
+                Find<Button>(setup, "SubjectSetupNewSubjectButton").IsEffectivelyEnabled &&
                 Find<Button>(setup, "SubjectSetupWebButton").IsEnabled &&
                 !Find<Button>(setup, "SubjectSetupPreviewButton").IsEnabled, "missing subjects point to existing maintenance");
             await Capture(setup, output, "05-school-without-subjects");

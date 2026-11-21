@@ -69,6 +69,8 @@ public sealed partial class SubjectSetupWindow : Window
     private readonly HashSet<SubjectSetupTarget> _excluded = [];
     private SubjectSetupCell[] _cells = [];
     private SubjectSetupCatalog? _catalog;
+    private SchoolSubjectCatalogWindow? _createSubjectWindow;
+    private SchoolSubject? _confirmedSubject;
     private bool _choicesOpen = true;
     internal UnconfirmedSubjectSetup? Pending { get; private set; }
     private bool _validPreview, _busy, _saving, _closed, _scopeChanged;
@@ -96,7 +98,7 @@ public sealed partial class SubjectSetupWindow : Window
         Opened += async (_, _) =>
         {
             BatchWorkspaceWindow.FitSchoolWindow(this);
-            await RunAsync(ReadCatalogAsync);
+            await RunAsync(() => ReadCatalogAsync());
             if (!_closed && Pending is not null) SubjectSetupReadButton.Focus();
         };
         Closing += (_, args) => args.Cancel = _saving && !_closed;
@@ -117,6 +119,8 @@ public sealed partial class SubjectSetupWindow : Window
             .ToHashSet(StringComparer.Ordinal);
         var catalog = await _client.GetSubjectSetupAsync(_school.Id, _termId, _classId, _lifetime.Token);
         if (_closed) return;
+        if (_confirmedSubject is { } created && catalog.Subjects.Any(subject => subject.Id == created.Id))
+            selectedSubjects.Add(created.Id);
         _catalog = catalog;
         _scopeChanged = false;
         var entryClass = catalog.Classes.Single(room => room.Id == _classId);
@@ -130,9 +134,29 @@ public sealed partial class SubjectSetupWindow : Window
             return;
         }
         InvalidatePreview();
-        SubjectSetupFeedback.Text = catalog.Subjects.Length == 0
-            ? "学校尚无学科。请在网页「组织与班级 → 学校与学科」维护学科目录，再回来刷新。"
-            : "勾选班级和学科后预览。已有随班和走班规则都会保留。所需学科未列出时，请前往网页学科目录。";
+        if (_confirmedSubject is { } confirmed)
+        {
+            _choicesOpen = true;
+            if (_subjects.TryGetValue(confirmed.Id, out var checkbox))
+            {
+                _confirmedSubject = null;
+                SubjectSetupFeedback.Text = $"已加入全校学科目录并选中 {confirmed.Name}。核对班级和学科后预览。";
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (_closed || !_subjects.TryGetValue(confirmed.Id, out var current) || current != checkbox) return;
+                    checkbox.BringIntoView();
+                    checkbox.Focus();
+                }, DispatcherPriority.Loaded);
+            }
+            else
+            {
+                _scopeChanged = true;
+                SubjectSetupFeedback.Text = $"已确认创建 {confirmed.Name}，当前开科目录还未读到这门学科，请刷新核对。";
+            }
+        }
+        else SubjectSetupFeedback.Text = catalog.Subjects.Length == 0
+            ? "学校还没有学科。可先勾选班级，再新建所需学科。"
+            : "勾选班级和学科后预览。已有随班和走班规则都会保留。";
     }
 
     private void BindChoices(Panel panel, Dictionary<string, CheckBox> checks, IEnumerable<(string Id, string Title)> choices,
@@ -233,9 +257,11 @@ public sealed partial class SubjectSetupWindow : Window
         int selectedClasses = CheckedIds(_rooms).Count();
         long count = (long)selectedClasses * CheckedIds(_subjects).Count();
         var included = _cells.Where(cell => cell.Included).ToArray();
-        SubjectSetupInputs.IsVisible = _choicesOpen && _catalog is { Subjects.Length: > 0 };
+        SubjectSetupInputs.IsVisible = _choicesOpen && _catalog is not null;
         SubjectSetupInputs.IsEnabled = editable;
-        SubjectSetupChoiceButton.IsVisible = _catalog is { Subjects.Length: > 0 } && Pending is null;
+        SubjectSetupNewSubjectButton.IsEnabled = editable && _createSubjectWindow is null;
+        SubjectSetupEmptySubjects.IsVisible = _catalog is { Subjects.Length: 0 };
+        SubjectSetupChoiceButton.IsVisible = _catalog is not null && Pending is null;
         SubjectSetupChoiceButton.Content = _choicesOpen ? "收起班级与学科" : "更改班级与学科";
         SubjectSetupChoiceButton.IsEnabled = editable;
         SubjectSetupConflictFilter.IsVisible = _cells.Any(cell => cell.HasDetail);
@@ -357,6 +383,30 @@ public sealed partial class SubjectSetupWindow : Window
     private async void ReadClicked(object? sender, RoutedEventArgs args) =>
         await RunAsync(() => Pending is null ? ReadCatalogAsync() : VerifyAsync());
 
+    private async void NewSchoolSubjectClicked(object? sender, RoutedEventArgs args)
+    {
+        if (!SubjectSetupNewSubjectButton.IsEffectivelyEnabled || _createSubjectWindow is not null) return;
+        var window = new SchoolSubjectCatalogWindow(_client, _school, returnToSetup: true)
+        {
+            SessionExpired = error => { if (!_closed) SessionExpired?.Invoke(error); }
+        };
+        _createSubjectWindow = window;
+        Render();
+        try { await window.ShowDialog(this); }
+        finally { if (_createSubjectWindow == window) _createSubjectWindow = null; }
+        if (_closed) return;
+        if (window.CreatedSubject is { } subject)
+        {
+            _confirmedSubject = subject;
+            await RunAsync(ReadCatalogAsync);
+        }
+        else
+        {
+            Render();
+            SubjectSetupNewSubjectButton.Focus();
+        }
+    }
+
     private void WebClicked(object? sender, RoutedEventArgs args)
     {
         string path = "请在网页学校管理的「组织与班级 → 学校与学科」打开学科目录。";
@@ -384,8 +434,10 @@ public sealed partial class SubjectSetupWindow : Window
         catch (ConsoleApiException error)
         {
             if (_closed) return;
-            _scopeChanged = error.Code is "SUBJECT_SETUP_TERM_CHANGED" or "SUBJECT_SETUP_CLASS_CHANGED" || error.StatusCode == 403;
+            _scopeChanged = _confirmedSubject is not null || error.Code is "SUBJECT_SETUP_TERM_CHANGED" or "SUBJECT_SETUP_CLASS_CHANGED" || error.StatusCode == 403;
             SubjectSetupFeedback.Text = Pending is null ? error.Message : $"保存回执仍未确认。{error.Message}";
+            if (_confirmedSubject is { } saved && error.StatusCode is not (401 or 403))
+                SubjectSetupFeedback.Text = $"{saved.Name} 已加入全校学科目录。{error.Message}";
             if (error.StatusCode is 401 or 403)
             {
                 Pending = null;
@@ -398,5 +450,10 @@ public sealed partial class SubjectSetupWindow : Window
     }
 
     private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
-    internal void CloseForScopeChange() { _closed = true; Close(); }
+    internal void CloseForScopeChange()
+    {
+        _closed = true;
+        _createSubjectWindow?.CloseForScopeChange();
+        Close();
+    }
 }
