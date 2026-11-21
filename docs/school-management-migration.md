@@ -6,7 +6,7 @@
 
 「大屏状态」分别显示网页首次登录和值守心跳，以及 NPEduTools 配对和有效上报。Console 登记首屏后会出现 NPEduTools 接入待办，登记网页账号也会独立显示首次登录待办。终端成功上报后，同一绑定的首次上报待办消除。KV 保留最近一次有效上报的时间，终端重开 Host 会话仍可查阅该记录。旧数据若已在升级前丢失上报证据，显示「待核对」。原班重新启用后，既有规则判定旧 NPEduTools 授权已失效时，待办提示现场重新配对。
 
-当前学期的班主任与年级职责待办可在 Console 办理。走班任课、教师账号、网页大屏和学期启用仍打开原网页学校管理对应入口。网页地址取自 KV 的 `FRONTEND_URL`。地址未配置时，Console 显示原网页办理提示。无需另填监控凭据。
+当前学期的班主任、年级职责及本地教师账号待办可在 Console 办理。走班任课、OAuth 邮箱分配、网页大屏和学期启用仍打开原网页学校管理对应入口。网页地址取自 KV 的 `FRONTEND_URL`。地址未配置时，Console 显示原网页办理提示。无需另填监控凭据。
 
 上线先部署 KV 并应用迁移 `20261121040000_npep_device_last_report`，再更新 Console 和网页。旧网页仍可查询指定学期。新接口位于 `/api/v2/admin/schools/:schoolId/management-overview/current`。
 
@@ -35,6 +35,16 @@ Console 只补设随行政班授课的规则。新增项沿用非必修默认值
 新增或调整任课可能授予或提升班级成员权限。修改为协同或移除任课时，已有班级成员权限保留，其他科目和职责授予的访问照常有效。人员账号和走班任课仍从原网页办理。上线先更新 KV，再更新 Console，本轮无新增数据库迁移。
 
 本地联调用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --current-teaching`。使用隔离数据库、Windows Console 和 Edge，截图默认写入 `.artifacts/current-teaching/desktop-live`。
+
+## 本校教师账号
+
+在「班级与教务 → 教师账号」可按姓名或短账号搜索、新建、停用和恢复普通本地教师。学校尚未启用学期或没有班级时仍可办理。个人 PIN 模式可重置 PIN，学校通用口令模式只建短账号，OAuth 邮箱模式沿用网页教师分配。管理员、所有者与批量导入仍在网页。
+
+也可在任课、班主任、年级组长的教师选择区点「新建教师」，按已确认的账号 ID 回选并保留上一页草稿。新建仅授予普通学校成员身份，任课和职责等待管理员单独确认保存。同名教师按短账号区分，本校重码时可核对原账号或改用其他短账号。提交回包中断时按本次请求编号只读核对。
+
+「学校总览」可按账号定位已停用仍有任课或有任课但未首次登录的教师。详情分开显示账号状态、真实登录时间、当前学期任课和职责。停用或重置 PIN 会退出旧会话，恢复沿用原账号；任课、岗位和班级成员关系保留。首次登录提醒只在教师实际登录后消除。
+
+上线先部署 KV 并运行迁移 `20261121060000_school_teacher_account_receipts`，再更新 Console。Windows 与隔离 PostgreSQL 回归使用 `--teacher-accounts`，证据在 `.artifacts/teacher-accounts/desktop`。
 
 ## 当前学期教师职责
 
@@ -119,7 +129,7 @@ Console 只补设随行政班授课的规则。新增项沿用非必修默认值
 | 大屏互联 | Console 已覆盖部分班级接入、麦克风策略和软件维护。设备撤销、考试控制等仍有网页入口。 |
 | 自习监测 | Console 可为单班增加自习安排、查看回执和场次。年级策略、完整日历、照片等仍需网页。 |
 | 自习座位表 | 座位安排仍在网页。 |
-| 账号与管理员 | 本地账号、管理员及身份分配仍在网页。 |
+| 账号与管理员 | Console 可维护本校普通本地教师。管理员、所有者、OAuth 邮箱分配和批量导入仍在网页。 |
 | 高级批量导入 | 组织导入的校验、预览和写入仍在网页。 |
 | 服务器迁移 | 学校迁移包导出等操作仍在网页，与 KV 自动备份状态分别管理。 |
 | 学期运维 | 建立学期草稿、启用检查及切换学期仍在网页。 |
@@ -140,6 +150,7 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/P
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --class-maintenance
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --school-overview
 node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --first-screen
+node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --teacher-accounts
 ```
 
 名单联调会停用夹具中的 NPEP，检查无设备班级、同名学生、屏幕并发写入、学期切换、历史考勤和保存结果核对。网页名单的行为可参照 NPClassworks 的 `src/components/admin/ClassRosterManager.vue` 和 `src/utils/classRoster.js`，服务端规则见 NPClassworksKV 的 `services/classroomToolsService.js`。

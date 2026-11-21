@@ -48,6 +48,8 @@ public sealed partial class StaffResponsibilitiesWindow : Window
     private readonly List<StaffEditorRow> _draft = [];
     private StaffSnapshot? _baseline, _observed;
     private StaffPreview? _preview;
+    private TeacherAccountForm? _teacherForm;
+    private string? _newTeacherId;
     private bool _busy, _writing, _closed, _allowClose, _scopeLost, _compare;
 
     public StaffResponsibilitiesWindow() => InitializeComponent();
@@ -248,6 +250,47 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         Focus(StaffPrimaryAction);
     }
 
+    private async void NewTeacherClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
+    {
+        if (_baseline is not { } baseline) return;
+        var form = new TeacherAccountForm(_client, _school, createLabel: "创建并返回职责") { SessionExpired = SessionExpired };
+        _teacherForm = form;
+        try { await form.ShowDialog(this); }
+        finally { _teacherForm = null; }
+        if (_closed || form.Receipt is not { } receipt) return;
+        _newTeacherId = receipt.Account.Id;
+        StaffSnapshot current;
+        try { current = await ReadAsync(); }
+        catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
+        {
+            if (_closed) return;
+            _scopeLost = true;
+            StaffStatus.Text = $"账号已创建。原职责草稿需重新核对。{error.Message}";
+            return;
+        }
+        if (_closed) return;
+        if (current.Version != baseline.Version)
+        {
+            ShowCompare(current, "账号已创建。服务器职责安排有变化，草稿已保留。请核对后继续。");
+            return;
+        }
+        _baseline = current;
+        _preview = null;
+        ShowAdvisories(current.Diagnostics, "当前岗位提醒");
+        SelectNewTeacher();
+        StaffStatus.Text = "账号已创建，原职责草稿已保留。可将新教师加入安排后另行保存。";
+    });
+
+    private void SelectNewTeacher()
+    {
+        if (_newTeacherId is not { } id) return;
+        _newTeacherId = null;
+        StaffTeacherSearch.Clear();
+        FilterTeachers();
+        StaffTeacherPicker.SelectedItem = StaffTeacherPicker.Items.Cast<StaffTeacher>().FirstOrDefault(teacher => teacher.Id == id);
+        Focus(StaffTeacherPicker);
+    }
+
     private void ShowAdvisories(IEnumerable<StaffDiagnostic> diagnostics, string title)
     {
         var lines = diagnostics.Select(item => item.Message).ToArray();
@@ -264,6 +307,7 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         StaffComparison.IsVisible = StaffAccessNote.IsVisible = _baseline is not null;
         StaffCurrentHeading.Text = awaiting || _scopeLost ? "上次读取的安排" : "当前安排";
         StaffAddFields.IsEnabled = StaffDraftRows.IsEnabled = editable;
+        StaffNewTeacher.IsEnabled = editable;
         StaffAddTeacher.IsEnabled = editable && StaffTeacherPicker.SelectedItem is StaffTeacher;
         StaffClose.IsEnabled = !_writing;
         StaffClose.Content = awaiting ? "返回，稍后核对" : "返回";
@@ -360,6 +404,7 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         SetBaseline(current);
         SetDraft(current, rebased.Select(row => new StaffRole(row.Key, row.Value)).ToArray(), names);
         FilterTeachers();
+        SelectNewTeacher();
         ChangeDraft();
         if (_draft.Count(row => row.Selection == 0) <= 1) StaffStatus.Text = "已合并服务器当前安排与本次改动。请重新核对预览。";
     }
@@ -406,5 +451,5 @@ public sealed partial class StaffResponsibilitiesWindow : Window
 
     private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
     private void DiscardClicked(object? sender, RoutedEventArgs args) => CloseForScopeChange();
-    internal void CloseForScopeChange() { _allowClose = true; Close(); }
+    internal void CloseForScopeChange() { _allowClose = true; _teacherForm?.CloseForScopeChange(); Close(); }
 }

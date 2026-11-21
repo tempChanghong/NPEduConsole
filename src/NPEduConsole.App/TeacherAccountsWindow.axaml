@@ -1,0 +1,95 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.TeacherAccountsWindow"
+        Title="教师账号" Width="1160" Height="780" MinWidth="650" MinHeight="450" WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="TextBlock.account-notice.error">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
+    </Style>
+  </Window.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,11">
+      <StackPanel Spacing="4">
+        <TextBlock Text="教师账号" FontSize="25" FontWeight="SemiBold"/>
+        <TextBlock x:Name="TeacherAccountsScope" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="7" Margin="16,10">
+      <TextBlock x:Name="TeacherAccountsNotice" Classes="account-notice" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
+      <Grid x:Name="TeacherAccountsWorkspace" Grid.Row="1">
+        <Border x:Name="TeacherListPane" Classes="card" Padding="12">
+          <Grid RowDefinitions="Auto,Auto,*" RowSpacing="7">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+              <TextBox x:Name="TeacherAccountSearch" PlaceholderText="按姓名或短账号查找" TextChanged="SearchChanged" AutomationProperties.Name="查找教师账号"/>
+              <Button x:Name="OpenTeacherDetails" Grid.Column="1" Content="查看账号" Classes="action" Click="OpenDetailsClicked" IsVisible="False"/>
+              <Button x:Name="NewTeacherAccountButton" Grid.Column="2" Content="新建教师" Classes="action accent" Click="CreateClicked" IsVisible="False"/>
+            </Grid>
+            <TextBlock x:Name="TeacherListMessage" Grid.Row="1" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
+            <ListBox x:Name="TeacherAccountRows" Grid.Row="2" Classes="object-list" SelectionChanged="Selected" KeyDown="RowsKeyDown"
+                     Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.AllowAutoHide="False" AutomationProperties.Name="本校教师账号">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="core:ManagedTeacherAccount">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Display}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding StateLabel}" Classes="muted"/>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </Grid>
+        </Border>
+        <Border x:Name="TeacherDetailsPane" Classes="card" Padding="12">
+          <Grid RowDefinitions="Auto,*,Auto" RowSpacing="7">
+            <StackPanel Spacing="4">
+              <Button x:Name="BackToTeacherList" Content="返回教师列表" Classes="action" Click="BackClicked" IsVisible="False"/>
+              <TextBlock x:Name="TeacherDetailName" FontSize="21" Classes="label" TextWrapping="Wrap"/>
+            </StackPanel>
+            <ScrollViewer x:Name="TeacherDetailsScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <StackPanel x:Name="TeacherDetailData" Spacing="9">
+                <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+                  <StackPanel Spacing="3">
+                    <TextBlock Text="账号状态" Classes="label"/>
+                    <TextBlock x:Name="TeacherDetailState"/>
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="3">
+                    <TextBlock Text="最近登录" Classes="label"/>
+                    <TextBlock x:Name="TeacherDetailLogin"/>
+                  </StackPanel>
+                </Grid>
+                <TextBlock x:Name="TeacherDetailAccess" Classes="muted" TextWrapping="Wrap"/>
+                <StackPanel Spacing="4">
+                  <TextBlock Text="当前学期任课" Classes="label"/>
+                  <StackPanel x:Name="TeacherDetailAssignments" Spacing="4"/>
+                </StackPanel>
+                <StackPanel Spacing="4">
+                  <TextBlock Text="当前学期职责" Classes="label"/>
+                  <StackPanel x:Name="TeacherDetailDuties" Spacing="4"/>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+            <Border x:Name="TeacherStatusConfirmation" Grid.Row="2" Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="10" IsVisible="False">
+              <StackPanel Spacing="7">
+                <TextBlock x:Name="TeacherStatusExplanation" TextWrapping="Wrap"/>
+                <WrapPanel>
+                  <Button x:Name="ConfirmTeacherStatus" Classes="action accent" Margin="0,0,7,4" Click="ConfirmStatusClicked"/>
+                  <Button Content="取消" Classes="action" Click="CancelStatusClicked"/>
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+            <WrapPanel x:Name="TeacherDetailActions" Grid.Row="2">
+              <Button x:Name="ChangeTeacherStatus" Classes="action" Margin="0,0,7,4" Click="ChangeStatusClicked"/>
+              <Button x:Name="ResetTeacherPin" Content="重置 PIN" Classes="action" Click="ResetClicked" IsVisible="False"/>
+            </WrapPanel>
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,8">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button x:Name="TeacherAccountRefresh" Content="刷新目录" Classes="action" Click="RefreshClicked"/>
+        <Button x:Name="TeacherAccountWeb" Content="打开网页教师分配" Classes="action" IsVisible="False" Click="OpenWebClicked"/>
+        <Button x:Name="CloseTeacherAccountsButton" Content="关闭" Classes="action" Click="CloseClicked"/>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

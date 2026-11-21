@@ -70,6 +70,7 @@
                   </ComboBox>
                 </StackPanel>
               </Grid>
+              <Button x:Name="TeachingNewTeacher" Classes="action" Content="新建教师" Click="NewTeacherClicked"/>
               <StackPanel x:Name="TeachingPeers" Spacing="5">
                 <TextBlock Text="同时办理同年级其他班" Classes="label"/>
                 <StackPanel x:Name="TeachingClassChoices" Spacing="2"/>

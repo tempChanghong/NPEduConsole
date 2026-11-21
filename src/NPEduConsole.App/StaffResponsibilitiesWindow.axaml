@@ -46,6 +46,7 @@
                           SelectionChanged="TeacherChanged" AutomationProperties.Name="教师候选"/>
                 <Button x:Name="StaffAddTeacher" Grid.Column="2" Classes="action" Content="加入安排" Click="AddClicked"/>
               </Grid>
+              <Button x:Name="StaffNewTeacher" Classes="action" Content="新建教师" Click="NewTeacherClicked"/>
               <TextBlock x:Name="StaffNoDraft" Classes="muted" Text="尚无职责安排。"/>
               <ListBox x:Name="StaffDraftRows" Classes="object-list" Background="Transparent" BorderThickness="0" MaxHeight="280"
                        ScrollViewer.AllowAutoHide="False" ScrollViewer.VerticalScrollBarVisibility="Auto"

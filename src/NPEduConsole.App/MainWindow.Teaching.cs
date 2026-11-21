@@ -15,10 +15,10 @@ public sealed partial class MainWindow
         if (_client == client && _school == school && _classroom?.Id == room.Id) OpenTeachingButton.Focus();
     }
 
-    private async Task ShowTeachingAsync(ConsoleClient client, School school, string termId, string classId, string? subjectId)
+    private async Task ShowTeachingAsync(ConsoleClient client, School school, string termId, string classId, string? subjectId, string? accountId = null)
     {
         if (_teachingWindow is not null || _client != client || _school != school) return;
-        var window = new TeachingWindow(client, school, termId, classId, subjectId);
+        var window = new TeachingWindow(client, school, termId, classId, subjectId, accountId);
         _teachingWindow = window;
         window.SessionExpired += error =>
         {

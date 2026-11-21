@@ -331,6 +331,7 @@ internal sealed class SchoolAuditRow(SchoolAuditEntry entry)
         ["FIRST_CLASSROOM_SCREEN_PREPARED"] = "登记首台教室大屏",
         ["SCREEN_ACCOUNT_UPDATED"] = "修改大屏账号", ["TEACHING_ASSIGNMENT_CHANGED"] = "修改任课关系", ["GRADE_LEADERSHIP_CHANGED"] = "修改年级组长职责",
         ["CLASS_LEADERSHIP_CHANGED"] = "修改班主任职责", ["LOCAL_ACCOUNT_CHANGED"] = "修改本地账号", ["LOCAL_ACCOUNT_PROVISIONED"] = "批量创建本地账号",
+        ["TEACHER_ACCOUNT_CREATED"] = "创建教师账号",
         ["STAFF_CONFIGURATION_IMPORT"] = "导入人员配置",
         ["WORKSPACE_MEMBERSHIP_CHANGED"] = "修改教学空间成员", ["HOMEWORK_SETTINGS_CHANGED"] = "修改作业设置", ["SUBJECT_RULES_CHANGED"] = "修改授课规则",
         ["COURSE_GROUP_CREATED"] = "创建走班教学班", ["COURSE_GROUP_UPDATED"] = "修改走班教学班", ["COURSE_GROUP_CHANGED"] = "修改走班教学班",

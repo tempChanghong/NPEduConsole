@@ -20,6 +20,7 @@ public sealed partial class TeachingWindow : Window
     private readonly Dictionary<string, CheckBox> _choices = new(StringComparer.Ordinal);
     private string _action = "ASSIGN";
     private TeachingAssignment? _original;
+    private TeacherAccountForm? _teacherForm;
     private (TeachingDraft Draft, TeachingPreview Preview)? _preview;
     private static readonly ConditionalWeakTable<ConsoleClient,
         Dictionary<(string School, string Term, string Class), TeachingPending>> PendingBySession = new();
@@ -34,7 +35,7 @@ public sealed partial class TeachingWindow : Window
         _binding = false;
     }
 
-    public TeachingWindow(ConsoleClient client, School school, string termId, string classId, string? subjectId) : this()
+    public TeachingWindow(ConsoleClient client, School school, string termId, string classId, string? subjectId, string? accountId = null) : this()
     {
         _client = client;
         _school = school;
@@ -51,6 +52,12 @@ public sealed partial class TeachingWindow : Window
             await RunAsync(async () =>
             {
                 await ReadAsync(_unconfirmed?.Draft.SubjectId ?? subjectId);
+                if (!_closed && accountId is not null && _unconfirmed is null)
+                {
+                    TeachingExistingPicker.SelectedItem = TeachingExistingPicker.Items.Cast<TeachingAssignment>()
+                        .FirstOrDefault(row => row.AccountId == accountId);
+                    TeachingExistingPicker.Focus(NavigationMethod.Tab);
+                }
                 if (_closed || _unconfirmed is not { } pending) return;
                 TeachingFeedback.Text = "已恢复待核对的提交。请先读取服务器当前任课安排。";
                 ShowBeforeReadback(pending);
@@ -181,6 +188,8 @@ public sealed partial class TeachingWindow : Window
         TeachingApplyButton.IsEnabled = editable && _preview is { Preview: { CanApply: true, HasChanges: true } };
         TeachingReadButton.IsEnabled = !_busy && !_closed;
         TeachingSubjectSetupButton.IsEnabled = editable;
+        TeachingNewTeacher.IsVisible = _action != "REMOVE";
+        TeachingNewTeacher.IsEnabled = editable && Subject is not null;
         TeachingReadButton.Content = _unconfirmed is null ? "刷新安排" : "核对提交结果";
         TeachingReadButton.Classes.Set("accent", _unconfirmed is not null);
         TeachingPreviewButton.IsVisible = TeachingApplyButton.IsVisible = _unconfirmed is null;
@@ -329,6 +338,50 @@ public sealed partial class TeachingWindow : Window
         if (!_closed) await ReadAsync(null);
     });
 
+    private async void NewTeacherClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
+    {
+        if (Subject is not { } subject) return;
+        var form = new TeacherAccountForm(_client, _school, createLabel: "创建并返回任课")
+        {
+            SessionExpired = error => SessionExpired?.Invoke(error)
+        };
+        _teacherForm = form;
+        try { await form.ShowDialog(this); }
+        finally { _teacherForm = null; }
+        if (_closed || form.Receipt is not { } receipt) return;
+        TeachingFeedback.Text = "账号已创建，正在核对原任课目标…";
+        var catalog = await ReadAfterTeacherCreationAsync();
+        if (_closed || catalog is null) return;
+        if (!catalog.Subjects.Any(row => row.Id == subject.Id))
+        {
+            _scopeUnavailable = true;
+            TeachingFeedback.Text = "账号已创建。原科目已变化，请刷新原任课范围后核对。";
+            return;
+        }
+        _binding = true;
+        TeachingTeacherPicker.ItemsSource = catalog.Teachers;
+        TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(teacher => teacher.Id == receipt.Account.Id);
+        _binding = false;
+        ResetPreview();
+        TeachingFeedback.Text = Teacher is null ? "账号已创建，当前无法选用这位教师。请刷新核对。" :
+            "已选中新教师，原班级和任课身份仍在。请预览并确认任课。";
+        Dispatcher.UIThread.Post(() => { if (!_closed) TeachingTeacherPicker.Focus(NavigationMethod.Tab); }, DispatcherPriority.Loaded);
+    });
+
+    private async Task<TeachingCatalog?> ReadAfterTeacherCreationAsync()
+    {
+        try { return await _client.GetTeachingAsync(_schoolId, _termId, _classId, _lifetime.Token); }
+        catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
+        {
+            if (!_closed)
+            {
+                _scopeUnavailable = true;
+                TeachingFeedback.Text = $"账号已创建。原任课草稿需重新核对。{error.Message}";
+            }
+            return null;
+        }
+    }
+
     private async Task RunAsync(Func<Task> work)
     {
         if (_busy || _closed) return;
@@ -355,5 +408,5 @@ public sealed partial class TeachingWindow : Window
     }
 
     private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
-    public void CloseForScopeChange() { _closed = true; Close(); }
+    public void CloseForScopeChange() { _closed = true; _teacherForm?.CloseForScopeChange(); Close(); }
 }

@@ -331,6 +331,8 @@ public sealed partial class ConsoleClient : IDisposable
                     throw CurrentTeachingError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsCurrentStaffPath(path))
                     throw CurrentStaffError(status, await AcademicErrorCodeAsync(response, ct));
+                if (IsTeacherAccountsPath(path))
+                    throw TeacherAccountError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSubjectSetupPath(path))
                     throw SubjectSetupError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSchoolSubjectPath(path))

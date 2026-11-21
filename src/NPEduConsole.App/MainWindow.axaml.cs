@@ -176,6 +176,7 @@ public sealed partial class MainWindow : Window
             var school = SchoolPicker.SelectedItem as School;
             CloseSchoolSubjects();
             CloseStaffResponsibilities();
+            CloseTeacherAccounts();
             CloseTeaching();
             _subjectSetup.Close();
             _detailScreenId = _directoryReturnScreenId = null;
@@ -515,6 +516,7 @@ public sealed partial class MainWindow : Window
         _subjectSetup.Close();
         CloseSchoolSubjects();
         CloseStaffResponsibilities();
+        CloseTeacherAccounts();
         ResetClassCreation();
         ResetClassMaintenance();
         ResetFirstScreen();
