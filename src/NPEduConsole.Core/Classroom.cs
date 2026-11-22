@@ -106,6 +106,7 @@ public sealed record Equipment(long PublishedRevision, long? AppliedRevision, bo
 
 public sealed class ConsoleApiException(int statusCode, string message, string? code = null) : Exception(message)
 {
+    public string? RelatedAccountId { get; init; }
     public int StatusCode { get; } = statusCode;
     public string? Code { get; } = code;
     public IReadOnlyList<BatchClassIssue> BatchIssues { get; init; } = [];

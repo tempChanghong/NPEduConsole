@@ -170,6 +170,16 @@
           </StackPanel>
           <StackPanel Grid.Row="3" Spacing="5">
           <Border Height="1" Background="{DynamicResource LineBrush}" Margin="7,0,7,5" />
+          <Button x:Name="OpenSchoolManagementAccountsButton" Classes="shell-nav" Click="SchoolManagementAccountsClicked"
+                  IsEnabled="False" AutomationProperties.Name="账号与权限" ToolTip.Tip="账号与权限">
+            <Grid Classes="nav-content" ColumnDefinitions="Auto,Auto">
+              <Grid Width="29" Height="24">
+                <Border Classes="shell-indicator" HorizontalAlignment="Left" Margin="-4,0,0,0" />
+                <Path Classes="shell-glyph" Data="{StaticResource TeacherGlyph}" />
+              </Grid>
+              <TextBlock Grid.Column="1" Classes="shell-label" Text="账号与权限" />
+            </Grid>
+          </Button>
           <Button x:Name="OpenSchoolAuditButton" Classes="shell-nav" Click="SchoolAuditClicked" IsEnabled="False"
                   AutomationProperties.Name="审计记录" ToolTip.Tip="审计记录">
             <Grid Classes="nav-content" ColumnDefinitions="Auto,Auto">

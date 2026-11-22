@@ -341,6 +341,10 @@ public sealed partial class ConsoleClient : IDisposable
                     throw CourseGroupError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsTeacherAccountsPath(path))
                     throw TeacherAccountError(status, await AcademicErrorCodeAsync(response, ct));
+                if (IsSchoolManagementAccountsPath(path))
+                    throw await SchoolManagementAccountsErrorAsync(response, ct);
+                if (path == "accounts/local/change-pin" && await AcademicErrorCodeAsync(response, ct) == "CURRENT_PIN_INCORRECT")
+                    throw new ConsoleApiException(401, "当前 PIN 不正确，请重新填写。", "CURRENT_PIN_INCORRECT");
                 if (IsScreenDutyPath(path))
                     throw ScreenDutyError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsHomeworkSettingsPath(path))

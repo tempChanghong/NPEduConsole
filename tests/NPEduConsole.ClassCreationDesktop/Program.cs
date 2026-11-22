@@ -38,6 +38,8 @@ internal static partial class Program
             return StartSchoolStudy(schoolStudyFixture, schoolStudyOutput);
         if (args is ["--live-study-monitoring", var monitoringFixture, var monitoringOutput])
             return StartStudyMonitoring(monitoringFixture, monitoringOutput);
+        if (args is ["--live-management-accounts", var managementFixture, var managementOutput])
+            return StartManagementAccounts(managementFixture, managementOutput);
         if (args is ["--live-organization-import", var organizationFixture, var organizationOutput])
             return StartOrganizationImport(organizationFixture, organizationOutput);
         if (args is ["--live-teacher-allocation", var allocationFixture, var allocationOutput])

@@ -1,0 +1,106 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolManagementAccountsWindow"
+        Title="账号与权限" Width="1160" Height="780" MinWidth="660" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,10">
+      <StackPanel Spacing="4">
+        <TextBlock Text="账号与权限" Classes="label" FontSize="23"/>
+        <TextBlock x:Name="ManagementScope" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="8" Margin="13,8">
+      <TextBlock x:Name="ManagementStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+      <Grid Grid.Row="1">
+        <Grid x:Name="ManagementPanes" ColumnDefinitions="*,1.2*" ColumnSpacing="10">
+          <Border x:Name="ManagementListPane" Classes="card" Padding="10">
+            <Grid RowDefinitions="Auto,*,Auto" RowSpacing="7">
+              <WrapPanel ItemSpacing="6" LineSpacing="6">
+                <TextBox x:Name="ManagementSearch" Width="185" PlaceholderText="搜索姓名、短账号或邮箱"
+                         AutomationProperties.Name="搜索账号" TextChanged="FilterChanged"/>
+                <ComboBox x:Name="ManagementFilter" MinWidth="124" SelectionChanged="AccountFilterChanged" AutomationProperties.Name="筛选学校账号"/>
+              </WrapPanel>
+              <ListBox Grid.Row="1" x:Name="ManagementRows" Classes="object-list" SelectionChanged="AccountChanged"
+                       KeyDown="AccountListKeyDown" AutomationProperties.Name="学校账号名册">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="local:ManagementAccountRow">
+                    <StackPanel Spacing="3" Margin="5,3">
+                      <TextBlock Text="{Binding Display}" Classes="label" TextWrapping="Wrap"/>
+                      <TextBlock Text="{Binding Label}" Classes="muted" TextWrapping="Wrap"/>
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <Button Grid.Row="2" x:Name="ManagementOpenDetail" Classes="action" Content="查看所选账号" Click="OpenDetails" IsVisible="False"/>
+            </Grid>
+          </Border>
+          <Border Grid.Column="1" x:Name="ManagementDetailPane" Classes="card" Padding="12">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False">
+              <StackPanel Spacing="10" Margin="0,0,8,0">
+                <Button x:Name="ManagementBackToList" Classes="action" Content="返回账号列表" IsVisible="False" Click="BackToList"/>
+                <TextBlock x:Name="ManagementAccountTitle" FontSize="21" Classes="label" TextWrapping="Wrap"/>
+                <TextBlock x:Name="ManagementAccountState" TextWrapping="Wrap"/>
+                <TextBlock x:Name="ManagementAccountLogin" TextWrapping="Wrap" Classes="muted"/>
+                <TextBlock x:Name="ManagementAccountAuthority" TextWrapping="Wrap"/>
+                <StackPanel x:Name="ManagementRoleFields" Spacing="5" IsVisible="False">
+                  <TextBlock Text="本校角色" Classes="label"/>
+                  <WrapPanel ItemSpacing="6" LineSpacing="6">
+                    <ComboBox x:Name="ManagementRole" MinWidth="180" AutomationProperties.Name="选择新学校角色"/>
+                    <Button x:Name="ManagementRolePreview" Classes="action accent" Content="核对角色变更" Click="PreviewRole"/>
+                  </WrapPanel>
+                </StackPanel>
+                <WrapPanel ItemSpacing="6" LineSpacing="6">
+                  <Button x:Name="ManagementToggle" Classes="action" Click="PreviewToggle" IsVisible="False"/>
+                  <Button x:Name="ManagementResetPin" Classes="action" Content="重置个人 PIN" Click="PreviewReset" IsVisible="False"/>
+                  <Button x:Name="ManagementRemove" Classes="action" Content="注销本校权限" Click="PreviewRemove" IsVisible="False"/>
+                  <Button x:Name="ManagementOwnPin" Classes="action" Content="修改本人 PIN" Click="OpenOwnPin" IsVisible="False"/>
+                </WrapPanel>
+                <StackPanel x:Name="ManagementCreateFields" Spacing="6" IsVisible="False">
+                  <TextBlock Text="新建管理账号" Classes="label" FontSize="19"/>
+                  <TextBox x:Name="ManagementNewName" MaxLength="64" PlaceholderText="姓名" AutomationProperties.Name="新账号姓名"/>
+                  <TextBox x:Name="ManagementNewUsername" MaxLength="32" PlaceholderText="短账号" AutomationProperties.Name="新短账号"/>
+                  <ComboBox x:Name="ManagementNewRole" MinWidth="180" AutomationProperties.Name="新账号管理角色"/>
+                  <Button x:Name="ManagementCreatePreview" Classes="action accent" Content="核对新账号" Click="PreviewCreate"/>
+                </StackPanel>
+                <StackPanel x:Name="ManagementOwnPinFields" Spacing="6" IsVisible="False">
+                  <TextBlock Text="修改后需用新 PIN 重新登录。" Classes="muted" TextWrapping="Wrap"/>
+                  <TextBox x:Name="ManagementPriorPin" PasswordChar="●" MaxLength="8" PlaceholderText="原 PIN" AutomationProperties.Name="原 PIN"/>
+                  <TextBox x:Name="ManagementNewOwnPin" PasswordChar="●" MaxLength="8" PlaceholderText="新 PIN" AutomationProperties.Name="新 PIN"/>
+                  <Button x:Name="ManagementOwnPinSave" Classes="action accent" Content="保存本人 PIN" Click="SaveOwnPin"/>
+                </StackPanel>
+              </StackPanel>
+            </ScrollViewer>
+          </Border>
+        </Grid>
+        <StackPanel x:Name="ManagementRetryPane" Spacing="8" IsVisible="False">
+          <TextBlock x:Name="ManagementRetryTarget" FontWeight="SemiBold" TextWrapping="Wrap"/>
+          <TextBlock x:Name="ManagementRetryDescription" TextWrapping="Wrap"/>
+          <WrapPanel ItemSpacing="8" LineSpacing="6">
+            <TextBox x:Name="ManagementRetryPin" Width="165" PasswordChar="●" MaxLength="8" IsVisible="False"
+                     PlaceholderText="重新输入个人 PIN" AutomationProperties.Name="重新输入个人 PIN"/>
+            <Button x:Name="ManagementRetry" Classes="action accent" Content="按原编号重试保存" Click="RetryClicked"/>
+          </WrapPanel>
+        </StackPanel>
+        <Grid x:Name="ManagementConfirmation" RowDefinitions="Auto,*" RowSpacing="6" IsVisible="False">
+          <WrapPanel x:Name="ManagementPinFields" ItemSpacing="6" LineSpacing="5" IsVisible="False">
+            <TextBlock Text="供本次交付的个人 PIN" VerticalAlignment="Center"/>
+            <TextBox x:Name="ManagementPin" PasswordChar="●" Width="155" MaxLength="8" PlaceholderText="4 至 8 位数字"
+                     AutomationProperties.Name="本次个人 PIN"/>
+          </WrapPanel>
+          <local:SchoolAccountImpactView Grid.Row="1" x:Name="ManagementImpact"/>
+        </Grid>
+      </Grid>
+    </Grid>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="13,8">
+      <WrapPanel ItemSpacing="7" LineSpacing="5">
+        <Button x:Name="ManagementClose" Classes="action" Content="关闭" Click="CloseClicked"/>
+        <Button x:Name="ManagementRefresh" Classes="action" Content="刷新账号" Click="RefreshClicked"/>
+        <Button x:Name="ManagementExportRoster" Classes="action" Content="导出全校名册（无 PIN）" Click="ExportRosterClicked"/>
+        <Button x:Name="ManagementCreate" Classes="action" Content="新建管理账号" Click="OpenCreate" IsVisible="False"/>
+        <Button x:Name="ManagementLocate" Classes="action" Content="打开已存在的账号" Click="LocateDuplicate" IsVisible="False"/>
+        <Button x:Name="ManagementReceipt" Classes="action" Content="核对本次回执" Click="ReadReceiptClicked" IsVisible="False"/>
+        <Button x:Name="ManagementSavePin" Classes="action" Content="另存本次交付凭据" Click="ExportPin" IsVisible="False"/>
+        <Button x:Name="ManagementClearPin" Classes="action" Content="清除本次 PIN" Click="DiscardPin" IsVisible="False"/>
+      </WrapPanel>
+    </Border>
+  </Grid>
+</Window>

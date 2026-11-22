@@ -247,7 +247,7 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   }
 }
 
-async function isolatedIdentityProvider(fromKv, origin) {
+export async function isolatedIdentityProvider(fromKv, origin) {
   const {oauthProviders} = await fromKv('config/oauth.js');
   const provider = oauthProviders.hly;
   const previous = {...provider}, previousBase = process.env.BASE_URL;

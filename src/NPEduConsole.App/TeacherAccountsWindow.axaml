@@ -79,6 +79,7 @@
             <WrapPanel x:Name="TeacherDetailActions" Grid.Row="2">
               <Button x:Name="ChangeTeacherStatus" Classes="action" Margin="0,0,7,4" Click="ChangeStatusClicked"/>
               <Button x:Name="ResetTeacherPin" Content="重置 PIN" Classes="action" Click="ResetClicked" IsVisible="False"/>
+              <Button x:Name="TeacherSchoolAccount" Content="账号与权限" Classes="action" Margin="7,0,0,4" Click="OpenSchoolAccountClicked"/>
             </WrapPanel>
           </Grid>
         </Border>

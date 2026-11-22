@@ -1,0 +1,46 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.SchoolAccountImpactView" KeyDown="ViewKeyDown">
+  <UserControl.Styles>
+    <Style Selector="Border.impact-row">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="10,7" />
+      <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+    <Style Selector="TextBlock.impact-scope">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
+    <StackPanel Spacing="2">
+      <TextBlock x:Name="SchoolAccountImpactTitle" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"
+                 AutomationProperties.LiveSetting="Polite" />
+      <TextBlock x:Name="SchoolAccountImpactScope" Classes="muted impact-scope" TextWrapping="Wrap" />
+    </StackPanel>
+
+    <Border Grid.Row="1" Classes="card" Padding="10" ClipToBounds="True">
+      <Grid RowDefinitions="Auto,*">
+        <TextBlock x:Name="SchoolAccountImpactStatus" Classes="muted" TextWrapping="Wrap" Margin="0,0,0,6" />
+        <ScrollViewer x:Name="SchoolAccountImpactScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+          <StackPanel x:Name="SchoolAccountImpactItems" Spacing="0"
+                      AutomationProperties.Name="本次管理变更的影响" />
+        </ScrollViewer>
+        <TextBlock x:Name="SchoolAccountImpactEmpty" Grid.Row="1" Classes="muted" TextWrapping="Wrap"
+                   IsVisible="False" Text="这次变更没有需要额外说明的影响。" />
+      </Grid>
+    </Border>
+
+    <Grid x:Name="SchoolAccountImpactActions" Grid.Row="2" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+      <Button x:Name="SchoolAccountImpactBack" Grid.Column="1" Content="返回" Classes="action"
+              Click="BackClicked" />
+      <Button x:Name="SchoolAccountImpactConfirm" Grid.Column="2" Classes="action accent"
+              Click="ConfirmClicked" IsDefault="False" />
+    </Grid>
+  </Grid>
+</UserControl>

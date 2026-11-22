@@ -58,6 +58,18 @@ public sealed partial class TeacherAccountsWindow : Window
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<Window, Task<bool>>? OpenBulkAllocation { get; init; }
+    internal Func<Window, string, Task>? OpenSchoolAccount { get; init; }
+
+    private async void OpenSchoolAccountClicked(object? sender, RoutedEventArgs e)
+    {
+        if (OpenSchoolAccount is not { } open || Current is not { } account) return;
+        await RunAsync(async () =>
+        {
+            await open(this, account.Id);
+            if (!_closed) await LoadAsync();
+        });
+        if (!_closed) TeacherSchoolAccount.Focus();
+    }
 
     private async void OpenBulkClicked(object? sender, RoutedEventArgs args)
     {

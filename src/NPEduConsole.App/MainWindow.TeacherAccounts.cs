@@ -22,7 +22,8 @@ public sealed partial class MainWindow
         var window = new TeacherAccountsWindow(client, school, accountId)
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
-            OpenBulkAllocation = owner => ShowTeacherAllocationAsync(owner, client, school)
+            OpenBulkAllocation = owner => ShowTeacherAllocationAsync(owner, client, school),
+            OpenSchoolAccount = (owner, id) => ShowSchoolManagementAccountsAsync(owner, client, school, id)
         };
         _teacherAccountsWindow = window;
         try { await window.ShowDialog(this); }
