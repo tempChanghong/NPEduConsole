@@ -44,6 +44,8 @@ internal static partial class Program
             return StartScreenDuty(dutyFixture, dutyOutput);
         if (args is ["--live-exam-workbench", var examFixture, var examOutput])
             return StartExamWorkbench(examFixture, examOutput);
+        if (args is ["--live-homework-settings", var homeworkFixture, var homeworkOutput])
+            return StartHomeworkSettings(homeworkFixture, homeworkOutput);
         if (args is ["--live-grade-teaching-plan", var gradePlanFixture, var gradePlanOutput])
             return StartGradeTeachingPlan(gradePlanFixture, gradePlanOutput);
         if (args is ["--live-course-groups", var walkingFixture, var walkingOutput])

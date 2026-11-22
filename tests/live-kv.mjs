@@ -35,6 +35,7 @@ import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
 import { verifyScreenDuty } from './screen-duty-fixture.mjs';
 import { verifyExamWorkbench } from './exam-workbench-fixture.mjs';
+import { verifyHomeworkSettings } from './homework-settings-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
@@ -43,7 +44,8 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
-  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db'].includes(mode)),
+  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
+  '--homework-settings', '--homework-settings-db'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -140,7 +142,8 @@ async function createDatabase() {
   await new Promise(res => probe.close(res));
   const connection = { host: '127.0.0.1', port, user: 'npconsole', password: databasePassword };
   for (const key of ['AXIOM_TOKEN', 'AXIOM_DATASET', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS', 'PGHOST', 'PGDATABASE', 'PGUSER', 'PGPORT', 'PGPASSWORD', 'TRUST_PROXY']) delete process.env[key];
-  const fixtureDatabase = mode === '--exam-workbench-db' ? 'npclassworks_test_exam_workbench' :
+  const fixtureDatabase = mode === '--homework-settings-db' ? 'npclassworks_test_homework_settings' :
+    mode === '--exam-workbench-db' ? 'npclassworks_test_exam_workbench' :
     mode === '--screen-duty-db' ? 'npclassworks_test_screen_duty' :
     mode === '--teacher-allocation-db' ? 'npclassworks_test_teacher_allocation' :
     mode === '--organization-import-db' ? 'npclassworks_test_organization_import' :
@@ -204,7 +207,7 @@ async function seed() {
   }
   const manager = await account('admin', 'ADMIN');
   await account('viewer', 'VIEWER');
-  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || ['--screen-duty', '--exam-workbench'].includes(mode))
+  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || ['--screen-duty', '--exam-workbench', '--homework-settings'].includes(mode))
     await account('admin2', 'ADMIN');
   const term = await prisma.academicTerm.create({ data: {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
@@ -493,6 +496,15 @@ async function runFixture() {
   }
   const databasePort = await createDatabase();
   ({ prisma } = await fromKv('utils/prisma.js'));
+  if (mode === '--homework-settings-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_HOMEWORK_EVIDENCE || fileURLToPath(new URL('../.artifacts/homework-settings/final', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    const log = 'homework-postgres.log';
+    try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/schoolHomeworkSettings.integration.test.js',
+      'tests/schoolHomeworkSettings.test.js'], {...process.env, RUN_DATABASE_TESTS: 'true'}, log); }
+    finally { await copyFile(join(directory, log), join(evidence, log)); }
+    return;
+  }
   if (mode === '--exam-workbench-db') {
     const evidence = resolve(process.env.NP_CONSOLE_EXAM_EVIDENCE || fileURLToPath(new URL('../.artifacts/exam-workbench/final', import.meta.url)));
     await mkdir(evidence, {recursive: true});
@@ -552,6 +564,12 @@ async function runFixture() {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
+  if (mode === '--homework-settings') {
+    const desktop = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_HOMEWORK_EVIDENCE || fileURLToPath(new URL('../.artifacts/homework-settings/final', import.meta.url)));
+    return verifyHomeworkSettings({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(desktop, args)});
+  }
   if (mode === '--exam-workbench') {
     const desktop = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));

@@ -300,6 +300,7 @@
             <Button x:Name="OpenTeacherAccountsButton" Classes="action" Content="教师账号" Click="OpenTeacherAccountsClicked" IsVisible="False" />
             <Button x:Name="OpenClassScreenDirectoryButton" Classes="action" Content="管理班级大屏" Click="OpenClassScreenDirectoryClicked" IsVisible="False" />
             <Button x:Name="OpenSchoolSubjectsButton" Classes="action" Content="学科目录" Click="OpenSchoolSubjectsClicked" IsVisible="False" />
+            <Button x:Name="OpenHomeworkSettingsButton" Classes="action" Content="作业录入设置" Click="OpenHomeworkSettingsClicked" IsVisible="False" />
             <Button x:Name="RefreshButton" Classes="action" Content="刷新" Click="RefreshClicked" IsEnabled="False" />
           </WrapPanel>
         </Grid>

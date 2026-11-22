@@ -343,6 +343,8 @@ public sealed partial class ConsoleClient : IDisposable
                     throw TeacherAccountError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsScreenDutyPath(path))
                     throw ScreenDutyError(status, await AcademicErrorCodeAsync(response, ct));
+                if (IsHomeworkSettingsPath(path))
+                    throw HomeworkSettingsError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSubjectSetupPath(path))
                     throw SubjectSetupError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSchoolSubjectPath(path))
