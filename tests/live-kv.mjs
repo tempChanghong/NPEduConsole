@@ -62,7 +62,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console',
   '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching',
   '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db', '--study-display', '--study-display-db',
-  '--device-field-actions', '--device-field-actions-db'].includes(mode)),
+  '--device-field-actions', '--device-field-actions-db', '--device-run-reports'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -91,7 +91,7 @@ const gradePlanDatabase = mode === '--grade-teaching-plan-db';
 const gradePlan = mode === '--grade-teaching-plan';
 const studyMonitoring = mode === '--study-monitoring';
 const managementAccounts = mode === '--management-accounts';
-const schoolStudy = ['--school-study', '--school-study-db', '--study-display', '--device-field-actions'].includes(mode) || studyMonitoring;
+const schoolStudy = ['--school-study', '--school-study-db', '--study-display', '--device-field-actions', '--device-run-reports'].includes(mode) || studyMonitoring;
 const organizationImport = mode === '--organization-import' || mode === '--organization-import-db';
 const teacherAllocation = mode === '--teacher-allocation';
 const teacherAccounts = mode === '--teacher-accounts';
@@ -748,8 +748,10 @@ async function runFixture() {
     return verifyStudyDisplay({prisma, origin, fixture, fromKv, directory, evidence, web: join(kv, '..', 'NPClassworks'),
       runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args)});
   }
-  if (mode === '--device-field-actions' || mode === '--device-field-actions-db') {
-    const evidence = resolve(process.env.NP_CONSOLE_FIELD_EVIDENCE || fileURLToPath(new URL('../.artifacts/device-field-actions', import.meta.url)));
+  if (['--device-field-actions', '--device-field-actions-db', '--device-run-reports'].includes(mode)) {
+    const withReports = mode === '--device-run-reports';
+    const evidence = resolve(process.env.NP_CONSOLE_FIELD_EVIDENCE || fileURLToPath(new URL(withReports
+      ? '../.artifacts/device-run-reports' : '../.artifacts/device-field-actions', import.meta.url)));
     await mkdir(evidence, {recursive: true});
     if (mode.endsWith('-db')) {
       const report = 'device-field-postgres.log';
@@ -770,7 +772,7 @@ async function runFixture() {
         child.once('close', code => code === 0 ? resolveRun() : reject(new Error(`Native field Host acceptance failed (${code}); see ${log}`)));
       } finally { closeSync(output); }
     });
-    return verifyDeviceFieldActions({prisma, origin, fixture, fromKv, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+    return verifyDeviceFieldActions({prisma, origin, fixture, fromKv, directory, evidence, withReports, web: join(kv, '..', 'NPClassworks'),
       runDesktop: args => runDesktop(project, args), runNative});
   }
   if (mode === '--school-study-db') {

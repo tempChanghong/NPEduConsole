@@ -15,7 +15,8 @@ public sealed record DeviceFieldRevoke(string? ReviewToken);
 public sealed record DeviceFieldState(DeviceFieldTarget Target, CurrentFieldDevice? CurrentDevice, DeviceFieldResume Resume, DeviceFieldRevoke Revoke);
 public sealed record DeviceFieldRequest(DeviceFieldScope Scope, long ExpectedBindingRevision, string Action, string ReviewToken, Guid Id);
 public sealed record DeviceFieldResult(Guid RequestId, string Action, DeviceFieldTarget Target, DateTimeOffset AcceptedAt, Guid? CommandId,
-    DateTimeOffset? ExpiresAt, string Outcome, DateTimeOffset? DeviceProcessedAt, DateTimeOffset? SampleAt, bool SampleFresh = false);
+    DateTimeOffset? ExpiresAt, string Outcome, DateTimeOffset? DeviceProcessedAt, DateTimeOffset? SampleAt, bool SampleFresh = false,
+    Guid? SampleSessionId = null);
 
 public sealed partial class ConsoleClient
 {
@@ -76,7 +77,8 @@ public sealed partial class ConsoleClient
             data.Action == "REVOKE" && (data.Outcome != "REVOKED" || data.Target.State != "REVOKED" || data.CommandId is not null ||
                 data.ExpiresAt is not null || data.DeviceProcessedAt is not null || data.SampleAt is not null) ||
             data.Action == "RESUME" && (data.CommandId is null || data.ExpiresAt is null || data.Outcome is not ("QUEUED" or "ACCEPTED" or "REJECTED" or "UNKNOWN") ||
-                data.SampleAt is not null && data.Outcome != "ACCEPTED") || data.SampleFresh && data.SampleAt is null) throw InvalidResponse();
+                data.SampleAt is not null && data.Outcome != "ACCEPTED") || data.SampleFresh && data.SampleAt is null ||
+            data.SampleSessionId is { } capture && (capture == Guid.Empty || data.Action != "RESUME" || data.SampleAt is null)) throw InvalidResponse();
         return data;
     }
 

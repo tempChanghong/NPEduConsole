@@ -19,6 +19,7 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
     public event Action? RefreshRequested;
     public event Action<SchoolOverview, OverviewScreenItem>? ScreenRequested;
     public event Action<string?, string?, Control?>? DutyRequested;
+    public event Action<string, Control>? DiagnosticsRequested;
 
     public SchoolDeviceDirectoryView()
     {
@@ -140,6 +141,11 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
     }
 
     private void RefreshClicked(object? sender, RoutedEventArgs args) => RefreshRequested?.Invoke();
+
+    private void OpenDiagnosticsClicked(object? sender, RoutedEventArgs args)
+    {
+        if (sender is Control anchor) DiagnosticsRequested?.Invoke(DeviceSearch.Text ?? "", anchor);
+    }
 
     private void OpenDutyDirectoryClicked(object? sender, RoutedEventArgs args) => DutyRequested?.Invoke(null, null, sender as Control);
 

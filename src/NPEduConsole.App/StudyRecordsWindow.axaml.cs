@@ -12,6 +12,7 @@ public sealed partial class StudyRecordsWindow : Window
     private readonly StudyEvidenceScope _scope = null!;
     private readonly DateOnly? _day;
     private readonly StudyReportGroup? _report;
+    private readonly DeviceFieldScope? _reportDevice;
     private readonly string _classScope = "";
     private readonly IReadOnlyDictionary<string, string> _devices = new Dictionary<string, string>();
     private readonly CancellationTokenSource _lifetime = new();
@@ -26,12 +27,13 @@ public sealed partial class StudyRecordsWindow : Window
     public StudyRecordsWindow() => InitializeComponent();
 
     internal StudyRecordsWindow(ConsoleClient client, StudyEvidenceScope scope, string school, string classroom,
-        DateOnly? day, StudyReportGroup? report, IReadOnlyDictionary<string, string>? devices = null) : this()
+        DateOnly? day, StudyReportGroup? report, IReadOnlyDictionary<string, string>? devices = null, DeviceFieldScope? reportDevice = null) : this()
     {
         _client = client;
         _scope = scope;
         _day = day;
         _report = report;
+        _reportDevice = reportDevice;
         if (devices is not null) _devices = devices;
         _classScope = $"{school} · {classroom}";
         RecordsScope.Text = _classScope + " · " + (report is not null
@@ -84,8 +86,15 @@ public sealed partial class StudyRecordsWindow : Window
         {
             if (_report is { } report)
             {
-                var detail = await _client.ReadStudyReportAsync(_scope, report, token);
+                var detail = _reportDevice is { } device && report.Fragments is [var fragment]
+                    ? (await _client.FindDeviceRunClassReportAsync(device, fragment.SessionId, token))?.Group
+                    : await _client.ReadStudyReportAsync(_scope, report, token);
                 token.ThrowIfCancellationRequested();
+                if (detail is null)
+                {
+                    RecordsStatus.Text = "已无法查到这次采样会话的在线记录。";
+                    return;
+                }
                 if (detail.Photos is null || detail.Events is null)
                 {
                     RecordsStatus.Text = "服务器没有返回本场记录明细，当前结果待核对。";

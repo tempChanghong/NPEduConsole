@@ -1,6 +1,12 @@
 using System.Text.Json;
 using NPEduConsole.Core;
 
+if (args is ["--device-diagnostics-checks"])
+{
+    DeviceDiagnosticsChecks.Verify();
+    return;
+}
+
 if (args is ["--server-status"])
 {
     await ServerStatusSmoke.ProbeAsync();

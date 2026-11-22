@@ -23,6 +23,9 @@ public sealed partial class DeviceFieldActionWindow : Window
     private readonly DeviceFieldScope _scope = null!;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private (string School, string Classroom, string Screen) _context;
+    private DeviceRunReportsWindow? _reports;
+    private bool _fromReports;
     private DeviceFieldState? _state;
     private DeviceFieldRequest? _confirm;
     private string _targetLabel = "";
@@ -32,10 +35,13 @@ public sealed partial class DeviceFieldActionWindow : Window
 
     public DeviceFieldActionWindow() => InitializeComponent();
 
-    internal DeviceFieldActionWindow(ConsoleClient client, DeviceFieldScope scope, string school, string classroom, string screen, string device) : this()
+    internal DeviceFieldActionWindow(ConsoleClient client, DeviceFieldScope scope, string school, string classroom, string screen,
+        string device, bool fromReports = false) : this()
     {
         _client = client;
         _scope = scope;
+        _context = (school, classroom, screen);
+        _fromReports = fromReports;
         _originalDevice = device;
         FieldTargetName.Text = _targetLabel = $"{school} · {classroom} · {screen}";
         FieldConfirmation.Approved += async (_, _) =>
@@ -59,7 +65,7 @@ public sealed partial class DeviceFieldActionWindow : Window
             if (!_closed) _timer.Start();
         };
         SizeChanged += (_, _) => Arrange();
-        Closed += (_, _) => { _closed = true; _timer.Stop(); _lifetime.Cancel(); _lifetime.Dispose(); };
+        Closed += (_, _) => { _closed = true; _timer.Stop(); _reports?.Close(); _lifetime.Cancel(); _lifetime.Dispose(); };
         _timer.Tick += async (_, _) =>
         {
             if (_closed || _busy || _confirm is not null || _forbidden) return;
@@ -79,6 +85,17 @@ public sealed partial class DeviceFieldActionWindow : Window
         FindOperation("REVOKE") is { Receipt: null } revoke ? revoke : null;
 
     private async void ReadClicked(object? sender, RoutedEventArgs args) => await RunAsync(ReadAsync);
+    private async void ReportsClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_closed || _busy || _forbidden || _confirm is not null || _reports is not null) return;
+        var window = new DeviceRunReportsWindow(_client, _scope, _context.School, _context.Classroom, _context.Screen,
+            _state?.Target.DeviceName ?? _originalDevice, FindOperation("RESUME")?.Receipt, fromField: true)
+        { SessionExpired = SessionExpired };
+        _reports = window;
+        try { await window.ShowDialog(this); }
+        finally { if (_reports == window) _reports = null; }
+        if (!_closed) { await RunAsync(ReadAsync); FieldReports.Focus(); }
+    }
     private async void VerifyClicked(object? sender, RoutedEventArgs args)
     {
         if (Pending is { } pending) await RunAsync(() => VerifyAsync(pending));
@@ -244,6 +261,8 @@ public sealed partial class DeviceFieldActionWindow : Window
         FieldResume.IsEnabled = available && pending is null && fresh && resume?.ReviewToken is not null;
         FieldRevoke.IsEnabled = available && pending is null && _state?.Revoke.ReviewToken is not null;
         FieldRevoke.IsVisible = FieldRead.IsVisible = _confirm is null;
+        FieldReports.IsVisible = !_fromReports && _confirm is null;
+        FieldReports.IsEnabled = available;
         FieldRead.IsEnabled = available;
         FieldVerify.IsVisible = !_forbidden && pending is not null;
         FieldRetry.IsVisible = !_forbidden && pending?.CheckedMissing == true;

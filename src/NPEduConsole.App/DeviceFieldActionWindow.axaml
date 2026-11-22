@@ -42,6 +42,7 @@
     </ScrollViewer>
     <WrapPanel Grid.Row="2" ItemSpacing="6" LineSpacing="4" HorizontalAlignment="Right">
       <Button x:Name="FieldReturn" Content="返回" Classes="action" Click="ReturnClicked" />
+      <Button x:Name="FieldReports" Content="运行报告" Classes="action" Click="ReportsClicked" />
       <Button x:Name="FieldRead" Content="刷新现场状态与回执" Classes="action" Click="ReadClicked" />
       <Button x:Name="FieldVerify" Content="核对本人回执" Classes="action" Click="VerifyClicked" IsVisible="False" />
       <Button x:Name="FieldRetry" Content="按原编号重试" Classes="action" Click="RetryClicked" IsVisible="False" />

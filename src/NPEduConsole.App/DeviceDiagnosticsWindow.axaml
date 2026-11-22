@@ -1,0 +1,56 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.DeviceDiagnosticsWindow"
+        Title="导出原生设备诊断" Width="940" Height="650" MinWidth="640" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Border Background="{DynamicResource CanvasBrush}" Padding="16,12">
+    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="9">
+      <StackPanel Spacing="3">
+        <TextBlock Text="导出原生设备诊断" Classes="label" FontSize="23" />
+        <TextBlock x:Name="DiagnosticSchool" Classes="label" TextWrapping="Wrap" />
+        <TextBlock x:Name="DiagnosticNotice" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+      </StackPanel>
+      <Border x:Name="DiagnosticListPane" Grid.Row="1" Classes="card" Padding="10">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+            <TextBox x:Name="DiagnosticSearch" MaxLength="100" PlaceholderText="搜索原生设备、班级或屏名" AutomationProperties.Name="诊断目录搜索" />
+            <ComboBox x:Name="DiagnosticFilter" Grid.Column="1" SelectedIndex="0" AutomationProperties.Name="筛选原生设备状态">
+              <ComboBoxItem Content="全部状态" Tag="ALL" />
+              <ComboBoxItem Content="需要核对" Tag="ATTENTION" />
+              <ComboBoxItem Content="在线" Tag="ONLINE" />
+              <ComboBoxItem Content="授权不可用" Tag="INACTIVE" />
+            </ComboBox>
+            <Button x:Name="DiagnosticRead" Grid.Column="2" Classes="action" Content="读取设备" Click="Read" />
+          </Grid>
+          <TextBlock x:Name="DiagnosticLoadState" Grid.Row="1" Classes="muted" TextWrapping="Wrap" />
+          <ListBox x:Name="DiagnosticRows" Grid.Row="2" Classes="object-list" AutomationProperties.Name="本次已加载的设备"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:DeviceDiagnosticDisplayRow">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="3,5">
+                  <TextBlock Text="{Binding Name}" TextWrapping="Wrap" />
+                  <TextBlock Grid.Column="1" Text="{Binding Status}" Classes="muted" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <Button x:Name="DiagnosticMore" Grid.Row="3" Content="加载下一页" Classes="action" Click="More" />
+        </Grid>
+      </Border>
+      <Border x:Name="DiagnosticReviewPane" Grid.Row="1" Classes="card" Padding="14" IsVisible="False">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="9">
+            <TextBlock Text="确认导出范围" Classes="label" FontSize="18" />
+            <TextBlock x:Name="DiagnosticScopeText" TextWrapping="Wrap" />
+            <TextBlock x:Name="DiagnosticCounts" Classes="label" TextWrapping="Wrap" />
+            <TextBlock x:Name="DiagnosticObservation" TextWrapping="Wrap" />
+            <TextBlock Text="文件包含服务地址的 origin、版本、设备状态和业务编号。校名、设备名称、搜索词、凭据、路径、日志、音频及照片均不会写入。分享前请检查。" Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+      <WrapPanel Grid.Row="2" HorizontalAlignment="Right" ItemSpacing="6" LineSpacing="4">
+        <Button x:Name="DiagnosticReturn" Classes="action" Content="返回" Click="Back" />
+        <Button x:Name="DiagnosticReview" Classes="action accent" Content="核对导出范围" Click="Review" />
+        <Button x:Name="DiagnosticSave" Classes="action accent" Content="选择位置并保存 JSON" Click="Save" IsVisible="False" />
+      </WrapPanel>
+    </Grid>
+  </Border>
+</Window>

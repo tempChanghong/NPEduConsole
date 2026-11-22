@@ -76,6 +76,7 @@ public sealed partial class MainWindow : Window
             if (_showSchoolOverview && room.TermId is { } termId) await OpenShellTargetAsync(room.Id, null, termId);
         };
         DeviceDirectory.RefreshRequested += async () => await SchoolOverviewWorkspace.RefreshAsync();
+        DeviceDirectory.DiagnosticsRequested += async (search, anchor) => await ShowDeviceDiagnosticsAsync(search, anchor);
         DeviceDirectory.ScreenRequested += async (snapshot, row) => await OpenDeviceDirectoryTargetAsync(snapshot, row);
         DeviceDirectory.DutyRequested += async (binding, room, anchor) =>
         {
@@ -208,6 +209,7 @@ public sealed partial class MainWindow : Window
             CloseScreenDuty();
             CloseScreenExam();
             CloseScreenFieldActions();
+            CloseDeviceRunReports();
             CloseCourseGroups();
             CloseSchoolStudy();
             CloseOrganizationImport();
@@ -599,6 +601,7 @@ public sealed partial class MainWindow : Window
         CloseScreenDuty();
         CloseScreenExam();
         CloseScreenFieldActions();
+        CloseDeviceRunReports();
         CloseCourseGroups();
         CloseSchoolStudy();
         CloseOrganizationImport();
@@ -653,6 +656,7 @@ public sealed partial class MainWindow : Window
         ResetEquipmentView();
         _classroom = room;
         OpenScreenFieldButton.IsEnabled = false;
+        OpenScreenReportsButton.IsEnabled = false;
         ScreenEvidenceCard.IsVisible = false;
         _device = null;
         _deviceButtons.Clear();

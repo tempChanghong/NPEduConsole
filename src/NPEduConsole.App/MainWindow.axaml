@@ -398,6 +398,7 @@
                   <Button x:Name="OpenScreenDutyButton" Classes="action" Content="管理网页账号与值守" Click="OpenScreenDutyClicked" />
                   <Button x:Name="OpenScreenExamButton" Classes="action" Content="考试与放映" Click="OpenScreenExamClicked" />
                   <Button x:Name="OpenScreenFieldButton" Classes="action" Content="现场处置" Click="OpenScreenFieldClicked" />
+                  <Button x:Name="OpenScreenReportsButton" Classes="action" Content="运行报告" Click="OpenScreenReportsClicked" />
                 </WrapPanel>
               </Grid>
             </Border>
