@@ -47,6 +47,7 @@ import {verifyScopedTermTeaching} from './scoped-term-teaching-fixture.mjs';
 import {verifyStaffReview} from './staff-review-fixture.mjs';
 import {verifyClassSubjectRules} from './class-subject-rules-fixture.mjs';
 import {verifyStudyDisplay} from './study-display-fixture.mjs';
+import {verifyDeviceFieldActions} from './device-field-actions-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
@@ -60,7 +61,8 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console',
   '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching',
-  '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db', '--study-display', '--study-display-db'].includes(mode)),
+  '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db', '--study-display', '--study-display-db',
+  '--device-field-actions', '--device-field-actions-db'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -89,7 +91,7 @@ const gradePlanDatabase = mode === '--grade-teaching-plan-db';
 const gradePlan = mode === '--grade-teaching-plan';
 const studyMonitoring = mode === '--study-monitoring';
 const managementAccounts = mode === '--management-accounts';
-const schoolStudy = mode === '--school-study' || mode === '--school-study-db' || mode === '--study-display' || studyMonitoring;
+const schoolStudy = ['--school-study', '--school-study-db', '--study-display', '--device-field-actions'].includes(mode) || studyMonitoring;
 const organizationImport = mode === '--organization-import' || mode === '--organization-import-db';
 const teacherAllocation = mode === '--teacher-allocation';
 const teacherAccounts = mode === '--teacher-accounts';
@@ -168,6 +170,7 @@ async function createDatabase() {
     mode === '--staff-review-db' ? 'npclassworks_test_staff_policy' :
     mode === '--class-rules-db' ? 'npclassworks_test_class_rules' :
     mode === '--study-display-db' ? 'npclassworks_test_study_display' :
+    mode === '--device-field-actions-db' ? 'npclassworks_test_device_field_actions' :
     mode === '--school-login-profile-db' ? 'npclassworks_test_school_profile' :
     mode === '--management-accounts-db' ? 'npclassworks_test_management' :
     mode === '--homework-settings-db' ? 'npclassworks_test_homework_settings' :
@@ -744,6 +747,31 @@ async function runFixture() {
     const native = join(kv, '..', 'NPEduTools', 'tests', 'NPEduTools.Onboarding.UiTests', 'NPEduTools.Onboarding.UiTests.csproj');
     return verifyStudyDisplay({prisma, origin, fixture, fromKv, directory, evidence, web: join(kv, '..', 'NPClassworks'),
       runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args)});
+  }
+  if (mode === '--device-field-actions' || mode === '--device-field-actions-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_FIELD_EVIDENCE || fileURLToPath(new URL('../.artifacts/device-field-actions', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    if (mode.endsWith('-db')) {
+      const report = 'device-field-postgres.log';
+      try {
+        run(process.execPath, ['--test', '--test-concurrency=1', 'tests/deviceFieldActions.integration.test.js', 'tests/npepStudyDeviceHttp.test.js'],
+          {...process.env, RUN_DATABASE_TESTS: 'true'}, report);
+      } finally { await copyFile(join(directory, report), join(evidence, report)); }
+      return;
+    }
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const native = join(kv, '..', 'NPEduTools', 'tests', 'NPEduTools.Npep.Acceptance', 'NPEduTools.Npep.Acceptance.csproj');
+    const runNative = (config, log) => new Promise((resolveRun, reject) => {
+      const output = openSync(log, 'w');
+      try {
+        const child = spawn('dotnet', ['run', '--project', native, '-c', 'Release', '--', '--device-field-actions-http', config, evidence],
+          {windowsHide: true, stdio: ['ignore', output, output]});
+        child.once('error', reject);
+        child.once('close', code => code === 0 ? resolveRun() : reject(new Error(`Native field Host acceptance failed (${code}); see ${log}`)));
+      } finally { closeSync(output); }
+    });
+    return verifyDeviceFieldActions({prisma, origin, fixture, fromKv, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(project, args), runNative});
   }
   if (mode === '--school-study-db') {
     const evidence = resolve(process.env.NP_CONSOLE_STUDY_EVIDENCE || fileURLToPath(new URL('../.artifacts/school-study', import.meta.url)));

@@ -1,0 +1,109 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.DeviceFieldActionConfirmation"
+             Focusable="False">
+    <UserControl.Styles>
+        <Style Selector="Border.confirm-card">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="14,12" />
+        </Style>
+        <Style Selector="TextBlock.confirm-title">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.confirm-label">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+        </Style>
+        <Style Selector="TextBlock.confirm-value">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Border.confirm-note">
+            <Setter Property="Background" Value="{DynamicResource ErrorTintBrush}" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,7" />
+        </Style>
+        <Style Selector="Border.confirm-note > TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <!-- 撤销是破坏性动作：底色用 ErrorTint、字与边线用 Error，深浅两套主题下都保持对比度
+             （WarningBrush 在深色主题是浅黄，白字不可读）。 -->
+        <Style Selector="Button.confirm-approve">
+            <Setter Property="Background" Value="{DynamicResource ErrorTintBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="Button.confirm-approve:pointerover /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+        <Style Selector="Button.confirm-approve:pressed">
+            <Setter Property="Background" Value="{DynamicResource ErrorBrush}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+        <Style Selector="Button.confirm-approve:focus /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Button.confirm-cancel">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="12,7" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+        <Style Selector="Button.confirm-cancel:focus /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+    </UserControl.Styles>
+
+    <!-- 常驻卡片而不是弹层：宿主把它放进可滚动的设备授权确认块里，
+         窄窗（840×480）靠自身换行读完，不需要额外的对话框生命周期。 -->
+    <Border x:Name="ConfirmCard" Classes="confirm-card" IsVisible="False">
+        <StackPanel Spacing="10">
+            <TextBlock x:Name="TitleText" Classes="confirm-title" Text="确认现场处置" />
+
+            <StackPanel Spacing="2">
+                <TextBlock Classes="confirm-label" Text="目标" />
+                <TextBlock x:Name="TargetText" Classes="confirm-value" Text="" />
+            </StackPanel>
+
+            <StackPanel Spacing="2">
+                <TextBlock Classes="confirm-label" Text="影响" />
+                <TextBlock x:Name="ImpactText" Classes="confirm-value" Text="" />
+            </StackPanel>
+
+            <Border Classes="confirm-note">
+                <TextBlock x:Name="NoteText"
+                           Text="只撤销这台设备在本班的原生授权；屏幕与班级不动，其他设备不受影响。" />
+            </Border>
+
+            <!-- 窄窗下两个按钮允许换行，撤销按钮不会被挤出可视区。 -->
+            <WrapPanel Orientation="Horizontal" ItemSpacing="8" LineSpacing="8">
+                <Button x:Name="DismissButton" Classes="confirm-cancel" Content="取消" Click="DismissClicked"
+                        AutomationProperties.Name="取消本次现场处置" />
+                <Button x:Name="ApproveButton" Classes="confirm-approve" Content="撤销这台原生设备授权"
+                        Click="ApproveClicked" AutomationProperties.Name="撤销这台原生设备授权"
+                        ToolTip.Tip="撤销后这台设备必须重新配对才能在本班继续使用" />
+            </WrapPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

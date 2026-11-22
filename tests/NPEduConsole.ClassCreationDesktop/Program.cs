@@ -48,6 +48,8 @@ internal static partial class Program
             return StartSchoolStudy(schoolStudyFixture, schoolStudyOutput);
         if (args is ["--live-study-display", var studyDisplayFixture, var studyDisplayOutput])
             return StartStudyDisplay(studyDisplayFixture, studyDisplayOutput);
+        if (args is ["--live-device-field-actions", var fieldFixture, var fieldOutput])
+            return StartDeviceFieldActions(fieldFixture, fieldOutput);
         if (args is ["--live-study-monitoring", var monitoringFixture, var monitoringOutput])
             return StartStudyMonitoring(monitoringFixture, monitoringOutput);
         if (args is ["--live-management-accounts", var managementFixture, var managementOutput])

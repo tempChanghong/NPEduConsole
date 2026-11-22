@@ -207,6 +207,7 @@ public sealed partial class MainWindow : Window
             CloseHomeworkSettings();
             CloseScreenDuty();
             CloseScreenExam();
+            CloseScreenFieldActions();
             CloseCourseGroups();
             CloseSchoolStudy();
             CloseOrganizationImport();
@@ -384,6 +385,16 @@ public sealed partial class MainWindow : Window
             if (_classroom is { } room && room.Screens.Contains(screen)) await ShowScreenExamAsync(room, screen.Id, exam);
         };
         screenActions.Children.Add(exam);
+        if (screen.Devices.Count > 0)
+        {
+            var action = new Button { Content = "现场处置", Classes = { "action", "class-screen-entry" } };
+            AutomationProperties.SetAutomationId(action, "ClassScreenField-" + screen.Id);
+            action.Click += async (_, _) =>
+            {
+                if (_classroom is { } room && room.Screens.Contains(screen)) await ShowScreenFieldAsync(room, screen, action);
+            };
+            screenActions.Children.Add(action);
+        }
         list.Children.Add(screenActions);
         if (screen.DeviceOverviewUnavailable)
         {
@@ -587,6 +598,7 @@ public sealed partial class MainWindow : Window
         CloseHomeworkSettings();
         CloseScreenDuty();
         CloseScreenExam();
+        CloseScreenFieldActions();
         CloseCourseGroups();
         CloseSchoolStudy();
         CloseOrganizationImport();
@@ -640,6 +652,7 @@ public sealed partial class MainWindow : Window
         CloseSoftwareMaintenance();
         ResetEquipmentView();
         _classroom = room;
+        OpenScreenFieldButton.IsEnabled = false;
         ScreenEvidenceCard.IsVisible = false;
         _device = null;
         _deviceButtons.Clear();

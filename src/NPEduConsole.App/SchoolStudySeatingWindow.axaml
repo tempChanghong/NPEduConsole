@@ -42,6 +42,7 @@
                     <TextBlock Text="{Binding Download}" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding Applied}" TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding Opened}" TextWrapping="Wrap"/>
+                    <Button Content="现场处置" Classes="action" IsVisible="{Binding CanOpenField}" Click="OpenFieldAction" />
                   </StackPanel>
                 </DataTemplate>
               </ListBox.ItemTemplate>

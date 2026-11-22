@@ -199,6 +199,7 @@ public sealed partial class MainWindow
 
     private void UpdateScreenEvidence()
     {
+        OpenScreenFieldButton.IsEnabled = false;
         if (_page != ShellPage.Screen || _detailScreenId is not { } id || _classroom is not { } room ||
             !_overviewScreenCards.ContainsKey(id))
         {
@@ -207,6 +208,7 @@ public sealed partial class MainWindow
         }
         var row = DeviceDirectory.FindEvidence(_school?.Id, room.TermId, room.Id, id);
         ScreenEvidenceCard.IsVisible = true;
+        OpenScreenFieldButton.IsEnabled = room.Screens.Any(screen => screen.Id == id && screen.Devices.Count > 0);
         ScreenNativeEvidence.Content = row?.Native ?? DeviceEvidence.Unknown;
         ScreenBrowserEvidence.Content = row?.Browser ?? DeviceEvidence.Unknown;
         ScreenEvidenceTime.Text = DeviceDirectory.EvidenceStatus(row is not null);

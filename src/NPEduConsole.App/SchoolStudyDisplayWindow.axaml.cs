@@ -8,7 +8,10 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed record StudyDisplayLine(string Title, string Detail);
+public sealed record StudyDisplayLine(string Title, string Detail, StudySeatingBinding? Registration = null)
+{
+    public bool CanOpenField => Registration?.DeviceId is not null;
+}
 
 public sealed partial class SchoolStudyDisplayWindow : Window
 {
@@ -35,6 +38,7 @@ public sealed partial class SchoolStudyDisplayWindow : Window
     private StudyDisplaySnapshot? _display;
     private SchoolStudyReview? _review;
     private SchoolStudyEdit? _edit;
+    private DeviceFieldActionWindow? _fieldAction;
     private bool _busy, _filling, _closed, _scopeLost, _closeConfirmed, _showPreview, _compact, _sampleSignal = true, _checkedMissing;
     private int? _savedRevision;
     private int _page;
@@ -91,6 +95,7 @@ public sealed partial class SchoolStudyDisplayWindow : Window
     internal void CloseForScopeChange()
     {
         _closeConfirmed = true;
+        _fieldAction?.Close();
         Close();
     }
 
@@ -243,6 +248,7 @@ public sealed partial class SchoolStudyDisplayWindow : Window
         DisplayClose.IsEnabled = !_busy;
         DisplayImpactPanel.IsVisible = _review is not null;
         DisplayRefreshScreens.IsEnabled = !_scopeLost && !_busy;
+        DisplayScreenRows.IsEnabled = DisplayRefreshScreens.IsEnabled;
         RenderSample();
     }
 

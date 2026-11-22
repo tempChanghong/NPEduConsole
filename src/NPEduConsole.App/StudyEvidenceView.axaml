@@ -8,6 +8,7 @@
                 SelectionChanged="DeviceChanged" HorizontalAlignment="Stretch" />
       <Button Grid.Column="1" x:Name="ReadReceiptButton" Classes="action" Content="刷新回执" Click="RefreshReceipt" />
     </Grid>
+    <Button x:Name="StudyEvidenceField" Classes="action" Content="现场处置" Click="OpenFieldAction" IsEnabled="False" />
     <TextBlock x:Name="ReceiptConfigVersion" Classes="muted" IsVisible="False" TextWrapping="Wrap" />
     <TextBlock x:Name="ReceiptStatus" TextWrapping="Wrap" />
     <TextBlock x:Name="ReceiptTime" Classes="muted" IsVisible="False" />

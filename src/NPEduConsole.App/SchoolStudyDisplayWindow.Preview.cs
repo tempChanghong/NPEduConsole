@@ -297,11 +297,31 @@ public sealed partial class SchoolStudyDisplayWindow
             var window = receipt.VisibleWindowAgeMs is { } visibleAge
                 ? $"近期观测到自习窗口可见 · 核对于 {DateTimeOffset.Now:M/d HH:mm:ss}，当时约 {Math.Ceiling(visibleAge / 1000)} 秒前"
                 : "窗口可见性待核对";
-            return new(binding.Name, school + application + "\n" + window);
+            return new(binding.Name, school + application + "\n" + window, binding);
         }
         catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
         {
-            return new(binding.Name, school + "暂未读取本屏当前回执，应用与窗口状态待核对。");
+            return new(binding.Name, school + "暂未读取本屏当前回执，应用与窗口状态待核对。", binding);
+        }
+    }
+
+    private async void OpenFieldAction(object? sender, RoutedEventArgs args)
+    {
+        if (_closed || _busy || _fieldAction is not null || sender is not Button { DataContext: StudyDisplayLine selected } anchor ||
+            selected.Registration is not { DeviceId: { } device } binding) return;
+        string classroom = _catalog.Classes.First(row => row.Id == _scope.ClassId).Name;
+        var window = new DeviceFieldActionWindow(_client, new(_scope.SchoolId, _scope.TermId, _scope.ClassId, binding.BindingId, device),
+            _school.Name, classroom, binding.Name, device);
+        _fieldAction = window;
+        try { await window.ShowDialog(this); }
+        finally { if (_fieldAction == window) _fieldAction = null; }
+        if (_closed) return;
+        if (window.Revoked) await RunAsync(ReadScreenEvidenceAsync);
+        if (!_closed)
+        {
+            var control = anchor.IsEffectivelyVisible ? anchor : DisplayRefreshScreens;
+            control.BringIntoView();
+            control.Focus();
         }
     }
 }

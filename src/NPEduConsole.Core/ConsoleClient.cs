@@ -340,6 +340,8 @@ public sealed partial class ConsoleClient : IDisposable
                     throw DesktopOAuthError(status, await AcademicErrorCodeAsync(response, ct));
                 if (version is "0.4" or "0.5" && IsExamPath(path))
                     throw await ExamErrorAsync(status, response, version, requestId, ct);
+                if (version == FieldVersion && path.Contains("/field-actions", StringComparison.Ordinal))
+                    throw await DeviceFieldErrorAsync(status, response, requestId, ct);
                 if (IsClassBatchPath(path))
                     throw await ClassBatchErrorAsync(response, ct);
                 if (path.Contains(TermStructureSegment, StringComparison.Ordinal) &&

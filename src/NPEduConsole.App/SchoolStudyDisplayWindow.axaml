@@ -85,6 +85,7 @@
                         <StackPanel Margin="0,4">
                           <TextBlock Text="{Binding Title}" Classes="label" TextWrapping="Wrap"/>
                           <TextBlock Text="{Binding Detail}" Classes="muted" TextWrapping="Wrap"/>
+                          <Button Content="现场处置" Classes="action" IsVisible="{Binding CanOpenField}" Click="OpenFieldAction" />
                         </StackPanel>
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>

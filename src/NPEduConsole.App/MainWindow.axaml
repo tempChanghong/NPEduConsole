@@ -397,6 +397,7 @@
                 <WrapPanel Grid.Row="2" Grid.ColumnSpan="2" ItemSpacing="7" LineSpacing="5">
                   <Button x:Name="OpenScreenDutyButton" Classes="action" Content="管理网页账号与值守" Click="OpenScreenDutyClicked" />
                   <Button x:Name="OpenScreenExamButton" Classes="action" Content="考试与放映" Click="OpenScreenExamClicked" />
+                  <Button x:Name="OpenScreenFieldButton" Classes="action" Content="现场处置" Click="OpenScreenFieldClicked" />
                 </WrapPanel>
               </Grid>
             </Border>

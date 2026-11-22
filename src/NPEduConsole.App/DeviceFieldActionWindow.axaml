@@ -1,0 +1,51 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App"
+        x:Class="NPEduConsole.App.DeviceFieldActionWindow" Title="现场处置" Width="960" Height="650"
+        MinWidth="640" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Border Background="{DynamicResource CanvasBrush}" Padding="16,12">
+  <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
+    <StackPanel Spacing="3">
+      <TextBlock Text="现场处置" FontSize="22" Classes="label" />
+      <TextBlock x:Name="FieldTargetName" Classes="label" TextWrapping="Wrap" />
+      <TextBlock x:Name="FieldDeviceName" Classes="muted" TextWrapping="Wrap" />
+      <TextBlock x:Name="FieldNotice" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="7">
+        <Grid x:Name="FieldColumns" ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="7">
+          <Border Classes="card" Padding="12,10" VerticalAlignment="Top">
+            <StackPanel Spacing="6">
+              <TextBlock Text="本场定时监测" Classes="label" FontSize="17" />
+              <TextBlock x:Name="FieldWindow" Classes="muted" TextWrapping="Wrap" />
+              <TextBlock x:Name="FieldResumeReason" TextWrapping="Wrap" />
+              <TextBlock Text="仅恢复这台设备当前定时场次。现场仍可按原有权限再次停止。" Classes="muted" TextWrapping="Wrap" />
+              <Button x:Name="FieldResume" Content="恢复本场定时监测" Classes="action accent" Click="ResumeClicked" HorizontalAlignment="Left" />
+              <TextBlock x:Name="FieldResumeReceipt" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+          </Border>
+          <Border x:Name="FieldAuthorization" Grid.Column="1" Classes="card" Padding="12,10" VerticalAlignment="Top">
+            <StackPanel Spacing="6">
+              <TextBlock Text="设备授权" Classes="label" FontSize="17" />
+              <TextBlock x:Name="FieldAuthorizationState" TextWrapping="Wrap" />
+              <TextBlock Text="撤销只影响这次原生配对。网页账号、PIN、网页登录及其他大屏继续使用。" Classes="muted" TextWrapping="Wrap" />
+              <Button x:Name="FieldRevoke" Content="撤销原生设备授权…" Classes="action" Click="RevokeClicked" HorizontalAlignment="Left" />
+              <local:DeviceFieldActionConfirmation x:Name="FieldConfirmation" />
+              <TextBlock x:Name="FieldRevokeReceipt" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+          </Border>
+        </Grid>
+        <Expander Header="设备和绑定编号" HorizontalAlignment="Left">
+          <TextBlock x:Name="FieldIdentifiers" TextWrapping="Wrap" />
+        </Expander>
+      </StackPanel>
+    </ScrollViewer>
+    <WrapPanel Grid.Row="2" ItemSpacing="6" LineSpacing="4" HorizontalAlignment="Right">
+      <Button x:Name="FieldReturn" Content="返回" Classes="action" Click="ReturnClicked" />
+      <Button x:Name="FieldRead" Content="刷新现场状态与回执" Classes="action" Click="ReadClicked" />
+      <Button x:Name="FieldVerify" Content="核对本人回执" Classes="action" Click="VerifyClicked" IsVisible="False" />
+      <Button x:Name="FieldRetry" Content="按原编号重试" Classes="action" Click="RetryClicked" IsVisible="False" />
+    </WrapPanel>
+  </Grid>
+  </Border>
+</Window>

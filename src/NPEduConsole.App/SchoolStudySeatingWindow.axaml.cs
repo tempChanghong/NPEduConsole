@@ -11,7 +11,11 @@ using SkiaSharp;
 
 namespace NPEduConsole.App;
 
-public sealed record StudySeatingDeviceView(string Name, string Binding, string Configuration, string Download, string Applied, string Opened);
+public sealed record StudySeatingDeviceView(string Name, string Binding, string Configuration, string Download, string Applied, string Opened,
+    StudySeatingBinding Registration)
+{
+    public bool CanOpenField => Registration.DeviceId is not null;
+}
 
 public sealed partial class SchoolStudySeatingWindow : Window
 {
@@ -27,6 +31,8 @@ public sealed partial class SchoolStudySeatingWindow : Window
     private readonly Dictionary<string, ConfigurationEvidence> _configuration = [];
     private readonly ConsoleClient _client = null!;
     private readonly StudyEvidenceScope _scope = null!;
+    private string _schoolName = "", _classroomName = "";
+    private DeviceFieldActionWindow? _fieldAction;
     private SchoolStudySeating? _snapshot;
     private StudySeatingEdit? _draft;
     private StudySeatingDeviceView[] _displayedDevices = [];
@@ -41,6 +47,8 @@ public sealed partial class SchoolStudySeatingWindow : Window
     {
         _client = client;
         _scope = scope;
+        _schoolName = school;
+        _classroomName = classroom;
         SeatTitle.Text = school + " · " + classroom + "座位图";
         _timer.Tick += (_, _) => { if (SeatTabs.SelectedIndex == 1) RenderDevices(); };
         Opened += async (_, _) =>
@@ -69,7 +77,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
         UpdateControls();
     }
 
-    internal void CloseForScopeChange() { _allowClose = true; Close(); }
+    internal void CloseForScopeChange() { _allowClose = true; _fieldAction?.Close(); Close(); }
     private Dictionary<StudyEvidenceScope, Operation> Operations => PendingSaves.GetOrCreateValue(_client);
     private Operation? Pending => Operations.GetValueOrDefault(_scope);
     private History? SelectedHistory => SeatVersions.SelectedItem as History;
@@ -352,11 +360,32 @@ public sealed partial class SchoolStudySeatingWindow : Window
                 ? $"最近打开 · {(receipt.Current ? "当前图" : "旧图")} v{receipt.Revision}{At(receipt.ReceivedAt)}"
                 : observation && receipt is {Visible: false} ? $"最近打开 · 上次观测未打开{At(receipt.ReceivedAt)}"
                 : $"最近打开 · 待核对{At(receipt?.ReceivedAt)}";
-            return new StudySeatingDeviceView(binding.Name, "绑定编号 " + binding.BindingId, configuration, download, applied, opened);
+            return new StudySeatingDeviceView(binding.Name, "绑定编号 " + binding.BindingId, configuration, download, applied, opened, binding);
         }).ToArray();
         if (_displayedDevices.SequenceEqual(rows)) return;
         _displayedDevices = rows;
         SeatDevices.ItemsSource = rows;
+    }
+
+    private async void OpenFieldAction(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || _fieldAction is not null || sender is not Button { DataContext: StudySeatingDeviceView selected } anchor ||
+            selected.Registration is not { DeviceId: { } device } registration) return;
+        var window = new DeviceFieldActionWindow(_client, new(_scope.SchoolId, _scope.TermId, _scope.ClassId, registration.BindingId, device),
+            _schoolName, _classroomName, registration.Name, device);
+        _fieldAction = window;
+        try { await window.ShowDialog(this); }
+        finally { if (_fieldAction == window) _fieldAction = null; }
+        if (_closed) return;
+        if (window.Revoked) await RunAsync(() => LoadAsync(preserve: true));
+        if (_closed) return;
+        if (anchor.IsEffectivelyVisible && anchor.IsEffectivelyEnabled && anchor.Focus()) anchor.BringIntoView();
+        else if (_displayedDevices.FirstOrDefault(row => row.Registration.BindingId == registration.BindingId) is { } row)
+        {
+            SeatDevices.SelectedItem = row;
+            SeatDevices.ScrollIntoView(row);
+            SeatDevices.Focus();
+        }
     }
 
     private static string PriorVersion(int? revision, DateTimeOffset? at) => revision is > 0 ? $" · 上次版本 {revision}{At(at)}" : At(at);
@@ -391,7 +420,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
         SeatUseCurrent.IsEnabled = editable && (SelectedHistory is not null || _draft is not null);
         SeatRestore.IsEnabled = editable && SelectedHistory?.Version.Restorable == true;
         SeatWithdraw.IsEnabled = editable && _snapshot?.Current.Hash is not null;
-        SeatRefresh.IsEnabled = SeatClose.IsEnabled = !_busy;
+        SeatRefresh.IsEnabled = SeatClose.IsEnabled = SeatDevices.IsEnabled = !_busy;
         SeatCheck.IsVisible = Pending is not null;
         SeatCheck.IsEnabled = !_busy;
         SeatSave.IsEnabled = !_busy && (Pending is not null ? _retry : editable && _draft is not null);

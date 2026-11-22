@@ -7,7 +7,7 @@ namespace NPEduConsole.App;
 
 public partial class StudyEvidenceView : UserControl
 {
-    private sealed record DeviceOption(Device Device, string Caption) { public override string ToString() => Caption; }
+    private sealed record DeviceOption(Device Device, string BindingId, string ScreenName, string Caption) { public override string ToString() => Caption; }
     private sealed record ReportOption(StudyReportGroup Report, string Caption) { public override string ToString() => Caption; }
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private ConsoleClient? _client;
@@ -15,6 +15,7 @@ public partial class StudyEvidenceView : UserControl
     private CancellationTokenSource? _deviceRead, _reportRead;
     private StudyEvidenceReceipt? _receipt;
     private StudyRecordsWindow? _records;
+    private DeviceFieldActionWindow? _fieldAction;
     private StudyReportGroup? _loadedReport;
     private string? _schoolName, _className;
     private DeviceOption[] _devices = [];
@@ -33,6 +34,7 @@ public partial class StudyEvidenceView : UserControl
     {
         Cancel(ref _deviceRead);
         Cancel(ref _reportRead);
+        _fieldAction?.Close();
         _clock.Stop();
         _receipt = null;
         _scope = null;
@@ -44,13 +46,14 @@ public partial class StudyEvidenceView : UserControl
         ReceiptTime.IsVisible = false;
         ReceiptConfigVersion.IsVisible = false;
         ReadReceiptButton.IsEnabled = false;
+        StudyEvidenceField.IsEnabled = false;
         ReadReportsButton.IsEnabled = false;
         ClearReports();
         _devices = [];
         IsVisible = client is not null && schoolId is not null && termId is not null && classroom is not null;
         if (client is null || schoolId is null || termId is null || classroom is null) return;
         _scope = new(schoolId, termId, classroom.Id);
-        var devices = classroom.Screens.SelectMany(s => s.Devices.Select(d => new DeviceOption(d, $"{s.Name} · {d.Name}"))).ToArray();
+        var devices = classroom.Screens.SelectMany(s => s.Devices.Select(d => new DeviceOption(d, s.Id, s.Name, $"{s.Name} · {d.Name}"))).ToArray();
         var duplicateNames = devices.GroupBy(item => item.Caption).Where(group => group.Count() > 1)
             .Select(group => group.Key).ToHashSet();
         _devices = devices.Select(item => duplicateNames.Contains(item.Caption)
@@ -70,7 +73,40 @@ public partial class StudyEvidenceView : UserControl
         previous?.Cancel();
     }
 
-    private async void DeviceChanged(object? sender, SelectionChangedEventArgs e) => await ReadReceipt();
+    private async void DeviceChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        _fieldAction?.Close();
+        StudyEvidenceField.IsEnabled = DevicePicker.SelectedItem is DeviceOption;
+        await ReadReceipt();
+    }
+
+    private async void OpenFieldAction(object? sender, RoutedEventArgs e)
+    {
+        if (_client is not { } client || _scope is not { } scope || _fieldAction is not null ||
+            DevicePicker.SelectedItem is not DeviceOption selected || TopLevel.GetTopLevel(this) is not Window owner) return;
+        var window = new DeviceFieldActionWindow(client, new(scope.SchoolId, scope.TermId, scope.ClassId, selected.BindingId, selected.Device.Id),
+            _schoolName ?? scope.SchoolId, _className ?? scope.ClassId, selected.ScreenName, selected.Device.Name);
+        _fieldAction = window;
+        try { await window.ShowDialog(owner); }
+        finally { if (_fieldAction == window) _fieldAction = null; }
+        if (_scope != scope || _client != client || !ReferenceEquals(DevicePicker.SelectedItem, selected) || !IsEffectivelyVisible) return;
+        if (!window.Revoked) { StudyEvidenceField.Focus(); return; }
+
+        int position = DevicePicker.SelectedIndex;
+        _devices = _devices.Where(option => option.Device.Id != selected.Device.Id || option.BindingId != selected.BindingId).ToArray();
+        DevicePicker.ItemsSource = _devices;
+        DevicePicker.IsEnabled = _devices.Length > 0;
+        if (_devices.Length > 0)
+        {
+            DevicePicker.SelectedIndex = Math.Min(position, _devices.Length - 1);
+            DevicePicker.Focus();
+        }
+        else
+        {
+            ReceiptStatus.Text = "原配对授权已撤销。本次读取的设备列表暂无其他已接入大屏。";
+            ReadReportsButton.Focus();
+        }
+    }
     private async void RefreshReceipt(object? sender, RoutedEventArgs e) => await ReadReceipt();
     private async Task ReadReceipt()
     {
