@@ -35,8 +35,8 @@ public sealed partial class DeviceRunReportDetail : UserControl
         ReportHeading.Text = report.SourceLabel + " · " + report.OutcomeLabel;
         // 颜色交给 AXAML 的 .warn 样式（DynamicResource），主题切换时自动跟随，不在代码里缓存画笔。
         ReportHeading.Classes.Set("warn", report.Outcome is "Interrupted" or "Faulted");
-        // 真实时刻加前缀，和下面「学校时段」的课表时钟在文字上分开，避免被读成同一套时间。
-        ReportWindow.Text = "真实时刻 " + Moment(report.StartedAt) + " → " + Moment(report.EndedAt);
+        string periodLabel = report.Timing?.ClockDiscontinuity == true ? "报告起止（结束按设备计时推算）" : "报告起止";
+        ReportWindow.Text = $"{periodLabel} {Moment(report.StartedAt)} → {Moment(report.EndedAt)}";
 
         SummarySampled.Text = Duration(report.Summary.SampledSeconds);
         SummaryElapsed.Text = Duration(report.Summary.ElapsedSeconds);
@@ -60,7 +60,7 @@ public sealed partial class DeviceRunReportDetail : UserControl
         Ownership.Text = report.Ownership is null
             ? "待核对"
             : "按入库时学校、学期和班级归属";
-        // 学校时段用的是课表时钟（可跨日期），与上面的真实时刻是两套时间，文字上必须点明。
+        // 学校时段沿用课表时钟，跨日时显示两侧日期。
         StudyWindow.Text = report.Study is { } study
             ? (study.Mode == "Exam" ? "考试" : "日常") + " · 学校时段（课表时钟） "
               + Calendar(study.Window.Start) + " → " + Calendar(study.Window.End)
@@ -187,7 +187,7 @@ public sealed partial class DeviceRunReportDetail : UserControl
         if (report.Outcome is "Interrupted" or "Faulted")
             hints.Add("这份报告是部分统计：结束前的时间可能没有采到样本。");
         if (report.Timing?.ClockDiscontinuity == true)
-            hints.Add("设备墙钟与监测计时存在差异，本页时间不能视为已核准的北京时间。");
+            hints.Add("设备墙钟与监测计时存在差异，报告起止时间仍待核对。");
         if (report.Summary.SampledSeconds <= 0)
             hints.Add("这段会话没有采集到有效样本。");
         else if (report.Summary.SampledSeconds * 2 < report.Summary.ElapsedSeconds)

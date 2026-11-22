@@ -191,12 +191,27 @@ internal static partial class Program
                     row.Report.SessionId == access.FrontReportId && row.Report.Estimate?.Status == "DEVICE_CHANGED" && row.Report.Timing?.ClockDiscontinuity == true),
                     "front sample fixture shows lost reference and clock discontinuity separately");
                 await Capture(frontReports, output, "11-front-invalidated-reference");
+                frontReports.Width = 840;
+                frontReports.Height = 480;
+                await Until(() => frontReports.ClientSize is { Width: <= 845, Height: <= 485 }, "narrow clock report");
+                var clockRows = Find<ListBox>(frontReports, "RunReportRows");
+                var clockRow = clockRows.Items.OfType<DeviceRunReportRow>().Single(row => row.Report.SessionId == access.FrontReportId);
+                clockRows.SelectedItem = clockRow;
+                Check(clockRow.Title.StartsWith("报告开始 ") && clockRow.Subtitle.Contains("设备时钟跳变"), "list identifies reported time and clock discontinuity");
+                await Capture(frontReports, output, "11a-narrow-clock-list");
+                await PressScoped(frontReports, "RunReportOpen");
+                var clockDetail = Find<DeviceRunReportDetail>(frontReports, "RunReportDetail");
+                Check(Read(clockDetail, "ReportWindow").StartsWith("报告起止（结束按设备计时推算）") &&
+                    Read(clockDetail, "ReportHints").Contains("报告起止时间仍待核对") &&
+                    Read(clockDetail, "ReportTrace").Contains("服务器收到于") && Read(clockDetail, "ReportTrace").Contains("设备墙钟观测结束"),
+                    "reported interval, server receipt and device wall clock are named separately");
+                await Capture(frontReports, output, "11b-narrow-clock-detail");
                 await Signal("report-revoke");
                 if (Ready(frontReports, "RunReportRefresh")) await PressScoped(frontReports, "RunReportRefresh");
                 await Until(() => Read(frontReports, "RunReportTarget").Contains("报告访问已失效") &&
                     Find<ListBox>(frontReports, "RunReportRows").Items.Count == 0 && Find<DeviceRunReportDetail>(frontReports, "RunReportDetail").Report is null,
                     "revocation clears the report contents and current device information");
-                await Capture(frontReports, output, "11b-report-access-revoked");
+                await Capture(frontReports, output, "11c-report-access-revoked");
                 await Signal("report-restored");
                 frontReports.Close();
                 await PressScoped(main, "OpenDeviceDirectoryButton");

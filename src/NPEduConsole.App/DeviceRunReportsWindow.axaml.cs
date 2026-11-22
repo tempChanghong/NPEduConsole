@@ -10,8 +10,9 @@ namespace NPEduConsole.App;
 
 public sealed record DeviceRunReportRow(DeviceRunReport Report)
 {
-    public string Title => $"{Report.StartedAt.ToOffset(TimeSpan.FromHours(8)):MM-dd HH:mm:ss} · {Report.SourceLabel}";
-    public string Subtitle => $"{Report.OutcomeLabel} · 有效采样 {Report.Summary.SampledSeconds:0.#} 秒";
+    public string Title => $"报告开始 {Report.StartedAt.ToOffset(TimeSpan.FromHours(8)):MM-dd HH:mm:ss} · {Report.SourceLabel}";
+    public string Subtitle => $"{Report.OutcomeLabel} · 有效采样 {Report.Summary.SampledSeconds:0.#} 秒" +
+        (Report.Timing?.ClockDiscontinuity == true ? " · 设备时钟跳变" : "");
 }
 
 public sealed partial class DeviceRunReportsWindow : Window
