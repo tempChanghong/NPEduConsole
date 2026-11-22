@@ -21,6 +21,17 @@ public sealed record StudyEvidenceReceipt(StudyReceiptConfig Current, StudyObser
     internal long RequestStarted { get; init; } = Stopwatch.GetTimestamp();
     public bool ObservationFresh => Fresh && ObservationAgeMs is >= 0 &&
         ObservationAgeMs + Stopwatch.GetElapsedTime(RequestStarted).TotalMilliseconds < 15000;
+    public double? VisibleWindowAgeMs
+    {
+        get
+        {
+            var elapsed = Stopwatch.GetElapsedTime(RequestStarted).TotalMilliseconds;
+            return ObservationFresh && ConfigurationApplied && Observation?.Version == Current.Version &&
+                PresentationVerified && PresentationFresh && PresentationVersion == Current.Version &&
+                Presentation?.State == "Visible" && PresentationRemainingMs > elapsed &&
+                PresentationAgeMs is >= 0 and var age && age + elapsed < 5000 ? age + elapsed : null;
+        }
+    }
 
     public string Describe()
     {

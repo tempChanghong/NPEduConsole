@@ -67,27 +67,46 @@ public sealed partial class ConsoleClient
         return new(school, term, type, id, original?.Revision ?? 0, policy);
     }
 
-    public async Task<SchoolStudyReview> PreviewSchoolStudyAsync(SchoolStudyEdit edit, DateOnly date, CancellationToken ct)
+    public async Task<SchoolStudyReview> PreviewSchoolStudyAsync(SchoolStudyEdit edit, DateOnly date, CancellationToken ct,
+        string? displayClassId = null)
     {
         var session = CurrentSession;
         Guid requestId = Guid.NewGuid();
-        var body = new {requestId, edit.TermId, edit.TargetType, edit.TargetId, expectedRevision = edit.Revision, edit.Policy, previewDate = date};
+        var body = StudyChangeBody(edit, requestId);
+        body["previewDate"] = date;
+        if (edit.DisplayOnly && displayClassId is not null) body["displayClassId"] = displayClassId;
         var result = ReadData<SchoolStudyReview>(await SendAsync(HttpMethod.Post, StudyAdminPath(edit.SchoolId) + "/preview",
             session.Token, ct, "0.10", body, requestId));
         CheckCreationSession(session, ct);
         VerifySchoolStudyReview(result, edit, date);
+        if (displayClassId is not null)
+            VerifyStudyDisplay(result.Display, new(edit.SchoolId, edit.TermId, displayClassId), date);
         return result;
     }
 
     public async Task<int> SaveSchoolStudyAsync(SchoolStudyEdit edit, SchoolStudyReview preview, Guid requestId, CancellationToken ct)
     {
         var session = CurrentSession;
-        var body = new {requestId, edit.TermId, edit.TargetType, edit.TargetId, expectedRevision = edit.Revision, edit.Policy,
-            expectedPreviewFingerprint = preview.PreviewFingerprint};
+        var body = StudyChangeBody(edit, requestId);
+        body["expectedPreviewFingerprint"] = preview.PreviewFingerprint;
         var result = ReadData<SchoolStudyReview>(await SendAsync(HttpMethod.Post, StudyAdminPath(edit.SchoolId),
             session.Token, ct, "0.10", body, requestId));
         CheckCreationSession(session, ct);
         return VerifySchoolStudyReceipt(result, edit, preview);
+    }
+
+    private static Dictionary<string, object> StudyChangeBody(SchoolStudyEdit edit, Guid requestId)
+    {
+        var body = new Dictionary<string, object>
+        {
+            ["requestId"] = requestId, ["termId"] = edit.TermId, ["targetType"] = edit.TargetType, ["targetId"] = edit.TargetId,
+            ["expectedRevision"] = edit.Revision, ["policy"] = edit.Policy,
+        };
+        if (edit.DisplayOnly)
+            body["displayEdit"] = edit.InheritedGrade is { } grade
+                ? new {makeIndependent = true, expectedGradeId = grade.TargetId, expectedGradeRevision = grade.Revision}
+                : new {makeIndependent = false};
+        return body;
     }
 
     public async Task<int?> ReadSchoolStudySaveAsync(SchoolStudyEdit edit, SchoolStudyReview preview, Guid requestId, CancellationToken ct)

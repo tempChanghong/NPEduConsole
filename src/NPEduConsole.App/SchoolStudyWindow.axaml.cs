@@ -58,6 +58,7 @@ public sealed partial class SchoolStudyWindow : Window
     internal void CloseForScopeChange()
     {
         if (_child is SchoolStudyEditWindow editor) editor.CloseForScopeChange();
+        else if (_child is SchoolStudyDisplayWindow display) display.CloseForScopeChange();
         else if (_child is SchoolStudySeatingWindow seating) seating.CloseForScopeChange();
         else _child?.Close();
         Close();
@@ -161,7 +162,7 @@ public sealed partial class SchoolStudyWindow : Window
         bool hasRoom = !_busy && Room is not null;
         SchoolStudyEditGrade.IsEnabled = !_busy && _catalog?.TermId is not null && _gradeId is not null && _calendar is not null;
         StudyRoomOpenButton.IsEnabled = StudyEditClassButton.IsEnabled = StudySeatingButton.IsEnabled = StudyReportsButton.IsEnabled = hasRoom;
-        StudyClassMonitoring.IsEnabled = StudyClassRecords.IsEnabled = hasRoom;
+        StudyClassMonitoring.IsEnabled = StudyClassDisplay.IsEnabled = StudyClassRecords.IsEnabled = hasRoom;
         SchoolStudyRefresh.IsEnabled = !_busy;
     }
 
@@ -227,6 +228,18 @@ public sealed partial class SchoolStudyWindow : Window
     {
         if (Room is { } row && SchoolStudyGrade.SelectedItem is StudyTargetLabel grade)
             await OpenEditor("CLASS", row.Room.ClassId, row.Name, StudyClassMonitoring, true, grade);
+    }
+
+    private async void OpenClassDisplay(object? sender, RoutedEventArgs args)
+    {
+        if (_child is not null || _busy || Room is not { } row || _catalog?.TermId is not { } term) return;
+        var window = new SchoolStudyDisplayWindow(_client, _school, _catalog, row.Room.ClassId, _date, row.Room.LegacyNoise);
+        await OpenChild(window);
+        if (_closed) return;
+        if (window.Published) await LoadAsync(readCatalog: true);
+        if (window.OpenSchedule && !_closed && _catalog?.TermId == term && Room?.Room.ClassId == row.Room.ClassId)
+            await OpenEditor("CLASS", row.Room.ClassId, row.Name, StudyClassDisplay);
+        if (!_closed) StudyClassDisplay.Focus();
     }
 
     private async Task OpenEditor(string type, string id, string name, Control returnTo, bool monitoring = false,

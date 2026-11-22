@@ -1,0 +1,117 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App"
+        x:Class="NPEduConsole.App.SchoolStudyDisplayWindow"
+        Title="展示与当天作业" Width="1160" Height="780" MinWidth="640" MinHeight="440"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource CanvasBrush}">
+  <Border Background="{DynamicResource CanvasBrush}" Padding="16,10">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="7">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <StackPanel Spacing="3">
+          <TextBlock Text="展示与当天作业" Classes="label" FontSize="22"/>
+          <TextBlock x:Name="DisplayHeading" TextWrapping="Wrap" Classes="muted"/>
+        </StackPanel>
+        <ComboBox x:Name="DisplayScopeChoice" Grid.Column="1" SelectionChanged="ScopeChanged"
+                  AutomationProperties.Name="展示设置作用范围" MaxWidth="260"/>
+      </Grid>
+      <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="6">
+        <Button x:Name="ShowDisplaySettings" Content="设置" Classes="action" Click="ShowSettings" IsVisible="False"/>
+        <Button x:Name="ShowDisplayPreview" Grid.Column="1" Content="学生页预览" Classes="action" Click="ShowPreview" IsVisible="False"/>
+        <TextBlock x:Name="DisplayNotice" Grid.Column="2" Classes="muted" TextWrapping="Wrap"
+                   VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
+      </Grid>
+      <Grid x:Name="DisplayColumns" Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="8">
+        <Border x:Name="DisplaySettingsPane" Classes="card" Padding="10">
+          <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="7">
+              <TextBlock x:Name="DisplayInheritance" Classes="muted" TextWrapping="Wrap"/>
+              <Button x:Name="DisplayOpenSchedule" Content="去配置学校自习" Classes="action" HorizontalAlignment="Left"
+                      Click="OpenScheduleClicked" IsVisible="False"/>
+              <StackPanel x:Name="DisplayFields" Spacing="7">
+                <TextBlock Text="学生页的噪音呈现" Classes="label"/>
+                <ComboBox x:Name="DisplayNoiseStyle" HorizontalAlignment="Stretch" SelectionChanged="FieldSelectionChanged"
+                          AutomationProperties.Name="噪音呈现方式"/>
+                <TextBlock Text="单位由教室校准和实际信号确定。此处只改呈现方式。" Classes="muted" TextWrapping="Wrap"/>
+                <CheckBox x:Name="DisplayHomeworkEnabled" Content="显示当天作业" IsCheckedChanged="FieldToggled"/>
+                <ComboBox x:Name="DisplaySourceMode" HorizontalAlignment="Stretch" SelectionChanged="FieldSelectionChanged"
+                          AutomationProperties.Name="当天作业来源方式"/>
+                <Border x:Name="DisplaySourcePane" Classes="card" Padding="7" IsVisible="False">
+                  <ContentControl x:Name="DisplaySourceControl" HorizontalContentAlignment="Stretch"/>
+                </Border>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBlock Text="轮播间隔 · 每页秒数" Classes="label" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                  <TextBox x:Name="DisplayRotation" Grid.Column="1" Width="86" MaxLength="3" TextChanged="FieldChanged"
+                           AutomationProperties.Name="轮播间隔秒数"/>
+                </Grid>
+              </StackPanel>
+              <Expander x:Name="DisplayImpactPanel" Header="逐班影响" IsVisible="False">
+                <ItemsControl x:Name="DisplayImpacts">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:StudyDisplayLine">
+                      <StackPanel Margin="0,4">
+                        <TextBlock Text="{Binding Title}" Classes="label" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Detail}" Classes="muted" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </Expander>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+        <Border x:Name="DisplayPreviewPane" Grid.Column="1" Classes="card" Padding="10">
+          <ScrollViewer x:Name="DisplayPreviewScroll" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="7">
+              <TextBlock Text="学生页预览" Classes="label" FontSize="18"/>
+              <TextBlock x:Name="DisplayPreviewContext" Classes="muted" TextWrapping="Wrap"/>
+              <Border Classes="card" Padding="8">
+                <StackPanel Spacing="4">
+                  <TextBlock x:Name="DisplayNoiseSample" Classes="label" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="DisplaySampleTrend" Text="▂ ▃ ▅ ▃ ▂ ▅ ▆ ▄ ▃ ▂" Classes="muted" IsVisible="False"/>
+                  <Button x:Name="DisplayToggleSignal" Content="试看无信号" Classes="action" HorizontalAlignment="Left" Click="ToggleSignal"/>
+                </StackPanel>
+              </Border>
+              <TextBlock x:Name="DisplayHomeworkState" Classes="muted" TextWrapping="Wrap"/>
+              <Expander x:Name="DisplayExpandedSources" Header="实际覆盖的班级与走班" IsVisible="False">
+                <TextBlock x:Name="DisplaySourceLabels" TextWrapping="Wrap"/>
+              </Expander>
+              <Expander x:Name="DisplayDevicePanel" Header="逐屏核对" HorizontalAlignment="Stretch">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="窗口观测只确认自习页的总体可见状态。" Classes="muted" TextWrapping="Wrap"/>
+                  <Button x:Name="DisplayRefreshScreens" Content="核对本班大屏" Classes="action" Click="RefreshScreens" HorizontalAlignment="Left"/>
+                  <ItemsControl x:Name="DisplayScreenRows">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate x:DataType="local:StudyDisplayLine">
+                        <StackPanel Margin="0,4">
+                          <TextBlock Text="{Binding Title}" Classes="label" TextWrapping="Wrap"/>
+                          <TextBlock Text="{Binding Detail}" Classes="muted" TextWrapping="Wrap"/>
+                        </StackPanel>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Expander>
+              <Grid x:Name="DisplayPaging" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="6" IsVisible="False">
+                <Button x:Name="DisplayPrevious" Content="上一页" Classes="action" Click="PreviousPage"/>
+                <TextBlock x:Name="DisplayPageNumber" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                <Button x:Name="DisplayNext" Grid.Column="2" Content="下一页" Classes="action" Click="NextPage"/>
+              </Grid>
+              <TextBlock x:Name="DisplayAssignmentTitle" Classes="label" TextWrapping="Wrap"/>
+              <TextBlock x:Name="DisplayAssignmentSources" Classes="muted" TextWrapping="Wrap"/>
+              <TextBlock x:Name="DisplayAssignmentText" TextWrapping="Wrap"/>
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Grid>
+      <WrapPanel Grid.Row="3" HorizontalAlignment="Right" ItemSpacing="6">
+        <Button x:Name="DisplayClose" Content="返回" Classes="action" Click="BackClicked"/>
+        <Button x:Name="DisplayReload" Content="重新读取" Classes="action" Click="ReloadClicked"/>
+        <Button x:Name="DisplayDiscard" Content="放弃草稿" Classes="action" Click="DiscardDraft" IsVisible="False"/>
+        <Button x:Name="DisplayCheckReceipt" Content="核对本人回执" Classes="action" Click="CheckReceipt" IsVisible="False"/>
+        <Button x:Name="DisplayRetry" Content="按原编号重试" Classes="action" Click="Retry" IsVisible="False"/>
+        <Button x:Name="DisplayPlan" Content="预览调整" Classes="action accent" Click="PlanClicked"/>
+        <Button x:Name="DisplaySave" Content="确认保存" Classes="action accent" Click="SaveClicked" IsVisible="False"/>
+      </WrapPanel>
+    </Grid>
+  </Border>
+</Window>

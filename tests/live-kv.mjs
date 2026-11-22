@@ -46,6 +46,7 @@ import {verifyScopedTermClasses} from './scoped-term-classes-fixture.mjs';
 import {verifyScopedTermTeaching} from './scoped-term-teaching-fixture.mjs';
 import {verifyStaffReview} from './staff-review-fixture.mjs';
 import {verifyClassSubjectRules} from './class-subject-rules-fixture.mjs';
+import {verifyStudyDisplay} from './study-display-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
@@ -59,7 +60,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console',
   '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching',
-  '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db'].includes(mode)),
+  '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db', '--study-display', '--study-display-db'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -88,7 +89,7 @@ const gradePlanDatabase = mode === '--grade-teaching-plan-db';
 const gradePlan = mode === '--grade-teaching-plan';
 const studyMonitoring = mode === '--study-monitoring';
 const managementAccounts = mode === '--management-accounts';
-const schoolStudy = mode === '--school-study' || mode === '--school-study-db' || studyMonitoring;
+const schoolStudy = mode === '--school-study' || mode === '--school-study-db' || mode === '--study-display' || studyMonitoring;
 const organizationImport = mode === '--organization-import' || mode === '--organization-import-db';
 const teacherAllocation = mode === '--teacher-allocation';
 const teacherAccounts = mode === '--teacher-accounts';
@@ -166,6 +167,7 @@ async function createDatabase() {
     ['--staff-workspace-default-db', '--scoped-term-teaching-db'].includes(mode) ? 'npclassworks_test_scoped_term_teaching' :
     mode === '--staff-review-db' ? 'npclassworks_test_staff_policy' :
     mode === '--class-rules-db' ? 'npclassworks_test_class_rules' :
+    mode === '--study-display-db' ? 'npclassworks_test_study_display' :
     mode === '--school-login-profile-db' ? 'npclassworks_test_school_profile' :
     mode === '--management-accounts-db' ? 'npclassworks_test_management' :
     mode === '--homework-settings-db' ? 'npclassworks_test_homework_settings' :
@@ -724,6 +726,24 @@ async function runFixture() {
     const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
     return verifyOrganizationImport({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
       runDesktop: args => runDesktop(desktop, args), runNative: args => runDesktop(native, args)});
+  }
+  if (mode === '--study-display' || mode === '--study-display-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_STUDY_DISPLAY_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/study-display', import.meta.url)));
+    if (mode === '--study-display-db') {
+      await mkdir(evidence, {recursive: true});
+      const report = 'study-display-postgres.log';
+      try {
+        run(process.execPath, ['--test', '--test-concurrency=1', 'tests/studyDisplayHomework.integration.test.js',
+          'tests/npepStudyHomework.test.js', 'tests/npepStudySettingsHttp.test.js', 'tests/npepStudySettings.test.js'],
+        {...process.env, RUN_DATABASE_TESTS: 'true'}, report);
+      } finally { await copyFile(join(directory, report), join(evidence, report)); }
+      return;
+    }
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const native = join(kv, '..', 'NPEduTools', 'tests', 'NPEduTools.Onboarding.UiTests', 'NPEduTools.Onboarding.UiTests.csproj');
+    return verifyStudyDisplay({prisma, origin, fixture, fromKv, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args)});
   }
   if (mode === '--school-study-db') {
     const evidence = resolve(process.env.NP_CONSOLE_STUDY_EVIDENCE || fileURLToPath(new URL('../.artifacts/school-study', import.meta.url)));

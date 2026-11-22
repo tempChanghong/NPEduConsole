@@ -446,6 +446,8 @@ public sealed partial class ConsoleClient : IDisposable
         "INVALID_IMAGE" or "IMAGE_DIMENSIONS" or "PAYLOAD_TOO_LARGE" => "服务器未接受该图片，请缩小后重新选择。",
         "STUDY_PREVIEW_CHANGED" or "STUDY_SETTING_VERSION_CONFLICT" => "安排或受影响的班级已变化。本次未保存，请重新核对预览。",
         "STUDY_SETTING_UPGRADE_REQUIRED" => "原策略含当前编辑器无法保留的设置，请用新版核对。",
+        "STUDY_DISPLAY_REQUIRES_POLICY" => "该范围没有有效的学校自习策略，请先办理自习安排。",
+        "STUDY_DISPLAY_INHERITANCE_CHANGED" or "STUDY_DISPLAY_BASE_CHANGED" => "继承来源或原策略已变化。本次未保存，请重新读取和核对。",
         "STUDY_SOURCE_UNAVAILABLE" => "现有策略引用的作业来源已不可用，请先核对原配置。",
         "TERM_NOT_ACTIVE" or "BINDING_CHANGED" => "学期或班级已变化，请重新读取当前范围。",
         "STUDY_REQUEST_NOT_FOUND" or "SEATING_REQUEST_NOT_FOUND" => "服务器暂未找到该次操作的回执。",

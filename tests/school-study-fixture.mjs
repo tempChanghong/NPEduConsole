@@ -256,7 +256,7 @@ export async function prepareLegacyStudyWeb({web, directory, evidence, origin, t
         throw error;
       } finally { await browser.close(); }
     };
-    return {close, edit: () => withPage(async page => {
+    return {close, withPage, edit: () => withPage(async page => {
         const pane = page.locator('.study-settings');
         await pane.getByRole('heading', {name: '学校自习设置'}).waitFor();
         async function select(label, name) {

@@ -1,0 +1,99 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App"
+             x:Class="NPEduConsole.App.StudyDisplaySourcesView"
+             Focusable="False">
+    <UserControl.Styles>
+        <Style Selector="Border.source-row">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style Selector="ListBox#StudySourceListBox > ListBoxItem:selected Border.source-row">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="TextBlock.source-name">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.source-meta">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Border.source-count">
+            <Setter Property="Background" Value="{DynamicResource AccentTintBrush}" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Padding" Value="7,1" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.source-count > TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+        </Style>
+        <Style Selector="ListBox#StudySourceListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="ListBox#StudySourceListBox > ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+        </Style>
+        <Style Selector="ListBox#StudySourceListBox > ListBoxItem:focus /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+        <TextBox x:Name="SourceSearchBox" PlaceholderText="搜索班级名称、代码或年级"
+                 TextChanged="SearchTextChanged" AutomationProperties.Name="搜索自习展示的来源班级" />
+
+        <WrapPanel Grid.Row="1" Orientation="Horizontal" ItemSpacing="6" LineSpacing="6">
+            <Button Content="全选当前筛选" Click="SelectAllClicked"
+                    AutomationProperties.Name="全选当前筛选出的班级" />
+            <Button Content="清空" Click="ClearClicked"
+                    AutomationProperties.Name="清空已选班级" />
+            <Border Classes="source-count">
+                <TextBlock x:Name="SourceCount" Text="已选 0 个" />
+            </Border>
+            <TextBlock x:Name="SourceSummary" Classes="source-meta" VerticalAlignment="Center"
+                       Text="空格切换选中，Shift+空格或 Shift+单击连续选择。" />
+        </WrapPanel>
+
+        <Grid Grid.Row="2" RowDefinitions="*">
+            <TextBlock x:Name="SourceEmpty" Classes="source-meta" IsVisible="False"
+                       Text="没有匹配的班级。" TextWrapping="Wrap" Margin="2,6,2,0" />
+
+            <ListBox x:Name="StudySourceListBox" SelectionMode="Single"
+                     KeyDown="RowsKeyDown"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     AutomationProperties.Name="自习展示来源班级">
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="local:StudyDisplaySourceRow">
+                        <Border Classes="source-row" AutomationProperties.Name="{Binding AutomationName}">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                                <CheckBox IsChecked="{Binding Selected, Mode=TwoWay}" Focusable="False"
+                                          VerticalAlignment="Center"
+                                          AutomationProperties.Name="{Binding AutomationName}" />
+                                <StackPanel Grid.Column="1" Spacing="2">
+                                    <TextBlock Text="{Binding Name}" Classes="source-name" />
+                                    <TextBlock Text="{Binding Meta}" Classes="source-meta" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -6,7 +6,7 @@ public sealed record StudyTargetLabel(string Id, string Name)
 {
     public override string ToString() => Name;
 }
-public sealed record SchoolStudyRoom(string Id, string Name, string? GradeId);
+public sealed record SchoolStudyRoom(string Id, string Name, string? GradeId, string? Code = null);
 public sealed record SchoolStudyPolicy(string TargetType, string TargetId, int Revision, JsonElement Policy)
 {
     public string Mode => Policy.GetProperty("mode").GetString()!;
@@ -41,8 +41,10 @@ public sealed record StudyImpactRow(string ClassId, string Name, int PairedDevic
     StudyWindow[] CalendarWindows, StudyWindow[] CalendarExamWindows,
     StudyWindow[] BeforeWindows, StudyWindow[] BeforeExamWindows);
 public sealed record SchoolStudyReview(string TermId, string TargetType, string TargetId, int BaseRevision, JsonElement Policy,
-    int TotalClasses, int ChangedClasses, StudyImpactRow[] Items, string PreviewFingerprint, DateOnly? PreviewDate, int? Revision = null);
-public sealed record SchoolStudyEdit(string SchoolId, string TermId, string TargetType, string TargetId, int Revision, JsonElement Policy);
+    int TotalClasses, int ChangedClasses, StudyImpactRow[] Items, string PreviewFingerprint, DateOnly? PreviewDate, int? Revision = null,
+    StudyDisplaySnapshot? Display = null);
+public sealed record SchoolStudyEdit(string SchoolId, string TermId, string TargetType, string TargetId, int Revision, JsonElement Policy,
+    bool DisplayOnly = false, SchoolStudyPolicy? InheritedGrade = null);
 public sealed record StudySeatingVersion(int Revision, string? Hash, int? Width, int? Height, DateTimeOffset? CreatedAt, bool Restorable,
     string Source, string? DeviceId);
 public sealed record StudySeatingBinding(string BindingId, string Name, string? DeviceId);
