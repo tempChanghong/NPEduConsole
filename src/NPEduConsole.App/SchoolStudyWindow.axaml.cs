@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml.MarkupExtensions;
 using Avalonia.Threading;
 using NPEduConsole.Core;
 
@@ -160,6 +161,7 @@ public sealed partial class SchoolStudyWindow : Window
         bool hasRoom = !_busy && Room is not null;
         SchoolStudyEditGrade.IsEnabled = !_busy && _catalog?.TermId is not null && _gradeId is not null && _calendar is not null;
         StudyRoomOpenButton.IsEnabled = StudyEditClassButton.IsEnabled = StudySeatingButton.IsEnabled = StudyReportsButton.IsEnabled = hasRoom;
+        StudyClassMonitoring.IsEnabled = StudyClassRecords.IsEnabled = hasRoom;
         SchoolStudyRefresh.IsEnabled = !_busy;
     }
 
@@ -221,12 +223,24 @@ public sealed partial class SchoolStudyWindow : Window
         if (Room is { } row) await OpenEditor("CLASS", row.Room.ClassId, row.Name, StudyEditClassButton);
     }
 
-    private async Task OpenEditor(string type, string id, string name, Control returnTo)
+    private async void EditClassMonitoring(object? sender, RoutedEventArgs args)
+    {
+        if (Room is { } row && SchoolStudyGrade.SelectedItem is StudyTargetLabel grade)
+            await OpenEditor("CLASS", row.Room.ClassId, row.Name, StudyClassMonitoring, true, grade);
+    }
+
+    private async Task OpenEditor(string type, string id, string name, Control returnTo, bool monitoring = false,
+        StudyTargetLabel? grade = null)
     {
         if (_child is not null || _busy || _catalog is not { } catalog) return;
-        var editor = new SchoolStudyEditWindow(_client, _school, catalog, type, id, name, _date);
+        var editor = new SchoolStudyEditWindow(_client, _school, catalog, type, id, name, _date, monitoring, grade is not null);
         await OpenChild(editor);
         if (_closed) return;
+        if (editor.OpenGradeMonitoring && grade is not null)
+        {
+            await OpenEditor("GRADE", grade.Id, grade.Name, returnTo, true);
+            return;
+        }
         if (editor.Published) await LoadAsync(readCatalog: true);
         if (!_closed) returnTo.Focus();
     }
@@ -246,8 +260,10 @@ public sealed partial class SchoolStudyWindow : Window
         var view = new StudyEvidenceView();
         var title = new TextBlock { Text = $"{_school.Name} · {row.Name} · {_date:yyyy/M/d}", FontSize = 20 };
         var content = new StackPanel { Spacing = 12, Margin = new(15), Children = { title, view } };
+        var viewport = new ScrollViewer { Content = content };
+        viewport[!ScrollViewer.BackgroundProperty] = new DynamicResourceExtension("CanvasBrush");
         var window = new Window { Title = "本日场次与回执", Width = 820, Height = 620, MinHeight = 440, MinWidth = 650,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = new ScrollViewer { Content = content } };
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Content = viewport };
         var date = _date;
         window.Closed += (_, _) => view.SetScope(null, null, null, null);
         window.Opened += async (_, _) =>
@@ -262,10 +278,29 @@ public sealed partial class SchoolStudyWindow : Window
             }
             catch (ConsoleApiException error) { if (window.IsVisible) title.Text += "\n设备列表待核对 · " + error.Message; }
             catch (OperationCanceledException) { return; }
-            if (window.IsVisible) view.SetScope(_client, _school.Id, term, room, date);
+            if (window.IsVisible) view.SetScope(_client, _school.Id, term, room, date, _school.Name);
         };
         await OpenChild(window);
         if (!_closed) StudyReportsButton.Focus();
+    }
+
+    private async void OpenClassRecords(object? sender, RoutedEventArgs args)
+    {
+        if (_child is not null || _busy || Room is not { } row || _catalog?.TermId is not { } term) return;
+        var scope = new StudyEvidenceScope(_school.Id, term, row.Room.ClassId);
+        var date = _date;
+        IReadOnlyDictionary<string, string>? devices = null;
+        try
+        {
+            var seating = await _client.ReadSchoolSeatingAsync(scope, _lifetime.Token);
+            devices = seating.Bindings.Where(binding => binding.DeviceId is not null).GroupBy(binding => binding.DeviceId!)
+                .ToDictionary(group => group.Key, group => group.First().Name);
+        }
+        catch (ConsoleApiException) { }
+        catch (OperationCanceledException) { return; }
+        if (_closed || _child is not null || Room?.Room.ClassId != scope.ClassId || _catalog?.TermId != term || _date != date) return;
+        await OpenChild(new StudyRecordsWindow(_client, scope, _school.Name, row.Name, date, null, devices));
+        if (!_closed) StudyClassRecords.Focus();
     }
 
     private async Task OpenChild(Window window)

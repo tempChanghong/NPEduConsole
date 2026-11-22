@@ -58,6 +58,8 @@
               <TextBlock x:Name="StudyRoomDay" TextWrapping="Wrap"/>
               <WrapPanel ItemSpacing="6" LineSpacing="4">
                 <Button x:Name="StudyEditClassButton" Classes="action" Click="EditClass" Content="编辑本班安排"/>
+                <Button x:Name="StudyClassMonitoring" Classes="action" Click="EditClassMonitoring" Content="监测策略"/>
+                <Button x:Name="StudyClassRecords" Classes="action" Click="OpenClassRecords" Content="照片与退出记录"/>
                 <Button x:Name="StudySeatingButton" Classes="action" Click="OpenSeating" Content="座位图与逐屏状态"/>
                 <Button x:Name="StudyReportsButton" Classes="action" Click="OpenReports" Content="本日场次与回执"/>
               </WrapPanel>

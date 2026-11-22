@@ -29,7 +29,9 @@ public sealed partial class ConsoleClient
         var path = StudyReportsPath(scope);
         if (date is { } day) path += "&date=" + StudyDate(day);
         if (cursor is not null) path += "&cursor=" + Uri.EscapeDataString(cursor);
-        var page = await RequestAsync<StudyReportPage>(HttpMethod.Get, path, CurrentSession.Token, ct, version: "0.17");
+        var session = CurrentSession;
+        var page = await RequestAsync<StudyReportPage>(HttpMethod.Get, path, session.Token, ct, version: "0.17");
+        CheckCreationSession(session, ct);
         if (page.Items.Length > 20 || page.Items.Any(row => !ValidStudyGroup(row)) ||
             page.Cursor is not null && (page.Cursor.Length == 0 || page.Cursor == cursor)) throw InvalidResponse();
         return page;
@@ -38,12 +40,17 @@ public sealed partial class ConsoleClient
     public async Task<StudyReportGroup> ReadStudyReportAsync(StudyEvidenceScope scope, StudyReportGroup selected, CancellationToken ct)
     {
         var path = StudyReportsPath(scope) + "&groupId=" + Uri.EscapeDataString(selected.GroupId);
-        var page = await RequestAsync<StudyReportPage>(HttpMethod.Get, path, CurrentSession.Token, ct, version: "0.17");
+        var session = CurrentSession;
+        var page = await RequestAsync<StudyReportPage>(HttpMethod.Get, path, session.Token, ct, version: "0.17");
+        CheckCreationSession(session, ct);
         if (page.Items is not [var result] || !ValidStudyGroup(result) || result.GroupId != selected.GroupId ||
             result.DeviceId != selected.DeviceId || result.Mode != selected.Mode || result.Window != selected.Window ||
             result.Fragments is not { } parts || parts.Length != result.FragmentCount ||
             parts.Any(p => p is null || p.Ownership != scope || p.Study.Window != result.Window || p.Study.Mode != result.Mode ||
-                p.Summary.Coverage is < 0 or > 1 || p.EndedAt < p.StartedAt)) throw InvalidResponse();
+                p.Summary.Coverage is < 0 or > 1 || p.EndedAt < p.StartedAt) ||
+            result.Photos is { } photos && (photos.Length > 300 || photos.Any(p => p is null || !ValidRecordId(p.EventId))) ||
+            result.Events is { } events && (events.Length > 300 || events.Any(e => e is null || !ValidRecordId(e.EventId) ||
+                e.PhotoEventId is not null && e.PhotoEventId != e.EventId))) throw InvalidResponse();
         return result;
     }
 

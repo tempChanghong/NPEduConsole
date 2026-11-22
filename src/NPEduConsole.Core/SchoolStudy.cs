@@ -11,6 +11,7 @@ public sealed record SchoolStudyPolicy(string TargetType, string TargetId, int R
 {
     public string Mode => Policy.GetProperty("mode").GetString()!;
     internal JsonElement? Settings => Mode == "Override" ? Policy.GetProperty("settings") : null;
+    public StudyMonitoring Monitoring => StudyMonitoring.Read(Settings);
 }
 public sealed record SchoolStudyCatalog(string? TermId, StudyTargetLabel[] Terms, StudyTargetLabel[] Grades,
     SchoolStudyRoom[] Classes, SchoolStudyPolicy[] Settings)
@@ -31,7 +32,10 @@ public sealed record SchoolStudyDay(DateOnly Date, SchoolStudyDayMode Daily, Sch
 public sealed record SchoolStudyCalendarRoom(string ClassId, string Name, string Source, string LocalMode,
     int PairedDevices, bool LegacyNoise, SchoolStudyDay[] Dates);
 public sealed record SchoolStudyCalendar(string TermId, string GradeId, DateOnly From, int Days, SchoolStudyCalendarRoom[] Classes);
-public sealed record StudyImpactPolicy(string Source);
+public sealed record StudyImpactPolicy(string Source, JsonElement? Settings = null)
+{
+    public StudyMonitoring Monitoring => StudyMonitoring.Read(Settings);
+}
 public sealed record StudyImpactRow(string ClassId, string Name, int PairedDevices, bool Changed, StudyImpactPolicy Before,
     StudyImpactPolicy Effective, string ReviewVersion, bool LegacyNoiseReplaced, bool LegacyNoiseBefore, bool LegacyNoiseAfter,
     StudyWindow[] CalendarWindows, StudyWindow[] CalendarExamWindows,

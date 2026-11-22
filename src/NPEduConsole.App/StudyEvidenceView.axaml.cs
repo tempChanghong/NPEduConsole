@@ -14,6 +14,9 @@ public partial class StudyEvidenceView : UserControl
     private StudyEvidenceScope? _scope;
     private CancellationTokenSource? _deviceRead, _reportRead;
     private StudyEvidenceReceipt? _receipt;
+    private StudyRecordsWindow? _records;
+    private StudyReportGroup? _loadedReport;
+    private string? _schoolName, _className;
     private DeviceOption[] _devices = [];
     private string? _cursor;
     private DateOnly? _date;
@@ -26,7 +29,7 @@ public partial class StudyEvidenceView : UserControl
         AttachedToVisualTree += (_, _) => { if (_receipt is not null) RenderReceipt(); };
     }
 
-    public void SetScope(ConsoleClient? client, string? schoolId, string? termId, Classroom? classroom, DateOnly? date = null)
+    public void SetScope(ConsoleClient? client, string? schoolId, string? termId, Classroom? classroom, DateOnly? date = null, string? schoolName = null)
     {
         Cancel(ref _deviceRead);
         Cancel(ref _reportRead);
@@ -35,9 +38,13 @@ public partial class StudyEvidenceView : UserControl
         _scope = null;
         _client = client;
         _date = date;
+        _schoolName = schoolName ?? schoolId;
+        _className = classroom?.Name;
         DevicePicker.ItemsSource = null;
         ReceiptTime.IsVisible = false;
+        ReceiptConfigVersion.IsVisible = false;
         ReadReceiptButton.IsEnabled = false;
+        ReadReportsButton.IsEnabled = false;
         ClearReports();
         _devices = [];
         IsVisible = client is not null && schoolId is not null && termId is not null && classroom is not null;
@@ -71,6 +78,7 @@ public partial class StudyEvidenceView : UserControl
         _clock.Stop();
         _receipt = null;
         ReceiptTime.IsVisible = false;
+        ReceiptConfigVersion.IsVisible = false;
         if (_scope is not { } scope || _client is not { } client || DevicePicker.SelectedItem is not DeviceOption target) return;
         using var read = _deviceRead = new();
         ReadReceiptButton.IsEnabled = false;
@@ -81,6 +89,8 @@ public partial class StudyEvidenceView : UserControl
             if (_deviceRead != read) return;
             _receipt = snapshot;
             RenderReceipt();
+            ReceiptConfigVersion.Text = $"学校当前有效配置 {snapshot.Current.Version[..12]}";
+            ReceiptConfigVersion.IsVisible = true;
             if (snapshot.ReceivedAt is { } received)
             {
                 ReceiptTime.Text = $"学校收到回执于 {SchoolTime(received)}";
@@ -108,10 +118,18 @@ public partial class StudyEvidenceView : UserControl
 
     private void ClearReports()
     {
+        ClearReportDetail();
         _cursor = null;
         ReportPicker.ItemsSource = null;
         ReportPicker.IsVisible = false;
         EarlierReports.IsVisible = false;
+    }
+
+    private void ClearReportDetail()
+    {
+        _records?.Close();
+        _loadedReport = null;
+        StudySessionRecords.IsVisible = false;
         FragmentList.Children.Clear();
     }
 
@@ -155,17 +173,22 @@ public partial class StudyEvidenceView : UserControl
 
     private async void ReportChanged(object? sender, SelectionChangedEventArgs e)
     {
+        ClearReportDetail();
         if (ReportPicker.SelectedItem is not ReportOption selected || _scope is not { } scope || _client is not { } client) return;
         Cancel(ref _reportRead);
         using var read = _reportRead = new();
         ReadReportsButton.IsEnabled = true;
-        FragmentList.Children.Clear();
         ReportsStatus.Text = "正在读取本场报告…";
         try
         {
             var detail = await client.ReadStudyReportAsync(scope, selected.Report, read.Token);
             if (_reportRead != read) return;
-            ReportsStatus.Text = $"学校已收到 {detail.FragmentCount} 个片段，按本次自习的时间顺序列出。";
+            var stored = detail.Photos?.Where(photo => photo.State == "Stored").ToArray();
+            ReportsStatus.Text = $"学校已收到 {detail.FragmentCount} 个报告片段。" +
+                (stored is null ? " 照片存储记录待核对。" : stored.Length == 0 ? " 本场暂无可查看的已存照片。"
+                    : $" {detail.Truncated switch {true => "至少 ", false => ""}}{stored.Length} 张在线照片 · 最近拍摄 {SchoolTime(stored.Max(photo => photo.CapturedAt))}。");
+            _loadedReport = detail;
+            StudySessionRecords.IsVisible = true;
             foreach (var part in detail.Fragments!) FragmentList.Children.Add(Fragment(part));
         }
         catch (Exception ex) when (IsReadError(ex))
@@ -173,6 +196,21 @@ public partial class StudyEvidenceView : UserControl
             if (_reportRead == read && !SessionEnded(ex)) ReportsStatus.Text = ErrorText(ex);
         }
         finally { if (_reportRead == read) _reportRead = null; }
+    }
+
+    private async void OpenSessionRecords(object? sender, RoutedEventArgs e)
+    {
+        if (_records is not null || _scope is not { } scope || _client is not { } client ||
+            _loadedReport is not { } report || TopLevel.GetTopLevel(this) is not Window owner) return;
+        var window = _records = new StudyRecordsWindow(client, scope, _schoolName ?? scope.SchoolId,
+            _className ?? scope.ClassId, null, report, _devices.GroupBy(row => row.Device.Id)
+                .ToDictionary(group => group.Key, group => group.First().Caption));
+        try { await window.ShowDialog(owner); }
+        finally
+        {
+            if (_records == window) _records = null;
+            if (StudySessionRecords.IsEffectivelyVisible) StudySessionRecords.Focus();
+        }
     }
 
     private static string SchoolTime(DateTimeOffset time) => time.ToOffset(TimeSpan.FromHours(8)).ToString("MM-dd HH:mm:ss");

@@ -43,7 +43,8 @@ public sealed partial class SchoolStudyEditWindow : Window
 
     public SchoolStudyEditWindow() => InitializeComponent();
 
-    internal SchoolStudyEditWindow(ConsoleClient client, School school, SchoolStudyCatalog catalog, string type, string id, string name, DateOnly date) : this()
+    internal SchoolStudyEditWindow(ConsoleClient client, School school, SchoolStudyCatalog catalog, string type, string id, string name, DateOnly date,
+        bool monitoring = false, bool canOpenGrade = false) : this()
     {
         _client = client;
         _school = school;
@@ -53,12 +54,15 @@ public sealed partial class SchoolStudyEditWindow : Window
         _term = catalog.TermId ?? throw new ArgumentException("An active term is required.");
         _key = string.Join("/", school.Id, _term, type, id);
         _date = date;
+        _monitoring = monitoring;
         StudyEditTitle.Text = name + (type == "GRADE" ? " · 年级自习" : " · 校内自习");
         StudyEditScope.Text = $"{school.Name} · {catalog.Terms.FirstOrDefault(row => row.Id == _term)?.Name} · 预览 {date:yyyy/M/d}";
         _filling = true;
         StudyPolicyMode.ItemsSource = type == "CLASS" ? new Choice[] {new("Inherit", "继承年级"), new("Override", "本班独立设置"), new("Disabled", "本班关闭")}
             : new Choice[] {new("Override", "设置年级安排"), new("Disabled", "关闭年级安排")};
         string savedMode = catalog.Policy(type, id)?.Mode ?? (type == "CLASS" ? "Inherit" : "Override");
+        if (monitoring && savedMode != "Disabled")
+            StudyPolicyMode.ItemsSource = StudyPolicyMode.Items.OfType<Choice>().Where(row => row.Key != "Disabled").ToArray();
         StudyPolicyMode.SelectedItem = StudyPolicyMode.Items.OfType<Choice>().First(row => row.Key == savedMode);
         StudyScheduleMode.ItemsSource = new[] {"日常", "考试"};
         StudyScheduleMode.SelectedIndex = 0;
@@ -70,6 +74,7 @@ public sealed partial class SchoolStudyEditWindow : Window
             StudyRuleDays.Children.Add(_days[index]);
         }
         var basis = catalog.BasePolicy(type, id);
+        if (monitoring) BindMonitoring(basis, savedMode, name, canOpenGrade);
         _draft[0] = ConsoleClient.SchoolSchedule(basis, false);
         _draft[1] = ConsoleClient.SchoolSchedule(basis, true);
         _filling = false;
@@ -233,6 +238,8 @@ public sealed partial class SchoolStudyEditWindow : Window
     private SchoolStudyEdit BuildEdit()
     {
         if (_catalog.TermId != _term) throw new ArgumentException("当前启用学期已改变，请返回学校自习刷新。");
+        if (_monitoring) return ConsoleClient.BuildMonitoringEdit(_school.Id, _catalog, _targetType, _targetId, Mode,
+            Mode == "Override" ? MergeMonitoring(ReadMonitoring()) : null);
         if (Mode == "Override")
             foreach (var schedule in _draft.Where((_item, index) => _edited[index]))
                 if (schedule.From is null && schedule.Rules.Count > 0 || schedule.To is not null && (schedule.From is null || schedule.To < schedule.From) ||
@@ -250,7 +257,12 @@ public sealed partial class SchoolStudyEditWindow : Window
         _edit = edit; _review = result; _confirm = true;
         _affected.Clear();
         PresentReview(result);
-        ShowStatus("已读取逐班影响。核对当前与保存后的时段后确认。");
+        if (_monitoring && result.Items.Any(row => row.LegacyNoiseReplaced))
+        {
+            _confirm = false;
+            ShowStatus("此设置会接管旧定时噪音安排。请先在学校自习安排中核对并迁入原时段，再单独设置监测。");
+        }
+        else ShowStatus(_monitoring ? "请核对每班的来源、监测与保留期再确认。" : "已读取逐班影响。核对当前与保存后的时段后确认。");
     });
 
     private async void Save(object? sender, RoutedEventArgs args)
@@ -329,8 +341,8 @@ public sealed partial class SchoolStudyEditWindow : Window
     private void PresentReview(SchoolStudyReview review, SchoolStudyReview? old = null)
     {
         var items = review.Items.Select(row => new SchoolStudyImpactView(row.ClassId, row.Name,
-            Summary(row.Before.Source, row.BeforeWindows, row.BeforeExamWindows, row.LegacyNoiseBefore),
-            Summary(row.Effective.Source, row.CalendarWindows, row.CalendarExamWindows, row.LegacyNoiseAfter),
+            _monitoring ? MonitoringSummary(row.Before, row.LegacyNoiseBefore, row.Effective) : Summary(row.Before.Source, row.BeforeWindows, row.BeforeExamWindows, row.LegacyNoiseBefore),
+            _monitoring ? MonitoringSummary(row.Effective, row.LegacyNoiseAfter, row.Before) + RetentionEffect(row) : Summary(row.Effective.Source, row.CalendarWindows, row.CalendarExamWindows, row.LegacyNoiseAfter),
             (_affected.Contains(row.ClassId) ? "服务器安排已变化" : row.Changed ? "将随本次改变" : "保持现有安排") +
             (row.LegacyNoiseReplaced ? "\n将接管旧定时噪音安排" : row.LegacyNoiseAfter && !row.LegacyNoiseBefore ? "\n将恢复旧定时噪音安排" : ""), _affected.Contains(row.ClassId))).ToList();
         if (old is not null)
@@ -369,7 +381,7 @@ public sealed partial class SchoolStudyEditWindow : Window
         Operations.Remove(_key);
         Published = true;
         _dirty = _confirm = false;
-        ShowStatus($"学校已保存排期 · 策略版本 {revision}。教室应用请在本班的大屏回执中核对。");
+        ShowStatus($"学校已保存{(_monitoring ? "监测策略" : "排期")} · 策略版本 {revision}。教室应用请在本班的大屏回执中核对。");
         StudyEditClose.Content = "完成";
     }
 
@@ -398,11 +410,12 @@ public sealed partial class SchoolStudyEditWindow : Window
         bool own = Mode == "Override";
         StudyEditTabs.IsEnabled = !_busy && !waiting;
         StudyPolicyMode.IsEnabled = StudyScheduleMode.IsEnabled = editing;
-        StudyScheduleFields.IsVisible = own;
+        StudyScheduleFields.IsVisible = own && !_monitoring;
         StudyScheduleFields.IsEnabled = editing;
         StudyEditModeNote.Text = own ? "日常和考试可分别编辑。未编辑的时段、作业来源及监测设置沿用原配置。" :
             Mode == "Inherit" ? "保存后本班采用年级完整策略，清除本班独立安排。" : "保存后关闭此范围的学校自习。年级下的独立班级继续沿用本班安排。";
         StudyEditPreview.IsEnabled = editing;
+        if (_monitoring) UpdateMonitoringControls(editing, own);
         StudyEditSave.IsEnabled = !_busy && (_confirm && editing || waiting && _retry);
         StudyEditSave.Content = waiting ? "按原编号重试" : "确认保存";
         StudyReadSave.IsVisible = waiting;

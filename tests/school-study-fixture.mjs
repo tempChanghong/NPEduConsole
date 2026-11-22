@@ -221,7 +221,7 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
   }
 }
 
-async function prepareLegacyStudyWeb({web, directory, evidence, origin, token, school, term, room}) {
+export async function prepareLegacyStudyWeb({web, directory, evidence, origin, token, school, term, room}) {
   const require = createRequire(join(web, 'package.json'));
   const {chromium} = require('@playwright/test');
   const {preview} = await import(pathToFileURL(join(dirname(require.resolve('vite/package.json')), 'dist/node/index.js')).href);
@@ -240,9 +240,9 @@ async function prepareLegacyStudyWeb({web, directory, evidence, origin, token, s
       child.once('error', reject);
       child.once('exit', code => code === 0 ? resolve() : reject(new Error('Legacy web build failed.')));
     });
-    return {close, edit: async () => {
+    const withPage = async action => {
       const browser = await chromium.launch({channel: 'msedge', headless: true});
-      const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: 'block'});
+      const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: 'block', acceptDownloads: true});
       try {
         await page.route('**/*', route => new URL(route.request().url()).origin === url ? route.continue() : route.abort());
         await page.addInitScript(({access_token, refresh_token}) => {
@@ -250,6 +250,13 @@ async function prepareLegacyStudyWeb({web, directory, evidence, origin, token, s
           localStorage.setItem('classworks-v2-refresh-token', refresh_token);
         }, token);
         await page.goto(url + '/classworks-admin?section=npep-study&school=' + school.id + '&term=' + term.id);
+        return await action(page);
+      } catch (error) {
+        await page.screenshot({path: join(evidence, 'legacy-web-failure.png')});
+        throw error;
+      } finally { await browser.close(); }
+    };
+    return {close, edit: () => withPage(async page => {
         const pane = page.locator('.study-settings');
         await pane.getByRole('heading', {name: '学校自习设置'}).waitFor();
         async function select(label, name) {
@@ -265,10 +272,23 @@ async function prepareLegacyStudyWeb({web, directory, evidence, origin, token, s
         await pane.getByRole('button', {name: '保存自习设置'}).click();
         await saved;
         await page.screenshot({path: join(evidence, 'legacy-web-eight-saved.png'), animations: 'disabled'});
-      } catch (error) {
-        await page.screenshot({path: join(evidence, 'legacy-web-failure.png')});
-        throw error;
-      } finally { await browser.close(); }
-    }};
+    }), photos: (classroom, photoId) => withPage(async page => {
+      await page.getByRole('button', {name: '报告与照片', exact: true}).click();
+      const pane = page.locator('.study-photos');
+      await pane.getByRole('heading', {name: '自习照片'}).waitFor();
+      await pane.locator('.v-select').locator('.v-field').click();
+      await page.getByRole('option', {name: classroom.name, exact: true}).click();
+      await pane.getByRole('button', {name: '查询照片', exact: true}).click();
+      await pane.getByRole('button', {name: '查看', exact: true}).click();
+      await page.getByRole('img', {name: '当前选定班级的自习照片'}).waitFor();
+      await page.screenshot({path: join(evidence, 'legacy-web-photo-preview.png'), animations: 'disabled'});
+      const pending = page.waitForEvent('download');
+      await page.getByRole('button', {name: '下载', exact: true}).click();
+      const download = await pending;
+      assert.equal(download.suggestedFilename(), 'study-' + photoId + '.jpg');
+      const file = join(directory, 'explicit-download.jpg');
+      await download.saveAs(file);
+      return file;
+    })};
   } catch (error) { await close(); throw error; }
 }

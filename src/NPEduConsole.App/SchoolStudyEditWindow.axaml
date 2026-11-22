@@ -11,7 +11,7 @@
     <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="6" Margin="13,8">
       <TextBlock x:Name="StudyEditStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
       <TabControl x:Name="StudyEditTabs" Grid.Row="1">
-        <TabItem Header="安排与例外">
+        <TabItem x:Name="StudyEditFieldsTab" Header="安排与例外">
           <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False">
             <StackPanel Spacing="9" Margin="0,0,10,5">
               <WrapPanel ItemSpacing="6" LineSpacing="5">
@@ -19,6 +19,49 @@
                 <ComboBox x:Name="StudyScheduleMode" Width="130" SelectionChanged="ScheduleModeChanged" AutomationProperties.Name="日常或考试"/>
               </WrapPanel>
               <TextBlock x:Name="StudyEditModeNote" Classes="muted" TextWrapping="Wrap"/>
+              <StackPanel x:Name="StudyMonitorFields" IsVisible="False" Spacing="8">
+                <Border Classes="card" Padding="12">
+                  <StackPanel Spacing="7">
+                    <TextBlock x:Name="StudyMonitorCurrent" Classes="label" TextWrapping="Wrap"/>
+                    <ToggleSwitch x:Name="MonitorEnabled" OnContent="启用噪音监测" OffContent="关闭噪音监测" IsCheckedChanged="MonitorToggled"/>
+                    <WrapPanel ItemSpacing="8" LineSpacing="6">
+                      <StackPanel Spacing="3"><TextBlock Text="阈值依据" Classes="muted"/>
+                        <ComboBox x:Name="MonitorUnit" Width="175" SelectionChanged="MonitorUnitChanged" AutomationProperties.Name="阈值依据"/>
+                      </StackPanel>
+                      <StackPanel Spacing="3"><TextBlock Text="中线（可空）" Classes="muted"/>
+                        <TextBox x:Name="MonitorMedium" Width="112" TextChanged="MonitorTextChanged" AutomationProperties.Name="中线"/>
+                      </StackPanel>
+                      <StackPanel Spacing="3"><TextBlock Text="高线（可空）" Classes="muted"/>
+                        <TextBox x:Name="MonitorHigh" Width="112" TextChanged="MonitorTextChanged" AutomationProperties.Name="高线"/>
+                      </StackPanel>
+                      <StackPanel Spacing="3"><TextBlock Text="高线持续秒数" Classes="muted"/>
+                        <TextBox x:Name="MonitorHighSeconds" Width="112" TextChanged="MonitorTextChanged" AutomationProperties.Name="高线持续秒数"/>
+                      </StackPanel>
+                      <StackPanel Spacing="3"><TextBlock Text="提醒间隔（秒）" Classes="muted"/>
+                        <TextBox x:Name="MonitorReminder" Width="112" TextChanged="MonitorTextChanged" AutomationProperties.Name="提醒间隔"/>
+                      </StackPanel>
+                    </WrapPanel>
+                    <TextBlock Text="dBFS 是麦克风信号电平。估算 dB(A) 需教室在本机作参考校准后才能用于阈值判定。" Classes="muted" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </Border>
+                <Border Classes="card" Padding="12">
+                  <StackPanel Spacing="7">
+                    <TextBlock Text="照片记录" Classes="label"/>
+                    <ToggleSwitch x:Name="MonitorPhotos" OnContent="启用拍照" OffContent="关闭拍照" IsCheckedChanged="MonitorToggled"/>
+                    <WrapPanel ItemSpacing="8" LineSpacing="6">
+                      <StackPanel Spacing="3"><TextBlock Text="拍照间隔（秒）" Classes="muted"/>
+                        <TextBox x:Name="MonitorPhotoSeconds" Width="120" TextChanged="MonitorTextChanged" AutomationProperties.Name="拍照间隔"/>
+                      </StackPanel>
+                      <StackPanel Spacing="3"><TextBlock Text="保留天数" Classes="muted"/>
+                        <TextBox x:Name="MonitorRetention" Width="120" TextChanged="MonitorTextChanged" AutomationProperties.Name="保留天数"/>
+                      </StackPanel>
+                    </WrapPanel>
+                    <CheckBox x:Name="MonitorExtended" Content="学校已批准在线记录保留超过 30 天" IsVisible="False" IsCheckedChanged="MonitorToggled"/>
+                    <TextBlock Text="摄像头须在教室现场选择。有效定时自习及符合学校策略的手动自习可触发；准备阶段和单独开启的手动噪音监测不触发。" Classes="muted" TextWrapping="Wrap"/>
+                    <TextBlock Text="缩短会提前在线照片与退出记录的到期时间。延长仅影响之后保存的记录。备份副本的保留另由部署决定。" Classes="muted" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </Border>
+              </StackPanel>
               <StackPanel x:Name="StudyScheduleFields" Spacing="9">
                 <Border Classes="card" Padding="10">
                   <StackPanel Spacing="7">
@@ -90,6 +133,7 @@
       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
         <WrapPanel ItemSpacing="6" LineSpacing="4">
           <Button x:Name="StudyEditClose" Classes="action" Content="返回" Click="CloseEditor"/>
+          <Button x:Name="StudyMonitorGrade" Classes="action" Content="编辑本年级监测" IsVisible="False" Click="OpenMonitoringGrade"/>
           <Button x:Name="StudyReadSave" Classes="action" Content="核对本次回执" Click="CheckSave" IsVisible="False"/>
         </WrapPanel>
         <Button x:Name="StudyEditPreview" Grid.Column="1" Classes="action" Content="预览逐班影响" Click="Preview"/>

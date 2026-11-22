@@ -76,5 +76,6 @@ public sealed record StudyReportFragment(string SessionId, DateTimeOffset Starte
     DateTimeOffset ReceivedAt, string Outcome, StudyEvidenceScope Ownership, StudyFragmentMeta Study,
     StudyFragmentSummary Summary, StudyFragmentEstimate? Estimate = null, StudyFragmentTiming? Timing = null);
 public sealed record StudyReportGroup(string GroupId, string DeviceId, string Mode, string ClockSource,
-    StudyReportWindow Window, int FragmentCount, StudyReportFragment[]? Fragments = null);
+    StudyReportWindow Window, int FragmentCount, StudyReportFragment[]? Fragments = null,
+    StudyPhotoRecord[]? Photos = null, StudyExitRecord[]? Events = null, bool Truncated = false);
 public sealed record StudyReportPage(StudyReportGroup[] Items, string? Cursor);

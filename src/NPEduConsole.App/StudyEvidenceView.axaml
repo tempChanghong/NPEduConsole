@@ -8,17 +8,19 @@
                 SelectionChanged="DeviceChanged" HorizontalAlignment="Stretch" />
       <Button Grid.Column="1" x:Name="ReadReceiptButton" Classes="action" Content="刷新回执" Click="RefreshReceipt" />
     </Grid>
+    <TextBlock x:Name="ReceiptConfigVersion" Classes="muted" IsVisible="False" TextWrapping="Wrap" />
     <TextBlock x:Name="ReceiptStatus" TextWrapping="Wrap" />
     <TextBlock x:Name="ReceiptTime" Classes="muted" IsVisible="False" />
     <Border Height="1" Background="{DynamicResource LineBrush}" Margin="0,4,0,0" />
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
       <TextBlock Text="本班自习报告" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
-      <Button Grid.Column="1" x:Name="ReadReportsButton" Classes="action" Content="查询报告" Click="RefreshReports" />
+      <Button Grid.Column="1" x:Name="ReadReportsButton" Classes="action" Content="查询报告" IsEnabled="False" Click="RefreshReports" />
     </Grid>
     <TextBlock x:Name="ReportsStatus" Classes="muted" />
     <ComboBox x:Name="ReportPicker" AutomationProperties.Name="选择自习场次" IsVisible="False"
               SelectionChanged="ReportChanged" HorizontalAlignment="Stretch" />
     <Button x:Name="EarlierReports" Content="更早的场次" Classes="action" IsVisible="False" Click="ReadEarlier" />
+    <Button x:Name="StudySessionRecords" Content="本场照片与退出记录" Classes="action" IsVisible="False" Click="OpenSessionRecords" />
     <StackPanel x:Name="FragmentList" Spacing="8" />
   </StackPanel>
 </UserControl>
