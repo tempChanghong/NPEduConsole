@@ -1,0 +1,89 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="using:NPEduConsole.Core"
+             x:Class="NPEduConsole.App.DesktopOAuthLoginView"
+             KeyDown="ViewKeyDown"
+             VerticalAlignment="Top">
+  <UserControl.Styles>
+    <Style Selector="TextBlock.oauth-note">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+    </Style>
+    <Style Selector="TextBlock.oauth-note.error">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+    <Style Selector="TextBlock.oauth-head">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.oauth-rule">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Background" Value="{DynamicResource LineBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+
+  <StackPanel Spacing="7">
+    <Grid ColumnDefinitions="*,Auto">
+      <Border Classes="oauth-rule" />
+      <TextBlock Grid.Column="1" Text="浏览器登录" Classes="oauth-head" Margin="10,0,0,0" />
+    </Grid>
+
+    <TextBlock x:Name="DesktopOAuthNotice"
+               Classes="oauth-note"
+               IsVisible="False"
+               AutomationProperties.LiveSetting="Polite" />
+
+    <Grid x:Name="DesktopOAuthChoice" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+      <ComboBox x:Name="DesktopOAuthProviders"
+                IsVisible="False"
+                HorizontalAlignment="Stretch"
+                AutomationProperties.Name="OAuth 提供方">
+        <ComboBox.ItemTemplate>
+          <DataTemplate x:DataType="core:DesktopOAuthProvider">
+            <TextBlock Text="{Binding Name}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+      </ComboBox>
+      <Button x:Name="DesktopOAuthLogin"
+              Grid.Column="1"
+              Classes="action"
+              Content="登录"
+              Click="LoginClicked"
+              AutomationProperties.Name="使用学校账号登录" />
+    </Grid>
+
+    <StackPanel x:Name="DesktopOAuthPending"
+                IsVisible="False"
+                Focusable="True"
+                Spacing="6"
+                AutomationProperties.Name="OAuth 登录进度">
+      <TextBlock x:Name="DesktopOAuthPendingText"
+                 Classes="oauth-note"
+                 AutomationProperties.LiveSetting="Polite" />
+      <WrapPanel>
+        <Button x:Name="DesktopOAuthReopen"
+                Classes="action"
+                Content="重新打开浏览器"
+                Margin="0,0,8,0"
+                Click="ReopenClicked"
+                AutomationProperties.Name="重新打开浏览器" />
+        <Button x:Name="DesktopOAuthCancel"
+                Classes="action"
+                Content="取消"
+                Click="CancelClicked"
+                AutomationProperties.Name="取消 OAuth 登录" />
+      </WrapPanel>
+    </StackPanel>
+
+    <Button x:Name="DesktopOAuthRefresh"
+            Classes="action"
+            Content="重新读取登录方式"
+            HorizontalAlignment="Left"
+            IsVisible="False"
+            Click="RefreshClicked"
+            AutomationProperties.Name="重新读取 OAuth 登录方式" />
+  </StackPanel>
+</UserControl>

@@ -247,7 +247,7 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   }
 }
 
-export async function isolatedIdentityProvider(fromKv, origin) {
+export async function isolatedIdentityProvider(fromKv, origin, {allowBrowserFixtureIdentity = false} = {}) {
   const {oauthProviders} = await fromKv('config/oauth.js');
   const provider = oauthProviders.hly;
   const previous = {...provider}, previousBase = process.env.BASE_URL;
@@ -256,7 +256,10 @@ export async function isolatedIdentityProvider(fromKv, origin) {
     try {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/authorize') {
-        const code = randomUUID(), email = url.searchParams.get('test_identity');
+        const code = randomUUID();
+        const browserIdentity = allowBrowserFixtureIdentity ? /(?:^|;\s*)np_fixture_identity=([^;]+)/.exec(req.headers.cookie ?? '')?.[1] : null;
+        const email = url.searchParams.get('test_identity') ?? (browserIdentity && decodeURIComponent(browserIdentity));
+        assert.ok(email);
         assert.equal(url.searchParams.get('client_id'), 'isolated-teacher-oidc');
         assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
         authorization.set(code, {email, challenge: url.searchParams.get('code_challenge')});
@@ -289,6 +292,7 @@ export async function isolatedIdentityProvider(fromKv, origin) {
     tokenURL: issuer + '/token', userInfoURL: issuer + '/userinfo'});
   process.env.BASE_URL = origin;
   return {
+    issuer,
     async begin(email) {
       const verifier = randomBytes(32).toString('base64url');
       const challenge = createHash('sha256').update(verifier).digest('base64url');

@@ -33,6 +33,7 @@ public sealed partial class MainWindow
         bool compact = size.Width < 860;
         bool shortWindow = size.Height < 575;
         LoginColumns.Margin = new Thickness(28, shortWindow ? 10 : 27);
+        LoginForm.Spacing = shortWindow ? 9 : 16;
         LoginCard.Padding = new Thickness(36, shortWindow ? 11 : 28);
         LoginBrand.IsVisible = !compact;
         LoginColumns.ColumnDefinitions[0].Width = compact ? new GridLength(0) : new GridLength(.95, GridUnitType.Star);

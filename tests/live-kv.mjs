@@ -32,6 +32,7 @@ import { verifyGradeTeachingPlan } from './grade-teaching-plan-fixture.mjs';
 import { verifySchoolStudy } from './school-study-fixture.mjs';
 import { verifyStudyMonitoring } from './study-monitoring-fixture.mjs';
 import { verifyManagementAccounts } from './management-accounts-fixture.mjs';
+import { verifyDesktopOAuth } from './desktop-oauth-fixture.mjs';
 import { verifyOrganizationImport } from './school-organization-import-fixture.mjs';
 import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
@@ -47,7 +48,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
-  '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db'].includes(mode)),
+  '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -212,7 +213,7 @@ async function seed() {
     await prisma.schoolMember.create({ data: { schoolId: school.id, accountId: entry.id, role } });
     return entry;
   }
-  const manager = await account('admin', managementAccounts ? 'OWNER' : 'ADMIN');
+  const manager = await account('admin', managementAccounts || mode === '--desktop-oauth' ? 'OWNER' : 'ADMIN');
   await account('viewer', 'VIEWER');
   if (studyMonitoring) await account('owner', 'OWNER');
   if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || managementAccounts || ['--screen-duty', '--exam-workbench', '--homework-settings'].includes(mode))
@@ -586,6 +587,13 @@ async function runFixture() {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
+  if (mode === '--desktop-oauth') {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_OAUTH_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/desktop-oauth/acceptance', import.meta.url)));
+    return verifyDesktopOAuth({prisma, origin, fixture, fromKv, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(project, args)});
+  }
   if (managementAccounts) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = resolve(process.env.NP_CONSOLE_MANAGEMENT_EVIDENCE ||

@@ -40,6 +40,8 @@ internal static partial class Program
             return StartStudyMonitoring(monitoringFixture, monitoringOutput);
         if (args is ["--live-management-accounts", var managementFixture, var managementOutput])
             return StartManagementAccounts(managementFixture, managementOutput);
+        if (args is ["--live-desktop-oauth", var oauthFixture, var oauthOutput])
+            return StartDesktopOAuth(oauthFixture, oauthOutput);
         if (args is ["--live-organization-import", var organizationFixture, var organizationOutput])
             return StartOrganizationImport(organizationFixture, organizationOutput);
         if (args is ["--live-teacher-allocation", var allocationFixture, var allocationOutput])
@@ -246,7 +248,7 @@ internal static partial class Program
         }
     }
 
-    private static T Find<T>(Window window, string name) where T : Control => window.FindControl<T>(name) ?? throw new InvalidDataException(name);
+    private static T Find<T>(Control root, string name) where T : Control => root.FindControl<T>(name) ?? throw new InvalidDataException(name);
     private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
     private static async Task Capture(Window target, string output, string name)

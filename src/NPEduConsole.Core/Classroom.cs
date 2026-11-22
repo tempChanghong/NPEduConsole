@@ -2,7 +2,10 @@ using System.Diagnostics;
 
 namespace NPEduConsole.Core;
 
-public sealed record School(string Id, string Name);
+public sealed record School(string Id, string Name)
+{
+    public string? ManagementRole { get; init; }
+}
 public sealed record Classroom(string Id, string Name, string? GradeName, IReadOnlyList<Screen> Screens)
 {
     public string? TermId { get; init; }

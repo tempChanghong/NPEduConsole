@@ -78,25 +78,36 @@ public sealed partial class ConsoleClient : IDisposable
         if (_session is not null) throw new ConsoleApiException(0, "请先退出当前账号。");
         var credentials = new { schoolCode = schoolCode.Trim(), username = username.Trim(), password };
         var login = await RequestAsync<LoginResponse>(HttpMethod.Post, "accounts/local/login", null, ct, body: credentials);
-        var token = login.AccessToken;
+        return (await AttachSchoolSessionAsync(login.AccessToken, includeIdentity: false, ct)).Schools;
+    }
+
+    private async Task<DesktopOAuthSignIn> AttachSchoolSessionAsync(string token, bool includeIdentity, CancellationToken ct)
+    {
         try
         {
             var memberships = await MembershipsAsync(token, ct);
-            var schools = memberships.Where(IsAdministrator).Select(m => new School(m.School.Id, m.School.Name)).ToArray();
+            var schools = memberships.Where(IsAdministrator).Select(m => new School(m.School.Id, m.School.Name) {ManagementRole = m.Role}).ToArray();
             if (schools.Length == 0)
                 throw new ConsoleApiException(403, "此账号没有可管理的学校。请使用已获学校管理权限的账号登录。");
+            var identity = includeIdentity ? await RequestAsync<OAuthAccountIdentity>(HttpMethod.Get, "accounts/profile", token, ct) : null;
             ct.ThrowIfCancellationRequested();
-            _session = new Session(token);
-            return schools;
+            if (Interlocked.CompareExchange(ref _session, new Session(token), null) is not null)
+                throw new ConsoleApiException(0, "请先退出当前账号。");
+            return new(identity?.Name ?? identity?.Email ?? "OAuth 账号", schools);
         }
         catch
         {
             // Login created a KV session even when the account has no school management grant.
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            try { await EndSessionAsync(token, timeout.Token); }
-            catch (Exception ex) when (ex is ConsoleApiException or OperationCanceledException or ObjectDisposedException) { }
+            await AbandonLoginSessionAsync(token);
             throw;
         }
+    }
+
+    private async Task AbandonLoginSessionAsync(string token)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        try { await EndSessionAsync(token, timeout.Token); }
+        catch (Exception error) when (error is ConsoleApiException or OperationCanceledException or ObjectDisposedException) { }
     }
 
     private Task<Membership[]> MembershipsAsync(string token, CancellationToken ct) =>
@@ -323,6 +334,8 @@ public sealed partial class ConsoleClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 int status = (int)response.StatusCode;
+                if (path.StartsWith(DesktopOAuthPath, StringComparison.Ordinal))
+                    throw DesktopOAuthError(status, await AcademicErrorCodeAsync(response, ct));
                 if (version is "0.4" or "0.5" && IsExamPath(path))
                     throw await ExamErrorAsync(status, response, version, requestId, ct);
                 if (IsTermPreparationPath(path))

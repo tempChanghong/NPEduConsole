@@ -172,8 +172,8 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         ManagementAccountAuthority.Text = !details ? "" : account!.Disabled ? "该账号已停止本地登录。" :
             account.AwaitsManagementLogin ? account.Source == "LOCAL"
                 ? "待接任者使用个人 PIN 重新登录。授予前的原会话不会获得新管理权。"
-                : "待接任者在旧网页重新完成 OAuth 登录。原会话的其他学校权限继续有效。"
-            : account.ManagementLoginAt is { } verified ? $"已核对{(account.ManagementLoginMethod == "OAUTH" ? "网页 OAuth" : "本地 PIN")}登录 · {TimeLabel(verified)}"
+                : "待接任者在 Console 或网页重新完成 OAuth 登录。原会话的其他学校权限继续有效。"
+            : account.ManagementLoginAt is { } verified ? $"已核对{(account.ManagementLoginMethod == "OAUTH" ? " OAuth " : "本地 PIN")}登录 · {TimeLabel(verified)}"
             : account.IsManagement ? "现有管理角色。交接时请确认接任者的登录证据。" : "";
         ManagementRoleFields.IsVisible = details && _matchesOwner;
         ManagementToggle.IsVisible = details && otherCanEdit && account!.Source == "LOCAL";

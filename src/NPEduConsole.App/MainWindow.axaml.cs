@@ -34,7 +34,13 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         SchoolPicker.ItemTemplate = new FuncDataTemplate<School>((school, _) =>
-            new TextBlock { Text = school?.Name });
+            new TextBlock { Text = school?.ManagementRole switch
+            {
+                "OWNER" => $"{school.Name} · 所有者",
+                "ADMIN" => $"{school.Name} · 管理员",
+                _ => school?.Name,
+            }});
+        ConnectBrowserLogin();
         ClassSearch.TextChanged += ClassSearchChanged;
         ClassSearch.KeyDown += ClassSearchKeyDown;
         MicrophonePicker.ItemTemplate = new FuncDataTemplate<MicrophoneChoice>((choice, _) =>
@@ -100,14 +106,15 @@ public sealed partial class MainWindow : Window
 
     private async void OnLoginKeyDown(object? sender, KeyEventArgs args)
     {
-        if (args.Key != Key.Enter || !LoginView.IsVisible || !LoginButton.IsEnabled) return;
+        if (args.Key != Key.Enter || !LoginView.IsVisible || !LoginButton.IsEffectivelyEnabled ||
+            args.Source != SchoolCode && args.Source != Username && args.Source != Password) return;
         args.Handled = true;
         await LoginAsync();
     }
 
     private async Task LoginAsync()
     {
-        if (_request is not null || _signingOut || _client is not null) return;
+        if (_request is not null || _signingOut || _client is not null || _desktopLogin is not null) return;
         string address = (ServerAddress.Text ?? "").Trim();
         string schoolCode = (SchoolCode.Text ?? "").Trim();
         string username = (Username.Text ?? "").Trim();
@@ -136,21 +143,8 @@ public sealed partial class MainWindow : Window
             Password.Clear();
             var schools = await candidate.LoginAsync(schoolCode, username, password, request.Token);
             if (!IsCurrent(request)) return;
-            _client = candidate;
+            ShowSignedIn(candidate, schools, username);
             candidate = null;
-            _settingSelection = true;
-            SchoolPicker.ItemsSource = schools;
-            _settingSelection = false;
-            SchoolPicker.IsEnabled = schools.Count > 0;
-            AccountName.Text = username;
-            LoginShell.IsVisible = false;
-            LoginView.IsVisible = false;
-            UpdateShellPage();
-            SchoolSelectionMessage.Text = schools.Count == 0 ? "此账号暂无获授权学校。" : "请在顶部选择有权管理的学校。";
-            Workspace.IsVisible = AccountBar.IsVisible = true;
-            _ = RefreshSchoolServerStatusAsync();
-            ClassListMessage.Text = schools.Count == 0 ? "此账号暂无获授权学校。" : "请先选择学校。";
-            SetWorkspaceMessage(schools.Count == 0 ? "此账号暂无获授权学校。" : "请选择学校和班级。");
         }
         catch (Exception error) when (IsServiceError(error))
         {
@@ -158,18 +152,41 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
-            candidate?.Dispose();
+            if (candidate is not null) await ReleaseLoginClientAsync(candidate);
             if (FinishRequest(request))
             {
                 SetLoginBusy(false);
                 if (_client is not null)
                 {
-                    SchoolPicker.Focus();
-                    if (SchoolPicker.ItemCount == 1) SchoolPicker.SelectedIndex = 0;
+                    FocusSchoolSelection();
                 }
                 else (candidate is null ? ServerAddress : Password).Focus();
             }
         }
+    }
+
+    private void ShowSignedIn(ConsoleClient candidate, IReadOnlyList<School> schools, string accountName)
+    {
+        _client = candidate;
+        StopBrowserDiscovery();
+        _settingSelection = true;
+        SchoolPicker.ItemsSource = schools;
+        _settingSelection = false;
+        SchoolPicker.IsEnabled = true;
+        AccountName.Text = accountName;
+        LoginShell.IsVisible = LoginView.IsVisible = false;
+        UpdateShellPage();
+        SchoolSelectionMessage.Text = "请在顶部选择有权管理的学校。";
+        Workspace.IsVisible = AccountBar.IsVisible = true;
+        _ = RefreshSchoolServerStatusAsync();
+        ClassListMessage.Text = "请先选择学校。";
+        SetWorkspaceMessage("请选择学校和班级。");
+    }
+
+    private void FocusSchoolSelection()
+    {
+        SchoolPicker.Focus();
+        if (SchoolPicker.ItemCount == 1) SchoolPicker.SelectedIndex = 0;
     }
 
     private async void SchoolChanged(object? sender, SelectionChangedEventArgs args)
@@ -491,6 +508,17 @@ public sealed partial class MainWindow : Window
     private async void OnClosing(object? sender, WindowClosingEventArgs args)
     {
         if (_allowClose) return;
+        if (_desktopLogin is not null || _closingBrowserLogin)
+        {
+            args.Cancel = true;
+            if (_closingBrowserLogin) return;
+            _closingBrowserLogin = true;
+            await CancelBrowserLoginAsync(restoreFocus: false);
+            _closingBrowserLogin = false;
+            Close();
+            return;
+        }
+        StopBrowserDiscovery();
         CancelRequest();
         if (_client is null && !_signingOut) return;
         args.Cancel = true;
@@ -584,6 +612,7 @@ public sealed partial class MainWindow : Window
         LoginShell.IsVisible = true;
         LoginView.IsVisible = true;
         Password.Clear();
+        _ = DiscoverBrowserLoginAsync();
     }
 
     private void SetClassroom(Classroom? room)
@@ -695,9 +724,10 @@ public sealed partial class MainWindow : Window
     private void SetLoginBusy(bool busy)
     {
         LoginButton.IsEnabled = ServerAddress.IsEnabled = SchoolCode.IsEnabled = Username.IsEnabled = Password.IsEnabled = !busy;
+        BrowserLogin.IsEnabled = !busy || _desktopLogin is not null;
         OpenServerStatusButton.IsEnabled = !busy;
         LoginProgress.IsVisible = busy;
-        LoginButton.Content = busy ? (_signingOut ? "正在退出…" : "正在登录…") : "登录";
+        LoginButton.Content = busy ? (_signingOut ? "正在退出…" : "正在登录…") : "使用本地账号登录";
     }
 
     private void SetLoginMessage(string message)

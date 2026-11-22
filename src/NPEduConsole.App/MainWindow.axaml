@@ -94,16 +94,16 @@
             </Grid>
           </Border>
           <Border x:Name="LoginCard" Grid.Column="1" Classes="card" CornerRadius="0,17,17,0" Padding="36,28">
-          <StackPanel MaxWidth="440" Spacing="16" VerticalAlignment="Center">
+          <StackPanel x:Name="LoginForm" MaxWidth="440" Spacing="16" VerticalAlignment="Center">
             <StackPanel Spacing="7" Margin="0,0,0,6">
               <TextBlock Text="管理员登录" FontSize="27" FontWeight="SemiBold" />
-              <TextBlock Text="使用学校分配的管理账号。" Classes="muted" />
             </StackPanel>
             <StackPanel Spacing="6">
               <TextBlock Text="服务地址" Classes="label" />
               <TextBox x:Name="ServerAddress" PlaceholderText="https://school.example.edu" AutomationProperties.Name="服务地址" />
             </StackPanel>
-            <Grid ColumnDefinitions="*,16,*">
+            <local:DesktopOAuthLoginView x:Name="BrowserLogin" IsVisible="False" />
+            <Grid x:Name="LocalSchoolLoginFields" ColumnDefinitions="*,16,*">
               <StackPanel Spacing="6">
                 <TextBlock Text="学校代码" Classes="label" />
                 <TextBox x:Name="SchoolCode" AutomationProperties.Name="学校代码" />
@@ -113,7 +113,7 @@
                 <TextBox x:Name="Username" AutomationProperties.Name="短账号" />
               </StackPanel>
             </Grid>
-            <StackPanel Spacing="6">
+            <StackPanel x:Name="LocalPasswordLoginFields" Spacing="6">
               <TextBlock Text="密码" Classes="label" />
               <TextBox x:Name="Password" PasswordChar="●" AutomationProperties.Name="密码" />
             </StackPanel>
@@ -121,7 +121,7 @@
               <TextBlock x:Name="LoginMessage" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
             </Border>
             <ProgressBar x:Name="LoginProgress" IsVisible="False" IsIndeterminate="True" Height="4" />
-            <Button x:Name="LoginButton" Classes="action accent" Content="登录" Click="LoginClicked"
+            <Button x:Name="LoginButton" Classes="action accent" Content="使用本地账号登录" Click="LoginClicked"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,4,0,0" />
           </StackPanel>
         </Border>
@@ -212,7 +212,7 @@
                 BorderThickness="0,0,0,1" Padding="19,0">
           <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="13">
             <Grid ColumnDefinitions="0.9*,1.1*" ColumnSpacing="11" VerticalAlignment="Center" MaxWidth="520" HorizontalAlignment="Left">
-              <ComboBox x:Name="SchoolPicker" HorizontalAlignment="Stretch" MinWidth="147" MaxWidth="264"
+              <ComboBox x:Name="SchoolPicker" HorizontalAlignment="Stretch" MinWidth="177" MaxWidth="264"
                         PlaceholderText="选择已授权学校" AutomationProperties.Name="获授权学校" SelectionChanged="SchoolChanged" />
               <TextBlock x:Name="ShellTermName" Grid.Column="1" Classes="muted" FontSize="12" MaxLines="1"
                          TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
