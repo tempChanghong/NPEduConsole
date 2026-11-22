@@ -22,7 +22,7 @@ public sealed partial class TermPreparationWindow
     internal ScreenDestination? ActivationDestination { get; private set; }
     internal Func<Window, string, string, Task<ScreenDestination?>>? OpenPlacement { get; init; }
 
-    private bool CanConfirmActivation => _check is {ActivationProof: not null, BlockingDiagnostics.Length: 0};
+    private bool CanConfirmActivation => _check is {ActivationProof: not null, BlockingDiagnostics.Length: 0, EvidenceComplete: true};
 
     private async Task OpenActivationActionAsync()
     {

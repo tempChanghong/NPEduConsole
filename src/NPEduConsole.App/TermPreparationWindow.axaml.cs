@@ -25,7 +25,7 @@ public sealed partial class TermPreparationWindow : Window
     private TermDraftPreview? _preview;
     private TermDraftReceipt? _receipt;
     private TermPreparationCheck? _check;
-    private string? _sourceId, _reviewId, _existingId, _selectedDraftId, _screenId;
+    private string? _sourceId, _reviewId, _existingId, _selectedTermId, _screenId;
     private Page _page, _checkBack;
     private bool _busy, _closed, _writing, _binding, _dirty, _allowClose, _reviewed, _canRetry, _canEndCheck, _sourceUnavailable;
 
@@ -86,7 +86,8 @@ public sealed partial class TermPreparationWindow : Window
     internal Func<Window, string, Task<string?>>? OpenOrganizationImport { get; init; }
     private Dictionary<string, Operation> Operations => PendingByClient.GetOrCreateValue(_client);
     private Operation? Pending => Operations.GetValueOrDefault(_school.Id);
-    private ManagedAcademicTerm? SelectedDraft => PreparedTerms.SelectedItem as ManagedAcademicTerm;
+    private ManagedAcademicTerm? SelectedTerm => PreparedTerms.SelectedItem as ManagedAcademicTerm;
+    private ManagedAcademicTerm? SelectedDraft => SelectedTerm is {Status: "DRAFT"} draft ? draft : null;
 
     private async Task LoadCatalogAsync()
     {
@@ -95,17 +96,11 @@ public sealed partial class TermPreparationWindow : Window
         _catalog = catalog;
         _latestActivationId = catalog.LatestActivationRequestId;
         _activeTerm = catalog.ActiveTerm;
-        _binding = true;
-        PreparedTerms.ItemsSource = catalog.Drafts;
-        PreparedTerms.SelectedItem = catalog.Drafts.FirstOrDefault(row => row.Id == _selectedDraftId);
-        _binding = false;
+        ApplyTermFilter();
         ActiveTermName.Text = _activeTerm?.Name ?? "暂无启用学期";
         ActiveTermDates.Text = _activeTerm is { } term ? $"{term.Period} · {term.Dates}" :
-            catalog.HasAnyTerm ? "可打开下方草稿，核对后启用。" : "本校尚无来源学期，请先完成网页初始化。";
-        DraftListEmpty.Text = catalog.Drafts.Length > 0 ? null : "本校暂无学期草稿。";
-        DraftListEmpty.IsVisible = DraftListEmpty.Text is not null;
-        PreparedTerms.IsVisible = catalog.Drafts.Length > 0;
-        if (_page == Page.Create) _sourceUnavailable = _activeTerm?.Id != _sourceId;
+            catalog.HasAnyTerm ? "学生暂时没有启用学期。请选择已有学期继续办理。" : "本校尚无来源学期，请先完成初始化。";
+        if (_page == Page.Create) _sourceUnavailable = !CatalogTerms.Any(term => term.Id == _sourceId);
         Render();
     }
 
@@ -132,7 +127,7 @@ public sealed partial class TermPreparationWindow : Window
     private void StartEditor(string source, TermDraftSettings target)
     {
         _sourceId = source;
-        _sourceUnavailable = _activeTerm?.Id != source;
+        _sourceUnavailable = !CatalogTerms.Any(term => term.Id == source);
         _binding = true;
         TermDraftYear.Text = target.AcademicYear.ToString(CultureInfo.InvariantCulture);
         TermDraftSemester.SelectedIndex = target.Semester - 1;
@@ -163,15 +158,16 @@ public sealed partial class TermPreparationWindow : Window
     private void DraftSelected(object? sender, SelectionChangedEventArgs args)
     {
         if (_binding || _client is null) return;
-        _selectedDraftId = SelectedDraft?.Id;
+        _selectedTermId = SelectedTerm?.Id;
         Render();
     }
 
     private void DraftListKeyDown(object? sender, KeyEventArgs args)
     {
-        if (args.Key != Key.Enter || _page != Page.Directory || SelectedDraft is null) return;
+        if (args.Key != Key.Enter || _page != Page.Directory || SelectedTerm is null) return;
         args.Handled = true;
-        ExistingClicked(sender, args);
+        if (SelectedDraft is not null) ExistingClicked(sender, args);
+        else Focus(TermStatusActivate.IsEffectivelyVisible ? TermStatusActivate : TermPrimary);
     }
 
     private void InputChanged(object? sender, TextChangedEventArgs args) => EditorChanged();
@@ -303,7 +299,7 @@ public sealed partial class TermPreparationWindow : Window
             if (_canRetry) await RunAsync(() => SaveAsync(pending));
             return;
         }
-        if (_page == Page.Directory && _activeTerm is { } term)
+        if (_page == Page.Directory && (SelectedTerm ?? _activeTerm) is { } term)
         {
             string name = "";
             StartEditor(term.Id, new(term.AcademicYear + (term.Semester >= 2 ? 1 : 0), term.Semester == 1 ? 2 : 1, name, null, null));
@@ -383,7 +379,7 @@ public sealed partial class TermPreparationWindow : Window
         Operations.Remove(_school.Id);
         _dirty = _writing = _canRetry = _canEndCheck = false;
         _receipt = receipt;
-        _selectedDraftId = receipt.TermId;
+        _selectedTermId = receipt.TermId;
         _existingId = null;
         _checkBack = Page.Directory;
         await OpenCheckAsync(receipt.TermId);
@@ -421,7 +417,7 @@ public sealed partial class TermPreparationWindow : Window
     {
         _confirmation = null;
         _reviewId = termId;
-        _selectedDraftId = termId;
+        _selectedTermId = termId;
         _check = null;
         _screenId = null;
         TermScreenSearch.Clear();
@@ -716,8 +712,9 @@ public sealed partial class TermPreparationWindow : Window
         TermDirectory.IsVisible = _page == Page.Directory;
         TermCreateView.IsVisible = _page == Page.Create;
         TermCheckView.IsVisible = _page == Page.Check;
-        TermDraftSource.Text = _sourceId == _activeTerm?.Id ? $"从 {_activeTerm?.Name} 继承。学生名单需另行准备。" :
-            "旧来源需重新核对。学生名单需另行准备。";
+        var source = CatalogTerms.FirstOrDefault(term => term.Id == _sourceId);
+        TermDraftSource.Text = source is null ? "来源需重新核对。学生名单需另行准备。" :
+            $"从 {source.Name}（{source.Period} · {source.StatusText}）继承。学生名单需另行准备。";
         TermAccessNote.Text = (CarryTermMembers.IsChecked == true, CarryTermTeaching.IsChecked == true) switch
         {
             (true, false) => "已取消继承任课。单独继承的教学空间成员权限仍可能赋予教师访问。",
@@ -734,16 +731,18 @@ public sealed partial class TermPreparationWindow : Window
         TermOrganizationImport.IsVisible = !pending && OpenOrganizationImport is not null &&
             (_page == Page.Directory && PreparedTerms.ItemCount > 0 || _page == Page.Check && _check is not null);
         TermOrganizationImport.IsEnabled = editable && (_page == Page.Check ? _check is not null : SelectedDraft is not null);
-        TermWeb.IsVisible = !pending && _catalog is not null && (_page == Page.Directory && _activeTerm is null || _page == Page.Check);
+        TermWeb.IsVisible = !pending && _catalog is not null && (_page == Page.Directory &&
+            (!_catalog.HasAnyTerm || _catalog.Terms is null && _activeTerm is null) || _page == Page.Check);
         TermWeb.Content = _catalog?.HasAnyTerm == false ? "打开初始化入口" : "网页学期管理";
-        TermPrimary.IsVisible = pending ? _canRetry : _page == Page.Create || _page == Page.Directory && _activeTerm is not null;
-        TermPrimary.Content = pending ? "按原编号重试" : _page == Page.Create ? "建立草稿" : "新建草稿";
+        TermPrimary.IsVisible = pending ? _canRetry : _page == Page.Create || _page == Page.Directory && (SelectedTerm ?? _activeTerm) is not null;
+        TermPrimary.Content = pending ? "按原编号重试" : _page == Page.Create ? "建立草稿" : SelectedTerm is not null ? "以此建立新学期" : "新建草稿";
         TermPrimary.IsEnabled = !_busy && (pending ? _canRetry : _page == Page.Directory || _reviewed && !_sourceUnavailable);
         TermBack.Content = pending ? "关闭，稍后核对" : _page == Page.Directory ? "关闭" : "返回";
         TermRefresh.Content = pending ? "核对回执" : _page == Page.Check ? "刷新检查" : "刷新";
         TermDiscard.Content = pending ? "结束本次核对" : "放弃输入";
         TermBack.IsEnabled = TermRefresh.IsEnabled = TermDiscard.IsEnabled = !_busy;
         RenderActivation();
+        RenderTermDirectory(editable);
         ApplyLayout();
     }
 
@@ -763,5 +762,5 @@ public sealed partial class TermPreparationWindow : Window
         }
     }, DispatcherPriority.Loaded);
 
-    internal void CloseForScopeChange() { _allowClose = _closed = true; Close(); }
+    internal void CloseForScopeChange() { _allowClose = _closed = true; _termStatusWindow?.CloseForScopeChange(); Close(); }
 }

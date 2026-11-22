@@ -188,31 +188,32 @@ async function verify({prisma, origin, fixture, directory, evidence, web, native
       const row = page.locator('.v-list-item').filter({hasText: candidate.name, has: page.getByRole('button', {name: '启用', exact: true})});
       const matches = path => response => new URL(response.url()).pathname.endsWith('/terms/' + candidate.id + path);
       async function review() {
-        const pending = page.waitForResponse(matches('/transition-readiness'));
+        const pending = page.waitForResponse(matches('/status-preview'));
         await row.getByRole('button', {name: '启用', exact: true}).click();
         const response = await pending;
         assert.ok(response.ok());
-        return (await response.json()).data.activationVersion;
+        return (await response.json()).data.proof.version;
       }
       const dialog = page.getByRole('dialog').filter({hasText: '确认切换学期'});
-      async function submit(expected, status) {
-        const pending = page.waitForResponse(matches('/activate'));
+      async function submit(expected, state) {
+        const pending = page.waitForResponse(matches('/status'));
         await dialog.getByRole('button', {name: '确认切换学期'}).click();
         const response = await pending;
-        assert.equal(response.status(), status);
-        assert.equal(response.request().postDataJSON().expectedVersion, expected);
+        assert.equal(response.status(), 200);
+        assert.equal((await response.json()).data.state, state);
+        assert.equal(response.request().postDataJSON().proof.version, expected);
       }
       const stale = await review();
       await api('/api/v2/admin/schools/' + other.id + '/classroom-screens/' + binding.id, {method: 'PATCH', token,
         body: {name: '网页并发改名屏'}});
-      await submit(stale, 409);
+      await submit(stale, 'STALE');
       await page.getByText(/网页并发改名屏/).first().waitFor({state: 'visible'});
       assert.equal((await prisma.academicTerm.findUniqueOrThrow({where: {id: current.id}})).status, 'ACTIVE');
       assert.equal((await prisma.classroomScreenBinding.findUniqueOrThrow({where: {id: binding.id}})).administrativeClassId, rooms[0].id);
       await page.screenshot({path: join(evidence, 'browser-legacy-stale.png'), animations: 'disabled'});
       const fresh = await review();
       assert.notEqual(fresh, stale);
-      await submit(fresh, 200);
+      await submit(fresh, 'APPLIED');
       await page.getByText(/已切换到网页兼容目标学期/).waitFor({state: 'visible'});
       assert.equal((await prisma.academicTerm.findUniqueOrThrow({where: {id: current.id}})).status, 'ARCHIVED');
       assert.equal((await prisma.classroomScreenBinding.findUniqueOrThrow({where: {id: binding.id}})).administrativeClassId, rooms[1].id);

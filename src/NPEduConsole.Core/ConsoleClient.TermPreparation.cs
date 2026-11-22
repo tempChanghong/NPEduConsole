@@ -6,12 +6,18 @@ public sealed record ManagedAcademicTerm(string Id, string Name, int AcademicYea
     DateTimeOffset? StartsAt, DateTimeOffset? EndsAt)
 {
     public string Period => $"{AcademicYear} 学年 · 第 {Semester} 学期";
+    public string StatusText => Status switch { "ACTIVE" => "启用中", "ARCHIVED" => "已归档", _ => "草稿" };
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool StartsYear { get; init; }
+    public string YearHeading => $"{AcademicYear} 学年";
+    public string Badge => $"第 {Semester} 学期 · {StatusText}";
     public string Dates => StartsAt is null && EndsAt is null ? "未设置起止日期" :
         $"{StartsAt?.ToString("yyyy-MM-dd") ?? "开始未定"} 至 {EndsAt?.ToString("yyyy-MM-dd") ?? "结束未定"}";
     public override string ToString() => $"{Name} · {Period}";
 }
 public sealed record TermPreparationCatalog(string SchoolId, ManagedAcademicTerm? ActiveTerm, ManagedAcademicTerm[] Drafts,
-    bool HasAnyTerm, string? AdminUrl, string? SetupUrl, Guid? LatestActivationRequestId = null);
+    bool HasAnyTerm, string? AdminUrl, string? SetupUrl, Guid? LatestActivationRequestId = null, ManagedAcademicTerm[]? Terms = null,
+    Guid? LatestStatusRequestId = null, TermStatusHistoryEntry[]? StatusHistory = null);
 public sealed record TermDraftSettings(int AcademicYear, int Semester, string Name, string? StartsAt, string? EndsAt,
     bool CarryWorkspaceMembers = true, bool CarryTeachingAssignments = true, bool CarryLeaderships = true, bool CarryPendingInvitations = false);
 public sealed record TermDraftTarget(string Name, int AcademicYear, int Semester, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt);
@@ -39,7 +45,8 @@ public sealed record TermDraftPreview(ManagedAcademicTerm Source, TermDraftTarge
     TermDraftWorkspace[] Workspaces, TermDraftGrade[] GradeDuties, string Version);
 public sealed record TermDraftReceipt(Guid RequestId, string TermId, TermDraftCounts Counts);
 public sealed record TermDraftResult(string State, TermDraftPreview? Preview = null, TermDraftReceipt? Receipt = null);
-public sealed record TermDraftDiagnostic(string Source, string Severity, string Code, string Message, string? TargetTab = null);
+public sealed record TermDraftDiagnostic(string Source, string Severity, string Code, string Message, string? TargetTab = null,
+    string? Consequence = null);
 public sealed record TermDraftOriginalClass(string Id, string Name, string Code, string TermId, string TermName);
 public record TermDraftScreenImpact(string BindingId, string Name, TermDraftOriginalClass? FromClass,
     TermDraftClass? TargetClass, string NativeImpact, bool ArchiveInvalidatesNative = false)
@@ -56,7 +63,7 @@ public record TermDraftScreenImpact(string BindingId, string Name, TermDraftOrig
 }
 public sealed record TermPreparationCheck(string SchoolId, ManagedAcademicTerm Term, ManagedAcademicTerm? ActiveTerm,
     TermDraftDiagnostic[] BlockingDiagnostics, TermDraftDiagnostic[] Reminders, TermDraftScreenImpact[] Screens,
-    TermActivationProof? ActivationProof = null);
+    TermActivationProof? ActivationProof = null, bool EvidenceComplete = true);
 
 public sealed partial class ConsoleClient
 {
@@ -101,6 +108,13 @@ public sealed partial class ConsoleClient
             "TERM_ACTIVATION_REQUEST_INVALID" => "请重新读取启用检查后再确认。",
             "TERM_ACTIVATION_REQUEST_CONFLICT" => "启用请求编号已用于其他操作，请先核对原结果。",
             "TERM_ACTIVATION_RECEIPT_NOT_FOUND" => "暂未找到本次启用回执。",
+            "TERM_STATUS_REQUEST_INVALID" => "请先核对本次学期操作，再确认。",
+            "TERM_STATUS_PREVIEW_REQUIRED" => "请重新读取影响预览后再提交。",
+            "TERM_STATUS_CHANGED" => "学期或逐屏影响已变化。请刷新并重新确认。",
+            "TERM_STATUS_UNCHANGED" => "该学期已经处于所选状态。请刷新核对。",
+            "TERM_STATUS_REQUEST_CONFLICT" => "此编号已有另一笔学期操作。请查原回执。",
+            "TERM_STATUS_RECEIPT_NOT_FOUND" => "暂未找到本次学期操作的本人回执。",
+            "TERM_SCREEN_EVIDENCE_UNAVAILABLE" => "未能核对全部大屏归属或授权。请补齐依据后刷新。",
             "TERM_NOT_READY" => "本次检查有教务阻断，无法启用。",
             "TERM_SCREEN_PLACEMENT_NOT_AVAILABLE" => "这台大屏当前没有可办理的未匹配记录。",
             "TERM_SCREEN_PLACEMENT_RECEIPT_NOT_FOUND" => "暂未找到本次安排回执。",
@@ -113,7 +127,7 @@ public sealed partial class ConsoleClient
                 "TARGET_CHANGED" => "目标班或该班已有大屏已变化。请核对后重新确认。",
                 _ => "大屏、目标班或当前学期已变化，请核对最新资料。"
             },
-            "TERM_NOT_FOUND" => "该草稿不存在或不在当前学校。",
+            "TERM_NOT_FOUND" => "该学期不存在或不在当前学校。",
             _ when status is 404 or 405 or 426 => "当前 KV 尚未提供桌面学期管理，请使用原网页。",
             _ => HttpError(status, false).Message
         }, code) { ExistingTermId = existing };
@@ -127,7 +141,12 @@ public sealed partial class ConsoleClient
         if (result.SchoolId != school || result.Drafts is null ||
             result.ActiveTerm is { } active && !ValidTerm(active, "ACTIVE") ||
             result.Drafts.Any(term => !ValidTerm(term, "DRAFT")) ||
-            result.Drafts.Select(term => term.Id).Distinct().Count() != result.Drafts.Length) throw InvalidResponse();
+            result.Drafts.Select(term => term.Id).Distinct().Count() != result.Drafts.Length ||
+            result.Terms is { } terms && (terms.Any(term => !ValidListedTerm(term)) ||
+                terms.Select(term => term.Id).Distinct().Count() != terms.Length ||
+                terms.Count(term => term.Status == "ACTIVE") != (result.ActiveTerm is null ? 0 : 1) ||
+                result.ActiveTerm is { } current && !terms.Contains(current) ||
+                !terms.Where(term => term.Status == "DRAFT").SequenceEqual(result.Drafts))) throw InvalidResponse();
         return result;
     }
 
@@ -195,9 +214,11 @@ public sealed partial class ConsoleClient
         term is { AcademicYear: >= 2000 and <= 2200, Semester: >= 1 and <= 3 } && !string.IsNullOrWhiteSpace(term.Id) &&
         !string.IsNullOrWhiteSpace(term.Name) && term.Status == status;
 
+    private static bool ValidListedTerm(ManagedAcademicTerm? term) => term?.Status is "ACTIVE" or "ARCHIVED" or "DRAFT" && ValidTerm(term, term.Status);
+
     private static void ValidateTermPreview(TermDraftPreview result, string source, TermDraftSettings target)
     {
-        if (!ValidTerm(result.Source, "ACTIVE") || result.Source.Id != source || result.Target?.Name != target.Name ||
+        if (!ValidListedTerm(result.Source) || result.Source.Id != source || result.Target?.Name != target.Name ||
             result.Target.AcademicYear != target.AcademicYear || result.Target.Semester != target.Semester ||
             result.Counts is not { Valid: true } || result.Carry != new TermDraftCarry(target.CarryWorkspaceMembers,
                 target.CarryTeachingAssignments, target.CarryLeaderships, target.CarryPendingInvitations) ||

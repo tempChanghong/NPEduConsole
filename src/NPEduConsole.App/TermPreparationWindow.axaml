@@ -33,25 +33,51 @@
         <ScrollViewer x:Name="TermScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" AllowAutoHide="False">
           <Grid Margin="0,0,6,0">
             <Grid x:Name="TermDirectory">
-              <Border x:Name="ActiveTermCard" Classes="card" Padding="12">
+              <Border x:Name="ActiveTermCard" Classes="card" Padding="12" VerticalAlignment="Top">
                 <StackPanel Spacing="7">
                   <TextBlock Text="正在使用" FontSize="17" Classes="label"/>
                   <TextBlock x:Name="ActiveTermName" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
                   <TextBlock x:Name="ActiveTermDates" Classes="muted" TextWrapping="Wrap"/>
+                  <Separator/>
+                  <TextBlock Text="正在查看" FontSize="17" Classes="label"/>
+                  <TextBlock x:Name="ViewedTermName" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                  <TextBlock x:Name="ViewedTermDetails" Classes="muted" TextWrapping="Wrap"/>
+                  <WrapPanel ItemSpacing="8" LineSpacing="5">
+                    <Button x:Name="TermStatusActivate" Classes="action" Content="预览启用" Click="StatusActivateClicked"/>
+                    <Button x:Name="TermStatusReceiptButton" Classes="action" Content="核对学期操作" Click="StatusReceiptClicked" IsVisible="False"/>
+                  </WrapPanel>
+                  <Expander x:Name="TermMoreActions" Header="更多操作" IsVisible="False" HorizontalAlignment="Stretch">
+                    <StackPanel Margin="0,5,0,0" Spacing="6">
+                      <WrapPanel ItemSpacing="8" LineSpacing="5">
+                        <Button x:Name="TermStatusArchive" Classes="action" Content="单独归档" Click="StatusArchiveClicked"/>
+                        <Button x:Name="TermStatusDraft" Classes="action" Content="转回草稿" Click="StatusDraftClicked"/>
+                      </WrapPanel>
+                      <ComboBox x:Name="TermStatusHistoryPicker" HorizontalAlignment="Stretch" IsVisible="False"
+                                AutomationProperties.Name="本学期的本人历史操作"/>
+                      <Button x:Name="TermStatusHistoryOpen" Classes="action" Content="查看所选历史回执" IsVisible="False"
+                              Click="StatusHistoryClicked"/>
+                    </StackPanel>
+                  </Expander>
                 </StackPanel>
               </Border>
               <Border x:Name="DraftTermsCard" Classes="card" Padding="12">
                 <StackPanel Spacing="7">
-                  <TextBlock Text="准备中" FontSize="17" Classes="label"/>
+                  <TextBlock Text="本校学期" FontSize="17" Classes="label"/>
+                  <ComboBox x:Name="TermFilter" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="TermFilterChanged"
+                            AutomationProperties.Name="按状态筛选学期">
+                    <ComboBoxItem Content="全部"/><ComboBoxItem Content="启用中"/>
+                    <ComboBoxItem Content="草稿"/><ComboBoxItem Content="已归档"/>
+                  </ComboBox>
                   <TextBlock x:Name="DraftListEmpty" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
                   <ListBox x:Name="PreparedTerms" Classes="object-list" Background="Transparent" BorderThickness="0" MinHeight="120" MaxHeight="240"
                            SelectionChanged="DraftSelected" KeyDown="DraftListKeyDown" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                           ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.AllowAutoHide="False" AutomationProperties.Name="准备中的学期">
+                           ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.AllowAutoHide="False" AutomationProperties.Name="本校学期目录">
                     <ListBox.ItemTemplate>
                       <DataTemplate x:DataType="core:ManagedAcademicTerm">
                         <StackPanel Spacing="3">
+                          <TextBlock Text="{Binding YearHeading}" Classes="muted" IsVisible="{Binding StartsYear}" Margin="0,4,0,1"/>
                           <TextBlock Text="{Binding Name}" Classes="label" TextWrapping="Wrap"/>
-                          <TextBlock Text="{Binding Period}" Classes="muted"/>
+                          <TextBlock Text="{Binding Badge}" Classes="muted"/>
                           <TextBlock Text="{Binding Dates}" Classes="muted" TextWrapping="Wrap"/>
                         </StackPanel>
                       </DataTemplate>
@@ -204,6 +230,7 @@
           <Button x:Name="TermRefresh" Classes="action" Content="刷新" Click="RefreshClicked"/>
           <Button x:Name="TermPreviewButton" Classes="action" Content="预览继承" Click="PreviewClicked" IsVisible="False"/>
           <Button x:Name="TermExistingButton" Classes="action" Content="检查现有草稿" Click="ExistingClicked" IsVisible="False"/>
+          <Button x:Name="TermActivationOptions" Classes="action" Content="选择迁屏与启用方式" Click="DraftStatusActivateClicked" IsVisible="False"/>
           <Button x:Name="TermOrganizationImport" Classes="action" Content="导入草稿组织" Click="OrganizationImportClicked" IsVisible="False"/>
           <Button x:Name="TermDiscard" Classes="action" Content="放弃输入" Click="DiscardClicked" IsVisible="False"/>
           <Button x:Name="TermLatestActivation" Classes="action" Content="上次启用结果" Click="OpenLatestActivation" IsVisible="False"/>

@@ -1,0 +1,76 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.TermStatusScreensView"
+             Focusable="False">
+    <UserControl.Styles>
+        <Style Selector="Border.screen-row">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style Selector="TextBlock.screen-head">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+        </Style>
+        <Style Selector="TextBlock.screen-id">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.screen-name">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style Selector="TextBlock.screen-text">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.screen-outcome">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.screen-empty">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="ListBox#TermStatusScreensList">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="ListBox#TermStatusScreensList > ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style Selector="ListBox#TermStatusScreensList > ListBoxItem:focus /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*" RowSpacing="6">
+        <!-- 小标题由宿主决定是否配合；窄窗自动隐藏，卡片里已经有字段名。 -->
+        <Grid x:Name="TermStatusScreensHeader" Grid.Row="0" ColumnDefinitions="2*,1.6*,1.6*,1.6*" ColumnSpacing="8"
+              IsVisible="False">
+            <TextBlock Grid.Column="0" Classes="screen-head" Text="大屏" />
+            <TextBlock Grid.Column="1" Classes="screen-head" Text="原归属" />
+            <TextBlock Grid.Column="2" Classes="screen-head" Text="变更后" />
+            <TextBlock Grid.Column="3" Classes="screen-head" Text="结果" />
+        </Grid>
+
+        <TextBlock x:Name="TermStatusScreensEmpty" Grid.Row="1" Classes="screen-empty"
+                   Text="这次状态变更不影响任何大屏。" IsVisible="False" />
+
+        <ListBox x:Name="TermStatusScreensList" Grid.Row="1" SelectionMode="Single"
+                 SelectionChanged="RowsSelectionChanged"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
+    </Grid>
+</UserControl>

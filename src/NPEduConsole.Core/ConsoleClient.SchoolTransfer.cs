@@ -15,7 +15,7 @@ public sealed record TransferOwnerRoute(string Name, string Method, bool Availab
 public sealed record SchoolTransferPreview(TransferManifest Manifest, Dictionary<string, int> Counts, string[] Warnings, string? PreviewToken,
     TransferScreen[]? ScreenActions, TransferRetained? Retained, TransferOwnerRoute[]? OwnerRoutes);
 public sealed record SchoolTransferReadiness(TransferSchool School, int FormatVersion, string Role, string ReauthMethod,
-    Dictionary<string, int> Counts, TransferRetained Retained, TransferScreen[] ScreenActions);
+    Dictionary<string, int> Counts, TransferRetained Retained, TransferScreen[] ScreenActions, bool? HasActiveTerm = null);
 public sealed record SchoolTransferReceipt(bool Imported, TransferSchool School, TransferManifest Manifest, Dictionary<string, int> Counts,
     TransferScreen[] ScreenActions, TransferRetained? Retained, TransferOwnerRoute[] OwnerRoutes);
 public sealed record SetupOwner(string Id, string Name, string? LocalUsername = null, string? Provider = null);

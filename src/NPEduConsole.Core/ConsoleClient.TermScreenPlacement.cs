@@ -30,10 +30,11 @@ public sealed record TermScreenPlacement(TermScreenClass TargetClass, string Sou
 }
 
 public sealed record TermScreenPlacementCheck(string SchoolId, ManagedAcademicTerm Term, string BindingId, string Name,
-    TermDraftOriginalClass FromClass, string Version, bool CanArrange, TermScreenCandidate[] Candidates, TermScreenPlacement? Placement);
+    TermDraftOriginalClass FromClass, string Version, bool CanArrange, TermScreenCandidate[] Candidates, TermScreenPlacement? Placement,
+    Guid? ActivationRequestId = null);
 public sealed record TermScreenPlacementReceipt(Guid RequestId, string TermId, string BindingId, string FromClassId,
-    string TargetClassId, DateTimeOffset ArrangedAt);
-public sealed record TermScreenPlacementResult(TermScreenPlacementReceipt Receipt, TermScreenPlacement Placement);
+    string TargetClassId, DateTimeOffset ArrangedAt, Guid? ActivationRequestId = null);
+public sealed record TermScreenPlacementResult(TermScreenPlacementReceipt Receipt, TermScreenPlacement Placement, bool? IsCurrentRound = null);
 
 public sealed partial class ConsoleClient
 {
@@ -49,7 +50,8 @@ public sealed partial class ConsoleClient
         if (check.SchoolId != school || check.Term?.Id != term || check.BindingId != binding ||
             !ValidTerm(check.Term, check.CanArrange ? "ACTIVE" : check.Term.Status) ||
             string.IsNullOrWhiteSpace(check.Name) || check.FromClass is null || !HasValue(check.FromClass.Id) ||
-            !ValidActivationVersion(check.Version) || check.Candidates is null || !check.CanArrange && check.Candidates.Length != 0 ||
+            !ValidActivationVersion(check.Version) || check.ActivationRequestId == Guid.Empty ||
+            check.Candidates is null || !check.CanArrange && check.Candidates.Length != 0 ||
             check.CanArrange && check.Placement is not null || !PlacementValid(check.Placement) ||
             check.Candidates.Any(row => row is null || !HasValue(row.Id) || !HasValue(row.Code) || !HasValue(row.Name) ||
                 !ValidActivationVersion(row.Version) || row.Screens is null ||
@@ -67,7 +69,7 @@ public sealed partial class ConsoleClient
             throw new ArgumentException("请先核对目标班级。", nameof(target));
         var result = await RequestAsync<TermScreenPlacementResult>(HttpMethod.Post, TermScreenPlacementPath(check.SchoolId, check.BindingId),
             session.Token, ct, body: new {requestId, termId = check.Term.Id, targetClassId = target.Id,
-                version = check.Version, targetVersion = target.Version});
+                version = check.Version, targetVersion = target.Version, check.ActivationRequestId});
         CheckCreationSession(session, ct);
         ValidatePlacementReceipt(result, check, target, requestId);
         return result;
@@ -97,6 +99,7 @@ public sealed partial class ConsoleClient
     {
         if (result.Receipt is not { } receipt || receipt.RequestId != requestId || receipt.TermId != check.Term.Id ||
             receipt.BindingId != check.BindingId || receipt.FromClassId != check.FromClass.Id || receipt.TargetClassId != target.Id ||
+            check.ActivationRequestId is { } round && receipt.ActivationRequestId != round ||
             receipt.ArrangedAt == default || result.Placement is null || !PlacementValid(result.Placement))
             throw InvalidResponse();
     }

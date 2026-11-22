@@ -124,11 +124,13 @@ internal static partial class Program
             var overview = Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace");
             await ExpandTaskQueue(overview);
             var tasks = overview.FindControl<ListBox>("OverviewTasksList")!;
-            await Until(() => tasks.Items.Cast<OverviewTaskItem>().Any(row => row.Task.ScreenId == access.SecondId), "new-term dashboard reloaded");
+            await Until(() => tasks.Items.Cast<OverviewTaskItem>().Any(row => row.Task.ScreenId == access.SecondId &&
+                row.Task.Code == "SCREEN_REPAIR_REQUIRED"), "new-term dashboard reloaded");
             Check(tasks.Items.Cast<OverviewTaskItem>().Any(row => row.Task.ScreenId == access.UnmatchedId &&
                 row.Task.Code == "TERM_SCREEN_RETAINED_ORIGINAL") &&
-                tasks.Items.Cast<OverviewTaskItem>().All(row => row.Task.ScreenId != access.FirstId),
-                "only outstanding screens remain on dashboard");
+                tasks.Items.Cast<OverviewTaskItem>().Where(row => row.Task.ScreenId == access.FirstId)
+                    .All(row => row.Task.Code == "SCREEN_WEB_ACCOUNT_REQUIRED"),
+                "the confirmed native screen has no native task; its unrelated missing web account may still be reported");
             await Capture(main, output, "10-school-overview");
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
             await Until(() => entry.IsEffectivelyVisible && entry.IsEffectivelyEnabled, "return to term management");

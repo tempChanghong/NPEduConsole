@@ -27,6 +27,7 @@ import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
 import { verifyStaffResponsibilities } from './staff-responsibilities-fixture.mjs';
 import { verifyTermActivation } from './term-activation-fixture.mjs';
 import { verifyTermPreparation } from './term-preparation-fixture.mjs';
+import {verifyTermStatus} from './term-status-fixture.mjs';
 import { verifyCourseGroups } from './course-groups-fixture.mjs';
 import { verifyGradeTeachingPlan } from './grade-teaching-plan-fixture.mjs';
 import { verifySchoolStudy } from './school-study-fixture.mjs';
@@ -48,7 +49,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
-  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
+  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-status', '--term-status-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
@@ -74,6 +75,8 @@ const termPreparation = mode === '--term-preparation';
 const termScreenPlacement = mode === '--term-screen-placement';
 const termActivation = mode === '--term-activation' || termScreenPlacement;
 const termActivationDatabase = mode === '--term-activation-db';
+const termStatus = mode === '--term-status';
+const termStatusDatabase = mode === '--term-status-db';
 const courseGroups = mode === '--current-course-groups';
 const gradePlanDatabase = mode === '--grade-teaching-plan-db';
 const gradePlan = mode === '--grade-teaching-plan';
@@ -152,6 +155,7 @@ async function createDatabase() {
   const connection = { host: '127.0.0.1', port, user: 'npconsole', password: databasePassword };
   for (const key of ['AXIOM_TOKEN', 'AXIOM_DATASET', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS', 'PGHOST', 'PGDATABASE', 'PGUSER', 'PGPORT', 'PGPASSWORD', 'TRUST_PROXY']) delete process.env[key];
   const fixtureDatabase = mode === '--school-transfer-db' ? 'npclassworks_test_school_transfer' :
+    termStatusDatabase ? 'npclassworks_test_term_status' :
     mode === '--school-login-profile-db' ? 'npclassworks_test_school_profile' :
     mode === '--management-accounts-db' ? 'npclassworks_test_management' :
     mode === '--homework-settings-db' ? 'npclassworks_test_homework_settings' :
@@ -220,7 +224,7 @@ async function seed() {
     await prisma.schoolMember.create({ data: { schoolId: school.id, accountId: entry.id, role } });
     return entry;
   }
-  const manager = await account('admin', managementAccounts || mode === '--desktop-oauth' ? 'OWNER' : 'ADMIN');
+  const manager = await account('admin', managementAccounts || termStatus || mode === '--desktop-oauth' ? 'OWNER' : 'ADMIN');
   await account('viewer', 'VIEWER');
   if (studyMonitoring) await account('owner', 'OWNER');
   if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || managementAccounts || ['--screen-duty', '--exam-workbench', '--homework-settings'].includes(mode))
@@ -232,7 +236,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || gradePlan || gradePlanDatabase || schoolStudy || organizationImport || termPreparation || termActivation || termActivationDatabase ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || gradePlan || gradePlanDatabase || schoolStudy || organizationImport || termPreparation || termActivation || termActivationDatabase || termStatus ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -605,7 +609,7 @@ async function runFixture() {
     finally { await copyFile(join(directory, log), join(evidence, log)); }
     return;
   }
-  const emptySetup = ['--school-login-profile-setup', '--school-transfer-target', '--first-school-console'].includes(mode);
+  const emptySetup = ['--school-login-profile-setup', '--school-transfer-target', '--first-school-console'].includes(mode) || termStatusDatabase;
   const fixture = emptySetup ? null : await seed();
   let transferIdentity;
   if (mode === '--school-transfer-target') {
@@ -751,18 +755,27 @@ async function runFixture() {
     } finally { await copyFile(join(directory, report), join(evidence, report)); }
     return;
   }
-  if (termActivationDatabase) {
+  if (termActivationDatabase || termStatusDatabase) {
     const evidence = resolve(process.env.NP_CONSOLE_TERM_ACTIVATION_EVIDENCE ||
-      fileURLToPath(new URL('../.artifacts/term-activation', import.meta.url)));
+      fileURLToPath(new URL(termStatusDatabase ? '../.artifacts/term-status/final' : '../.artifacts/term-activation', import.meta.url)));
     await mkdir(evidence, {recursive: true});
-    const report = 'term-activation-postgres.log';
+    const report = termStatusDatabase ? 'term-status-postgres.log' : 'term-activation-postgres.log';
     try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/termActivation.integration.test.js',
-      'tests/termPreparation.integration.test.js', 'tests/schoolManagementOverview.integration.test.js', 'tests/termScreenPlacement.integration.test.js'],
+      'tests/termPreparation.integration.test.js', 'tests/schoolManagementOverview.integration.test.js', 'tests/termScreenPlacement.integration.test.js',
+      ...(termStatusDatabase ? ['tests/academicTermStatusDatabase.integration.test.js', 'tests/termActivationRoundUpgrade.integration.test.js'] : [])],
     {...process.env, RUN_DATABASE_TESTS: 'true'}, report); }
     finally { await copyFile(join(directory, report), join(evidence, report)); }
     return;
   }
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (termStatus) {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
+    const evidence = process.env.NP_CONSOLE_TERM_ACTIVATION_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/term-status/final', import.meta.url));
+    return verifyTermStatus({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args)});
+  }
   if (termActivation) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));

@@ -1,0 +1,73 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.TermStatusWindow"
+        Title="学期状态" Width="1160" Height="780" MinWidth="665" MinHeight="450" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,9">
+      <StackPanel Spacing="3">
+        <TextBlock x:Name="StatusTitle" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="StatusScope" Classes="muted" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="StatusReceiptNumber" Classes="muted" IsVisible="False"/>
+        <TextBlock x:Name="StatusMessage" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" IsVisible="False"/>
+      </StackPanel>
+    </Border>
+    <ScrollViewer Grid.Row="1" x:Name="StatusScroll" AllowAutoHide="False" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="16,12" Spacing="9">
+        <Grid x:Name="StatusComparison" ColumnDefinitions="*,*" ColumnSpacing="8" RowSpacing="8">
+          <Border Classes="card" Padding="12">
+            <StackPanel Spacing="4">
+              <TextBlock x:Name="StatusBeforeLabel" Text="当前" Classes="label" FontSize="16"/>
+              <TextBlock x:Name="StatusBefore" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+          <Border x:Name="StatusAfterCard" Grid.Column="1" Classes="card" Padding="12">
+            <StackPanel Spacing="4">
+              <TextBlock x:Name="StatusAfterLabel" Text="提交后" Classes="label" FontSize="16"/>
+              <TextBlock x:Name="StatusAfter" TextWrapping="Wrap"/>
+            </StackPanel>
+          </Border>
+        </Grid>
+        <Border x:Name="StatusOptions" Classes="card" Padding="12" IsVisible="False">
+          <StackPanel Spacing="4">
+            <CheckBox x:Name="StatusMoveScreens" Content="按行政班代码迁移大屏绑定" IsChecked="True" Click="MoveScreensChanged"/>
+            <TextBlock x:Name="StatusMoveImpact" Classes="muted" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+        <Border x:Name="StatusIssues" Classes="card" Padding="12" IsVisible="False">
+          <StackPanel Spacing="6">
+            <TextBlock x:Name="StatusIssueHeading" Classes="label" FontSize="16"/>
+            <ItemsControl x:Name="StatusIssueItems">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2"/></DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <CheckBox x:Name="StatusForce" IsVisible="False" IsCheckedChanged="ForceChanged" Content="我已核对上述影响，按当前大屏选项强制启用"/>
+          </StackPanel>
+        </Border>
+        <Expander x:Name="StatusReminders" Header="一般提醒" HorizontalAlignment="Stretch" IsVisible="False">
+          <ItemsControl x:Name="StatusReminderItems" Margin="8,4">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,2"/></DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Expander>
+        <Border x:Name="StatusScreensCard" Classes="card" Padding="12" IsVisible="False">
+          <StackPanel Spacing="6">
+            <TextBlock x:Name="StatusScreensTitle" Text="逐台大屏" Classes="label" FontSize="16"/>
+            <TextBlock x:Name="StatusScreenSummary" Classes="muted" TextWrapping="Wrap"/>
+            <local:TermStatusScreensView x:Name="StatusScreens"/>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,8">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <WrapPanel ItemSpacing="8" LineSpacing="4">
+          <Button x:Name="StatusBack" Classes="action" Content="返回学期管理" Click="BackClicked"/>
+          <Button x:Name="StatusRefresh" Classes="action" Content="刷新预览" Click="RefreshClicked"/>
+          <Button x:Name="StatusEndLookup" Classes="action" Content="结束核对" Click="EndLookupClicked" IsVisible="False"/>
+        </WrapPanel>
+        <Button x:Name="StatusCommit" Grid.Column="1" Classes="action accent" Click="CommitClicked" VerticalAlignment="Top" IsVisible="False"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

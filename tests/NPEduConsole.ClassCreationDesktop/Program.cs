@@ -32,6 +32,8 @@ internal static partial class Program
             return StartTermScreenPlacement(placementFixture, placementOutput, args[0].EndsWith("-reopen", StringComparison.Ordinal));
         if (args is ["--live-term-activation", var activationFixture, var activationOutput])
             return StartTermActivation(activationFixture, activationOutput);
+        if (args is ["--live-term-status", var statusFixture, var statusOutput])
+            return StartTermStatus(statusFixture, statusOutput);
         if (args is ["--live-term-preparation", var termFixture, var termOutput])
             return StartTermPreparation(termFixture, termOutput);
         if (args is ["--live-school-study", var schoolStudyFixture, var schoolStudyOutput])

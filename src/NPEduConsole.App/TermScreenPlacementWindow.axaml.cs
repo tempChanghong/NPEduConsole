@@ -210,7 +210,8 @@ public sealed partial class TermScreenPlacementWindow : Window
         ClearPending();
         _placement = result.Placement;
         if (_check is { } original) _check = original with {CanArrange = false};
-        Notice($"已核对本次安排回执。确认目标为 {operation.Candidate.Display}。");
+        Notice(result.IsCurrentRound == false ? $"已找到历史安排回执，当时目标为 {operation.Candidate.Display}。请刷新核对本轮。" :
+            $"已核对本次安排回执。确认目标为 {operation.Candidate.Display}。");
         Render();
         Focus(PlacementPrimary);
     }

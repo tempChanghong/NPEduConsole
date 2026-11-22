@@ -49,7 +49,8 @@ public sealed partial class SchoolTransferExportWindow : Window
             $"{Count("studySettings")} 条自习策略、{Count("seatVersions")} 个座位图版本（{Count("seatImages")} 个有图）、" +
             $"{Count("portableClassCredentials")} 份可沿用的班级口令。";
         TransferExportRetained.Text = $"留在源服务器的在期记录：{readiness.Retained.Photos} 张自习照片，{readiness.Retained.ExitEvents} 条退出记录。";
-        TransferExportNotice.Text = readiness.Role == "ADMIN" ? "管理员可以核对准备情况，请由本校所有者导出。" :
+        TransferExportNotice.Text = readiness.HasActiveTerm == false ? "整校迁出需有一个启用学期。请先在学期管理核对。" :
+            readiness.Role == "ADMIN" ? "管理员可以核对准备情况，请由本校所有者导出。" :
             readiness.ReauthMethod == "UNAVAILABLE" ? "此身份提供方暂无法核实本次重新认证。普通登录仍可用，请由本校有效的本地所有者办理，或联系运维配置认证。" : "";
     }
 
@@ -57,7 +58,8 @@ public sealed partial class SchoolTransferExportWindow : Window
     private void CloseClicked(object? sender, RoutedEventArgs e) => Close();
     private async void Export(object? sender, RoutedEventArgs e) => await RunAsync(async () =>
     {
-        if (_readiness is not { Role: "OWNER" } readiness || readiness.ReauthMethod is not ("PIN" or "OAUTH")) return;
+        if (_readiness is not { Role: "OWNER" } readiness || readiness.HasActiveTerm == false ||
+            readiness.ReauthMethod is not ("PIN" or "OAUTH")) return;
         var secret = TransferExportPassword.Text ?? "";
         var pin = TransferExportPin.Text ?? "";
         if (secret.Length is < 12 or > 256)
@@ -118,7 +120,7 @@ public sealed partial class SchoolTransferExportWindow : Window
     private void Render()
     {
         if (_closed) return;
-        var canExport = _readiness is { Role: "OWNER", ReauthMethod: "PIN" or "OAUTH" };
+        var canExport = _readiness is { Role: "OWNER", ReauthMethod: "PIN" or "OAUTH" } && _readiness.HasActiveTerm != false;
         TransferExportFields.IsVisible = TransferExportPrimary.IsVisible = canExport;
         TransferExportPin.IsVisible = _readiness?.ReauthMethod == "PIN";
         TransferExportMethod.Text = _readiness?.ReauthMethod == "OAUTH" ? "导出时会在浏览器重新核验同一所有者身份。" :
