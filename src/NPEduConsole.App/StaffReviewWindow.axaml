@@ -1,0 +1,59 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.StaffReviewWindow"
+        Title="师资核对" Width="1160" Height="780" MinWidth="650" MinHeight="420"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource CanvasBrush}">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,12">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="2">
+          <TextBlock Text="师资核对" FontSize="24" Classes="label"/>
+          <TextBlock x:Name="ReviewScope" Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+        <Button x:Name="ReviewRules" Grid.Column="1" Classes="action" Content="编辑全校规则" Click="OpenRulesClicked" VerticalAlignment="Center"/>
+      </Grid>
+    </Border>
+    <StackPanel Grid.Row="1" Margin="16,8,16,6" Spacing="6">
+      <Grid x:Name="ReviewFilters" ColumnDefinitions="*,*,*" ColumnSpacing="8">
+        <ComboBox x:Name="ReviewTerm" HorizontalAlignment="Stretch" AutomationProperties.Name="核对学期" SelectionChanged="TermChanged"/>
+        <ComboBox x:Name="ReviewGrade" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="筛选年级" SelectionChanged="FilterChanged"/>
+        <ComboBox x:Name="ReviewKind" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="筛选提醒" SelectionChanged="FilterChanged"/>
+      </Grid>
+      <TextBlock x:Name="ReviewStatus" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+    </StackPanel>
+    <Grid x:Name="ReviewBody" Grid.Row="2" Margin="16,2,16,8" ColumnDefinitions="3*,2*" ColumnSpacing="10">
+      <local:StaffReviewList x:Name="ReviewIssues"/>
+      <Border x:Name="ReviewDetail" Grid.Column="1" Classes="card" Padding="12">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False">
+          <StackPanel Spacing="8">
+            <TextBlock x:Name="ReviewDetailTitle" FontSize="19" Classes="label" TextWrapping="Wrap"/>
+            <TextBlock x:Name="ReviewDetailTeacher" Classes="muted" TextWrapping="Wrap"/>
+            <TextBlock x:Name="ReviewDetailReason" TextWrapping="Wrap"/>
+            <WrapPanel ItemSpacing="7" LineSpacing="6">
+              <Button x:Name="ReviewResolve" Classes="action accent" Content="办理" Click="ResolveClicked" IsVisible="False"/>
+              <Button x:Name="ReviewHandoff" Classes="action" Content="办理岗位交接" Click="HandoffClicked" IsVisible="False"/>
+              <Button x:Name="ReviewEditArchive" Classes="action" Content="更正安排" Click="EditArchiveClicked" IsVisible="False"/>
+            </WrapPanel>
+            <StackPanel x:Name="ReviewTeachingLocation" Spacing="7" IsVisible="False">
+              <TextBlock x:Name="ReviewTeachingNote" Classes="muted" TextWrapping="Wrap"/>
+              <ComboBox x:Name="ReviewTeachingRoom" HorizontalAlignment="Stretch" PlaceholderText="选择本年级的办理班"
+                        AutomationProperties.Name="办理任课的教学空间" SelectionChanged="TeachingRoomChanged"/>
+              <ComboBox x:Name="ReviewTeachingSubject" HorizontalAlignment="Stretch" PlaceholderText="选择该班可分配的学科"
+                        AutomationProperties.Name="办理任课的学科" SelectionChanged="TeachingSubjectChanged"/>
+              <Button x:Name="ReviewOpenTeaching" Classes="action accent" Content="打开任课安排" Click="OpenTeachingClicked"/>
+            </StackPanel>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+    </Grid>
+    <Border Grid.Row="3" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,8">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button x:Name="ReviewClose" Classes="action" Content="返回" Click="CloseClicked"/>
+          <Button x:Name="ReviewBackList" Classes="action" Content="返回问题列表" Click="BackToListClicked" IsVisible="False"/>
+          <Button x:Name="ReviewRefresh" Classes="action" Content="刷新" Click="RefreshClicked"/>
+        </StackPanel>
+        <Button x:Name="ReviewOpenDetail" Grid.Column="1" Classes="action accent" Content="查看问题详情" Click="OpenDetailClicked" IsVisible="False"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

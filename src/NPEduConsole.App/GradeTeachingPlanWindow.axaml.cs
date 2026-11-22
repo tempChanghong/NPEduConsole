@@ -48,7 +48,7 @@ public sealed partial class GradeTeachingPlanWindow : Window
     public GradeTeachingPlanWindow() => InitializeComponent();
 
     internal GradeTeachingPlanWindow(ConsoleClient client, School school, string? gradeId, string? subjectId, string? groupId,
-        string? specifiedTermId = null, string? classId = null) : this()
+        string? specifiedTermId = null, string? classId = null, string? teacherId = null) : this()
     {
         _client = client;
         _school = school;
@@ -57,6 +57,8 @@ public sealed partial class GradeTeachingPlanWindow : Window
         _openingGroup = groupId;
         _gradeId = gradeId;
         _subjectId = subjectId;
+        if (teacherId is not null) _linkedTeacher = new(gradeId, subjectId, classId, groupId, teacherId);
+        _openedFromStaffReview = teacherId is not null;
         PlanScope.Text = school.Name;
         PlanHeading.Text = specifiedTermId is null ? "年级教学安排" : "教学安排与师资";
         Title = PlanHeading.Text;
@@ -96,7 +98,13 @@ public sealed partial class GradeTeachingPlanWindow : Window
         Render();
     }
 
-    internal void CloseForScopeChange() { _allowClose = true; _staffEditor?.CloseForScopeChange(); Close(); }
+    internal void CloseForScopeChange()
+    {
+        _allowClose = true;
+        _staffEditor?.CloseForScopeChange();
+        _staffReview?.CloseForScopeChange();
+        Close();
+    }
 
     private void Arrange(bool force = false)
     {
@@ -151,6 +159,7 @@ public sealed partial class GradeTeachingPlanWindow : Window
             : options.TermName is { } termName ? $"{_school.Name} · {termName}" : $"{_school.Name} · 暂无启用学期";
         BindEditors();
         BindTermObjects();
+        OpenLinkedTeacher();
         if (options.TermId is null) Notice("学校暂无启用学期，请先到学期管理核对。");
         Render();
     }

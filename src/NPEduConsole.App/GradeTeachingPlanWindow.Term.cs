@@ -11,6 +11,10 @@ public sealed partial class GradeTeachingPlanWindow
 {
     private CancellationTokenSource? _staffRead;
     private StaffResponsibilitiesWindow? _staffEditor;
+    private StaffReviewWindow? _staffReview;
+    private sealed record LinkedTeacher(string? GradeId, string? SubjectId, string? ClassId, string? GroupId, string AccountId);
+    private LinkedTeacher? _linkedTeacher;
+    private bool _openedFromStaffReview;
     private StaffSnapshot? _gradeStaff, _classStaff;
     private string? _staffReadError;
 
@@ -162,6 +166,42 @@ public sealed partial class GradeTeachingPlanWindow
     private async void OpenGradeStaffClicked(object? sender, RoutedEventArgs args) => await OpenStaffAsync(_gradeStaff, PlanOpenGradeStaff);
     private async void OpenClassStaffClicked(object? sender, RoutedEventArgs args) => await OpenStaffAsync(_classStaff, PlanOpenClassStaff);
 
+    private async void OpenPlanStaffReviewClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_staffReview is not null || _catalog?.Term is not { } term || HasDraft || Pending is not null) return;
+        var window = new StaffReviewWindow(_client, _school, term.Id, grade: _gradeId, classroom: StaffClassId)
+        { SessionExpired = SessionExpired };
+        _staffReview = window;
+        try { await window.ShowDialog(this); }
+        finally { _staffReview = null; }
+        if (_closed) return;
+        WorkspaceChanged |= window.WorkspaceChanged;
+        if (window.WorkspaceChanged) await RunAsync(LoadAsync);
+        Focus(PlanOpenStaffReview);
+    }
+
+    private void OpenLinkedTeacher()
+    {
+        if (_linkedTeacher is not { } target || _catalog is not { } catalog || HasDraft || Pending is not null) return;
+        _linkedTeacher = null;
+        var teacher = catalog.Teachers.FirstOrDefault(row => row.Id == target.AccountId);
+        var room = target.ClassId is { } classId ? catalog.Classes.FirstOrDefault(row => row.Id == classId) : null;
+        var group = target.GroupId is { } groupId ? catalog.Groups.FirstOrDefault(row => row.Id == groupId) : null;
+        if (teacher is null || _gradeId != target.GradeId || _subjectId != target.SubjectId ||
+            (room is null || !room.Rules.Any(row => row.SubjectId == target.SubjectId && row.Mode == "ADMIN_CLASS")) &&
+            (group is not { IsActive: true } || group.SubjectId != target.SubjectId))
+        {
+            Notice("原教师、教学空间或科目已变化。请返回师资核对并重新选择。", true);
+            return;
+        }
+        if (room is not null && target.SubjectId is { } subject) FocusKey(RowKey(room.Id, subject));
+        PlanTeachingTarget.SelectedItem = PlanTeachingTarget.Items.OfType<Option>().FirstOrDefault(row => row.Id == (group?.Id ?? ""));
+        PlanTeacher.SelectedItem = teacher;
+        PlanTabs.SelectedIndex = 2;
+        Notice($"正在为 {teacher} 核对任课。请选择主讲或协同，加入方案后预览保存。");
+        Focus(catalog.Term?.Status == "ARCHIVED" ? PlanEditArchive : PlanTeacherRole);
+    }
+
     private async Task OpenStaffAsync(StaffSnapshot? snapshot, Button source)
     {
         if (_staffEditor is not null || !source.IsEnabled || snapshot is null || _catalog is not { Term: { } term } catalog) return;
@@ -193,6 +233,8 @@ public sealed partial class GradeTeachingPlanWindow
             SummaryClass is not null && PlanClassSubjects.SelectedItem is TermTeachingSubjectLine;
         PlanOpenGradeStaff.IsEnabled = editable && _staffEditor is null && _staffReadError is null && _gradeStaff is not null;
         PlanOpenClassStaff.IsEnabled = editable && _staffEditor is null && _staffReadError is null && _classStaff is not null;
+        PlanOpenStaffReview.IsVisible = !_openedFromStaffReview;
+        PlanOpenStaffReview.IsEnabled = !_busy && !HasDraft && Pending is null && _catalog?.Term is not null;
         PlanContinueTeaching.IsVisible = _continueTeachingKey is not null && !HasDraft;
         PlanContinueTeaching.IsEnabled = editable;
         PlanRuleMode.IsEnabled = PlanCompulsory.IsEnabled = editable;

@@ -58,6 +58,13 @@ public sealed partial class MainWindow
                 await ShowScreenDutyAsync(client, school, dutyBinding, task.ClassId, restoreTask: true);
                 return;
             }
+            if (task.Action == "OPEN_STAFF_REVIEW" && overview.Term is { } reviewTerm)
+            {
+                await ShowStaffReviewAsync(client, school, reviewTerm.Id,
+                    StaffReviewIssue.IssueKey(task.Code, task.GradeId, task.ClassId, task.AccountId), task.GradeId, task.ClassId);
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
+                return;
+            }
             if (overview.Term is { } staffTerm &&
                 (task.Action == "OPEN_CLASS_RESPONSIBILITY" ? task.ClassId : task.Action == "OPEN_GRADE_RESPONSIBILITY" ? task.GradeId : null) is { } staffTarget)
             {

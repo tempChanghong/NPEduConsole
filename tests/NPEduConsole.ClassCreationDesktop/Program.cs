@@ -38,6 +38,8 @@ internal static partial class Program
             return StartScopedTermClasses(scopedFixture, scopedOutput);
         if (args is ["--live-scoped-term-teaching", var termTeachingFixture, var termTeachingOutput])
             return StartScopedTermTeaching(termTeachingFixture, termTeachingOutput);
+        if (args is ["--live-staff-review", var staffReviewFixture, var staffReviewOutput])
+            return StartStaffReview(staffReviewFixture, staffReviewOutput);
         if (args is ["--live-term-preparation", var termFixture, var termOutput])
             return StartTermPreparation(termFixture, termOutput);
         if (args is ["--live-school-study", var schoolStudyFixture, var schoolStudyOutput])

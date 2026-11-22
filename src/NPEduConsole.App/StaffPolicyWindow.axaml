@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPEduConsole.App.StaffPolicyWindow" Title="编辑全校规则"
+        Width="1050" Height="690" MinWidth="620" MinHeight="400" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource CanvasBrush}">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,12">
+      <StackPanel Spacing="3">
+        <TextBlock Text="编辑全校规则" FontSize="23" Classes="label"/>
+        <TextBlock x:Name="PolicyScope" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False">
+      <Grid x:Name="PolicyContent" Margin="16,10" ColumnDefinitions="2*,3*" RowDefinitions="Auto,Auto,Auto" RowSpacing="9" ColumnSpacing="10">
+        <TextBlock x:Name="PolicyStatus" Grid.ColumnSpan="2" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+        <Border x:Name="PolicyChoices" Grid.Row="1" Classes="card" Padding="12" VerticalAlignment="Top">
+          <StackPanel Spacing="6">
+            <TextBlock Text="岗位联动" FontSize="16" Classes="label"/>
+            <CheckBox x:Name="PolicyLeaderHome" IsCheckedChanged="RuleChanged">
+              <TextBlock Text="年级组长需兼任本年级班主任" TextWrapping="Wrap"/>
+            </CheckBox>
+            <CheckBox x:Name="PolicyLeaderTeach" IsCheckedChanged="RuleChanged">
+              <TextBlock Text="年级组长需在本年级任课" TextWrapping="Wrap"/>
+            </CheckBox>
+            <CheckBox x:Name="PolicyHomeTeach" IsCheckedChanged="RuleChanged">
+              <TextBlock Text="班主任需在本年级任课" TextWrapping="Wrap"/>
+            </CheckBox>
+            <TextBlock Text="规则只调整提醒。已有任课、职责、成员权限和设备接入不受影响。" Classes="muted" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+        <Border x:Name="PolicyReview" Grid.Row="1" Grid.Column="1" Classes="card" Padding="12" VerticalAlignment="Top">
+          <StackPanel Spacing="7">
+            <TextBlock x:Name="PolicyImpactHeading" Text="所选学期的提醒" FontSize="16" Classes="label" Focusable="True"/>
+            <TextBlock x:Name="PolicyImpactSummary" Classes="muted" TextWrapping="Wrap"/>
+            <ItemsControl x:Name="PolicyImpactRows">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,0,0,7"/>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+      </Grid>
+    </ScrollViewer>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,8">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <StackPanel Orientation="Horizontal" Spacing="7">
+          <Button x:Name="PolicyBack" Classes="action" Content="返回" Click="BackClicked"/>
+          <Button x:Name="PolicyDiscard" Classes="action" Content="放弃修改" Click="DiscardClicked" IsVisible="False"/>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7">
+          <Button x:Name="PolicyRecheck" Classes="action" Content="再次核对" Click="RecheckClicked" IsVisible="False"/>
+          <Button x:Name="PolicyPrimary" Classes="action accent" Click="PrimaryClicked"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>

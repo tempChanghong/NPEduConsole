@@ -154,6 +154,7 @@
                   </StackPanel>
                 </Border>
                 <TextBlock x:Name="PlanStaffPolicy" Classes="muted" TextWrapping="Wrap"/>
+                <Button x:Name="PlanOpenStaffReview" Classes="action" Content="打开本学期师资核对" Click="OpenPlanStaffReviewClicked"/>
               </StackPanel>
             </ScrollViewer>
           </TabItem>

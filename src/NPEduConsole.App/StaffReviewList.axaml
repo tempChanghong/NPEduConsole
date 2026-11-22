@@ -1,0 +1,85 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App"
+             x:Class="NPEduConsole.App.StaffReviewList"
+             Focusable="False">
+    <UserControl.Styles>
+        <Style Selector="Border.staff-row">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style Selector="ListBox#StaffReviewListBox > ListBoxItem:selected Border.staff-row">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+        </Style>
+        <Style Selector="TextBlock.staff-title">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.staff-detail">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Border.staff-chip">
+            <Setter Property="Background" Value="{DynamicResource AccentTintBrush}" />
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Padding" Value="7,1" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+        </Style>
+        <Style Selector="Border.staff-chip > TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+        </Style>
+        <Style Selector="ListBox#StaffReviewListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="ListBox#StaffReviewListBox > ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+        </Style>
+        <Style Selector="ListBox#StaffReviewListBox > ListBoxItem:focus /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="*">
+        <TextBlock x:Name="StaffReviewEmpty" Classes="staff-detail"
+                   Text="这个学期暂时没有需要核对的师资问题。"
+                   IsVisible="False" TextWrapping="Wrap" Margin="2,6,2,0" />
+
+        <ListBox x:Name="StaffReviewListBox" SelectionMode="Single"
+                 SelectionChanged="RowsSelectionChanged" DoubleTapped="RowsDoubleTapped"
+                 KeyDown="RowsKeyDown"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 AutomationProperties.Name="师资问题列表">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:StaffReviewLine">
+                    <Border Classes="staff-row" AutomationProperties.Name="{Binding AutomationName}"
+                            ToolTip.Tip="{Binding ToolTipText}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding Title}" Classes="staff-title" />
+                                <TextBlock Text="{Binding Detail}" Classes="staff-detail" />
+                            </StackPanel>
+                            <Border Grid.Column="1" Classes="staff-chip">
+                                <TextBlock Text="{Binding Status}" />
+                            </Border>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</UserControl>

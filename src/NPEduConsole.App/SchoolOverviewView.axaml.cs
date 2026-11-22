@@ -258,6 +258,7 @@ public sealed partial class SchoolOverviewView : UserControl
             "OPEN_TEACHER_ACCOUNT" => "查看教师账号",
             "OPEN_CLASS_RESPONSIBILITY" => "办理班主任",
             "OPEN_GRADE_RESPONSIBILITY" => "办理年级组长",
+            "OPEN_STAFF_REVIEW" => "打开师资核对",
             _ => "网页办理"
         };
         string source = task.Source switch

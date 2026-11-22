@@ -48,7 +48,8 @@ internal static partial class Program
             await Until(() => FindTask("CLASS_WITHOUT_HOMEROOM", access.EightId) is not null &&
                 FindTask("CLASS_WITHOUT_HOMEROOM", access.NineId) is not null, "both exact class duties are missing");
 
-            var editor = await OpenTask("CLASS_WITHOUT_HOMEROOM", access.EightId);
+            var review = await OpenReview("CLASS_WITHOUT_HOMEROOM", access.EightId);
+            var editor = await OpenRoleEditor(review);
             Check(StaffText(editor, "StaffHeading").Contains("高二（8）班") && editor.ClientSize.Width >= 1100,
                 "the task opens class 8 in the wide layout");
             var search = Find<TextBox>(editor, "StaffTeacherSearch");
@@ -63,7 +64,8 @@ internal static partial class Program
             await Save(editor, "职责已保存");
             await Signal("check-first");
             Click(Find<Button>(editor, "StaffClose"));
-            await Until(() => !editor.IsVisible && overview.IsEffectivelyVisible &&
+            await CloseReview(review);
+            await Until(() => overview.IsEffectivelyVisible &&
                 FindTask("CLASS_WITHOUT_HOMEROOM", access.EightId) is null && FindTask("CLASS_WITHOUT_HOMEROOM", access.NineId) is not null &&
                 filter.SelectedIndex == 3 && filter.IsFocused, "returns to the filtered, refreshed task list with focus");
 
@@ -86,16 +88,16 @@ internal static partial class Program
             Click(Find<Button>(main, "OpenSchoolOverviewButton"));
             await ExpandTaskQueue(overview);
             filter.SelectedIndex = 3;
-            editor = await OpenTask("HOMEROOM_NOT_TEACHING", access.EightId, account: access.SecondId);
-            await Until(() => Find<ListBox>(editor, "StaffCurrentRows").SelectedItem is StaffEditorRow row && row.Teacher.Id == access.SecondId,
-                "teacher-specific diagnostic selects the exact account");
-            Click(Find<Button>(editor, "StaffClose"));
-            await Until(() => !editor.IsVisible, "close the teacher-specific task");
+            review = await OpenReview("HOMEROOM_NOT_TEACHING", access.EightId, account: access.SecondId);
+            Check(Find<Button>(review, "ReviewResolve").Content?.ToString() == "核对任课",
+                "teacher-specific missing teaching diagnostic opens the exact teacher and can choose a teaching destination");
+            await CloseReview(review);
 
             main.Width = 840;
             main.Height = 480;
             await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "compact shell measured");
-            editor = await OpenTask("MULTIPLE_PRIMARY_GRADE_LEADERS", grade: access.GradeId);
+            review = await OpenReview("MULTIPLE_PRIMARY_GRADE_LEADERS", grade: access.GradeId);
+            editor = await OpenRoleEditor(review);
             Check(editor.ClientSize.Width <= 845 && Find<ListBox>(editor, "StaffCurrentRows").Items.Cast<StaffEditorRow>()
                 .Count(row => row.Position == "PRIMARY") == 2, "the narrow editor lists both original primary leaders");
             Check(Grid.GetRow(Find<Border>(editor, "StaffDraftCard")) == 1, "the narrow editor stacks its two sections");
@@ -122,7 +124,7 @@ internal static partial class Program
             await Capture(editor, output, "05-narrow-multiple-deputies");
             await Save(editor, "职责已保存");
             Click(Find<Button>(editor, "StaffClose"));
-            await Until(() => !editor.IsVisible, "leave the grade workflow");
+            await CloseReview(review);
 
             await SelectClass(access.NineId);
             var gradeEntry = Find<Button>(main, "OpenGradeResponsibilityButton");
@@ -151,13 +153,13 @@ internal static partial class Program
                     (room is null || item.Task.ClassId == room) && (grade is null || item.Task.GradeId == grade) &&
                     (account is null || item.Task.AccountId == account));
 
-            async Task<StaffResponsibilitiesWindow> OpenTask(string code, string? room = null, string? grade = null, string? account = null)
+            async Task<StaffReviewWindow> OpenReview(string code, string? room = null, string? grade = null, string? account = null)
             {
                 Button? action = null;
                 await Until(() =>
                 {
                     if (FindTask(code, room, grade, account) is not { } item) return false;
-                    Check(item.Task.Action is "OPEN_CLASS_RESPONSIBILITY" or "OPEN_GRADE_RESPONSIBILITY", "the current task is actionable in Console");
+                    Check(item.Task.Action == "OPEN_STAFF_REVIEW", "the current task is actionable in Console");
                     action = tasks.GetVisualDescendants().OfType<Button>().FirstOrDefault(button =>
                         ReferenceEquals(button.Tag, item) && button.IsEffectivelyVisible);
                     if (action is not null) return true;
@@ -165,7 +167,27 @@ internal static partial class Program
                     return false;
                 }, "actual task action " + code);
                 Click(action!);
+                await Until(() => desktop.Windows.OfType<StaffReviewWindow>().Any(window => window.IsVisible), "opens staff review");
+                var window = desktop.Windows.OfType<StaffReviewWindow>().Single(window => window.IsVisible);
+                var item = FindTask(code, room, grade, account)!.Task;
+                string key = StaffReviewIssue.IssueKey(code, item.GradeId, item.ClassId, item.AccountId);
+                await Until(() => Find<StaffReviewList>(window, "ReviewIssues").SelectedKey == key &&
+                    Find<Button>(window, "ReviewResolve").IsEffectivelyVisible, "staff review selects the exact issue");
+                return window;
+            }
+
+            async Task<StaffResponsibilitiesWindow> OpenRoleEditor(StaffReviewWindow window)
+            {
+                await PressScoped(window, "ReviewResolve");
                 return await Editor();
+            }
+
+            async Task CloseReview(StaffReviewWindow window)
+            {
+                await Until(() => desktop.Windows.OfType<StaffResponsibilitiesWindow>().All(candidate => !candidate.IsVisible) &&
+                    Find<Button>(window, "ReviewRules").IsEffectivelyEnabled, "returns from the editor to staff review");
+                await PressScoped(window, "ReviewClose");
+                await Until(() => !window.IsVisible, "returns from staff review to school overview");
             }
         }
         catch (Exception error)

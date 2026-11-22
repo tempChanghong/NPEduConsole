@@ -102,7 +102,8 @@ export async function verifyStaffResponsibilities({prisma, origin, fixture, dire
         return;
       }
 
-      const classSave = req.method === 'PUT' && req.url === currentPath('classes', eight.id);
+      const scopedClassPath = schoolPath + '/academic-terms/' + term.id + '/teaching/staff-responsibilities/classes/' + eight.id;
+      const classSave = req.method === 'PUT' && [currentPath('classes', eight.id), scopedClassPath].includes(req.url);
       if (classSave) classWrites++;
       const upstream = request(new URL(req.url, backend), {method: req.method, headers: {...req.headers, host: backend.host}}, reply => {
         if (classSave && classWrites === 2 && reply.statusCode === 200) {
