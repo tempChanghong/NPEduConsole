@@ -4,7 +4,7 @@
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,16">
       <StackPanel Spacing="5">
-        <TextBlock x:Name="MaintenanceSchool" Classes="muted" />
+        <TextBlock x:Name="MaintenanceSchool" Classes="muted" TextWrapping="Wrap" />
         <TextBlock x:Name="MaintenanceHeading" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" />
       </StackPanel>
     </Border>

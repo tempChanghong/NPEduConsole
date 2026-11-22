@@ -16,7 +16,7 @@
 
 Console 只补设随行政班授课的规则。新增项沿用非必修默认值，已有随班规则及其必修信息原样保留。走班规则、走班来源、任课、名单和访问权限也会保留。所选项目冲突、班级变化或切换学期时，KV 不写入本批。重发相同配置不会新增重复规则。若其他管理员已改过某一项，可在对应行对照预览和当前记录，再重新预览。回包中断时先只读核对实际规则。在同一次登录中关闭窗口后，可从同一学校、学期和入口班级重新打开「配置授课科目」，继续核对原选择。成功后可选择班级与学科进入任课分配，返回总览重新核对缺教师待办。
 
-开设当前学期走班课程时，使用「走班教学班」。全量替换授课规则和其他学期管理仍在网页。部署先更新 KV，再更新 Console，本轮无新增数据库迁移。本地 Windows 联调用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --current-subject-setup`，截图默认写入 `.artifacts/current-subject-setup/desktop-live`。
+开设当前学期走班课程时，使用「走班教学班」。全量替换授课规则和指定非当前学期的授课配置仍在网页。部署先更新 KV，再更新 Console，本轮无新增数据库迁移。本地 Windows 联调用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --current-subject-setup`，截图默认写入 `.artifacts/current-subject-setup/desktop-live`。
 
 ## 学校学科目录
 
@@ -184,6 +184,14 @@ v2 另外迁移学校自习设置、座位图版本及保留的图像、可沿�
 
 部署先应用 KV 迁移 `20261122123000_term_activation_rounds` 及之前的迁移，再更新 KV、NPClassworks 和 Console。更新后的桌面和网页使用同一写入规则。缓存中的旧网页如果没有核对过本次影响，归档、转草稿和强制启用会提示刷新后重办。联合验收使用 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --term-status`，独立数据库回归使用 `--term-status-db`。证据默认在 `.artifacts/term-status/final`。
 
+## 指定学期的年级、行政班与学生名单
+
+从「班级与教务 → 学期管理」选择学期，点「班级与名单」。草稿的启用前检查可点「准备班级与名单」。页头同时显示所选学期及状态和全校启用学期。选择年级可修改名称、代码和显示顺序，也可新建年级、单独建班或批量开班。按班查看名称、代码、学生自选设置及名单。停用或恢复沿用班级影响确认，原有班级和关联继续使用原 ID。
+
+在归档学期先查看名单，点「更正名单」后可编辑仍启用的班级。停用班的名单仅供查看。班级资料与名单编辑沿用先核对再保存的流程，跨学期同名班按 ID 区分。学期、班级或名单版本变化会阻止旧表单覆盖服务器记录；草稿可与当前名单对照。建班成功回包中断时，可先按原请求编号只读找回本人的班级 ID。名单若只核对到服务器当前值一致，界面按实际核对结果提示。
+
+准备草稿期间，学生继续使用原启用学期；正式启用草稿后，从日常班级入口即可打开已准备的原班和名单。历史学期的授课、职责及归档组织批量导入继续从旧入口办理。部署先更新 KV，再更新 Console。本轮沿用已有回执表，无新增数据库迁移，旧网页指定学期的班级和名单入口保持兼容。
+
 ## 当前学期的行政班学生名单
 
 使用本地学校管理账号选择一个行政班后，打开「学生名单」。可逐行增改、移出和排序，也可粘贴 Excel 两列或纯文本名单，选择追加或替换。预览并列显示原名单和保存后的姓名、学号、位置，确认后生效。无大屏的班级也可以办理。
@@ -266,15 +274,15 @@ Console 一次保存所有已修改分区。网页的「教师分配」保存快
 | --- | --- |
 | 审计记录 | 本地学校管理账号可在 Console 完成上述查询。 |
 | 管理总览 | Console 选中学校后显示当前学期诊断和管理待办。需由网页办理的事项仍链接到原入口。 |
-| 组织与班级 | Console 可维护全校学科目录，也可在当前启用学期维护年级名称与行政班、录入名单、批量补设随班授课科目并办理任课分配。可通过「年级教学安排」维护当前学期走班的来源、停用、恢复和改科。其他学期、年级代码和排序及全量授课规则仍在网页。 |
-| 学生名单 | Console 可维护当前学期一个行政班的名单，支持批量粘贴、差异预览、保存及冲突核对。 |
+| 组织与班级 | Console 可维护全校学科目录，从学期管理维护所选学期的年级和行政班。在当前学期可批量补设随班授课科目、分配任课，及通过「年级教学安排」维护走班来源、停用、恢复和改科。历史授课规则及任课仍走原入口。 |
+| 学生名单 | Console 支持按所选学期维护启用行政班的名单，含批量粘贴、差异预览及冲突核对。停用班只读。 |
 | 教师分配 | Console 可办理班级访问分配与邮箱邀请、当前学期随班和走班任课，以及班主任和年级职责。全校快捷词见「作业录入设置」。历史学期职责和联动规则维护仍在网页。 |
 | 大屏设备 | Console 可登记大屏、管理网页账号与浏览器绑定、调班、启停并核对网页值守指令。全校快捷截止时间见「作业录入设置」。 |
 | 大屏互联 | Console 已覆盖部分班级接入、麦克风策略、软件维护和单台设备的考试模式与方案放映。独立设备撤销仍由网页办理。 |
 | 自习监测 | Console 可维护年级与班级的日常及考试自习、监测阈值与拍照策略，核对逐屏回执及本日场次，并按权限查询照片与退出记录。教室摄像头选择和参考校准在现场办理。 |
 | 自习座位表 | Console 可按自习班级预览、发布、替换、撤回、重新发布保留的历史图像并核对逐屏结果。旧网页保留原入口。 |
 | 账号与管理员 | Console 支持本地管理账号与 OAuth 多校登录，可维护本校教师、登录策略和教学空间访问，由所有者办理管理授权与交接。网页保留首次建校和服务器恢复密钥。 |
-| 高级批量导入 | Console 可为当前或草稿学期导入年级教学组织、教师名册和普通班级访问。首次建校从登录页进入，归档学期的教务编辑仍由旧网页承接。 |
+| 高级批量导入 | Console 可为当前或草稿学期导入年级教学组织、教师名册和普通班级访问。首次建校从登录页进入，归档学期的组织批量导入仍由旧网页承接。 |
 | 服务器迁移 | Console 支持空白服务器首次建校、加密包导出及目标预检、恢复与所有者登录。保留网页兼容入口。KV 自动备份仍由服务器运维单独管理。 |
 | 学期运维 | Console 可查看全校学期，从所选学期建立草稿，启用和重新启用，单独归档或转草稿，按明示例外强制启用，并逐轮核对大屏安排和配对。旧网页继续可用。 |
 
@@ -297,6 +305,8 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPClassworksKV' 'C:/Program Files/Postgr
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --teacher-accounts
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --current-course-groups
 node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --term-preparation
+node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --scoped-term-classes
+node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/PostgreSQL/17/bin' --scoped-term-classes-db
 ```
 
 名单联调会停用夹具中的 NPEP，检查无设备班级、同名学生、屏幕并发写入、学期切换、历史考勤和保存结果核对。网页名单的行为可参照 NPClassworks 的 `src/components/admin/ClassRosterManager.vue` 和 `src/utils/classRoster.js`，服务端规则见 NPClassworksKV 的 `services/classroomToolsService.js`。
@@ -310,6 +320,8 @@ node tests/live-kv.mjs 'D:/CodeProjects/NPEP/NPClassworksKV' 'C:/Program Files/P
 批量开班联调用 Windows Console 验证 12 班预览、第 7 行冲突与零写入、修正后成功回包丢失、按回执打开名单、重启后从普通班级列表打开同一份名单。HTTP 和数据库检查覆盖管理员竞争、批次归属、旧网页并发占码触发整批回滚、切换学期、跨校请求与旧网页指定学期写入。桌面截图保存在 `.artifacts/class-batch/desktop-live`。
 
 行政班维护联调用 Windows Console 验证代码冲突、并发编辑、停用摘要读取失败、新增大屏后的二次确认、重启后恢复原班及打开原名单。HTTP 和数据库检查覆盖大屏等量替换、学期切换、跨校与只读角色拒绝、旧网页归档学期维护，以及停用前后同一大屏凭据的服务端行为。桌面截图保存在 `.artifacts/class-maintenance/desktop-live`。
+
+指定学期联调使用三学期同名七班，在 Windows Console 准备春季、核对旧网页抢先保存和归档名单更正，再正式启用春季并从日常入口读回原班名单。Edge 验证旧网页写入及启用前后的学生选班。数据库回归单独覆盖学期版本、班级状态、串校拒绝及本人回执。证据默认写入 `.artifacts/scoped-term-classes`。
 
 学校总览联调用 Windows Console 贯穿旧学期同码、同班两屏、待办定位和返回刷新，并通过真实 NPEP HTTP 配对、首报及新 Host 会话核对回执。另覆盖班级恢复后重新配对提醒、无启用学期、建年级和建班入口、读取失败、切校迟到响应和历史网页查询。桌面截图保存在 `.artifacts/school-overview/desktop-live`。
 

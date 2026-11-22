@@ -43,6 +43,7 @@
                   <TextBlock x:Name="ViewedTermName" FontSize="19" FontWeight="SemiBold" TextWrapping="Wrap"/>
                   <TextBlock x:Name="ViewedTermDetails" Classes="muted" TextWrapping="Wrap"/>
                   <WrapPanel ItemSpacing="8" LineSpacing="5">
+                    <Button x:Name="TermManageClasses" Classes="action" Content="班级与名单" Click="TermManageClassesClicked" IsVisible="False"/>
                     <Button x:Name="TermStatusActivate" Classes="action" Content="预览启用" Click="StatusActivateClicked"/>
                     <Button x:Name="TermStatusReceiptButton" Classes="action" Content="核对学期操作" Click="StatusReceiptClicked" IsVisible="False"/>
                   </WrapPanel>
@@ -139,6 +140,8 @@
                   <TextBlock x:Name="TermCheckTarget" FontSize="19" Classes="label" TextWrapping="Wrap"/>
                   <TextBlock x:Name="TermCheckDates" Classes="muted" TextWrapping="Wrap"/>
                   <TextBlock x:Name="TermCheckStatus" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                  <Button x:Name="TermPrepareClasses" Classes="action" Content="准备班级与名单" Click="TermPrepareClassesClicked"
+                          HorizontalAlignment="Left" IsVisible="False"/>
                   <ItemsControl x:Name="TermActivationChanges" IsVisible="False">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Classes="term-notice error" Margin="0,2"/></DataTemplate>

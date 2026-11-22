@@ -17,7 +17,9 @@ public sealed partial class ClassRosterWindow : Window
     private readonly ObservableCollection<RosterDraftRow> _rows = [];
     private ConsoleClient? _client;
     private string _schoolId = "";
+    private string _schoolName = "";
     private string _classId = "";
+    private ClassCreationContext? _specifiedTerm;
     private CancellationTokenSource? _request;
     private ClassRoster? _baseline;
     private ClassRoster? _current;
@@ -57,12 +59,16 @@ public sealed partial class ClassRosterWindow : Window
         AddHandler(KeyDownEvent, CloseOnEscape, RoutingStrategies.Tunnel);
     }
 
-    internal ClassRosterWindow(ConsoleClient client, string schoolId, string classId, string schoolName, string className) : this()
+    internal ClassRosterWindow(ConsoleClient client, string schoolId, string classId, string schoolName, string className,
+        ClassCreationContext? specifiedTerm = null) : this()
     {
         _client = client;
         _schoolId = schoolId;
+        _schoolName = schoolName;
         _classId = classId;
-        RosterScope.Text = $"{schoolName} / {className}";
+        _specifiedTerm = specifiedTerm;
+        RosterScope.Text = specifiedTerm is null ? $"{schoolName} / {className}"
+            : $"{schoolName} / {specifiedTerm.TermName} · {specifiedTerm.TermStatus} / {className}";
         Opened += async (_, _) =>
         {
             BatchWorkspaceWindow.FitSchoolWindow(this);
@@ -86,14 +92,17 @@ public sealed partial class ClassRosterWindow : Window
         Render();
         try
         {
-            var roster = await client.GetClassRosterAsync(_schoolId, _classId, request.Token);
+            var roster = _specifiedTerm is { } context
+                ? await client.GetTermClassRosterAsync(context, _classId, request.Token, compare)
+                : await client.GetClassRosterAsync(_schoolId, _classId, request.Token);
             if (_request != request) return;
             if (!compare)
             {
+                ShowRosterIdentity(roster);
                 SetBaseline(roster);
-                SetFeedback(null);
+                SetFeedback(roster.IsActive ? null : "该行政班已停用，名单仅供查看。");
             }
-            else if (_baseline is { } baseline && _uncertainSubmission is { } submitted && RosterEditor.MatchesSaved(baseline, submitted, roster) &&
+            else if (CanAdoptRoster(roster) && _baseline is { } baseline && _uncertainSubmission is { } submitted && RosterEditor.MatchesSaved(baseline, submitted, roster) &&
                      _rawSubmittedDraft is { } raw && Rows().SequenceEqual(raw))
             {
                 SetBaseline(roster);
@@ -102,6 +111,10 @@ public sealed partial class ClassRosterWindow : Window
             }
             else
             {
+                if (!CanAdoptRoster(roster))
+                    _scopeChanged = ClassIdentityChanged(roster)
+                        ? $"班级资料已变更为「{roster.ClassName}」（{roster.ClassCode}）。"
+                        : "学期或班级状态已变化。";
                 SetCurrent(roster);
                 _uncertainSubmission = _rawSubmittedDraft = null;
                 SetFeedback(_scopeChanged is { } reason
@@ -116,6 +129,18 @@ public sealed partial class ClassRosterWindow : Window
                 SetFeedback(compare ? $"暂时无法核对当前名单，草稿仍保留。{error.Message}" : error.Message, error: true);
         }
         finally { EndRequest(request); }
+    }
+
+    private bool CanAdoptRoster(ClassRoster roster) => roster.IsActive &&
+        (_specifiedTerm is null || ConsoleClient.IsInTermStructure(roster, _specifiedTerm) && !ClassIdentityChanged(roster));
+
+    private bool ClassIdentityChanged(ClassRoster roster) => _specifiedTerm is not null && _baseline is { } before &&
+        (before.ClassName != roster.ClassName || before.ClassCode != roster.ClassCode);
+
+    private void ShowRosterIdentity(ClassRoster roster)
+    {
+        if (_specifiedTerm is { } term)
+            RosterScope.Text = $"{_schoolName} / {term.TermName} · {term.TermStatus} / {roster.ClassName}（{roster.ClassCode}）";
     }
 
     private void SetBaseline(ClassRoster roster)
@@ -326,7 +351,9 @@ public sealed partial class ClassRosterWindow : Window
             if (_request != request) return;
             SetBaseline(saved);
             HasConfirmedSave = true;
-            SetFeedback("名单已保存。在线大屏将在同步时更新。");
+            SetFeedback(_specifiedTerm is { } term
+                ? $"已保存「{term.TermName}」的「{saved.ClassName}」名单。"
+                : "名单已保存。在线大屏将在同步时更新。");
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
         catch (ArgumentException error)
@@ -341,7 +368,8 @@ public sealed partial class ClassRosterWindow : Window
             ClearPreview();
             bool conflicting = error.StatusCode is 409 or 428;
             bool uncertain = error.StatusCode is 0 or 408 or >= 500;
-            if (error.Code is "CLASS_ROSTER_TERM_CHANGED" or "CLASS_ROSTER_CLASS_INACTIVE") _scopeChanged = error.Message;
+            if (error.Code is "CLASS_ROSTER_TERM_CHANGED" or "CLASS_ROSTER_CLASS_INACTIVE" or "TERM_STRUCTURE_SCOPE_CHANGED")
+                _scopeChanged = error.Message;
             if (conflicting || uncertain || error.StatusCode == 404)
             {
                 _checkingRequired = checkCurrent = true;
@@ -511,14 +539,17 @@ public sealed partial class ClassRosterWindow : Window
         bool reviewing = _preview is not null;
         bool confirmingDiscard = _discard != DiscardAction.None;
         RosterEditorPane.IsVisible = loaded && !reviewing;
+        bool readOnly = _baseline?.IsActive == false;
         RosterEditorPane.IsEnabled = !busy;
         RosterContentHost.IsEnabled = !confirmingDiscard;
         RosterReviewPane.IsVisible = reviewing;
-        RosterCount.Text = $"草稿 · {_rows.Count} 人";
+        RosterCount.Text = readOnly ? $"学生名单 · {_rows.Count} 人" : $"草稿 · {_rows.Count} 人";
         EmptyRosterDraft.IsVisible = _rows.Count == 0;
-        AddRosterStudent.IsEnabled = _rows.Count < RosterEditor.MaxStudents;
+        AddRosterStudent.IsVisible = !readOnly;
+        AddRosterStudent.IsEnabled = !readOnly && _rows.Count < RosterEditor.MaxStudents;
         ApplyRosterImport.IsEnabled = HasPaste;
-        RosterImportPane.IsVisible = !_checkingRequired;
+        RosterRows.IsEnabled = !readOnly;
+        RosterImportPane.IsVisible = !readOnly && !_checkingRequired;
         RosterComparisonPane.IsVisible = _checkingRequired;
         RosterComparisonHint.Text = _current switch
         {
@@ -537,7 +568,7 @@ public sealed partial class ClassRosterWindow : Window
         CopyRosterDraftButton.IsVisible = loaded && !reviewing;
         CopyRosterDraftButton.IsEnabled = !busy && _rows.Count > 0;
         CloseRosterButton.IsEnabled = !_saving;
-        PreviewRosterButton.IsVisible = loaded && !reviewing;
+        PreviewRosterButton.IsVisible = loaded && !readOnly && !reviewing;
         PreviewRosterButton.IsEnabled = !busy && !_checkingRequired && IsDirty;
         CancelRosterReview.IsVisible = ConfirmRosterSave.IsVisible = reviewing;
         CancelRosterReview.IsEnabled = ConfirmRosterSave.IsEnabled = !busy;

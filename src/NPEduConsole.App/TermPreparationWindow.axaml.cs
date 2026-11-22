@@ -762,5 +762,11 @@ public sealed partial class TermPreparationWindow : Window
         }
     }, DispatcherPriority.Loaded);
 
-    internal void CloseForScopeChange() { _allowClose = _closed = true; _termStatusWindow?.CloseForScopeChange(); Close(); }
+    internal void CloseForScopeChange()
+    {
+        _allowClose = _closed = true;
+        _termClassesWindow?.CloseForScopeChange();
+        _termStatusWindow?.CloseForScopeChange();
+        Close();
+    }
 }

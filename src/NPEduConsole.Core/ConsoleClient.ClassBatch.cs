@@ -24,7 +24,8 @@ public sealed partial class ConsoleClient
         try
         {
             var result = await RequestAsync<BatchValidation>(HttpMethod.Post, ClassBatchPath(context) + "/validate", session.Token,
-                ct, body: new { context.TermId, gradeId, classes });
+                ct, body: context.IsSpecifiedTerm ? new { expectedScope = context.ScopeVersion, gradeId, classes }
+                    : new { context.TermId, gradeId, classes });
             CheckCreationSession(session, ct);
             if (result.SchoolId != context.SchoolId || result.TermId != context.TermId || result.GradeId != gradeId ||
                 result.Rows is not { Length: 0 }) throw InvalidResponse();
@@ -44,7 +45,8 @@ public sealed partial class ConsoleClient
         var session = RequireBatchContext(context, gradeId, requestId);
         var classes = CopyBatchRows(rows);
         var result = await RequestAsync<BatchReceiptData>(HttpMethod.Post, ClassBatchPath(context), session.Token, ct,
-            body: new { context.TermId, gradeId, requestId, classes });
+            body: context.IsSpecifiedTerm ? new { expectedScope = context.ScopeVersion, gradeId, requestId, classes }
+                : new { context.TermId, gradeId, requestId, classes });
         CheckCreationSession(session, ct);
         var receipt = CheckBatchReceipt(context, gradeId, requestId, result) ?? throw InvalidResponse();
         if (receipt.Classes.Count != classes.Length || receipt.Classes.Where((item, index) =>
@@ -110,11 +112,12 @@ public sealed partial class ConsoleClient
     }
 
     private static string ClassBatchPath(ClassCreationContext context) =>
-        $"api/v2/admin/schools/{Segment(context.SchoolId)}{ClassBatchSuffix}";
+        CreationClassesPath(context) + "/batch";
 
     private static bool IsClassBatchPath(string path) =>
         path.EndsWith(ClassBatchSuffix, StringComparison.Ordinal) ||
-        path.Contains(ClassBatchSuffix + "/", StringComparison.Ordinal);
+        path.Contains(ClassBatchSuffix + "/", StringComparison.Ordinal) ||
+        path.Contains(TermStructureSegment + "/classes/batch", StringComparison.Ordinal);
 
     private static async Task<ConsoleApiException> ClassBatchErrorAsync(HttpResponseMessage response, CancellationToken ct)
     {
@@ -148,6 +151,7 @@ public sealed partial class ConsoleClient
             "WORKSPACE_CODE_EXISTS" => "本学期已有教学空间使用标记的代码。该批未写入。",
             "CLASS_BATCH_REQUEST_CONFLICT" => "该批次编号已用于其他操作，请核对原提交。",
             "CLASS_BATCH_TERM_CHANGED" => "启用学期已改变，请刷新后重新选择年级。",
+            "TERM_STRUCTURE_SCOPE_CHANGED" => "所选学期或学校启用学期已变化。请重新读取学期和年级后核对草稿。",
             "GRADE_INVALID" => "年级已不属于当前启用学期，请刷新年级。",
             _ => HttpError(status, false).Message
         }, code) { BatchIssues = Array.AsReadOnly(issues) };

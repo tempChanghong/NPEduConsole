@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App"
+             x:Class="NPEduConsole.App.TermClassDirectoryView"
+             Focusable="False">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.class-title">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style Selector="TextBlock.class-meta">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Border.class-row">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <Style Selector="ListBox#TermClassList">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+        </Style>
+        <Style Selector="ListBox#TermClassList > ListBoxItem">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+        </Style>
+        <Style Selector="ListBox#TermClassList > ListBoxItem:focus /template/ ContentPresenter">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*" RowSpacing="6">
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox x:Name="TermClassFilter" PlaceholderText="筛选班级代码或名称" TextChanged="FilterTextChanged" />
+            <TextBlock x:Name="TermClassCount" Grid.Column="1" Classes="class-meta" VerticalAlignment="Center" />
+        </Grid>
+
+        <TextBlock x:Name="TermClassEmpty" Grid.Row="1" Classes="class-meta"
+                   Text="这个学期还没有行政班。" IsVisible="False" TextWrapping="Wrap" />
+
+        <ListBox x:Name="TermClassList" Grid.Row="1" SelectionMode="Single"
+                 SelectionChanged="RowsSelectionChanged" DoubleTapped="RowsDoubleTapped" KeyDown="RowsKeyDown"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 AutomationProperties.Name="这个学期的行政班">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="local:TermClassRow">
+                    <Border Classes="class-row" AutomationProperties.Name="{Binding AutomationName}">
+                        <StackPanel Spacing="1">
+                            <TextBlock Text="{Binding Name}" Classes="class-title" ToolTip.Tip="{Binding Name}" />
+                            <TextBlock Text="{Binding Meta}" Classes="class-meta" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</UserControl>

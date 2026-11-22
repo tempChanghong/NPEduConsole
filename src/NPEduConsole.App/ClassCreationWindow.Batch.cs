@@ -602,6 +602,7 @@ public sealed partial class ClassCreationWindow
                 CloseNotice = "当前 KV 不支持批量开班。";
                 break;
             case "CLASS_BATCH_TERM_CHANGED":
+            case "TERM_STRUCTURE_SCOPE_CHANGED":
                 _contextInvalid = true;
                 SetFeedback($"{error.Message} 本批草稿已保留；请刷新学期与年级并重新选择后再保存。", error: true);
                 CloseNotice = "批量开班未完成：当前学期已改变，草稿已保留。";
@@ -676,7 +677,8 @@ public sealed partial class ClassCreationWindow
         ReloadBatchContextButton.IsEnabled = ReloadCreationContext.IsEnabled;
         BatchPreviewButton.IsVisible = BatchValidateButton.IsVisible = BatchSubmitButton.IsVisible =
             _batchReceipt is null && !_batchUncertain;
-        BatchOpenRosterButton.IsVisible = BatchOpenSubjectSetupButton.IsVisible = _batchReceipt is not null;
+        BatchOpenRosterButton.IsVisible = _batchReceipt is not null;
+        BatchOpenSubjectSetupButton.IsVisible = _batchReceipt is not null && _specifiedTerm is null;
         BatchStartNumber.IsEnabled = BatchEndNumber.IsEnabled = BatchNamePrefix.IsEnabled = BatchCodePrefix.IsEnabled = canEdit;
         BatchRows.IsEnabled = canEdit;
         BatchPreviewButton.IsEnabled = canEdit;
@@ -693,13 +695,14 @@ public sealed partial class ClassCreationWindow
         BatchOpenRosterButton.IsEnabled = !busy && BatchResults.SelectedItem is BatchResultItem item &&
             _batchReceipt is { } receipt && receipt.Classes.Any(created => created.Id == item.Class.Id) &&
             !_contextInvalid && _context is { } context && receipt.TermId == context.TermId;
-        BatchOpenSubjectSetupButton.IsEnabled = BatchOpenRosterButton.IsEnabled;
+        BatchOpenSubjectSetupButton.IsEnabled = BatchOpenRosterButton.IsEnabled && _specifiedTerm is null;
         OpenClassBatchButton.IsEnabled = false;
     }
 
     private void ShowBatchTarget() =>
         BatchTarget.Text = _batchGrade is { } grade
-            ? $"{_school?.Name}  /  {_context?.TermName ?? "当前学期"}  /  {grade.Name}（{grade.Code}）"
+            ? $"{_school?.Name}  /  {_context?.TermName ?? "当前学期"}" +
+                (_context?.TermStatus is { } status ? $" · {status}" : "") + $"  /  {grade.Name}（{grade.Code}）"
             : null;
 
     private void ResetBatchState()

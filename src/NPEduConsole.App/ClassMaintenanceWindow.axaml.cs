@@ -13,6 +13,7 @@ public sealed partial class ClassMaintenanceWindow : Window
     private readonly string _classId = "";
     private readonly bool _initiallyActive;
     private readonly string _initialName = "";
+    private readonly ClassCreationContext? _specifiedTerm;
     private readonly CancellationTokenSource _lifetime = new();
     private ClassMaintenanceSnapshot? _baseline;
     private ClassDeactivationPreview? _preview;
@@ -31,7 +32,7 @@ public sealed partial class ClassMaintenanceWindow : Window
 
     public ClassMaintenanceWindow() => InitializeComponent();
 
-    public ClassMaintenanceWindow(ConsoleClient client, School school, Classroom room) : this()
+    public ClassMaintenanceWindow(ConsoleClient client, School school, Classroom room, ClassCreationContext? specifiedTerm = null) : this()
     {
         _client = client;
         _schoolId = school.Id;
@@ -39,7 +40,8 @@ public sealed partial class ClassMaintenanceWindow : Window
         _classId = room.Id;
         _initiallyActive = room.IsActive;
         _initialName = room.Name;
-        MaintenanceSchool.Text = school.Name;
+        _specifiedTerm = specifiedTerm;
+        MaintenanceSchool.Text = specifiedTerm is null ? school.Name : $"{school.Name} / {specifiedTerm.TermName} · {specifiedTerm.TermStatus}";
         MaintenanceHeading.Text = room.Name;
         Opened += async (_, _) => await ReadClassAsync();
         Closing += (_, args) => args.Cancel = _busy && !_closing;
@@ -70,7 +72,9 @@ public sealed partial class ClassMaintenanceWindow : Window
         MaintenanceFeedback.Text = "正在读取服务器上的班级…";
         try
         {
-            var room = await _client.GetCurrentClassMaintenanceAsync(_schoolId, _termId, _classId, _lifetime.Token);
+            var room = _specifiedTerm is { } context
+                ? await _client.GetTermClassMaintenanceAsync(context, _classId, _lifetime.Token)
+                : await _client.GetCurrentClassMaintenanceAsync(_schoolId, _termId, _classId, _lifetime.Token);
             if (_closing) return;
             var previous = _baseline;
             _baseline = room;

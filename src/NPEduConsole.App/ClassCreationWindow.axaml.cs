@@ -26,6 +26,8 @@ public sealed partial class ClassCreationWindow : Window
     private bool _closed;
     private bool _allowClose;
     private string? _initialGradeTermId;
+    private ClassCreationContext? _specifiedTerm;
+    private bool _canRetrySpecifiedClass;
 
     internal event Action<ClassCreationSubmission?>? PendingChanged;
     internal event Action<ConsoleApiException>? SessionExpired;
@@ -70,10 +72,12 @@ public sealed partial class ClassCreationWindow : Window
     }
 
     internal ClassCreationWindow(ConsoleClient client, School school, ClassCreationSubmission? pending, GradeCreationSubmission? pendingGrade,
-        ClassBatchSubmission? pendingBatch, string? initialGradeTermId = null) : this()
+        ClassBatchSubmission? pendingBatch, string? initialGradeTermId = null, ClassCreationContext? specifiedTerm = null,
+        string? preferredGradeId = null) : this()
     {
         _client = client;
         _school = school;
+        _specifiedTerm = specifiedTerm;
         _pending = pending;
         CreationSchool.Text = school.Name;
         if (pendingBatch is not null)
@@ -87,6 +91,13 @@ public sealed partial class ClassCreationWindow : Window
             };
         }
         else if (pendingGrade is not null) RestorePendingGrade(pendingGrade);
+        else if (pending is null && specifiedTerm is not null)
+        {
+            ShowContext(specifiedTerm, preferredGradeId ?? (specifiedTerm.Grades.Count == 1 ? specifiedTerm.Grades[0].Id : null));
+            SetFeedback(CreationContextMessage(specifiedTerm));
+            _initialGradeTermId = initialGradeTermId;
+            if (initialGradeTermId is not null) Opened += (_, _) => OpenGradeCreation();
+        }
         else if (pending is null)
         {
             _initialGradeTermId = initialGradeTermId;
@@ -122,7 +133,7 @@ public sealed partial class ClassCreationWindow : Window
         Render();
         try
         {
-            var context = await client.GetClassCreationContextAsync(school.Id, request.Token);
+            var context = await ReadCreationContextAsync(client, school.Id, request.Token);
             if (_request != request) return;
             _contextInvalid = false;
             _gradeRenameVersionStale = false;
@@ -149,10 +160,17 @@ public sealed partial class ClassCreationWindow : Window
         }
     }
 
+    private async Task<ClassCreationContext> ReadCreationContextAsync(ConsoleClient client, string schoolId, CancellationToken ct) =>
+        _specifiedTerm?.TermId is { } termId
+            ? (await client.GetTermClassStructureAsync(schoolId, termId, ct)).Creation
+            : await client.GetClassCreationContextAsync(schoolId, ct);
+
     private void ShowContext(ClassCreationContext context, string? gradeId)
     {
         _context = context;
-        CreationTerm.Text = context.TermName ?? "暂无生效学期";
+        CreationTerm.Text = context.IsSpecifiedTerm
+            ? $"办理学期 {context.TermName} · {context.TermStatus} ／ 全校启用 {context.ActiveTermName ?? "暂无"}"
+            : context.TermName ?? "暂无生效学期";
         CreationGrade.ItemsSource = context.Grades;
         CreationGrade.SelectedItem = context.Grades.FirstOrDefault(grade => grade.Id == gradeId);
     }
@@ -162,6 +180,7 @@ public sealed partial class ClassCreationWindow : Window
         if (_client is not { } client || _request is not null || _blocked || _contextInvalid || _editingGrade ||
             _editingGradeRename || _editingBatch) return;
         var submission = _pending;
+        bool readReceipt = submission?.Context.IsSpecifiedTerm == true && !_canRetrySpecifiedClass;
         if (submission is null)
         {
             if (_context is not { TermId: not null } context || CreationGrade.SelectedItem is not ClassCreationGrade grade) return;
@@ -190,13 +209,21 @@ public sealed partial class ClassCreationWindow : Window
         _request = request;
         _submitting = true;
         SetPending(submission);
-        SetFeedback("正在提交建班请求…");
+        SetFeedback(readReceipt ? "正在核对原建班请求…" : "正在提交建班请求…");
         Render();
         try
         {
-            string id = await client.CreateClassAsync(submission.Context, submission.Grade.Id, submission.Code, submission.Name,
-                submission.IsStudentSelectable, submission.RequestId, request.Token);
+            string? id = readReceipt
+                ? await client.GetScopedClassCreationResultAsync(submission.Context, submission.Grade.Id, submission.RequestId, request.Token)
+                : await client.CreateClassAsync(submission.Context, submission.Grade.Id, submission.Code, submission.Name,
+                    submission.IsStudentSelectable, submission.RequestId, request.Token);
             if (_request != request) return;
+            if (id is null)
+            {
+                _canRetrySpecifiedClass = true;
+                SetFeedback("暂未查到本次回执。可使用原编号重试，学校会再次核对学期和年级。");
+                return;
+            }
             SetPending(null);
             ConfirmedClass = new(id, submission.Context.TermId!, submission.Name);
             _allowClose = true;
@@ -220,6 +247,7 @@ public sealed partial class ClassCreationWindow : Window
     {
         if (error.StatusCode is 0 or 408 or >= 500)
         {
+            _canRetrySpecifiedClass = false;
             ShowUnconfirmed();
             return;
         }
@@ -238,6 +266,7 @@ public sealed partial class ClassCreationWindow : Window
                 _rejectedCode = NormalizedCode();
                 break;
             case "CLASS_CREATION_TERM_CHANGED":
+            case "TERM_STRUCTURE_SCOPE_CHANGED":
             case "GRADE_INVALID":
                 _contextInvalid = true;
                 CreationGrade.SelectedItem = null;
@@ -282,10 +311,13 @@ public sealed partial class ClassCreationWindow : Window
     private void SetPending(ClassCreationSubmission? pending)
     {
         _pending = pending;
+        _canRetrySpecifiedClass = false;
         PendingChanged?.Invoke(pending);
     }
 
-    private void ShowUnconfirmed() => SetFeedback("建班结果未确认。重试确认会沿用相同信息；关闭后可在当前登录中再次打开本校建班窗口继续。", error: true);
+    private void ShowUnconfirmed() => SetFeedback(_pending?.Context.IsSpecifiedTerm == true
+        ? "建班结果未确认。请先只读核对原请求，关闭后仍可从本学期的建班窗口继续。"
+        : "建班结果未确认。重试确认会沿用相同信息；关闭后可在当前登录中再次打开本校建班窗口继续。", error: true);
 
     private void ClearFields()
     {
@@ -328,7 +360,9 @@ public sealed partial class ClassCreationWindow : Window
         CreationFields.IsVisible = !_editingGrade && !_editingGradeRename && !_editingBatch;
         CreationFields.IsEnabled = ready && !busy && _pending is null && !_editingGradeRename && !_editingBatch;
         ReloadCreationContext.IsEnabled = !busy && _pending is null && _pendingGrade is null && !_blocked;
-        SubmitClassCreationButton.Content = _submitting ? "正在提交…" : _pending is not null ? "重试确认" : "创建并录入名单";
+        SubmitClassCreationButton.Content = _submitting ? "正在处理…" : _pending?.Context.IsSpecifiedTerm == true
+            ? _canRetrySpecifiedClass ? "按原编号重试" : "核对结果"
+            : _pending is not null ? "重试确认" : "创建并录入名单";
         SubmitClassCreationButton.IsVisible = !_editingGrade && !_editingGradeRename && !_editingBatch;
         SubmitClassCreationButton.IsEnabled = !_editingGrade && !_editingGradeRename && !_editingBatch && !busy && !_blocked &&
             (_pending is not null || ready && CreationGrade.SelectedItem is ClassCreationGrade &&
@@ -339,6 +373,7 @@ public sealed partial class ClassCreationWindow : Window
             (_pending is not null || _pendingGrade is not null || _batchUncertain) ? "关闭，稍后确认" : "关闭";
         RenderGradeCreation(busy);
         RenderGradeRename(busy);
+        OpenGradeRenameButton.IsVisible = _specifiedTerm is null;
         RenderBatch(busy);
     }
 

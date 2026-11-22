@@ -15,7 +15,7 @@ public sealed partial class ClassCreationWindow
 
     private static string? CreationContextMessage(ClassCreationContext context) => context.TermId is null
         ? "该学校暂无启用学期，启用后可创建年级或行政班。"
-        : context.Grades.Count == 0 ? "当前学期暂无年级。请先新建年级。" : null;
+        : context.Grades.Count == 0 ? "所选学期暂无年级。请先新建年级。" : null;
 
     private bool GradeContextReady => _context?.TermId is not null && !_contextInvalid && !_blocked;
 
@@ -98,7 +98,7 @@ public sealed partial class ClassCreationWindow
 
             confirmed = true;
             SetFeedback("学校已确认创建，正在刷新当前学期年级…");
-            var directory = await client.GetClassCreationContextAsync(submission.Context.SchoolId, request.Token);
+            var directory = await ReadCreationContextAsync(client, submission.Context.SchoolId, request.Token);
             if (_request != request) return;
             SetPendingGrade(null);
             _editingGrade = _contextInvalid = false;
@@ -137,7 +137,7 @@ public sealed partial class ClassCreationWindow
         }
 
         SetPendingGrade(null);
-        if (error.Code is "GRADE_CREATION_TERM_CHANGED" or "GRADE_CREATION_TARGET_CHANGED" or "GRADE_CREATION_REQUEST_CONFLICT")
+        if (error.Code is "GRADE_CREATION_TERM_CHANGED" or "GRADE_CREATION_TARGET_CHANGED" or "GRADE_CREATION_REQUEST_CONFLICT" or "TERM_STRUCTURE_SCOPE_CHANGED")
         {
             _contextInvalid = true;
             CreationGrade.SelectedItem = null;

@@ -7,6 +7,7 @@ namespace NPEduConsole.App;
 public sealed partial class TermPreparationWindow
 {
     private TermStatusWindow? _termStatusWindow;
+    private TermClassManagementWindow? _termClassesWindow;
     private ManagedAcademicTerm[] CatalogTerms => _catalog?.Terms ??
         (_catalog is { } catalog ? (catalog.ActiveTerm is { } active ? [active, ..catalog.Drafts] : catalog.Drafts) : []);
 
@@ -41,6 +42,9 @@ public sealed partial class TermPreparationWindow
         bool pendingStatus = TermStatusWindow.HasPending(_client, _school.Id);
         ViewedTermName.Text = term?.Name ?? "选择本校学期查看";
         ViewedTermDetails.Text = term is null ? null : $"{term.Period} · {term.StatusText}\n{term.Dates}";
+        TermManageClasses.IsVisible = term is not null;
+        TermPrepareClasses.IsVisible = _page == Page.Check && _check?.Term.Status == "DRAFT";
+        TermManageClasses.IsEnabled = TermPrepareClasses.IsEnabled = editable;
         TermStatusActivate.IsVisible = supportsStatus && term?.Status is "DRAFT" or "ARCHIVED";
         TermStatusActivate.Content = term?.Status == "ARCHIVED" ? "重新启用" : "预览启用";
         TermMoreActions.IsVisible = supportsStatus && term is not null;
@@ -62,6 +66,25 @@ public sealed partial class TermPreparationWindow
         TermStatusHistoryPicker.IsVisible = TermStatusHistoryOpen.IsVisible = history.Length > 0;
         TermStatusHistoryOpen.IsEnabled = editable && !pendingStatus;
         if (pendingStatus && _page == Page.Check && PendingActivation is null) TermPrimary.IsEnabled = false;
+    }
+
+    private async void TermManageClassesClicked(object? sender, RoutedEventArgs args) =>
+        await OpenTermClassesAsync(SelectedTerm, TermManageClasses);
+
+    private async void TermPrepareClassesClicked(object? sender, RoutedEventArgs args) =>
+        await OpenTermClassesAsync(_check?.Term, TermPrepareClasses);
+
+    private async Task OpenTermClassesAsync(ManagedAcademicTerm? term, Button source)
+    {
+        if (term is null || _busy || _closed || _termClassesWindow is not null) return;
+        var window = new TermClassManagementWindow(_client, _school, term) { SessionExpired = SessionExpired };
+        _termClassesWindow = window;
+        TermManageClasses.IsEnabled = TermPrepareClasses.IsEnabled = false;
+        try { await window.ShowDialog(this); }
+        finally { _termClassesWindow = null; }
+        if (_closed) return;
+        await RunAsync(_page == Page.Check ? () => ReadCheckAsync(term.Id) : LoadCatalogAsync);
+        Focus(source);
     }
 
     private async void StatusActivateClicked(object? sender, RoutedEventArgs args) => await OpenStatusWindowAsync(SelectedTerm, "ACTIVATE");

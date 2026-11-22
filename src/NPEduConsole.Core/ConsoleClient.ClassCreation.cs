@@ -6,6 +6,7 @@ namespace NPEduConsole.Core;
 public sealed record ClassCreationGrade(string Id, string Code, string Name)
 {
     public string? UpdatedAt { get; init; }
+    public int SortOrder { get; init; }
 }
 
 public sealed class ClassCreationContext
@@ -24,12 +25,16 @@ public sealed class ClassCreationContext
     public string? TermId { get; }
     public string? TermName { get; }
     public IReadOnlyList<ClassCreationGrade> Grades { get; }
+    internal string? ScopeVersion { get; init; }
+    public bool IsSpecifiedTerm => ScopeVersion is not null;
+    public string? TermStatus { get; init; }
+    public string? ActiveTermName { get; init; }
 }
 
 public sealed partial class ConsoleClient
 {
     private sealed record CreationTerm(string Id, string SchoolId, string Name, string Status);
-    private sealed record CreationGradeRow(string Id, string TermId, string Code, string Name, string? UpdatedAt = null);
+    private sealed record CreationGradeRow(string Id, string TermId, string Code, string Name, string? UpdatedAt = null, int SortOrder = 0);
     private sealed record CreationDirectory(CreationTerm? Term, CreationGradeRow[] Grades);
     private sealed record CreatedClass(string Id, string SchoolId, string TermId, string GradeId, Guid RequestId);
     private sealed record GradeCreationReceipt(string SchoolId, string TermId, Guid RequestId, ClassCreationGrade? Grade);
@@ -76,8 +81,10 @@ public sealed partial class ConsoleClient
         name = name.Trim();
         if (!ValidCreationCode(code) || name.Length is < 1 or > 191 || requestId == Guid.Empty)
             throw new ConsoleApiException(422, "请核对班级名称和代码。代码为 2 至 64 位，以字母或数字开头。", "ADMIN_CLASS_INVALID");
-        var data = await RequestAsync<CreatedClass>(HttpMethod.Post, CurrentClassesPath(context.SchoolId), session.Token, ct,
-            body: new { context.TermId, gradeId, code, name, isStudentSelectable, requestId });
+        var data = await RequestAsync<CreatedClass>(HttpMethod.Post, CreationClassesPath(context), session.Token, ct,
+            body: context.IsSpecifiedTerm
+                ? new { expectedScope = context.ScopeVersion, gradeId, code, name, isStudentSelectable, requestId }
+                : new { context.TermId, gradeId, code, name, isStudentSelectable, requestId });
         CheckCreationSession(session, ct);
         if (data.SchoolId != context.SchoolId || data.TermId != context.TermId || data.GradeId != gradeId ||
             data.RequestId != requestId) throw InvalidResponse();
@@ -128,10 +135,13 @@ public sealed partial class ConsoleClient
         name = name.Trim();
         if (context.TermId is not { } termId || requestId == Guid.Empty || !ValidCreationCode(code) || name.Length is < 1 or > 191)
             throw new ConsoleApiException(422, "请核对当前学期、年级名称和代码。代码为 2 至 64 位，以字母或数字开头。", "GRADE_INVALID");
-        var path = CurrentGradesPath(context.SchoolId);
+        var path = context.IsSpecifiedTerm ? TermStructurePath(context.SchoolId, termId) + "/grades" : CurrentGradesPath(context.SchoolId);
         var result = create
-            ? await RequestAsync<GradeCreationReceipt>(HttpMethod.Post, path, session.Token, ct, body: new { termId, requestId, code, name })
-            : await RequestAsync<GradeCreationReceipt>(HttpMethod.Get, $"{path}/{requestId:D}?termId={Segment(termId)}", session.Token, ct);
+            ? await RequestAsync<GradeCreationReceipt>(HttpMethod.Post, path, session.Token, ct, body: context.IsSpecifiedTerm
+                ? new { expectedScope = context.ScopeVersion, requestId, code, name }
+                : new { termId, requestId, code, name })
+            : await RequestAsync<GradeCreationReceipt>(HttpMethod.Get, context.IsSpecifiedTerm
+                ? $"{path}/receipts/{requestId:D}" : $"{path}/{requestId:D}?termId={Segment(termId)}", session.Token, ct);
         CheckCreationSession(session, ct);
         if (result.SchoolId != context.SchoolId || result.TermId != termId || result.RequestId != requestId) throw InvalidResponse();
         if (result.Grade is { } grade)

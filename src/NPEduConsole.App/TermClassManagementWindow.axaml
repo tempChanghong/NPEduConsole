@@ -1,0 +1,58 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App"
+        x:Class="NPEduConsole.App.TermClassManagementWindow"
+        Title="班级与名单" Width="1060" Height="700" MinWidth="650" MinHeight="380"
+        Background="{DynamicResource CanvasBrush}" WindowStartupLocation="CenterOwner">
+  <Border Background="{DynamicResource CanvasBrush}" Padding="16">
+  <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
+    <Border Classes="card" Padding="12">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+        <StackPanel Spacing="4">
+          <TextBlock x:Name="StructureTarget" Classes="label" FontSize="20" TextWrapping="Wrap"/>
+          <TextBlock x:Name="StructureActiveTerm" Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+        <Button x:Name="StructureReload" Grid.Column="1" Classes="action" Content="刷新" Click="ReloadClicked" VerticalAlignment="Top"/>
+      </Grid>
+    </Border>
+    <TextBlock x:Name="StructureNotice" Grid.Row="1" Classes="muted" TextWrapping="Wrap"
+               IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
+    <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="12" x:Name="StructureColumns">
+      <Border x:Name="StructureDirectoryPane" Classes="card" Padding="12">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <ComboBox x:Name="StructureGrade" AutomationProperties.Name="筛选年级" HorizontalAlignment="Stretch"
+                      SelectionChanged="GradeChanged"/>
+            <Button x:Name="StructureGradeEdit" Grid.Column="1" Classes="action" Content="维护年级" Click="GradeEditClicked"/>
+          </Grid>
+          <WrapPanel Grid.Row="1" Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
+            <Button x:Name="StructureCreateGrade" Classes="action" Content="新建年级" Click="CreateGradeClicked"/>
+            <Button x:Name="StructureCreateClass" Classes="action accent" Content="新建行政班" Click="CreateClassClicked"/>
+          </WrapPanel>
+          <local:TermClassDirectoryView Grid.Row="2" x:Name="StructureDirectory"/>
+          <Button x:Name="StructureOpenClass" Grid.Row="3" Classes="action" Content="查看所选班级" Click="OpenClassClicked"/>
+        </Grid>
+      </Border>
+      <Border Grid.Column="1" x:Name="StructureDetailPane" Classes="card" Padding="12">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
+          <Button x:Name="StructureBackToClasses" Classes="action" Content="返回班级列表" Click="BackToClassesClicked" HorizontalAlignment="Left"/>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="8">
+              <TextBlock x:Name="StructureClassName" Classes="label" FontSize="19" TextWrapping="Wrap"/>
+              <TextBlock x:Name="StructureClassMeta" Classes="muted" TextWrapping="Wrap"/>
+              <TextBlock x:Name="StructureRosterSummary" Classes="muted" TextWrapping="Wrap"/>
+              <ListBox x:Name="StructureRosterRows" Classes="object-list" MaxHeight="285" Background="Transparent"
+                       AutomationProperties.Name="当前学生名单" IsVisible="False"/>
+            </StackPanel>
+          </ScrollViewer>
+          <WrapPanel Grid.Row="2" Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
+            <Button x:Name="StructureEditClass" Classes="action" Content="维护班级" Click="EditClassClicked"/>
+            <Button x:Name="StructureRoster" Classes="action accent" Content="编辑名单" Click="RosterClicked"/>
+          </WrapPanel>
+        </Grid>
+      </Border>
+    </Grid>
+    <Button x:Name="StructureClose" Grid.Row="3" Classes="action" Content="返回学期管理" HorizontalAlignment="Right" Click="CloseClicked"/>
+  </Grid>
+  </Border>
+</Window>

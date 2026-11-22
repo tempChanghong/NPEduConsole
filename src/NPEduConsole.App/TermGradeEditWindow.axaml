@@ -1,0 +1,27 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPEduConsole.App.TermGradeEditWindow" Title="维护年级" Width="520" Height="450"
+        MinWidth="380" MinHeight="360" Background="{DynamicResource CanvasBrush}" WindowStartupLocation="CenterOwner">
+  <Border Background="{DynamicResource CanvasBrush}" Padding="16">
+  <Grid RowDefinitions="Auto,*,Auto" RowSpacing="10">
+    <TextBlock x:Name="GradeScope" FontSize="19" Classes="label" TextWrapping="Wrap"/>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+      <StackPanel Spacing="7">
+        <TextBlock Text="年级名称" Classes="label"/>
+        <TextBox x:Name="GradeNameInput" MaxLength="191" AutomationProperties.Name="年级名称"/>
+        <TextBlock Text="年级代码" Classes="label"/>
+        <TextBox x:Name="GradeCodeInput" MaxLength="64" AutomationProperties.Name="年级代码"/>
+        <TextBlock Text="显示顺序" Classes="label"/>
+        <TextBox x:Name="GradeOrderInput" MaxLength="6" AutomationProperties.Name="显示顺序"/>
+        <TextBlock x:Name="GradeEditNotice" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+        <TextBlock x:Name="GradeServerValue" Classes="label" TextWrapping="Wrap" IsVisible="False"/>
+      </StackPanel>
+    </ScrollViewer>
+    <WrapPanel Grid.Row="2" HorizontalAlignment="Right" ItemSpacing="8" LineSpacing="6">
+      <Button x:Name="GradeCurrentCheck" Classes="action" Content="读取当前值" Click="CheckClicked" IsVisible="False"/>
+      <Button x:Name="GradeAdoptVersion" Classes="action" Content="已核对，保留草稿" Click="AdoptClicked" IsVisible="False"/>
+      <Button x:Name="GradeEditClose" Classes="action" Content="关闭" Click="CloseClicked"/>
+      <Button x:Name="GradeEditSave" Classes="action accent" Content="保存年级" Click="SaveClicked"/>
+    </WrapPanel>
+  </Grid>
+  </Border>
+</Window>

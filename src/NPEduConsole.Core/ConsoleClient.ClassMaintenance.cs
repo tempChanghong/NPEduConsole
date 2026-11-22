@@ -21,6 +21,7 @@ public sealed class ClassMaintenanceSnapshot
     }
 
     internal Guid SessionId { get; }
+    internal string? ScopeVersion { get; init; }
     public string SchoolId { get; }
     public string Id { get; }
     public string TermId { get; }
@@ -56,7 +57,7 @@ public sealed partial class ConsoleClient
     private sealed record ImpactRow(int? WorkspaceMembers, int? TeachingAssignments, int? PendingInvitations,
         int? PublicationHistory, int? ActivePublications, int? ScreenBindings, int? Students, int? Leaderships, int? SourceLinks);
     private sealed record MaintenanceReply(string SchoolId, MaintenanceClassRow AdministrativeClass,
-        ImpactRow? Counts = null, string? ImpactToken = null);
+        ImpactRow? Counts = null, string? ImpactToken = null, string? ScopeVersion = null);
 
     private static string ClassMaintenancePath(string schoolId) => CurrentClassesPath(schoolId) + "/maintenance";
     private static bool IsClassMaintenancePath(string path) => path.Contains(MaintenanceSuffix, StringComparison.Ordinal);
@@ -85,12 +86,23 @@ public sealed partial class ConsoleClient
         return CheckClassReply(result, session, schoolId, termId, classId, ct);
     }
 
+    public async Task<ClassMaintenanceSnapshot> GetTermClassMaintenanceAsync(ClassCreationContext context, string classId,
+        CancellationToken ct)
+    {
+        var session = RequireTermStructureContext(context);
+        var result = await RequestAsync<MaintenanceReply>(HttpMethod.Get, ScopedMaintenancePath(context.SchoolId, context.TermId!, classId),
+            session.Token, ct);
+        return CheckClassReply(result, session, context.SchoolId, context.TermId!, classId, ct, context.ScopeVersion);
+    }
+
     public async Task<ClassDeactivationPreview> PreviewClassDeactivationAsync(ClassMaintenanceSnapshot baseline, CancellationToken ct)
     {
         var session = GetMaintenanceSession(baseline);
-        var path = $"{ClassMaintenancePath(baseline.SchoolId)}/{Segment(baseline.Id)}/deactivation-impact?termId={Segment(baseline.TermId)}";
+        var path = baseline.ScopeVersion is null
+            ? $"{ClassMaintenancePath(baseline.SchoolId)}/{Segment(baseline.Id)}/deactivation-impact?termId={Segment(baseline.TermId)}"
+            : ScopedMaintenancePath(baseline.SchoolId, baseline.TermId, baseline.Id) + "/deactivation-impact";
         var result = await RequestAsync<MaintenanceReply>(HttpMethod.Get, path, session.Token, ct);
-        var room = CheckClassReply(result, session, baseline.SchoolId, baseline.TermId, baseline.Id, ct);
+        var room = CheckClassReply(result, session, baseline.SchoolId, baseline.TermId, baseline.Id, ct, baseline.ScopeVersion);
         if (!room.IsActive || result.Counts is not { } c || result.ImpactToken is not { Length: 64 } token ||
             !token.All(char.IsAsciiHexDigit)) throw InvalidResponse();
         int?[] values = [c.WorkspaceMembers, c.TeachingAssignments, c.PendingInvitations, c.PublicationHistory,
@@ -107,27 +119,40 @@ public sealed partial class ConsoleClient
         code = code.Trim().ToUpperInvariant();
         if (name.Length is < 1 or > 191 || !ValidCreationCode(code))
             throw new ConsoleApiException(422, "请核对班级名称（1–191 字）和代码（2–64 位，以字母或数字开头）。", "ADMIN_CLASS_INVALID");
-        return SaveCurrentClassAsync(baseline, new { baseline.TermId, action = "EDIT", expectedUpdatedAt = baseline.UpdatedAt,
-            name, code, isStudentSelectable }, ct);
+        return SaveCurrentClassAsync(baseline, "EDIT", ct, name, code, isStudentSelectable);
     }
 
     public Task<ClassMaintenanceSnapshot> DeactivateCurrentClassAsync(ClassDeactivationPreview preview, CancellationToken ct)
     {
         var baseline = preview.Classroom;
-        return SaveCurrentClassAsync(baseline, new { baseline.TermId, action = "DEACTIVATE", expectedUpdatedAt = baseline.UpdatedAt,
-            impactToken = preview.Token }, ct);
+        return SaveCurrentClassAsync(baseline, "DEACTIVATE", ct, impactToken: preview.Token);
     }
 
     public Task<ClassMaintenanceSnapshot> ReactivateCurrentClassAsync(ClassMaintenanceSnapshot baseline, CancellationToken ct) =>
-        SaveCurrentClassAsync(baseline, new { baseline.TermId, action = "REACTIVATE", expectedUpdatedAt = baseline.UpdatedAt }, ct);
+        SaveCurrentClassAsync(baseline, "REACTIVATE", ct);
 
-    private async Task<ClassMaintenanceSnapshot> SaveCurrentClassAsync(ClassMaintenanceSnapshot baseline, object body, CancellationToken ct)
+    private async Task<ClassMaintenanceSnapshot> SaveCurrentClassAsync(ClassMaintenanceSnapshot baseline, string action,
+        CancellationToken ct, string? name = null, string? code = null, bool? isStudentSelectable = null, string? impactToken = null)
     {
         var session = GetMaintenanceSession(baseline);
-        var result = await RequestAsync<MaintenanceReply>(HttpMethod.Patch, $"{ClassMaintenancePath(baseline.SchoolId)}/{Segment(baseline.Id)}",
+        var path = baseline.ScopeVersion is null ? $"{ClassMaintenancePath(baseline.SchoolId)}/{Segment(baseline.Id)}"
+            : ScopedMaintenancePath(baseline.SchoolId, baseline.TermId, baseline.Id);
+        var body = new Dictionary<string, object> { ["termId"] = baseline.TermId, ["action"] = action, ["expectedUpdatedAt"] = baseline.UpdatedAt };
+        if (baseline.ScopeVersion is { } scope) body["expectedScope"] = scope;
+        if (name is not null && code is not null && isStudentSelectable is { } selectable)
+        {
+            body["name"] = name;
+            body["code"] = code;
+            body["isStudentSelectable"] = selectable;
+        }
+        if (impactToken is not null) body["impactToken"] = impactToken;
+        var result = await RequestAsync<MaintenanceReply>(HttpMethod.Patch, path,
             session.Token, ct, body: body);
-        return CheckClassReply(result, session, baseline.SchoolId, baseline.TermId, baseline.Id, ct);
+        return CheckClassReply(result, session, baseline.SchoolId, baseline.TermId, baseline.Id, ct, baseline.ScopeVersion);
     }
+
+    private static string ScopedMaintenancePath(string schoolId, string termId, string classId) =>
+        $"{TermStructurePath(schoolId, termId)}/classes/{Segment(classId)}/maintenance";
 
     private Session GetMaintenanceSession(ClassMaintenanceSnapshot baseline)
     {
@@ -138,20 +163,23 @@ public sealed partial class ConsoleClient
     }
 
     private ClassMaintenanceSnapshot CheckClassReply(MaintenanceReply result, Session session, string schoolId, string termId,
-        string classId, CancellationToken ct)
+        string classId, CancellationToken ct, string? expectedScope = null)
     {
         CheckCreationSession(session, ct);
         if (result.SchoolId != schoolId || result.AdministrativeClass?.Id != classId) throw InvalidResponse();
-        return ToClassSnapshot(result.AdministrativeClass, session, schoolId, termId);
+        if (expectedScope is not null) CheckTermStructureVersion(expectedScope, result.ScopeVersion);
+        return ToClassSnapshot(result.AdministrativeClass, session, schoolId, termId, expectedScope);
     }
 
-    private static ClassMaintenanceSnapshot ToClassSnapshot(MaintenanceClassRow? row, Session session, string schoolId, string termId)
+    private static ClassMaintenanceSnapshot ToClassSnapshot(MaintenanceClassRow? row, Session session, string schoolId, string termId,
+        string? scopeVersion = null)
     {
         if (row is null || row.TermId != termId || string.IsNullOrWhiteSpace(row.Name) || string.IsNullOrWhiteSpace(row.Code) ||
             row.IsActive is not { } active || row.IsStudentSelectable is not { } selectable ||
             ValidateUpdatedAt(row.UpdatedAt) is not { } updatedAt) throw InvalidResponse();
         _ = Segment(row.Id);
-        return new(session.Id, schoolId, row.Id, termId, row.GradeName, row.Code, row.Name, selectable, active, updatedAt);
+        return new(session.Id, schoolId, row.Id, termId, row.GradeName, row.Code, row.Name, selectable, active, updatedAt)
+            { ScopeVersion = scopeVersion };
     }
 
     private static ConsoleApiException ClassMaintenanceError(int status, string? code)
