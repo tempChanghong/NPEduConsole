@@ -23,16 +23,20 @@ public sealed partial class MainWindow
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
             OpenBulkAllocation = owner => ShowTeacherAllocationAsync(owner, client, school),
-            OpenSchoolAccount = (owner, id) => ShowSchoolManagementAccountsAsync(owner, client, school, id)
+            OpenSchoolAccount = (owner, id) => ShowSchoolManagementAccountsAsync(owner, client, school, id),
+            OpenSchoolProfile = owner => ShowSchoolProfileAsync(owner, client, school)
         };
         _teacherAccountsWindow = window;
         try { await window.ShowDialog(this); }
         finally { if (_teacherAccountsWindow == window) _teacherAccountsWindow = null; }
-        if (_client != client || _school != school || window.Destination is not { } next) return;
-        if (next.Kind == "teaching")
-            await ShowTeachingAsync(client, school, next.TermId, next.TargetId, next.SubjectId, next.AccountId);
-        else if (next.Kind is "grades" or "classes")
-            await ShowStaffResponsibilitiesAsync(client, school, next.TermId, next.Kind, next.TargetId, next.AccountId);
+        if (_client == client && _school == school && window.Destination is { } next)
+        {
+            if (next.Kind == "teaching")
+                await ShowTeachingAsync(client, school, next.TermId, next.TargetId, next.SubjectId, next.AccountId);
+            else if (next.Kind is "grades" or "classes")
+                await ShowStaffResponsibilitiesAsync(client, school, next.TermId, next.Kind, next.TargetId, next.AccountId);
+        }
+        ApplyPendingSchoolLabel();
     }
 
     private void CloseTeacherAccounts()
@@ -51,7 +55,8 @@ public sealed partial class MainWindow
         if (_teacherAllocationWindow is not null || _client != client || _school != school) return false;
         var window = new TeacherAllocationWindow(client, school, termId, gradeId)
         {
-            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
+            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
+            OpenSchoolProfile = popup => ShowSchoolProfileAsync(popup, client, school)
         };
         _teacherAllocationWindow = window;
         try { await window.ShowDialog(owner); }
@@ -61,6 +66,8 @@ public sealed partial class MainWindow
             await ShowTeachingAsync(client, school, next.TermId, next.WorkspaceId, next.SubjectId, next.AccountId, next.IsGroup, owner);
         if (window.AccessChanged && _client == client && _school == school)
             await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
-        return window.AccessChanged && _client == client && _school == school;
+        bool changed = window.AccessChanged && _client == client && _school == school;
+        ApplyPendingSchoolLabel();
+        return changed;
     }
 }

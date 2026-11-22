@@ -334,6 +334,8 @@ public sealed partial class ConsoleClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 int status = (int)response.StatusCode;
+                if (IsSchoolProfilePath(path))
+                    throw SchoolProfileError(status, await AcademicErrorCodeAsync(response, ct));
                 if (path.StartsWith(DesktopOAuthPath, StringComparison.Ordinal))
                     throw DesktopOAuthError(status, await AcademicErrorCodeAsync(response, ct));
                 if (version is "0.4" or "0.5" && IsExamPath(path))

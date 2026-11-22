@@ -198,6 +198,7 @@ public sealed partial class MainWindow : Window
             var school = SchoolPicker.SelectedItem as School;
             CloseSchoolSubjects();
             CloseStaffResponsibilities();
+            CloseSchoolProfile();
             CloseSchoolManagementAccounts();
             CloseTeacherAccounts();
             CloseHomeworkSettings();
@@ -575,6 +576,7 @@ public sealed partial class MainWindow : Window
         _subjectSetup.Close();
         CloseSchoolSubjects();
         CloseStaffResponsibilities();
+        CloseSchoolProfile();
         CloseTeacherAccounts();
         CloseSchoolManagementAccounts();
         CloseHomeworkSettings();

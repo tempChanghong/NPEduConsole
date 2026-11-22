@@ -35,6 +35,8 @@ public sealed partial class TeacherAllocationWindow : Window
     private OrganizationTerm? Term => _catalog?.Terms.FirstOrDefault(row => row.Id == _catalog.TermId);
     private PendingRequest? Pending => Requests.GetOrCreateValue(_client).GetValueOrDefault(_school.Id);
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }
+    internal string? InitialInvitationId { get; init; }
     internal bool AccessChanged { get; private set; }
     internal (string TermId, string WorkspaceId, string? SubjectId, string AccountId, bool IsGroup)? TeachingTarget { get; private set; }
 
@@ -50,6 +52,7 @@ public sealed partial class TeacherAllocationWindow : Window
         SizeChanged += (_, _) => ArrangeAllocationLayout();
         Opened += async (_, _) =>
         {
+            AllocationSchoolProfile.IsVisible = OpenSchoolProfile is not null;
             BatchWorkspaceWindow.FitSchoolWindow(this);
             ArrangeAllocationLayout();
             await RunAsync(async () =>
@@ -57,6 +60,7 @@ public sealed partial class TeacherAllocationWindow : Window
                 if (Pending is not { } request)
                 {
                     await LoadAsync(termId, gradeId);
+                    if (!_closed && InitialInvitationId is { } invitation) FocusInvitation(invitation);
                     return;
                 }
                 try { await LoadAsync(request.Draft.TermId, request.Draft.GradeId, request.Draft.TermId is null); }
@@ -155,6 +159,19 @@ public sealed partial class TeacherAllocationWindow : Window
             await LoadAsync(_catalog?.TermId, _catalog?.GradeId, _catalog is { TermId: null });
             if (!_closed) Status("已从服务器重新读取当前账号、访问、职责和邀请。");
         });
+    }
+
+    private async void OpenSchoolProfileClicked(object? sender, RoutedEventArgs e)
+    {
+        if (OpenSchoolProfile is not { } open || Pending is not null) return;
+        await RunAsync(async () =>
+        {
+            if (!await open(this) || _closed) return;
+            ClearReview();
+            await LoadAsync(_catalog?.TermId, _catalog?.GradeId, _catalog is {TermId: null});
+            Status("学校登录方式已重新核对，原教师表保留。请重新预览草稿。");
+        });
+        if (!_closed) AllocationSchoolProfile.Focus();
     }
 
     internal void LoadAllocationText(string text, bool legacy)

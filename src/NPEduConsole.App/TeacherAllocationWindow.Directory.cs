@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
@@ -14,6 +15,26 @@ public sealed partial class TeacherAllocationWindow
         public override string ToString() => $"{Name}（{Username ?? Email ?? Id}）{(Disabled ? " · 已停用" : "")}";
     }
     private TeacherAllocationReceipt? _lastReceipt;
+
+    private void FocusInvitation(string invitationId)
+    {
+        var invitation = _catalog?.Invitations.SingleOrDefault(row => row.Id == invitationId);
+        if (invitation is null)
+        {
+            Status("这条邀请已不存在或已经超出当前范围，请返回刷新名单。");
+            return;
+        }
+        AllocationTabs.SelectedIndex = 3;
+        AllocationDirectorySpaces.SelectedItem = AllocationDirectorySpaces.Items.OfType<AllocationWorkspace>()
+            .SingleOrDefault(room => room.Id == invitation.WorkspaceId);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed) return;
+            var target = AllocationSpaceDetails.Children.OfType<Border>().FirstOrDefault(card => Equals(card.Tag, invitationId));
+            target?.BringIntoView();
+            target?.Focus();
+        }, DispatcherPriority.Loaded);
+    }
 
     private void DirectorySearchChanged(object? sender, TextChangedEventArgs args)
     {
@@ -172,7 +193,7 @@ public sealed partial class TeacherAllocationWindow
             actions.Children.Add(teach);
         }
         if (actions.Children.Count > 0) content.Children.Add(actions);
-        return new Border {Classes = { "card" }, Padding = new Thickness(8), Child = content};
+        return new Border {Classes = { "card" }, Padding = new Thickness(8), Child = content, Tag = invite?.Id, Focusable = invite is not null};
     }
 
     private void AddDirectoryAction(DirectoryPerson person, AllocationAccess change)

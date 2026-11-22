@@ -1,0 +1,77 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="using:NPEduConsole.Core"
+             x:Class="NPEduConsole.App.TeacherLoginImpactView"
+             Background="Transparent">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.impact-muted">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.impact-name">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.impact-cell">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="7">
+        <Grid Grid.Row="0" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="TeacherLoginImpactCounts" Classes="impact-muted" VerticalAlignment="Center"/>
+            <ComboBox x:Name="TeacherLoginImpactFilter" Grid.Column="1" MinWidth="118"
+                      VerticalAlignment="Top" SelectionChanged="FilterChanged"
+                      AutomationProperties.Name="筛选受影响的对象" />
+        </Grid>
+
+        <TextBlock x:Name="TeacherLoginImpactStatus" Grid.Row="1" Classes="impact-muted"
+                   AutomationProperties.LiveSetting="Polite" />
+
+        <Border Grid.Row="2" Classes="card" Padding="8" ClipToBounds="True">
+            <Grid RowDefinitions="Auto,*">
+                <Grid ColumnDefinitions="2.4*,1.8*,1.8*" ColumnSpacing="8" Margin="8,0,28,4">
+                    <TextBlock Classes="impact-muted" Text="教师 / 邀请" />
+                    <TextBlock Grid.Column="1" Classes="impact-muted" Text="现有访问" />
+                    <TextBlock Grid.Column="2" Classes="impact-muted" Text="下次登录" />
+                </Grid>
+
+                <ListBox x:Name="TeacherLoginImpactRows" Grid.Row="1" Classes="object-list" Background="Transparent"
+                         SelectionMode="Single" KeyDown="RowsKeyDown" DoubleTapped="RowsDoubleTapped"
+                         Margin="0,0,4,0" AutomationProperties.Name="受影响的账号与邀请">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="core:TeacherLoginImpactRow">
+                            <Grid ColumnDefinitions="2.4*,1.8*,1.8*" ColumnSpacing="8" Margin="8,5">
+                                <StackPanel Spacing="1">
+                                    <TextBlock Classes="impact-name" Text="{Binding Name}" />
+                                    <TextBlock Classes="impact-muted" Text="{Binding Identity}"
+                                               IsVisible="{Binding Identity, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <TextBlock Classes="impact-muted" Text="{Binding WorkspaceName}"
+                                               IsVisible="{Binding WorkspaceName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <TextBlock Classes="impact-muted" Text="{Binding Evidence}" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Classes="impact-cell" Text="{Binding CurrentAccess}" />
+                                <TextBlock Grid.Column="2" Classes="impact-cell" Text="{Binding NextLogin}" />
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <TextBlock x:Name="TeacherLoginImpactEmpty" Grid.Row="1" Classes="impact-muted"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                           IsVisible="False" IsHitTestVisible="False" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="TeacherLoginImpactHint" Classes="impact-muted" VerticalAlignment="Center"
+                       Text="选中一行后按回车或双击即可打开。" />
+            <Button x:Name="TeacherLoginImpactOpen" Grid.Column="1" Classes="action"
+                    Content="打开选中的账号" Click="OpenClicked" IsEnabled="False" />
+        </Grid>
+    </Grid>
+</UserControl>

@@ -18,12 +18,16 @@ public sealed partial class MainWindow
     private async Task ShowSchoolManagementAccountsAsync(Window owner, ConsoleClient client, School school, string? account)
     {
         if (_schoolManagementAccountsWindow is not null || _client != client || _school != school) return;
-        var window = _schoolManagementAccountsWindow = new SchoolManagementAccountsWindow(client, school, account);
+        var window = _schoolManagementAccountsWindow = new SchoolManagementAccountsWindow(client, school, account)
+        {
+            OpenSchoolProfile = popup => ShowSchoolProfileAsync(popup, client, school)
+        };
         try { await window.ShowDialog(owner); }
         finally { if (_schoolManagementAccountsWindow == window) _schoolManagementAccountsWindow = null; }
         if (_client != client || _school != school) return;
         if (window.RequiresSignIn) await SignOutAsync();
         else if (window.Changed) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
+        ApplyPendingSchoolLabel();
     }
 
     private void CloseSchoolManagementAccounts()

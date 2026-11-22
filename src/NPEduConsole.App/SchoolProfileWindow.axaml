@@ -1,0 +1,55 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolProfileWindow"
+        Title="教师登录设置" Width="1160" Height="780" MinWidth="720" MinHeight="454" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource CanvasBrush}">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Padding="16,12" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+        <StackPanel Spacing="4">
+          <TextBlock Text="教师登录设置" FontSize="22" FontWeight="SemiBold"/>
+          <TextBlock x:Name="ProfileScope" Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+        <Button x:Name="ProfileCompactEditor" Grid.Column="1" Classes="action" Content="收起设置"
+                IsVisible="False" VerticalAlignment="Center" Click="CompactEditorClicked"/>
+      </Grid>
+    </Border>
+    <Grid x:Name="ProfilePanes" Grid.Row="1" ColumnDefinitions="420,*" ColumnSpacing="12" RowSpacing="8" Margin="13,8">
+      <Border x:Name="ProfileEditor" Classes="card" Padding="12,9">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="8" Margin="0,0,7,0">
+            <TextBlock Text="学校名称" Classes="label"/>
+            <TextBox x:Name="ProfileName" AutomationProperties.Name="学校名称" TextChanged="DraftChanged"/>
+            <TextBlock Text="教师主登录方式" Classes="label"/>
+            <RadioButton x:Name="ProfilePinMode" GroupName="TeacherLoginMode" Content="个人 PIN · 教师使用自己的 PIN" IsCheckedChanged="ModeChanged"/>
+            <RadioButton x:Name="ProfileSharedMode" GroupName="TeacherLoginMode" Content="学校通用口令 · 配合教师短账号" IsCheckedChanged="ModeChanged"/>
+            <RadioButton x:Name="ProfileEmailMode" GroupName="TeacherLoginMode" Content="OAuth 邮箱 · 使用已验证的学校身份" IsCheckedChanged="ModeChanged"/>
+            <CheckBox x:Name="ProfileOAuthFallback" Content="允许教师使用 OAuth 备用登录" IsCheckedChanged="ToggleChanged"/>
+            <StackPanel x:Name="ProfileSharedFields" Spacing="6" IsVisible="False">
+              <CheckBox x:Name="ProfileRotate" Content="设置或轮换学校通用口令" IsCheckedChanged="ToggleChanged"/>
+              <TextBox x:Name="ProfilePassword" IsVisible="False" PasswordChar="●" MaxLength="64" PlaceholderText="输入 8 至 64 个字符"
+                       AutomationProperties.Name="本次通用口令"/>
+            </StackPanel>
+            <TextBlock Text="管理员沿用自己的个人 PIN 或已授权的 OAuth。" Classes="muted" TextWrapping="Wrap"/>
+          </StackPanel>
+        </ScrollViewer>
+      </Border>
+      <Border x:Name="ProfileImpactPane" Grid.Column="1" Classes="card" Padding="12,9">
+        <Grid RowDefinitions="Auto,*" RowSpacing="7">
+          <TextBlock x:Name="ProfileImpactHeading" Text="现行策略与下一次登录" Classes="label" TextWrapping="Wrap"/>
+          <local:TeacherLoginImpactView x:Name="ProfileImpact" Grid.Row="1"/>
+        </Grid>
+      </Border>
+    </Grid>
+    <Border Grid.Row="2" Padding="13,8" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <StackPanel Spacing="6">
+        <TextBlock x:Name="ProfileNotice" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+        <WrapPanel ItemSpacing="7" LineSpacing="4">
+          <Button x:Name="ProfileClose" Classes="action" Content="关闭" Click="CloseClicked"/>
+          <Button x:Name="ProfileRefresh" Classes="action" Content="刷新当前设置" Click="RefreshClicked"/>
+          <Button x:Name="ProfileReadReceipt" Classes="action" Content="核对本次回执" Click="ReceiptClicked" IsVisible="False"/>
+          <Button x:Name="ProfilePrimary" Classes="action accent" Content="保存学校设置" Click="PrimaryClicked"/>
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

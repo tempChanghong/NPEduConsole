@@ -37,6 +37,7 @@ public sealed partial class TeacherAccountsWindow : Window
         SizeChanged += (_, _) => LayoutPanes();
         Opened += async (_, _) =>
         {
+            TeacherAccountsSchoolProfile.IsVisible = OpenSchoolProfile is not null;
             BatchWorkspaceWindow.FitSchoolWindow(this);
             await RunAsync(async () =>
             {
@@ -59,6 +60,14 @@ public sealed partial class TeacherAccountsWindow : Window
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<Window, Task<bool>>? OpenBulkAllocation { get; init; }
     internal Func<Window, string, Task>? OpenSchoolAccount { get; init; }
+    internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }
+
+    private async void OpenSchoolProfileClicked(object? sender, RoutedEventArgs e)
+    {
+        if (OpenSchoolProfile is not { } open || Pending is not null) return;
+        await RunAsync(async () => { if (await open(this) && !_closed) await LoadAsync(); });
+        if (!_closed) Focus(TeacherAccountsSchoolProfile);
+    }
 
     private async void OpenSchoolAccountClicked(object? sender, RoutedEventArgs e)
     {

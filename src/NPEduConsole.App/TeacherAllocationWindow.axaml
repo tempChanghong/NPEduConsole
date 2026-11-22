@@ -129,13 +129,14 @@
       </TabItem>
     </TabControl>
     <Border Grid.Row="3" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="13,6">
-      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="7">
+      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="7">
         <Button x:Name="AllocationClose" Classes="action" Content="返回" Click="CloseClicked"/>
         <TextBlock Grid.Column="1" x:Name="AllocationFooter" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
         <Button Grid.Column="2" x:Name="AllocationRefresh" Classes="action" Content="刷新当前范围" Click="RefreshClicked"/>
         <Button Grid.Column="3" x:Name="AllocationVerify" Classes="action" Content="只读核对原回执" Click="VerifyClicked" IsVisible="False"/>
         <Button Grid.Column="4" x:Name="AllocationPreviewButton" Classes="action" Content="预览分配" Click="PreviewClicked"/>
         <Button Grid.Column="5" x:Name="AllocationSave" Classes="action accent" Content="确认保存" Click="SaveClicked"/>
+        <Button Grid.Column="6" x:Name="AllocationSchoolProfile" Classes="action" Content="教师登录设置" Click="OpenSchoolProfileClicked" IsVisible="False"/>
       </Grid>
     </Border>
   </Grid>

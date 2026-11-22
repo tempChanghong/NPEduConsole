@@ -72,6 +72,7 @@ public sealed partial class SchoolManagementAccountsWindow : Window
 
     internal bool RequiresSignIn { get; private set; }
     internal bool Changed { get; private set; }
+    internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }
     internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectRosterFile { private get; set; }
     internal void CloseForScopeChange() { _writing = false; Close(); }
     private Dictionary<string, PendingAccountOperation> PendingBySchool => Operations.GetOrCreateValue(_client);
@@ -191,6 +192,8 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         ManagementCreate.IsVisible = _matchesOwner && _preview is null;
         ManagementCreate.IsEnabled = editing;
         ManagementRefresh.IsEnabled = !_busy && Pending is null && _preview is null;
+        ManagementSchoolProfile.IsVisible = OpenSchoolProfile is not null && _preview is null;
+        ManagementSchoolProfile.IsEnabled = !_busy && Pending is null;
         ManagementExportRoster.IsVisible = _preview is null && Pending is null && _directory is not null;
         ManagementExportRoster.IsEnabled = editing;
         ManagementReceipt.IsVisible = Pending is not null;
@@ -405,6 +408,14 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         await LoadAsync();
         if (!_closed) ManagementStatus.Text = _directory?.Accounts.Length is > 0 ? "" : "暂无可显示的本校账号。";
     });
+
+    private async void OpenSchoolProfileClicked(object? sender, RoutedEventArgs e)
+    {
+        if (OpenSchoolProfile is not { } open) return;
+        ClearSecrets();
+        await RunAsync(async () => { if (await open(this) && !_closed) await LoadAsync(); });
+        if (!_closed) FocusControl(ManagementSchoolProfile);
+    }
     private async void ReadReceiptClicked(object? sender, RoutedEventArgs e)
     {
         if (Pending is { } pending) await RunAsync(() => RecoverAsync(pending));

@@ -33,6 +33,7 @@ import { verifySchoolStudy } from './school-study-fixture.mjs';
 import { verifyStudyMonitoring } from './study-monitoring-fixture.mjs';
 import { verifyManagementAccounts } from './management-accounts-fixture.mjs';
 import { verifyDesktopOAuth } from './desktop-oauth-fixture.mjs';
+import { verifySchoolLoginProfile, verifyFirstSchoolSetup } from './school-login-profile-fixture.mjs';
 import { verifyOrganizationImport } from './school-organization-import-fixture.mjs';
 import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
@@ -48,7 +49,8 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
-  '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth'].includes(mode)),
+  '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
+  '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -147,7 +149,8 @@ async function createDatabase() {
   await new Promise(res => probe.close(res));
   const connection = { host: '127.0.0.1', port, user: 'npconsole', password: databasePassword };
   for (const key of ['AXIOM_TOKEN', 'AXIOM_DATASET', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS', 'PGHOST', 'PGDATABASE', 'PGUSER', 'PGPORT', 'PGPASSWORD', 'TRUST_PROXY']) delete process.env[key];
-  const fixtureDatabase = mode === '--management-accounts-db' ? 'npclassworks_test_management' :
+  const fixtureDatabase = mode === '--school-login-profile-db' ? 'npclassworks_test_school_profile' :
+    mode === '--management-accounts-db' ? 'npclassworks_test_management' :
     mode === '--homework-settings-db' ? 'npclassworks_test_homework_settings' :
     mode === '--exam-workbench-db' ? 'npclassworks_test_exam_workbench' :
     mode === '--screen-duty-db' ? 'npclassworks_test_screen_duty' :
@@ -164,7 +167,7 @@ async function createDatabase() {
   });
   delete process.env.NPEP_UPDATE_CATALOG_FILE;
   if (studyMonitoring || managementAccounts) process.env.NPEP_PHOTO_STORAGE_DIR = join(directory, 'photos');
-  if (managementAccounts) process.env.BOOTSTRAP_SETUP_KEY = randomBytes(32).toString('hex');
+  if (managementAccounts || mode === '--school-login-profile-setup') process.env.BOOTSTRAP_SETUP_KEY = randomBytes(32).toString('hex');
   if (mode === '--server-status') process.env.ACCESS_TOKEN_EXPIRES_IN = '15s';
   if (softwareUpdate) {
     process.env.NPEP_UPDATE_CATALOG_FILE = join(directory, 'update-catalog.json');
@@ -578,7 +581,17 @@ async function runFixture() {
     finally { await copyFile(join(directory, log), join(evidence, log)); }
     return;
   }
-  const fixture = await seed();
+  if (mode === '--school-login-profile-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_PROFILE_EVIDENCE || '.artifacts/school-login-profile');
+    await mkdir(evidence, {recursive: true});
+    const log = 'school-login-profile-postgres.log';
+    try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/schoolProfilePolicy.integration.test.js',
+      'tests/organizationConsistencyDatabase.integration.test.js', 'tests/organizationImport.test.js'],
+      {...process.env, RUN_DATABASE_TESTS: 'true'}, log); }
+    finally { await copyFile(join(directory, log), join(evidence, log)); }
+    return;
+  }
+  const fixture = mode === '--school-login-profile-setup' ? null : await seed();
   if (classRoster || classCreation || gradeCreation || gradeRename || classBatch) process.env.NPEP_ENABLED = 'false';
   if (mode === '--server-status') delete process.env.KV_BACKUP_STATUS_DIR;
   const { default: app } = await fromKv('app.js');
@@ -587,6 +600,13 @@ async function runFixture() {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
+  if (mode === '--school-login-profile' || mode === '--school-login-profile-setup') {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_PROFILE_EVIDENCE || '.artifacts/school-login-profile');
+    const context = {prisma, origin, fixture, fromKv, bcrypt, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(project, args)};
+    return fixture ? verifySchoolLoginProfile(context) : verifyFirstSchoolSetup(context);
+  }
   if (mode === '--desktop-oauth') {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = resolve(process.env.NP_CONSOLE_OAUTH_EVIDENCE ||

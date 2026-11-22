@@ -89,6 +89,7 @@
       <StackPanel Orientation="Horizontal" Spacing="8">
         <Button x:Name="TeacherAccountRefresh" Content="刷新目录" Classes="action" Click="RefreshClicked"/>
         <Button x:Name="TeacherAccountBulk" Content="批量导入与分配" Classes="action" IsEnabled="False" Click="OpenBulkClicked"/>
+        <Button x:Name="TeacherAccountsSchoolProfile" Content="教师登录设置" Classes="action" Click="OpenSchoolProfileClicked" IsVisible="False"/>
         <Button x:Name="TeacherAccountWeb" Content="打开网页教师分配" Classes="action" IsVisible="False" Click="OpenWebClicked"/>
         <Button x:Name="CloseTeacherAccountsButton" Content="关闭" Classes="action" Click="CloseClicked"/>
       </StackPanel>

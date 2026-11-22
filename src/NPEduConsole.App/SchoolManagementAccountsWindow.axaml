@@ -94,6 +94,7 @@
       <WrapPanel ItemSpacing="7" LineSpacing="5">
         <Button x:Name="ManagementClose" Classes="action" Content="关闭" Click="CloseClicked"/>
         <Button x:Name="ManagementRefresh" Classes="action" Content="刷新账号" Click="RefreshClicked"/>
+        <Button x:Name="ManagementSchoolProfile" Classes="action" Content="教师登录设置" Click="OpenSchoolProfileClicked"/>
         <Button x:Name="ManagementExportRoster" Classes="action" Content="导出全校名册（无 PIN）" Click="ExportRosterClicked"/>
         <Button x:Name="ManagementCreate" Classes="action" Content="新建管理账号" Click="OpenCreate" IsVisible="False"/>
         <Button x:Name="ManagementLocate" Classes="action" Content="打开已存在的账号" Click="LocateDuplicate" IsVisible="False"/>
