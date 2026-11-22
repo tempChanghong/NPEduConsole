@@ -5,7 +5,8 @@
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,10">
       <StackPanel Spacing="3">
         <TextBlock x:Name="StaffHeading" FontSize="25" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-        <TextBlock x:Name="StaffScope" Classes="muted" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="StaffScope" Classes="muted" TextWrapping="Wrap"/>
+        <TextBlock x:Name="StaffPolicy" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
       </StackPanel>
     </Border>
     <!-- 状态固定在标题下：冲突结论（“本次未写入”）不能随草稿滚动出窗口。 -->

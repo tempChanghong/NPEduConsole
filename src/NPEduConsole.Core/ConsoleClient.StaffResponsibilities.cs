@@ -16,28 +16,35 @@ public sealed record StaffAssignment(string AccountId, string Position, StaffTea
 // AccountId 默认值不能省：Console 开了 RespectRequiredConstructorParameters，
 // 旧 KV 的岗位提醒里可能整条缺 accountId，没有默认值会在反序列化阶段整页失败。
 public sealed record StaffDiagnostic(string Code, string Severity, string Message, string? AccountId = null);
+public sealed record StaffLeadershipPolicies(bool GradeLeaderMustBeHomeroom, bool GradeLeaderMustTeach, bool HomeroomMustTeach);
 public sealed record StaffSnapshot(string SchoolId, string TermId, string Kind, string TargetId, string TargetName, string? GradeId,
-    string Version, IReadOnlyList<StaffTeacher> Teachers, IReadOnlyList<StaffAssignment> Assignments, IReadOnlyList<StaffDiagnostic> Diagnostics)
+    string Version, IReadOnlyList<StaffTeacher> Teachers, IReadOnlyList<StaffAssignment> Assignments, IReadOnlyList<StaffDiagnostic> Diagnostics,
+    string? ScopeVersion = null, StaffLeadershipPolicies? Policies = null)
 {
     internal Guid SessionId { get; init; }
     public bool IsClass => Kind == "classes";
     public string PrimaryRole => IsClass ? "HEAD_TEACHER" : "PRIMARY";
     public string SecondaryRole => IsClass ? "CO_HEAD_TEACHER" : "DEPUTY";
 }
-public sealed record StaffPreview(string State, StaffSnapshot Current, IReadOnlyList<StaffAssignment> Proposed, IReadOnlyList<StaffDiagnostic> Diagnostics);
+public sealed record StaffRemainingRelations(string AccountId, string TeacherName, string[] Memberships, string[] Teaching,
+    string[] Duties, string? SchoolRole);
+public sealed record StaffPreview(string State, StaffSnapshot Current, IReadOnlyList<StaffAssignment> Proposed,
+    IReadOnlyList<StaffDiagnostic> Diagnostics, StaffRemainingRelations[]? RemainingRelations = null);
 public sealed record StaffSaveResult(string State, StaffSnapshot Current);
 
 public sealed partial class ConsoleClient
 {
     private const string StaffSuffix = "/current-term/staff-responsibilities/";
     private static bool IsCurrentStaffPath(string path) => path.StartsWith("api/v2/admin/schools/", StringComparison.Ordinal) &&
-        path.Contains(StaffSuffix, StringComparison.Ordinal);
-    private static string StaffPath(string schoolId, string kind, string targetId) =>
-        $"api/v2/admin/schools/{Segment(schoolId)}{StaffSuffix}{Segment(kind)}/{Segment(targetId)}";
+        (path.Contains(StaffSuffix, StringComparison.Ordinal) || path.Contains(TermTeachingSegment + "staff-responsibilities/", StringComparison.Ordinal));
+    private static string StaffPath(string schoolId, string kind, string targetId, string? specifiedTerm = null) =>
+        (specifiedTerm is null ? $"api/v2/admin/schools/{Segment(schoolId)}{StaffSuffix}" :
+            TermTeachingPath(schoolId, specifiedTerm) + "staff-responsibilities/") + $"{Segment(kind)}/{Segment(targetId)}";
 
     private static ConsoleApiException CurrentStaffError(int status, string? code) => new(status, code switch
     {
         "STAFF_TERM_CHANGED" => "启用学期已切换，请返回并从当前学期重新选择。",
+        "TERM_STRUCTURE_SCOPE_CHANGED" => "所选学期或全校启用学期已变化，请返回学期管理重新核对。",
         "STAFF_TARGET_CHANGED" => "原班级已停用，或原职责对象已不在当前学期。请返回核对。",
         // 会命中的两种情况：新增了停用/外校账号，或把已停用的现任教师改成别的岗位。
         // 后者刷新也没用，只能保持原岗位或卸任，所以提示里要说清可选项，而不是让人去刷新。
@@ -49,12 +56,14 @@ public sealed partial class ConsoleClient
     }, code);
 
     public async Task<StaffSnapshot> GetStaffResponsibilitiesAsync(string schoolId, string termId, string kind, string targetId,
-        CancellationToken ct)
+        CancellationToken ct, bool specifiedTerm = false)
     {
         var session = CurrentSession;
-        var current = await RequestAsync<StaffSnapshot>(HttpMethod.Get,
-            StaffPath(schoolId, kind, targetId) + "?termId=" + Segment(termId), session.Token, ct);
+        var path = StaffPath(schoolId, kind, targetId, specifiedTerm ? termId : null);
+        if (!specifiedTerm) path += "?termId=" + Segment(termId);
+        var current = await RequestAsync<StaffSnapshot>(HttpMethod.Get, path, session.Token, ct);
         CheckCreationSession(session, ct);
+        if (specifiedTerm) _ = ReadStructureVersion(current.ScopeVersion);
         return CheckStaffSnapshot(current, session.Id, schoolId, termId, kind, targetId);
     }
 
@@ -62,10 +71,11 @@ public sealed partial class ConsoleClient
         CancellationToken ct)
     {
         var session = CheckStaffDraft(baseline, assignments);
-        var result = await RequestAsync<StaffPreview>(HttpMethod.Post, StaffPath(baseline.SchoolId, baseline.Kind, baseline.TargetId) + "/preview",
-            session.Token, ct, body: new { baseline.TermId, expectedVersion = baseline.Version, assignments });
+        var result = await RequestAsync<StaffPreview>(HttpMethod.Post, StaffRequestPath(baseline) + "/preview",
+            session.Token, ct, body: new { baseline.TermId, expectedVersion = baseline.Version, assignments, expectedScope = baseline.ScopeVersion });
         CheckCreationSession(session, ct);
         var current = CheckStaffSnapshot(result.Current, session.Id, baseline.SchoolId, baseline.TermId, baseline.Kind, baseline.TargetId);
+        if (baseline.ScopeVersion is { } scope) CheckTermStructureVersion(scope, current.ScopeVersion);
         if (result.State is not ("READY" or "STALE") || result.Proposed is null || !ValidStaffDiagnostics(result.Diagnostics) ||
             result.State == "STALE" && result.Proposed.Count != 0 || result.State == "READY" &&
             (current.Version != baseline.Version || !ValidStaffAssignments(current, result.Proposed) || !SameStaffRoles(result.Proposed, assignments)))
@@ -77,14 +87,18 @@ public sealed partial class ConsoleClient
         CancellationToken ct)
     {
         var session = CheckStaffDraft(baseline, assignments);
-        var result = await RequestAsync<StaffSaveResult>(HttpMethod.Put, StaffPath(baseline.SchoolId, baseline.Kind, baseline.TargetId),
-            session.Token, ct, body: new { baseline.TermId, expectedVersion = baseline.Version, assignments });
+        var result = await RequestAsync<StaffSaveResult>(HttpMethod.Put, StaffRequestPath(baseline),
+            session.Token, ct, body: new { baseline.TermId, expectedVersion = baseline.Version, assignments, expectedScope = baseline.ScopeVersion });
         CheckCreationSession(session, ct);
         var current = CheckStaffSnapshot(result.Current, session.Id, baseline.SchoolId, baseline.TermId, baseline.Kind, baseline.TargetId);
+        if (baseline.ScopeVersion is { } scope) CheckTermStructureVersion(scope, current.ScopeVersion);
         if (result.State is not ("APPLIED" or "STALE") || result.State == "APPLIED" && !SameStaffRoles(current.Assignments, assignments))
             throw InvalidResponse();
         return result with { Current = current };
     }
+
+    private static string StaffRequestPath(StaffSnapshot baseline) =>
+        StaffPath(baseline.SchoolId, baseline.Kind, baseline.TargetId, baseline.ScopeVersion is null ? null : baseline.TermId);
 
     public static bool SameStaffRoles(IEnumerable<StaffAssignment> rows, IEnumerable<StaffRole> desired) =>
         rows.Select(row => row.Role).ToHashSet().SetEquals(desired);

@@ -38,12 +38,14 @@ public sealed partial class StaffResponsibilitiesWindow : Window
 {
     private sealed record PendingStaff(StaffSnapshot Baseline, IReadOnlyList<StaffRole> Submitted);
     private static readonly ConditionalWeakTable<ConsoleClient,
-        Dictionary<(string School, string Term, string Kind, string Id), PendingStaff>> PendingBySession = new();
+        Dictionary<(string School, string Term, string Kind, string Id, bool Specified), PendingStaff>> PendingBySession = new();
 
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
     private readonly string _termId = "", _kind = "", _targetId = "";
     private readonly string? _accountId;
+    private readonly TermStructureIdentity? _term;
+    private readonly string? _openedScope;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly List<StaffEditorRow> _draft = [];
     private StaffSnapshot? _baseline, _observed;
@@ -54,7 +56,8 @@ public sealed partial class StaffResponsibilitiesWindow : Window
 
     public StaffResponsibilitiesWindow() => InitializeComponent();
 
-    internal StaffResponsibilitiesWindow(ConsoleClient client, School school, string termId, string kind, string targetId, string? accountId) : this()
+    internal StaffResponsibilitiesWindow(ConsoleClient client, School school, string termId, string kind, string targetId,
+        string? accountId, TermStructureIdentity? term = null, TermStructureIdentity? active = null, string? scope = null) : this()
     {
         _client = client;
         _school = school;
@@ -62,7 +65,10 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         _kind = kind;
         _targetId = targetId;
         _accountId = accountId;
-        StaffScope.Text = $"{school.Name} · 当前学期";
+        _term = term;
+        _openedScope = scope;
+        StaffScope.Text = term is null ? $"{school.Name} · 当前学期"
+            : $"{school.Name} / {term.Name} · {term.StatusLabel}　全校启用 {active?.Name ?? "暂无"}";
         StaffHeading.Text = kind == "classes" ? "班主任" : "年级组长";
         StaffAccessNote.Text = kind == "classes"
             ? "班主任与协同班主任均有本班管理权限，并可查看相关走班。调整职责只改变这一路访问，任课和班级成员权限各自保留。"
@@ -92,7 +98,8 @@ public sealed partial class StaffResponsibilitiesWindow : Window
     }
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
-    private (string, string, string, string) Key => (_school.Id, _termId, _kind, _targetId);
+    internal bool RolesChanged { get; private set; }
+    private (string, string, string, string, bool) Key => (_school.Id, _termId, _kind, _targetId, _term is not null);
     private PendingStaff? _pending => PendingBySession.GetOrCreateValue(_client).GetValueOrDefault(Key);
     private string[] Labels => _kind == "classes" ? ["班主任", "协同班主任", "卸任"] : ["年级组长", "副组长", "卸任"];
     private bool HasChanges => _baseline is { } snapshot && !ConsoleClient.SameStaffRoles(snapshot.Assignments, Desired());
@@ -114,7 +121,13 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         StaffDraftRows.MaxHeight = stacked ? 190 : 280;
     }
 
-    private Task<StaffSnapshot> ReadAsync() => _client.GetStaffResponsibilitiesAsync(_school.Id, _termId, _kind, _targetId, _lifetime.Token);
+    private async Task<StaffSnapshot> ReadAsync(bool compare = false)
+    {
+        var snapshot = await _client.GetStaffResponsibilitiesAsync(_school.Id, _termId, _kind, _targetId, _lifetime.Token, _term is not null);
+        if (!compare && _term is not null && snapshot.ScopeVersion != _openedScope)
+            throw new ConsoleApiException(409, "所选学期或全校启用学期已变化，请返回学期管理重新核对。", "TERM_STRUCTURE_SCOPE_CHANGED");
+        return snapshot;
+    }
 
     private async Task LoadAsync()
     {
@@ -143,6 +156,10 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         _preview = null;
         StaffDiscard.IsVisible = false;
         StaffHeading.Text = $"{snapshot.TargetName} · {(_kind == "classes" ? "班主任" : "年级组长")}";
+        if (snapshot.Policies is { } policies)
+            StaffPolicy.Text = _kind == "classes"
+                ? $"全校联动要求（只读）　班主任需有本年级任课：{(policies.HomeroomMustTeach ? "是" : "否")}"
+                : $"全校联动要求（只读）　组长需担任本年级班主任：{(policies.GradeLeaderMustBeHomeroom ? "是" : "否")}，需有本年级任课：{(policies.GradeLeaderMustTeach ? "是" : "否")}";
         ShowCurrent(snapshot);
         SetDraft(snapshot, snapshot.Assignments.Select(row => row.Role).ToArray(), snapshot);
         ShowAdvisories(snapshot.Diagnostics, "当前岗位提醒");
@@ -305,8 +322,10 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         bool awaiting = _pending is not null;
         bool editable = _baseline is not null && !_busy && !_compare && !awaiting && !_scopeLost;
         StaffComparison.IsVisible = StaffAccessNote.IsVisible = _baseline is not null;
+        StaffPolicy.IsVisible = _baseline?.Policies is not null;
         StaffCurrentHeading.Text = awaiting || _scopeLost ? "上次读取的安排" : "当前安排";
         StaffAddFields.IsEnabled = StaffDraftRows.IsEnabled = editable;
+        StaffNewTeacher.IsVisible = _term is null;
         StaffNewTeacher.IsEnabled = editable;
         StaffAddTeacher.IsEnabled = editable && StaffTeacherPicker.SelectedItem is StaffTeacher;
         StaffClose.IsEnabled = !_writing;
@@ -335,6 +354,21 @@ public sealed partial class StaffResponsibilitiesWindow : Window
                 SetDraft(baseline, roles, preview.Current, preview: true);
                 _preview = preview;
                 ShowAdvisories(preview.Diagnostics, "保存后的岗位联动提醒");
+                if (preview.RemainingRelations is { Length: > 0 } remaining)
+                {
+                    var lines = preview.Diagnostics.Select(item => item.Message).Concat(remaining.Select(row =>
+                    {
+                        var sources = row.Memberships.Select(item => $"独立成员　{item}")
+                            .Concat(row.Teaching.Select(item => $"任课　{item}"))
+                            .Concat(row.Duties.Select(item => $"其他岗位　{item}"))
+                            .Concat(row.SchoolRole is { } role ? [$"学校角色　{role}"] : []);
+                        string detail = string.Join("\n", sources);
+                        return $"{row.TeacherName}卸任后\n{(detail.Length == 0 ? "本年级未查到其他成员、任课或岗位关系。" : detail)}";
+                    })).ToArray();
+                    StaffAdvisoryBox.IsVisible = true;
+                    StaffAdvisoryTitle.Text = "岗位提醒与保留的关系";
+                    StaffAdvisories.ItemsSource = lines;
+                }
                 StaffStatus.Text = $"已核对保存后 {roles.Length} 位教师的职责。请确认名单和每行岗位。";
                 Focus(StaffPrimaryAction);
                 return;
@@ -356,8 +390,9 @@ public sealed partial class StaffResponsibilitiesWindow : Window
             if (_closed) return;
             ClearPending();
             if (result.State == "STALE") { ShowCompare(result.Current); return; }
+            RolesChanged = true;
             SetBaseline(result.Current);
-            StaffStatus.Text = "职责已保存，可返回核对学校总览。";
+            StaffStatus.Text = _term is null ? "职责已保存，可返回核对学校总览。" : "所选学期的职责已保存，可返回查看岗位。";
             Focus(StaffClose);
         });
     }
@@ -365,11 +400,18 @@ public sealed partial class StaffResponsibilitiesWindow : Window
     private async Task VerifyPendingAsync(PendingStaff pending)
     {
         StaffStatus.Text = "保存回执未确认，正在只读核对当前安排…";
-        var current = await ReadAsync();
+        var current = await ReadAsync(compare: true);
         if (_closed) return;
         ClearPending();
+        if (_term is not null && current.ScopeVersion != _openedScope)
+        {
+            ShowCompare(current, "已读取服务器当前职责，学期状态已变化。请返回学期管理重新核对。");
+            _scopeLost = true;
+            return;
+        }
         if (ConsoleClient.SameStaffRoles(current.Assignments, pending.Submitted))
         {
+            RolesChanged = true;
             SetBaseline(current);
             StaffStatus.Text = "已核对，服务器当前职责与本次提交一致。";
             Focus(StaffClose);
@@ -427,7 +469,7 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         catch (ConsoleApiException error)
         {
             if (_closed) return;
-            _scopeLost |= error.Code is "STAFF_TERM_CHANGED" or "STAFF_TARGET_CHANGED" || error.StatusCode is 401 or 403;
+            _scopeLost |= error.Code is "STAFF_TERM_CHANGED" or "STAFF_TARGET_CHANGED" or "TERM_STRUCTURE_SCOPE_CHANGED" || error.StatusCode is 401 or 403;
             if (error.StatusCode is 401 or 403)
             {
                 ClearPending();

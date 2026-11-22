@@ -150,6 +150,7 @@ public sealed partial class TermClassManagementWindow : Window
         if (_closed) return;
         var room = CurrentClass;
         StructureOpenClass.IsEnabled = StructureEditClass.IsEnabled = StructureRoster.IsEnabled = room is not null;
+        StructureClassTeaching.IsEnabled = room is { IsActive: true, GradeId: not null };
         StructureCreateGrade.IsEnabled = _structure is not null;
         StructureCreateClass.IsEnabled = _structure is { } directory &&
             (directory.Creation.Grades.Count > 0 || _creations is { Single: not null } or { Batch: not null });
@@ -302,6 +303,17 @@ public sealed partial class TermClassManagementWindow : Window
     private async void RosterClicked(object? sender, RoutedEventArgs args)
     {
         if (CurrentClass is { } room) await OpenRosterAsync(room);
+    }
+
+    private async void TeachingClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_client is not { } client || _school is not { } school ||
+            CurrentClass is not { IsActive: true, GradeId: { } gradeId } room) return;
+        var window = new GradeTeachingPlanWindow(client, school, gradeId, null, null, room.TermId, room.Id) { SessionExpired = Access };
+        await ShowChildAsync(window, window.CloseForScopeChange);
+        if (_closed) return;
+        StructureColumns.IsEnabled = StructureReload.IsEnabled = true;
+        RestoreFocus(StructureClassTeaching);
     }
 
     private async Task OpenRosterAsync(TermAdministrativeClass room)

@@ -36,6 +36,11 @@ public sealed partial class GradeTeachingPlanWindow
         Render();
     }
 
+    private void TeacherChoiceChanged(object? sender, SelectionChangedEventArgs args)
+    {
+        if (!_filling) Render();
+    }
+
     private void BindTeachingExisting()
     {
         if (_catalog is not { } data) return;
@@ -125,7 +130,8 @@ public sealed partial class GradeTeachingPlanWindow
             {
                 "ADD" => "\n新增独立成员权限",
                 "UPGRADE" => "\n提升独立成员权限",
-                "KEEP" => "\n保留原成员权限",
+                "KEEP" => observed.MembershipRole is { } retained ? $"\n保留原成员权限（{retained}）" : "\n保留原成员权限",
+                "NONE" => "\n该教师在此空间没有独立成员关系",
                 _ => ""
             };
             changes.Add(new(index.ToString(), $"{TargetName(edit.WorkspaceKey)} · {role} · {teacher}{access}", "移出", "teacher"));

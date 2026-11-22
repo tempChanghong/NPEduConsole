@@ -23,7 +23,8 @@ public sealed record GradePlanCourse(string Id, string Name, string Code, string
     public override string ToString() => $"{Name}（{Code}）{(IsActive ? "" : " · 已停用")}";
 }
 public sealed record GradePlanCatalog(string SchoolId, string? TermId, string? TermName,
-    GradePlanLabel[] Grades, GradePlanLabel[] Subjects, GradePlanClass[] Classes, GradePlanCourse[] Groups, GradePlanTeacher[] Teachers);
+    GradePlanLabel[] Grades, GradePlanLabel[] Subjects, GradePlanClass[] Classes, GradePlanCourse[] Groups, GradePlanTeacher[] Teachers,
+    string? ScopeVersion = null, TermStructureIdentity? Term = null, TermStructureIdentity? ActiveTerm = null);
 
 public sealed record GradePlanRuleEdit(string ClassId, string SubjectId, string Mode, bool Compulsory);
 public sealed record GradePlanGroupEdit(string Key, string? GroupId, string Operation, string SubjectId,
@@ -44,7 +45,8 @@ public sealed record GradePlanRow(string Key, string ClassId, string ClassName, 
     string SubjectName, GradePlanRoomState Current, GradePlanRoomState After);
 public sealed record GradePlanIssue(string Key, string Code, string Message);
 public sealed record GradePlanGroupChange(string Key, string Operation, GradePlanCourse? Current, GradePlanCourse After);
-public sealed record GradePlanTeacherChange(string Key, string WorkspaceKey, string SubjectId, string Action, string TeacherName, string Membership, string? AssignmentId = null, string? AccountId = null);
+public sealed record GradePlanTeacherChange(string Key, string WorkspaceKey, string SubjectId, string Action, string TeacherName,
+    string Membership, string? AssignmentId = null, string? AccountId = null, string? MembershipRole = null);
 public sealed record GradePlanEvidence(string Key, string Version);
 public sealed record GradePlanPreview(string Version, GradePlanEvidence[] Evidence, GradePlanRow[] Rows, GradePlanIssue[] Issues,
     GradePlanIssue[] Notices, GradePlanGroupChange[] GroupChanges, GradePlanTeacherChange[] TeacherChanges, bool CanApply);
@@ -55,40 +57,58 @@ public sealed record GradePlanResult(string State, GradePlanReceipt? Receipt = n
 public sealed partial class ConsoleClient
 {
     private const string GradePlanSegment = "/current-term/grade-teaching-plans";
-    private static bool IsGradePlanPath(string path) => path.Contains(GradePlanSegment, StringComparison.Ordinal);
-    private static string GradePlanPath(string school) => $"api/v2/admin/schools/{Segment(school)}{GradePlanSegment}";
+    private const string TermTeachingSegment = "/teaching/";
+    private static bool IsGradePlanPath(string path) => path.Contains(GradePlanSegment, StringComparison.Ordinal) ||
+        path.Contains(TermTeachingSegment + "grade-plans", StringComparison.Ordinal);
+    private static string TermTeachingPath(string school, string term) =>
+        $"api/v2/admin/schools/{Segment(school)}/academic-terms/{Segment(term)}{TermTeachingSegment}";
+    private static string GradePlanPath(string school, string? specifiedTerm) => specifiedTerm is null
+        ? $"api/v2/admin/schools/{Segment(school)}{GradePlanSegment}" : TermTeachingPath(school, specifiedTerm) + "grade-plans";
 
-    public async Task<GradePlanCatalog> GetGradePlanAsync(string school, string? term, string? grade, string? subject, CancellationToken ct)
+    public async Task<GradePlanCatalog> GetGradePlanAsync(string school, string? term, string? grade, string? subject, CancellationToken ct,
+        bool specifiedTerm = false)
     {
         var session = CurrentSession;
-        string query = term is null ? "" : $"?termId={Segment(term)}";
-        if (grade is not null && subject is not null && term is not null)
-            query += $"&gradeId={Segment(grade)}&subjectId={Segment(subject)}";
-        var result = await RequestAsync<GradePlanCatalog>(HttpMethod.Get, GradePlanPath(school) + query, session.Token, ct);
+        string query = term is null || specifiedTerm ? "" : $"?termId={Segment(term)}";
+        if (grade is not null && term is not null && (specifiedTerm || subject is not null))
+            query += $"{(query.Length == 0 ? '?' : '&')}gradeId={Segment(grade)}" +
+                (subject is null ? "" : $"&subjectId={Segment(subject)}");
+        string? target = specifiedTerm ? term ?? throw new ArgumentException("Missing academic term.", nameof(term)) : null;
+        var result = await RequestAsync<GradePlanCatalog>(HttpMethod.Get, GradePlanPath(school, target) + query, session.Token, ct);
         CheckCreationSession(session, ct);
         if (result.SchoolId != school || term is not null && result.TermId != term ||
             result.Grades is null || result.Subjects is null || result.Classes is null || result.Groups is null || result.Teachers is null ||
             grade is not null && !result.Grades.Any(row => row.Id == grade) ||
             subject is not null && !result.Subjects.Any(row => row.Id == subject))
             throw InvalidResponse();
+        if (specifiedTerm)
+        {
+            _ = ReadStructureVersion(result.ScopeVersion);
+            if (result.Term is not { } selected || selected.Id != term || !ValidTermStructureIdentity(selected, school) ||
+                result.ActiveTerm is { } active && (!ValidTermStructureIdentity(active, school) || active.Status != "ACTIVE") ||
+                (result.ActiveTerm?.Id == selected.Id) != (selected.Status == "ACTIVE")) throw InvalidResponse();
+        }
         return result;
     }
 
-    public async Task<GradePlanPreview> PreviewGradePlanAsync(string school, GradePlanDraft draft, CancellationToken ct)
+    public async Task<GradePlanPreview> PreviewGradePlanAsync(string school, GradePlanDraft draft, CancellationToken ct, string? expectedScope = null)
     {
         var session = CurrentSession;
-        var result = await RequestAsync<GradePlanPreview>(HttpMethod.Post, GradePlanPath(school) + "/preview", session.Token, ct, body: draft);
+        var result = await RequestAsync<GradePlanPreview>(HttpMethod.Post, GradePlanPath(school, expectedScope is null ? null : draft.TermId) + "/preview",
+            session.Token, ct, body: expectedScope is null ? draft :
+                new {draft.TermId, draft.GradeId, draft.SubjectId, draft.Rules, draft.Groups, draft.Assignments, expectedScope});
         CheckCreationSession(session, ct);
         ValidateGradePreview(result);
         return result;
     }
 
-    public async Task<GradePlanResult> SaveGradePlanAsync(string school, GradePlanDraft draft, GradePlanPreview preview, Guid requestId, CancellationToken ct)
+    public async Task<GradePlanResult> SaveGradePlanAsync(string school, GradePlanDraft draft, GradePlanPreview preview, Guid requestId, CancellationToken ct,
+        string? expectedScope = null)
     {
         var session = CurrentSession;
-        var result = await RequestAsync<GradePlanResult>(HttpMethod.Post, GradePlanPath(school), session.Token, ct,
+        var result = await RequestAsync<GradePlanResult>(HttpMethod.Post, GradePlanPath(school, expectedScope is null ? null : draft.TermId), session.Token, ct,
             body: new {draft.TermId, draft.GradeId, draft.SubjectId, draft.Rules, draft.Groups, draft.Assignments, requestId,
-                expectedVersion = preview.Version, expectedEvidence = preview.Evidence});
+                expectedVersion = preview.Version, expectedEvidence = preview.Evidence, expectedScope});
         CheckCreationSession(session, ct);
         if (result.State == "APPLIED" && result.Receipt is { } receipt) ValidateGradeReceipt(receipt, draft, requestId);
         else if (result.State is "STALE" or "BLOCKED" && result.Preview is { } observed) ValidateGradePreview(observed);
@@ -96,12 +116,14 @@ public sealed partial class ConsoleClient
         return result;
     }
 
-    public async Task<GradePlanReceipt?> GetGradePlanReceiptAsync(string school, GradePlanDraft draft, Guid requestId, CancellationToken ct)
+    public async Task<GradePlanReceipt?> GetGradePlanReceiptAsync(string school, GradePlanDraft draft, Guid requestId, CancellationToken ct,
+        bool specifiedTerm = false)
     {
         var session = CurrentSession;
         try
         {
-            var receipt = await RequestAsync<GradePlanReceipt>(HttpMethod.Get, $"{GradePlanPath(school)}/receipts/{requestId:D}", session.Token, ct);
+            var path = GradePlanPath(school, specifiedTerm ? draft.TermId : null);
+            var receipt = await RequestAsync<GradePlanReceipt>(HttpMethod.Get, $"{path}/receipts/{requestId:D}", session.Token, ct);
             CheckCreationSession(session, ct);
             ValidateGradeReceipt(receipt, draft, requestId);
             return receipt;
@@ -135,6 +157,7 @@ public sealed partial class ConsoleClient
     {
         "GRADE_PLAN_TERM_CHANGED" => "学校已切换当前学期。请刷新范围后重新建立方案。",
         "GRADE_PLAN_SCOPE_CHANGED" => "年级或科目已变化，请重新读取。",
+        "TERM_STRUCTURE_SCOPE_CHANGED" => "所选学期或全校启用学期已变化。本次未写入，请核对学期后再预览。",
         "GRADE_PLAN_INVALID" => "请核对调整项目和教学班代码。",
         "GRADE_PLAN_REQUEST_CONFLICT" => "此编号对应另一份方案。本次未写入，请重新预览。",
         "GRADE_PLAN_RECEIPT_NOT_FOUND" => "服务器暂未找到本次调整回执。",

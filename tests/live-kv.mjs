@@ -43,6 +43,7 @@ import { verifyScreenDuty } from './screen-duty-fixture.mjs';
 import { verifyExamWorkbench } from './exam-workbench-fixture.mjs';
 import { verifyHomeworkSettings } from './homework-settings-fixture.mjs';
 import {verifyScopedTermClasses} from './scoped-term-classes-fixture.mjs';
+import {verifyScopedTermTeaching} from './scoped-term-teaching-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
@@ -55,7 +56,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console',
-  '--scoped-term-classes', '--scoped-term-classes-db'].includes(mode)),
+  '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -159,6 +160,7 @@ async function createDatabase() {
   const fixtureDatabase = mode === '--school-transfer-db' ? 'npclassworks_test_school_transfer' :
     termStatusDatabase ? 'npclassworks_test_term_status' :
     mode === '--scoped-term-classes-db' ? 'npclassworks_test_scoped_term_classes' :
+    ['--staff-workspace-default-db', '--scoped-term-teaching-db'].includes(mode) ? 'npclassworks_test_scoped_term_teaching' :
     mode === '--school-login-profile-db' ? 'npclassworks_test_school_profile' :
     mode === '--management-accounts-db' ? 'npclassworks_test_management' :
     mode === '--homework-settings-db' ? 'npclassworks_test_homework_settings' :
@@ -771,6 +773,29 @@ async function runFixture() {
     return;
   }
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (mode === '--scoped-term-teaching') {
+    const evidence = resolve(process.env.NP_CONSOLE_TERM_TEACHING_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/scoped-term-teaching', import.meta.url)));
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    return verifyScopedTermTeaching({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      bcrypt, localProviderId: (await fromKv('domain/localAccount.js')).localProviderId, runDesktop: args => runDesktop(project, args)});
+  }
+  if (mode === '--staff-workspace-default-db' || mode === '--scoped-term-teaching-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_TERM_TEACHING_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/scoped-term-teaching', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    const repro = mode === '--staff-workspace-default-db';
+    const report = repro ? 'teacher-default-postgres.log' : 'scoped-term-teaching-postgres.log';
+    try {
+      run(process.execPath, ['--test', '--test-concurrency=1',
+        ...(repro ? ['--test-name-pattern=default teacher directory', 'tests/currentStaffResponsibilities.integration.test.js'] :
+          ['tests/scopedTermTeaching.integration.test.js', 'tests/currentStaffResponsibilities.integration.test.js',
+            'tests/gradeTeachingPlans.integration.test.js', 'tests/currentTeachingAssignments.integration.test.js',
+            'tests/publicationIdempotencyDatabase.integration.test.js']),
+      ], {...process.env, RUN_DATABASE_TESTS: 'true'}, report);
+    } finally { await copyFile(join(directory, report), join(evidence, report)); }
+    return;
+  }
   if (mode === '--scoped-term-classes' || mode === '--scoped-term-classes-db') {
     const evidence = resolve(process.env.NP_CONSOLE_SCOPED_TERM_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/scoped-term-classes', import.meta.url)));

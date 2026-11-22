@@ -8,6 +8,7 @@ public sealed partial class TermPreparationWindow
 {
     private TermStatusWindow? _termStatusWindow;
     private TermClassManagementWindow? _termClassesWindow;
+    private GradeTeachingPlanWindow? _termTeachingWindow;
     private ManagedAcademicTerm[] CatalogTerms => _catalog?.Terms ??
         (_catalog is { } catalog ? (catalog.ActiveTerm is { } active ? [active, ..catalog.Drafts] : catalog.Drafts) : []);
 
@@ -45,6 +46,9 @@ public sealed partial class TermPreparationWindow
         TermManageClasses.IsVisible = term is not null;
         TermPrepareClasses.IsVisible = _page == Page.Check && _check?.Term.Status == "DRAFT";
         TermManageClasses.IsEnabled = TermPrepareClasses.IsEnabled = editable;
+        TermManageTeaching.IsVisible = TermManageClasses.IsVisible;
+        TermPrepareTeaching.IsVisible = TermPrepareClasses.IsVisible;
+        TermManageTeaching.IsEnabled = TermPrepareTeaching.IsEnabled = editable && _termTeachingWindow is null;
         TermStatusActivate.IsVisible = supportsStatus && term?.Status is "DRAFT" or "ARCHIVED";
         TermStatusActivate.Content = term?.Status == "ARCHIVED" ? "重新启用" : "预览启用";
         TermMoreActions.IsVisible = supportsStatus && term is not null;
@@ -73,6 +77,26 @@ public sealed partial class TermPreparationWindow
 
     private async void TermPrepareClassesClicked(object? sender, RoutedEventArgs args) =>
         await OpenTermClassesAsync(_check?.Term, TermPrepareClasses);
+
+    private async void TermManageTeachingClicked(object? sender, RoutedEventArgs args) =>
+        await OpenTermTeachingAsync(SelectedTerm, TermManageTeaching);
+
+    private async void TermPrepareTeachingClicked(object? sender, RoutedEventArgs args) =>
+        await OpenTermTeachingAsync(_check?.Term, TermPrepareTeaching);
+
+    private async Task OpenTermTeachingAsync(ManagedAcademicTerm? term, Button source)
+    {
+        if (term is null || _busy || _closed || _termTeachingWindow is not null) return;
+        var window = new GradeTeachingPlanWindow(_client, _school, null, null, null, term.Id) { SessionExpired = SessionExpired };
+        _termTeachingWindow = window;
+        TermManageTeaching.IsEnabled = TermPrepareTeaching.IsEnabled = false;
+        try { await window.ShowDialog(this); }
+        finally { _termTeachingWindow = null; }
+        if (_closed) return;
+        if (_page == Page.Check && window.WorkspaceChanged) await RunAsync(() => ReadCheckAsync(term.Id));
+        Render();
+        Focus(source);
+    }
 
     private async Task OpenTermClassesAsync(ManagedAcademicTerm? term, Button source)
     {

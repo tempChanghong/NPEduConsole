@@ -142,7 +142,8 @@ public sealed partial class GradeTeachingPlanWindow
         foreach (var row in SelectedClasses.ToArray())
         {
             var current = catalog.Classes.First(room => room.Id == row.ClassId).Rules.FirstOrDefault(rule => rule.SubjectId == subject);
-            bool required = compulsory.Id == "REQUIRED" || compulsory.Id == "KEEP" && current?.Compulsory == true;
+            var prior = _rules.GetValueOrDefault(row.Key);
+            bool required = compulsory.Id == "REQUIRED" || compulsory.Id == "KEEP" && (prior?.Compulsory ?? current?.Compulsory) == true;
             _rules[row.Key] = new(row.ClassId, subject, mode.Id, required);
         }
         DraftChanged();

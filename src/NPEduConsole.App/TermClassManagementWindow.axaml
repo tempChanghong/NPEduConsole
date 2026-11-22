@@ -47,6 +47,7 @@
           </ScrollViewer>
           <WrapPanel Grid.Row="2" Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
             <Button x:Name="StructureEditClass" Classes="action" Content="维护班级" Click="EditClassClicked"/>
+            <Button x:Name="StructureClassTeaching" Classes="action" Content="教学安排与师资" Click="TeachingClicked"/>
             <Button x:Name="StructureRoster" Classes="action accent" Content="编辑名单" Click="RosterClicked"/>
           </WrapPanel>
         </Grid>

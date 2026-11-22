@@ -16,10 +16,14 @@ public sealed record GradeTeachingPlanChangeView(string Key, string Text, string
 public sealed partial class GradeTeachingPlanWindow : Window
 {
     private sealed record Option(string Id, string Name) { public override string ToString() => Name; }
-    private sealed record Submission(GradePlanDraft Draft, GradePlanPreview Preview, Guid RequestId);
-    private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<string, Submission>> PendingByClient = new();
+    private sealed record Submission(GradePlanDraft Draft, GradePlanPreview Preview, Guid RequestId, string? ScopeVersion);
+    private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<(string School, string? Term), Submission>> PendingByClient = new();
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
+    private readonly string? _specifiedTermId;
+    private string? _initialClassId;
+    private string? _continueTeachingKey;
+    private bool _archiveEditable;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, GradePlanRuleEdit> _rules = [];
     private readonly Dictionary<string, GradePlanGroupEdit> _groups = [];
@@ -33,8 +37,9 @@ public sealed partial class GradeTeachingPlanWindow : Window
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal bool WorkspaceChanged { get; private set; }
 
-    private Dictionary<string, Submission> PendingOperations => PendingByClient.GetOrCreateValue(_client);
-    private Submission? Pending => PendingOperations.GetValueOrDefault(_school.Id);
+    private Dictionary<(string School, string? Term), Submission> PendingOperations => PendingByClient.GetOrCreateValue(_client);
+    private (string School, string? Term) PendingKey => (_school.Id, _specifiedTermId);
+    private Submission? Pending => PendingOperations.GetValueOrDefault(PendingKey);
     private bool HasDraft => _rules.Count + _groups.Count + _assignments.Count > 0;
     private string? RuleSubjectId => (PlanRuleSubject.SelectedItem as GradePlanLabel)?.Id;
     private IEnumerable<GradeTeachingPlanRowView> SelectedClasses => PlanRows.SelectedItems?.OfType<GradeTeachingPlanRowView>() ?? [];
@@ -42,16 +47,22 @@ public sealed partial class GradeTeachingPlanWindow : Window
 
     public GradeTeachingPlanWindow() => InitializeComponent();
 
-    internal GradeTeachingPlanWindow(ConsoleClient client, School school, string? gradeId, string? subjectId, string? groupId) : this()
+    internal GradeTeachingPlanWindow(ConsoleClient client, School school, string? gradeId, string? subjectId, string? groupId,
+        string? specifiedTermId = null, string? classId = null) : this()
     {
         _client = client;
         _school = school;
+        _specifiedTermId = specifiedTermId;
+        _initialClassId = classId;
         _openingGroup = groupId;
         _gradeId = gradeId;
         _subjectId = subjectId;
         PlanScope.Text = school.Name;
+        PlanHeading.Text = specifiedTermId is null ? "年级教学安排" : "教学安排与师资";
+        Title = PlanHeading.Text;
         PlanColumns.ColumnDefinitions = new("3*,2*");
-        PlanRuleMode.ItemsSource = new Option[] {new("ADMIN_CLASS", "随行政班"), new("COURSE_GROUP", "走班"), new("UNCONFIGURED", "移除该科规则")};
+        PlanRuleMode.ItemsSource = new Option[] {new("ADMIN_CLASS", "随行政班"), new("COURSE_GROUP", "走班"),
+            new("UNCONFIGURED", specifiedTermId is null ? "移除该科规则" : "本班不开设")};
         PlanCompulsory.ItemsSource = new Option[] {new("KEEP", "保留必修设置"), new("REQUIRED", "设为必修"), new("OPTIONAL", "设为选修")};
         PlanTeacherRole.ItemsSource = new Option[] {new("PRIMARY", "主讲"), new("CO_TEACHER", "协同")};
         PlanTeacherRole.SelectedIndex = PlanRuleMode.SelectedIndex = PlanCompulsory.SelectedIndex = 0;
@@ -81,11 +92,11 @@ public sealed partial class GradeTeachingPlanWindow : Window
             args.Cancel = _busy || HasDraft && Pending is null && !_scopeLost;
             if (args.Cancel && !_busy) ExplainDraft();
         };
-        Closed += (_, _) => { _closed = true; _lifetime.Cancel(); _lifetime.Dispose(); };
+        Closed += (_, _) => { _closed = true; CancelStaffRead(); _lifetime.Cancel(); _lifetime.Dispose(); };
         Render();
     }
 
-    internal void CloseForScopeChange() { _allowClose = true; Close(); }
+    internal void CloseForScopeChange() { _allowClose = true; _staffEditor?.CloseForScopeChange(); Close(); }
 
     private void Arrange(bool force = false)
     {
@@ -114,11 +125,12 @@ public sealed partial class GradeTeachingPlanWindow : Window
             PlanChangeRows.MaxHeight = double.PositiveInfinity;
             PlanWideChanges.Child = PlanChangeCard;
         }
+        UpdateReviewLayout();
     }
 
     private async Task LoadAsync()
     {
-        var options = await _client.GetGradePlanAsync(_school.Id, null, null, null, _lifetime.Token);
+        var options = await ReadCatalogAsync(null, null, null);
         if (_closed) return;
         _filling = true;
         PlanGrade.ItemsSource = options.Grades;
@@ -128,16 +140,23 @@ public sealed partial class GradeTeachingPlanWindow : Window
         _filling = false;
         _gradeId = (PlanGrade.SelectedItem as GradePlanLabel)?.Id;
         _subjectId = (PlanSubject.SelectedItem as GradePlanLabel)?.Id;
-        if (options.TermId is { } term && _gradeId is { } grade && _subjectId is { } subject)
-            options = await _client.GetGradePlanAsync(_school.Id, term, grade, subject, _lifetime.Token);
+        if (options.TermId is { } term && _gradeId is { } grade && (_subjectId is not null || _specifiedTermId is not null))
+            options = await ReadCatalogAsync(term, grade, _subjectId);
         if (_closed) return;
+        if (_catalog?.ScopeVersion != options.ScopeVersion) _archiveEditable = false;
         _catalog = options;
         _scopeLost = Pending?.Draft.TermId is { } pendingTerm && pendingTerm != options.TermId;
-        PlanScope.Text = options.TermName is { } termName ? $"{_school.Name} · {termName}" : $"{_school.Name} · 暂无启用学期";
+        PlanScope.Text = options.Term is { } selected
+            ? $"{_school.Name} / {selected.Name} · {selected.StatusLabel}\n全校启用学期　{options.ActiveTerm?.Name ?? "暂无"}"
+            : options.TermName is { } termName ? $"{_school.Name} · {termName}" : $"{_school.Name} · 暂无启用学期";
         BindEditors();
+        BindTermObjects();
         if (options.TermId is null) Notice("学校暂无启用学期，请先到学期管理核对。");
         Render();
     }
+
+    private Task<GradePlanCatalog> ReadCatalogAsync(string? termId, string? gradeId, string? subjectId) =>
+        _client.GetGradePlanAsync(_school.Id, _specifiedTermId ?? termId, gradeId, subjectId, _lifetime.Token, _specifiedTermId is not null);
 
     private async void ScopeChanged(object? sender, SelectionChangedEventArgs args)
     {
@@ -157,6 +176,7 @@ public sealed partial class GradeTeachingPlanWindow : Window
         PlanRuleSubject.SelectedItem = null;
         _filling = false;
         _receipt = null;
+        _continueTeachingKey = null;
         await RunAsync(LoadAsync);
     }
 
@@ -171,14 +191,15 @@ public sealed partial class GradeTeachingPlanWindow : Window
             _confirmedPreview = false;
             _changedKeys.Clear();
             _previousPreview = null;
-            var observed = await _client.PreviewGradePlanAsync(_school.Id, draft, _lifetime.Token);
+            var observed = await _client.PreviewGradePlanAsync(_school.Id, draft, _lifetime.Token, _catalog?.ScopeVersion);
             if (_closed) return;
             _preview = observed;
             _confirmedPreview = observed.CanApply;
             Notice(observed.CanApply ? "已预览。请核对逐班对照、学生可选项和访问变化，再保存整份方案。" :
                 "本方案有未解决的冲突。请定位对应班级或教学班。", !observed.CanApply);
             BindRows();
-            if (!observed.CanApply && observed.Issues.FirstOrDefault() is { } issue) FocusKey(issue.Key);
+            if (_specifiedTermId is not null) ShowScopedReview(observed.Issues.FirstOrDefault()?.Key);
+            else if (!observed.CanApply && observed.Issues.FirstOrDefault() is { } issue) FocusKey(issue.Key);
         });
     }
 
@@ -190,8 +211,8 @@ public sealed partial class GradeTeachingPlanWindow : Window
             return;
         }
         if (!_confirmedPreview || _preview is not { CanApply: true } preview || Draft() is not { HasEdits: true } draft) return;
-        var operation = new Submission(draft, preview, Guid.NewGuid());
-        PendingOperations[_school.Id] = operation;
+        var operation = new Submission(draft, preview, Guid.NewGuid(), _catalog?.ScopeVersion);
+        PendingOperations[PendingKey] = operation;
         await RunAsync(() => SubmitAsync(operation));
     }
 
@@ -200,7 +221,8 @@ public sealed partial class GradeTeachingPlanWindow : Window
         _replay = false;
         Render();
         GradePlanResult response;
-        try { response = await _client.SaveGradePlanAsync(_school.Id, operation.Draft, operation.Preview, operation.RequestId, _lifetime.Token); }
+        try { response = await _client.SaveGradePlanAsync(_school.Id, operation.Draft, operation.Preview, operation.RequestId, _lifetime.Token,
+            operation.ScopeVersion); }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
         {
             if (!_closed) await VerifyAsync(operation);
@@ -210,23 +232,26 @@ public sealed partial class GradeTeachingPlanWindow : Window
         {
             if (!_closed)
             {
-                PendingOperations.Remove(_school.Id);
+                PendingOperations.Remove(PendingKey);
                 _confirmedPreview = false;
-                if (error.Code is "GRADE_PLAN_TERM_CHANGED" or "GRADE_PLAN_SCOPE_CHANGED") _scopeLost = true;
+                if (error.Code is "GRADE_PLAN_TERM_CHANGED" or "GRADE_PLAN_SCOPE_CHANGED" or "TERM_STRUCTURE_SCOPE_CHANGED") _scopeLost = true;
             }
             throw;
         }
         if (_closed) return;
-        if (response.Receipt is { } receipt) { await SavedAsync(receipt); return; }
-        PendingOperations.Remove(_school.Id);
+        if (response.Receipt is { } receipt) { await SavedAsync(receipt, operation.Preview); return; }
+        PendingOperations.Remove(PendingKey);
         _previousPreview = response.State == "STALE" ? operation.Preview : null;
         _preview = response.Preview;
         _confirmedPreview = false;
         _changedKeys.Clear();
-        foreach (string key in response.ChangedKeys ?? []) _changedKeys.Add(key);
+        foreach (string changedKey in response.ChangedKeys ?? []) _changedKeys.Add(changedKey);
         BindRows();
-        if (_changedKeys.FirstOrDefault(key => key != "scope") is { } changed) FocusKey(changed);
-        else if (_preview?.Issues.FirstOrDefault() is { } issue) FocusKey(issue.Key);
+        string? focusKey = _specifiedTermId is null ? null :
+            _changedKeys.FirstOrDefault(key => _groups.ContainsKey(key) || _rules.ContainsKey(key));
+        focusKey ??= _changedKeys.FirstOrDefault(key => key != "scope") ?? _preview?.Issues.FirstOrDefault()?.Key;
+        if (_specifiedTermId is not null) ShowScopedReview(focusKey);
+        else if (focusKey is not null) FocusKey(focusKey);
         Notice(response.State == "STALE" ? "服务器安排已变化，本次整份零写入。保留草稿，请核对变化后重新预览。" :
             "仍有阻断，本次整份零写入。请先处理对应行。", true);
     }
@@ -235,22 +260,28 @@ public sealed partial class GradeTeachingPlanWindow : Window
     {
         _replay = false;
         Render();
-        var receipt = await _client.GetGradePlanReceiptAsync(_school.Id, operation.Draft, operation.RequestId, _lifetime.Token);
+        var receipt = await _client.GetGradePlanReceiptAsync(_school.Id, operation.Draft, operation.RequestId, _lifetime.Token,
+            _specifiedTermId is not null);
         if (_closed) return;
-        if (receipt is not null) { await SavedAsync(receipt); return; }
+        if (receipt is not null) { await SavedAsync(receipt, operation.Preview); return; }
         _replay = true;
         Notice("服务器暂未找到回执。可继续只读核对，或用原编号重试已确认的同一份方案。", true);
         Focus(PlanReload);
     }
 
-    private async Task SavedAsync(GradePlanReceipt receipt)
+    private async Task SavedAsync(GradePlanReceipt receipt, GradePlanPreview submitted)
     {
-        PendingOperations.Remove(_school.Id);
+        PendingOperations.Remove(PendingKey);
         _receipt = receipt;
         WorkspaceChanged = true;
         ClearDraft();
-        Notice($"整份方案已保存。新建走班 {receipt.CreatedGroups.Length} 个。可继续查看当前安排，或返回学校总览处理缺任课事项。");
+        Notice($"整份方案已保存。新建走班 {receipt.CreatedGroups.Length} 个。");
         await LoadAsync();
+        if (_closed) return;
+        bool nonCurrent = _catalog?.Term is { Status: not "ACTIVE" };
+        _continueTeachingKey = nonCurrent ? submitted.Notices.FirstOrDefault(row => row.Code == "GRADE_PLAN_TEACHER_PENDING")?.Key : null;
+        Notice($"整份方案已保存。新建走班 {receipt.CreatedGroups.Length} 个。" + (nonCurrent
+            ? "可在本学期的任课页继续分配教师。" : "可继续查看当前安排，或返回学校总览处理缺任课事项。"));
         Focus(PlanBack);
     }
 
@@ -261,9 +292,14 @@ public sealed partial class GradeTeachingPlanWindow : Window
         {
             var draft = Draft();
             _confirmedPreview = false;
-            var current = await _client.GetGradePlanAsync(_school.Id, null, null, null, _lifetime.Token);
+            var current = await ReadCatalogAsync(null, null, null);
             if (_closed) return;
-            if (draft?.TermId != current.TermId) { _scopeLost = true; Notice("当前学期已切换。草稿已保留，可清空后重新选择。", true); return; }
+            if (draft?.TermId != current.TermId || _catalog?.ScopeVersion != current.ScopeVersion)
+            {
+                _scopeLost = true;
+                Notice("学期范围已变化。草稿已保留，可返回学期管理重新核对。", true);
+                return;
+            }
         }
         await LoadAsync();
     });
@@ -285,6 +321,8 @@ public sealed partial class GradeTeachingPlanWindow : Window
         _preview = _previousPreview = null;
         _changedKeys.Clear();
         _confirmedPreview = false;
+        _continueTeachingKey = null;
+        PlanScopedReview.SetRows([]);
     }
 
     private void DraftChanged()
@@ -292,6 +330,7 @@ public sealed partial class GradeTeachingPlanWindow : Window
         _preview = _previousPreview = null;
         _changedKeys.Clear();
         _confirmedPreview = false;
+        PlanScopedReview.SetRows([]);
         Notice(null);
         BindRuleSubjects();
         BindRows();
@@ -333,9 +372,9 @@ public sealed partial class GradeTeachingPlanWindow : Window
                 PlanScope.Text = "学校权限待核对";
                 PlanGrade.ItemsSource = PlanSubject.ItemsSource = PlanRows.ItemsSource = PlanExistingGroup.ItemsSource =
                     PlanTeacher.ItemsSource = PlanSources.ItemsSource = null;
-                PendingOperations.Remove(_school.Id);
+                PendingOperations.Remove(PendingKey);
             }
-            if (error.Code is "GRADE_PLAN_TERM_CHANGED" or "GRADE_PLAN_SCOPE_CHANGED") _scopeLost = true;
+            if (error.Code is "GRADE_PLAN_TERM_CHANGED" or "GRADE_PLAN_SCOPE_CHANGED" or "TERM_STRUCTURE_SCOPE_CHANGED") _scopeLost = true;
             string prefix = Pending is not null ? "调整回执待核对。 " : _receipt is not null ? "已保存本次方案。 " : "";
             Notice(prefix + error.Message, true);
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
@@ -347,16 +386,23 @@ public sealed partial class GradeTeachingPlanWindow : Window
     {
         if (_client is null) return;
         bool waiting = Pending is not null;
-        bool editable = !_busy && !waiting && !_scopeLost && _catalog is { TermId: not null };
+        bool browse = !_busy && !waiting && !_scopeLost && _catalog is { TermId: not null };
+        bool archived = _catalog?.Term?.Status == "ARCHIVED";
+        bool editable = browse && (!archived || _archiveEditable);
         PlanTabs.IsEnabled = !_busy && !waiting && _catalog is { TermId: not null };
-        PlanGrade.IsEnabled = PlanSubject.IsEnabled = editable || !_busy && !waiting && _catalog is null;
+        PlanGrade.IsEnabled = PlanSubject.IsEnabled = browse || !_busy && !waiting && _catalog is null;
+        PlanEditArchive.IsVisible = archived && !_archiveEditable;
+        PlanEditArchive.IsEnabled = browse;
+        PlanClassSummaryTab.IsVisible = PlanStaffTab.IsVisible = PlanReviewTab.IsVisible = _specifiedTermId is not null;
+        RenderScopedObjects(editable);
         PlanStageRules.IsEnabled = editable && SelectedClasses.Any();
         PlanStageGroup.IsEnabled = editable && PlanGroupOperation.SelectedItem is Option;
         PlanStageTeacher.IsEnabled = editable && PlanTeacher.SelectedItem is not null;
-        PlanStageRemoval.IsEnabled = editable && PlanTeachingExisting.ItemCount > 0;
+        PlanStageRemoval.IsEnabled = editable && PlanTeachingExisting.SelectedItem is GradePlanAssignment;
         PlanReplaceGroup.IsEnabled = editable && Existing is not null;
         PlanMerge.IsEnabled = editable && Existing?.IsActive == true;
         PlanPreview.IsEnabled = editable && HasDraft;
+        if (_specifiedTermId is not null) PlanPreview.Content = $"预览 {_rules.Count + _groups.Count + _assignments.Count} 项调整";
         PlanSave.IsEnabled = !_busy && (waiting ? _replay : editable && _confirmedPreview && _preview?.CanApply == true);
         PlanReset.IsEnabled = !_busy && !waiting && (HasDraft || _scopeLost);
         PlanReload.IsEnabled = PlanBack.IsEnabled = !_busy;

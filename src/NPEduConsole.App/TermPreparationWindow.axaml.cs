@@ -766,6 +766,7 @@ public sealed partial class TermPreparationWindow : Window
     {
         _allowClose = _closed = true;
         _termClassesWindow?.CloseForScopeChange();
+        _termTeachingWindow?.CloseForScopeChange();
         _termStatusWindow?.CloseForScopeChange();
         Close();
     }
