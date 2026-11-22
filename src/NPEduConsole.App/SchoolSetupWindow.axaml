@@ -1,0 +1,97 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolSetupWindow"
+        Width="1160" Height="780" MinWidth="720" MinHeight="454" Title="服务器初始化"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource CanvasBrush}">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="17,12">
+      <StackPanel Spacing="3">
+        <TextBlock x:Name="SetupHeading" Text="服务器初始化" FontSize="22" FontWeight="SemiBold"/>
+        <TextBlock x:Name="SetupServer" TextWrapping="Wrap" Classes="muted"/>
+      </StackPanel>
+    </Border>
+    <ScrollViewer x:Name="SetupScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel x:Name="SetupContent" Spacing="12" Margin="16,12">
+        <Border x:Name="SetupKeyPanel" Classes="card" Padding="14">
+          <StackPanel Spacing="7">
+            <TextBlock Text="使用部署时配置的初始化密钥" Classes="label"/>
+            <TextBox x:Name="SetupKey" PasswordChar="●" AutomationProperties.Name="服务器初始化密钥"
+                     PlaceholderText="服务器初始化密钥" MaxLength="1024" MaxWidth="430" HorizontalAlignment="Left" MinWidth="320"/>
+          </StackPanel>
+        </Border>
+        <Border x:Name="SetupNewPanel" Classes="card" Padding="14" IsVisible="False">
+          <StackPanel Spacing="9">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+              <StackPanel Spacing="4">
+                <TextBlock Text="学校名称" Classes="label"/>
+                <TextBox x:Name="SetupSchoolName" AutomationProperties.Name="学校名称" MaxLength="382"/>
+                <TextBlock Text="所有者姓名" Classes="label" Margin="0,5,0,0"/>
+                <TextBox x:Name="SetupAdministratorName" AutomationProperties.Name="所有者姓名" MaxLength="128"/>
+              </StackPanel>
+              <StackPanel Grid.Column="1" Spacing="4">
+                <TextBlock Text="学校代码" Classes="label"/>
+                <TextBox x:Name="SetupSchoolCode" AutomationProperties.Name="学校代码" MaxLength="32"/>
+                <TextBlock Text="所有者短账号" Classes="label" Margin="0,5,0,0"/>
+                <TextBox x:Name="SetupUsername" AutomationProperties.Name="所有者短账号" MaxLength="32"/>
+              </StackPanel>
+            </Grid>
+            <TextBlock Text="所有者个人 PIN" Classes="label"/>
+            <TextBox x:Name="SetupPin" AutomationProperties.Name="所有者个人 PIN" PasswordChar="●" MaxLength="8"
+                     PlaceholderText="4 至 8 位数字" MaxWidth="300" HorizontalAlignment="Left" MinWidth="230"/>
+            <TextBlock Text="首个启用学期" Classes="label"/>
+            <Grid ColumnDefinitions="2*,*,*" ColumnSpacing="9">
+              <TextBox x:Name="SetupTermName" AutomationProperties.Name="学期名称" PlaceholderText="例如 2026 年秋季学期" MaxLength="382"/>
+              <TextBox x:Name="SetupYear" Grid.Column="1" AutomationProperties.Name="学年" MaxLength="4"/>
+              <ComboBox x:Name="SetupSemester" Grid.Column="2" AutomationProperties.Name="第一或第二学期" HorizontalAlignment="Stretch"/>
+            </Grid>
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="9">
+              <CalendarDatePicker x:Name="SetupStart" HorizontalAlignment="Stretch" Watermark="开始日期（可选）" AutomationProperties.Name="学期开始日期"/>
+              <CalendarDatePicker x:Name="SetupEnd" Grid.Column="1" HorizontalAlignment="Stretch" Watermark="结束日期（可选）" AutomationProperties.Name="学期结束日期"/>
+            </Grid>
+            <TextBlock Text="教师登录方式" Classes="label"/>
+            <ComboBox x:Name="SetupTeacherMode" AutomationProperties.Name="教师登录方式" HorizontalAlignment="Left" MinWidth="275"
+                      SelectionChanged="TeacherModeChanged"/>
+            <CheckBox x:Name="SetupFallback" Content="允许教师使用 OAuth 备用登录"/>
+            <TextBox x:Name="SetupShared" PasswordChar="●" IsVisible="False" MaxLength="64"
+                     AutomationProperties.Name="学校通用教师口令" PlaceholderText="学校通用教师口令 · 8 至 64 字符"/>
+          </StackPanel>
+        </Border>
+        <Border x:Name="SetupFilePanel" Classes="card" Padding="14" IsVisible="False">
+          <StackPanel Spacing="8">
+            <WrapPanel ItemSpacing="9" LineSpacing="4">
+              <Button x:Name="SetupChoosePackage" Content="打开迁移包" Classes="action" Click="ChoosePackage"/>
+              <TextBlock x:Name="SetupFileName" Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </WrapPanel>
+            <TextBox x:Name="SetupPackagePassphrase" PasswordChar="●" MaxLength="256" MinWidth="320" MaxWidth="460"
+                     PlaceholderText="打开迁移包的口令" HorizontalAlignment="Left" AutomationProperties.Name="迁移包口令"
+                     TextChanged="PassphraseChanged"/>
+          </StackPanel>
+        </Border>
+        <Border x:Name="SetupOwnerPanel" Classes="card" Padding="14" IsVisible="False">
+          <StackPanel Spacing="8">
+            <TextBlock x:Name="SetupOwnerInfo" TextWrapping="Wrap"/>
+            <TextBox x:Name="SetupOwnerUsername" AutomationProperties.Name="现有所有者短账号" PlaceholderText="现有所有者短账号"
+                     MaxWidth="360" HorizontalAlignment="Left" MinWidth="280"/>
+            <TextBox x:Name="SetupOwnerPin" PasswordChar="●" MaxLength="8" AutomationProperties.Name="现有所有者 PIN"
+                     PlaceholderText="所有者本人 PIN" MaxWidth="360" HorizontalAlignment="Left" MinWidth="280"/>
+            <WrapPanel ItemSpacing="8" LineSpacing="4">
+              <ComboBox x:Name="SetupProviders" AutomationProperties.Name="目标服务器的身份提供方" MinWidth="180" IsVisible="False"/>
+              <Button x:Name="SetupOwnerBrowser" Classes="action" Content="使用浏览器验证所有者" IsVisible="False" Click="BrowserOwner"/>
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+        <local:SchoolTransferPreviewView x:Name="SetupTransferPreview" IsVisible="False"/>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0" Padding="15,9">
+      <StackPanel Spacing="7">
+        <TextBlock x:Name="SetupNotice" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+        <WrapPanel ItemSpacing="7" LineSpacing="5">
+          <Button x:Name="SetupClose" Content="关闭" Classes="action" Click="CloseClicked"/>
+          <Button x:Name="SetupReadReceipt" Content="核对迁入回执" Classes="action" Click="ReadReceipt" IsVisible="False"/>
+          <Button x:Name="SetupPrimary" Content="继续" Classes="action accent" Click="Continue"/>
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

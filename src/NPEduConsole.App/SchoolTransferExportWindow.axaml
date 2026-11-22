@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPEduConsole.App.SchoolTransferExportWindow" Width="1040" Height="690" MinWidth="680" MinHeight="454"
+        Title="学校迁移" WindowStartupLocation="CenterOwner" Background="{DynamicResource CanvasBrush}">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="17,12">
+      <StackPanel Spacing="3">
+        <TextBlock Text="学校迁移" FontSize="22" FontWeight="SemiBold"/>
+        <TextBlock x:Name="TransferExportScope" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel x:Name="TransferExportContent" Spacing="11" Margin="16,12">
+        <Border Classes="card" Padding="13">
+          <StackPanel Spacing="7">
+            <TextBlock Text="可迁移资料" Classes="label"/>
+            <TextBlock x:Name="TransferExportCounts" TextWrapping="Wrap"/>
+            <TextBlock x:Name="TransferExportRetained" Classes="muted" TextWrapping="Wrap"/>
+            <TextBlock Text="网页登录须重新登录，教室原生设备须现场重新配对。正式换服请先安排源服务器停写，再导出最后一份包。"
+                       TextWrapping="Wrap" Classes="muted"/>
+          </StackPanel>
+        </Border>
+        <Border x:Name="TransferExportFields" Classes="card" Padding="13" IsVisible="False">
+          <StackPanel Spacing="8" HorizontalAlignment="Left" MinWidth="300" MaxWidth="540">
+            <TextBlock x:Name="TransferExportMethod" TextWrapping="Wrap"/>
+            <TextBox x:Name="TransferExportPin" PasswordChar="●" MaxLength="8" PlaceholderText="所有者本人 PIN"
+                     AutomationProperties.Name="所有者本人 PIN"/>
+            <TextBox x:Name="TransferExportPassword" PasswordChar="●" MaxLength="256" PlaceholderText="为迁移包设置 12 至 256 字符的口令"
+                     AutomationProperties.Name="加密迁移包口令"/>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="2" Padding="15,9" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <StackPanel Spacing="7">
+        <TextBlock x:Name="TransferExportNotice" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+        <WrapPanel ItemSpacing="7" LineSpacing="5">
+          <Button x:Name="TransferExportClose" Classes="action" Content="关闭" Click="CloseClicked"/>
+          <Button x:Name="TransferExportRefresh" Classes="action" Content="刷新" Click="Refresh"/>
+          <Button x:Name="TransferExportPrimary" Classes="action accent" Content="导出加密迁移包" Click="Export" IsVisible="False"/>
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

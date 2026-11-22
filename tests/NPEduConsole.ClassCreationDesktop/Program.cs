@@ -42,6 +42,10 @@ internal static partial class Program
             return StartManagementAccounts(managementFixture, managementOutput);
         if (args is ["--live-school-profile", var profileFixture, var profileOutput])
             return StartSchoolProfile(profileFixture, profileOutput);
+        if (args is ["--live-first-school-console", var setupFixture, var setupOutput])
+            return StartSchoolTransfer(setupFixture, setupOutput, firstSchool: true);
+        if (args is ["--live-school-transfer", var transferFixture, var transferOutput])
+            return StartSchoolTransfer(transferFixture, transferOutput, firstSchool: false);
         if (args is ["--live-desktop-oauth", var oauthFixture, var oauthOutput])
             return StartDesktopOAuth(oauthFixture, oauthOutput);
         if (args is ["--live-organization-import", var organizationFixture, var organizationOutput])

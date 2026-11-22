@@ -1,0 +1,106 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="using:NPEduConsole.Core"
+             x:Class="NPEduConsole.App.SchoolTransferPreviewView"
+             x:DataType="core:SchoolTransferPreview">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.transfer-head">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.transfer-label">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.transfer-value">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.transfer-note">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Border.transfer-row">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="ClipToBounds" Value="True" />
+        </Style>
+        <Style Selector="Border.transfer-section">
+            <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="ClipToBounds" Value="True" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
+        <StackPanel Grid.Row="0" Spacing="2">
+            <TextBlock x:Name="TransferHead" Classes="transfer-head" Text="迁入预览" />
+            <TextBlock x:Name="TransferServer" Classes="transfer-label" TextWrapping="Wrap" />
+            <TextBlock x:Name="TransferPackage" Classes="transfer-label" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <ScrollViewer x:Name="TransferScroll" Grid.Row="1"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="0">
+                <Border x:Name="TransferEmpty" Classes="transfer-section" IsVisible="False">
+                    <TextBlock Classes="transfer-note" TextWrapping="Wrap"
+                               Text="还没有读取到迁移包的预览。请先选择一份 .npcw-transfer 文件，再核对这里的内容。" />
+                </Border>
+
+                <Border x:Name="TransferSummary" Classes="transfer-section">
+                    <StackPanel Spacing="4">
+                        <TextBlock x:Name="TransferCountHead" Classes="transfer-head" Text="这份包会带来什么" />
+                        <TextBlock x:Name="TransferSource" Classes="transfer-value" TextWrapping="Wrap" />
+                        <TextBlock x:Name="TransferTarget" Classes="transfer-value" TextWrapping="Wrap" />
+                        <TextBlock x:Name="TransferCounts" Classes="transfer-value" TextWrapping="Wrap" Margin="0,2,0,0" />
+                        <TextBlock x:Name="TransferRetained" Classes="transfer-value" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="transfer-section">
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="transfer-head" Text="逐屏处理" />
+                        <TextBlock Classes="transfer-note"
+                                   Text="迁入后这些大屏需要重新登录或重新配对；班级管理口令需要重设的会单独标注。" />
+                        <StackPanel x:Name="TransferScreens" Spacing="0" />
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="transfer-section">
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="transfer-head" Text="管理员接管路径" />
+                        <TextBlock Classes="transfer-note"
+                                   Text="接管路径只说明该账号有哪些登录方式，不代表已经登录；迁入完成后仍要用它实际登录一次。" />
+                        <StackPanel x:Name="TransferRoutes" Spacing="0" />
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="TransferWarningSection" Classes="transfer-section" IsVisible="False">
+                    <StackPanel Spacing="4">
+                        <TextBlock Classes="transfer-head" Text="需要注意" />
+                        <StackPanel x:Name="TransferWarnings" Spacing="2" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Spacing="4">
+            <TextBlock x:Name="TransferStatus" Classes="transfer-note" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" />
+            <TextBlock Classes="transfer-note" TextWrapping="Wrap"
+                       x:Name="TransferFootNote" Text="本页只做核对：真正的迁入在最后一步确认后才会写入，写入前可以返回重新选择文件。" />
+        </StackPanel>
+    </Grid>
+</UserControl>

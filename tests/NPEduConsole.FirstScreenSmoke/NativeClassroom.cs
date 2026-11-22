@@ -4,6 +4,40 @@ using NPEduTools.Integrations.Npep;
 
 internal static class NativeClassroom
 {
+    private sealed record TransferAccess(string Origin, string SchoolId, string SchoolCode, string ClassId,
+        string BindingId, string RearId, string ManagementSecret, string Password, string NativeDirectory, bool Isolated);
+
+    internal static async Task VerifyTransferredPairingAsync(string path)
+    {
+        var access = System.Text.Json.JsonSerializer.Deserialize<TransferAccess>(await File.ReadAllTextAsync(path),
+            System.Text.Json.JsonSerializerOptions.Web)!;
+        Check(access.Isolated && new Uri(access.Origin).IsLoopback, "Expected isolated target KV.");
+        var directory = access.NativeDirectory;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(75));
+        var ct = timeout.Token;
+        const string nativeName = "迁入后现场重新配对的前屏";
+        await using (var host = new NpepRuntime(directory, "acceptance", () => new(Protocol.Version, Guid.NewGuid(), "Succeeded", null, "")))
+        {
+            var settings = await CommandAsync(host, new("inspect", 0, Origin: access.Origin), ct);
+            var paired = await CommandAsync(host, new("password-class", 0, access.Origin, nativeName,
+                (string?)settings.Server!["serverInstanceId"], (string?)settings.Server["deploymentEpoch"],
+                ScreenBindingId: access.BindingId, ManagementSecret: access.ManagementSecret), ct);
+            Check(paired.State == "ACTIVE", "The original class credential paired the transferred front screen.");
+        }
+        using var device = new NpepDevice(directory);
+        await device.OpenSessionAsync(ct);
+        await device.ReportAsync(await NpepStatusReader.ReadAsync(null, "acceptance", ct), ct);
+        using var console = new ConsoleClient(access.Origin);
+        await console.LoginAsync(access.SchoolCode, "admin", access.Password, ct);
+        var classroom = (await console.GetClassroomsAsync(access.SchoolId, ct)).Single(row => row.Id == access.ClassId);
+        Check(classroom.Screens.Single(row => row.Id == access.BindingId).Devices.Single().Name == nativeName,
+            "The target reads the actual front-screen report.");
+        Check(classroom.Screens.Single(row => row.Id == access.RearId).Devices.Count == 0,
+            "No new credential or report exists for the rear screen.");
+        await console.LogoutAsync(ct);
+        Console.WriteLine("PASS: original class password paired the exact restored front screen using NPEduTools; rear remained unpaired.");
+    }
+
     private static void Check(bool condition, string message)
     {
         if (!condition) throw new InvalidDataException(message);
@@ -16,7 +50,10 @@ internal static class NativeClassroom
         await Protocol.WriteAsync(pipe, request, ct);
         pipe.Position = 0;
         var decoded = await Protocol.ReadAsync<HostRequest>(pipe, ct);
-        Check(Protocol.Validate(decoded) is null && host.Handle(decoded).Outcome == "Accepted", "Host refused command " + command.Action);
+        var validation = Protocol.Validate(decoded);
+        Check(validation is null, "Invalid Host command " + command.Action + ": " + validation);
+        var handled = host.Handle(decoded);
+        Check(handled.Outcome == "Accepted", "Host refused command " + command.Action + ": " + handled.ErrorCode);
         while (host.Snapshot().Busy) await Task.Delay(20, ct);
         var response = host.Handle(new(Protocol.Version, Guid.NewGuid(), "npep.status"));
         pipe.SetLength(0);

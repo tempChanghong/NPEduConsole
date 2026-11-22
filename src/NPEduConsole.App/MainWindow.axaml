@@ -123,6 +123,14 @@
             <ProgressBar x:Name="LoginProgress" IsVisible="False" IsIndeterminate="True" Height="4" />
             <Button x:Name="LoginButton" Classes="action accent" Content="使用本地账号登录" Click="LoginClicked"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,4,0,0" />
+            <StackPanel x:Name="LoginSetupOptions" IsVisible="False" Spacing="7">
+              <TextBlock x:Name="LoginSetupNotice" Classes="muted" TextWrapping="Wrap"/>
+              <WrapPanel ItemSpacing="7" LineSpacing="5">
+                <Button x:Name="InitializeNewSchool" Classes="action" Content="新建学校" Click="InitializeSchoolClicked"/>
+                <Button x:Name="RestoreSchoolTransfer" Classes="action" Content="从迁移包恢复" Click="RestoreTransferClicked"/>
+                <Button x:Name="ResumeSchoolSetup" Classes="action" Content="继续初始化" Click="ResumeSetupClicked"/>
+              </WrapPanel>
+            </StackPanel>
           </StackPanel>
         </Border>
       </Grid>
@@ -202,6 +210,13 @@
                 <TextBlock x:Name="SchoolServerStatusSummary" Classes="muted" TextTrimming="CharacterEllipsis" MaxWidth="119"
                            FontSize="10" AutomationProperties.LiveSetting="Polite" />
               </StackPanel>
+            </Grid>
+          </Button>
+          <Button x:Name="OpenSchoolTransferButton" Classes="shell-nav" Click="OpenSchoolTransferClicked" IsEnabled="False"
+                  AutomationProperties.Name="学校迁移" ToolTip.Tip="学校迁移">
+            <Grid Classes="nav-content" ColumnDefinitions="Auto,Auto">
+              <Grid Width="29" Height="24"><Path Classes="shell-glyph" Data="{StaticResource HistoryGlyph}" /></Grid>
+              <TextBlock Grid.Column="1" Classes="shell-label" Text="学校迁移" />
             </Grid>
           </Button>
           </StackPanel>

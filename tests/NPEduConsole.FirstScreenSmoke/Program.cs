@@ -6,6 +6,12 @@ using NPEduConsole.Core;
 using NPEduTools.Contracts;
 using NPEduTools.Integrations.Npep;
 
+if (args is ["--native-school-transfer", var access])
+{
+    await NativeClassroom.VerifyTransferredPairingAsync(access);
+    return;
+}
+
 var file = Path.GetFullPath(args.Single());
 var fixture = JsonSerializer.Deserialize<Fixture>(await File.ReadAllTextAsync(file), JsonSerializerOptions.Web)!;
 if (!new Uri(fixture.Origin).IsLoopback || !new Uri(fixture.LostReplyOrigin).IsLoopback || !fixture.AllowFirstScreenTestWrites)

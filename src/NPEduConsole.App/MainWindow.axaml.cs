@@ -87,6 +87,8 @@ public sealed partial class MainWindow : Window
         UpdateShellPage();
         Activated += (_, _) => RefreshAfterWebOverviewTask();
         LoginView.AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
+        ServerAddress.TextChanged += (_, _) => _ = RefreshSetupEntryAsync();
+        _ = RefreshSetupEntryAsync();
         Closing += OnClosing;
     }
 
@@ -114,7 +116,7 @@ public sealed partial class MainWindow : Window
 
     private async Task LoginAsync()
     {
-        if (_request is not null || _signingOut || _client is not null || _desktopLogin is not null) return;
+        if (_request is not null || _signingOut || _client is not null || _desktopLogin is not null || _schoolSetupWindow is not null) return;
         string address = (ServerAddress.Text ?? "").Trim();
         string schoolCode = (SchoolCode.Text ?? "").Trim();
         string username = (Username.Text ?? "").Trim();
@@ -229,6 +231,7 @@ public sealed partial class MainWindow : Window
             preparation.School != school || preparation.ClassId != restoredClass)) ResetFirstScreen();
         if (_school != school)
         {
+            CloseTransferForScopeChange();
             _directoryTermId = null;
             _directoryClasses = null;
             ClassSearch.Clear();
@@ -600,6 +603,7 @@ public sealed partial class MainWindow : Window
         _overviewNavigation = null;
         CancelMicrophoneChanges();
         CancelSoftwareSession();
+        CloseTransferForScopeChange();
         _school = null;
         _directoryTermId = null;
         ClearClassDirectory();
@@ -615,6 +619,7 @@ public sealed partial class MainWindow : Window
         LoginView.IsVisible = true;
         Password.Clear();
         _ = DiscoverBrowserLoginAsync();
+        _ = RefreshSetupEntryAsync();
     }
 
     private void SetClassroom(Classroom? room)

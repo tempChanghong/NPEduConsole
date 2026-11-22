@@ -64,6 +64,7 @@ public sealed partial class MainWindow
         OpenSchoolOverviewButton.IsEnabled = OpenClassWorkspaceButton.IsEnabled = OpenDeviceDirectoryButton.IsEnabled =
             OpenSchoolAuditButton.IsEnabled = OpenSchoolManagementAccountsButton.IsEnabled = scoped;
         OpenSchoolServerStatusButton.IsEnabled = _client is not null;
+        OpenSchoolTransferButton.IsEnabled = scoped;
         ObjectPicker.IsEnabled = scoped;
         OpenSchoolOverviewButton.Classes.Set("current", _showSchoolOverview && scoped);
         OpenClassWorkspaceButton.Classes.Set("current", _page == ShellPage.Classes);

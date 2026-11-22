@@ -1,0 +1,259 @@
+import assert from 'node:assert/strict';
+import {randomBytes, randomUUID, createHash} from 'node:crypto';
+import {fork} from 'node:child_process';
+import {mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile} from 'node:fs/promises';
+import {createServer, request} from 'node:http';
+import {dirname, join} from 'node:path';
+import {verifyFreshExportAuthentication, verifyLegacyTransferWeb} from './school-transfer-browser.mjs';
+
+const setupPath = '/api/v2/setup';
+const mime = 'application/vnd.npclassworks.transfer+json';
+const makeDigest = bytes => createHash('sha256').update(bytes).digest('hex');
+const credentials = () => randomBytes(20).toString('base64url');
+const phrase = () => '迁入-' + credentials();
+
+async function json(origin, path, {body, method = body === undefined ? 'GET' : 'POST', token, setupToken, status = 200} = {}) {
+  const reply = await fetch(origin + path, {method, headers: {'Content-Type': 'application/json',
+    ...(token ? {Authorization: 'Bearer ' + token} : {}), ...(setupToken ? {'X-Classworks-Setup-Token': setupToken} : {})},
+    body: body === undefined ? undefined : JSON.stringify(body)});
+  const message = await reply.json();
+  if (status !== null) assert.equal(reply.status, status, path + ' ' + (message.code ?? message.error?.code ?? ''));
+  return {status: reply.status, data: message.data ?? message};
+}
+
+async function login(origin, schoolCode, username, password) {
+  return (await json(origin, '/accounts/local/login', {body: {schoolCode, username, password}})).data.access_token;
+}
+
+export async function verifyConsoleFirstSchool({prisma, origin, directory, evidence, runDesktop}) {
+  await mkdir(evidence, {recursive: true});
+  const path = join(directory, 'first-school.json');
+  const pin = '761298', schoolCode = 'NEW-CONSOLE';
+  await writeFile(path, JSON.stringify({sourceOrigin: origin, setupKey: process.env.BOOTSTRAP_SETUP_KEY, pin, schoolCode, isolated: true}));
+  await runDesktop(['--live-first-school-console', path, evidence]);
+  const school = await prisma.school.findUniqueOrThrow({where: {code: schoolCode}});
+  const owner = await prisma.schoolMember.findFirstOrThrow({where: {schoolId: school.id, role: 'OWNER'}});
+  const setup = await prisma.instanceSetup.findUniqueOrThrow({where: {id: 'default'}});
+  assert.equal(setup.completedByAccountId, owner.accountId);
+  const proof = await prisma.$queryRaw`SELECT method FROM "SchoolManagementLogin" WHERE "accountId"=${owner.accountId}
+      AND "schoolId"=${school.id}`;
+  assert.ok(proof.some(row => row.method === 'LOCAL_PIN'));
+  const term = await prisma.academicTerm.findFirstOrThrow({where: {schoolId: school.id, status: 'ACTIVE'}});
+  const room = await prisma.workspace.findFirstOrThrow({where: {termId: term.id, code: 'G1-1'}});
+  assert.equal(room.type, 'ADMIN_CLASS');
+  await login(origin, schoolCode, 'founder', pin);
+  await writeFile(join(evidence, 'first-school-database.json'), JSON.stringify({schoolCreated: true, termCreated: true,
+    ownerLoginProof: true, setupCompleted: true, firstClassId: room.id}, null, 2));
+}
+
+async function startTarget({fixtureRunner, kv, binaries}) {
+  const tail = [];
+  const child = fork(fixtureRunner, [kv, binaries, '--school-transfer-target'], {silent: true, windowsHide: true});
+  for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => {
+    tail.push(String(bytes));
+    if (tail.length > 20) tail.shift();
+  });
+  const data = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { child.send('stop', () => {}); reject(new Error('Target KV startup timed out')); }, 60_000);
+    child.once('message', value => { clearTimeout(timer); resolve(value); });
+    child.once('exit', code => { clearTimeout(timer); reject(new Error(`Target KV exited (${code}).\n${tail.join('')}`)); });
+  });
+  const close = async () => {
+    if (child.exitCode !== null) return;
+    const exited = new Promise((resolve, reject) => child.once('exit', code => code === 0 ? resolve() :
+      reject(new Error(`Target KV exit ${code}.\n${tail.join('')}`))));
+    child.send('stop');
+    await exited;
+  };
+  return {...data, close};
+}
+
+async function dropImportReply(origin) {
+  let dropped = 0, reads = 0;
+  const server = createServer((req, res) => {
+    const upstream = request(origin + req.url, {method: req.method, headers: req.headers}, reply => {
+      if (req.url?.endsWith('/migration/import') && reply.statusCode === 201 && !dropped) {
+        dropped++;
+        reply.resume();
+        res.destroy();
+        return;
+      }
+      if (req.url?.includes('/migration/receipts/') && reply.statusCode === 200) reads++;
+      res.writeHead(reply.statusCode, reply.headers);
+      reply.pipe(res);
+    });
+    upstream.on('error', () => res.destroy());
+    req.pipe(upstream);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  return {origin: 'http://127.0.0.1:' + server.address().port, counts: () => ({dropped, reads}),
+    close() { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); }};
+}
+
+export async function verifyConsoleSchoolTransfer(context) {
+  const {prisma, origin, fixture, fromKv, bcrypt, kvRequire, directory, evidence, runDesktop, runNative} = context;
+  await mkdir(evidence, {recursive: true});
+  const {school, other, term, managerId, pin, identity, classroomBearer, classes: [classId]} = fixture;
+  await prisma.schoolMember.update({where: {schoolId_accountId: {schoolId: school.id, accountId: managerId}}, data: {role: 'OWNER'}});
+  const ownerEpoch = randomUUID(), adminEpoch = randomUUID();
+  await prisma.$executeRaw`INSERT INTO "SchoolManagementAuthority" ("schoolId","accountId","adminEpoch","ownerEpoch")
+      VALUES (${school.id},${managerId},${adminEpoch}::uuid,${ownerEpoch}::uuid)`;
+  const {localProviderId} = await fromKv('domain/localAccount.js');
+  const teacher = await prisma.account.findUniqueOrThrow({where: {provider_providerId: {
+    provider: 'school-local', providerId: localProviderId(school.code, 'viewer')}}});
+  const historicalAdmin = await prisma.account.create({data: {provider: 'school-local',
+    providerId: localProviderId(school.code, 'oldadmin'), localUsername: 'oldadmin', name: '原学校管理员',
+    localPasswordHash: await bcrypt.hash(pin, 10)}});
+  await prisma.schoolMember.create({data: {schoolId: school.id, accountId: historicalAdmin.id, role: 'ADMIN'}});
+  const previousAdminEpoch = randomUUID();
+  await prisma.$executeRaw`INSERT INTO "SchoolManagementAuthority" ("schoolId","accountId","adminEpoch")
+      VALUES (${school.id},${historicalAdmin.id},${previousAdminEpoch}::uuid)`;
+  await prisma.workspaceMember.create({data: {workspaceId: classId, accountId: teacher.id, role: 'TEACHER'}});
+  const student = await prisma.administrativeClassStudent.create({data: {administrativeClassId: classId, name: '迁入名单样本'}});
+  const subject = await prisma.subject.create({data: {schoolId: school.id, code: 'PHYS', name: '物理', category: 'CORE'}});
+  const relation = await prisma.teachingAssignment.create({data: {workspaceId: classId, subjectId: subject.id, accountId: teacher.id}});
+  const leadership = await prisma.administrativeClassLeadership.create({data: {administrativeClassId: classId, accountId: teacher.id}});
+  const publication = await prisma.publication.create({data: {authorAccountId: teacher.id, type: 'NOTICE', title: '同校通知',
+    content: '跨库对照记录', status: 'PUBLISHED', targets: {create: {workspaceId: classId}}}});
+  const history = await prisma.publicationRevision.create({data: {publicationId: publication.id, revision: 1,
+    snapshot: {title: publication.title, targetWorkspaceIds: [classId]}, action: 'CREATED', actorType: 'ACCOUNT',
+    editorAccountId: teacher.id}});
+  const audit = await prisma.auditLog.create({data: {schoolId: school.id, actorType: 'ACCOUNT', actorAccountId: teacher.id,
+    action: 'TEST_ORIGINAL_SCOPE', summary: '迁移审计对照'}});
+  const front = await prisma.classroomScreenBinding.findFirstOrThrow({where: {administrativeClassId: classId}});
+  await prisma.classroomScreenBinding.update({where: {id: front.id}, data: {name: '前屏', loginCode: 'FRONT',
+    pinHash: await bcrypt.hash(pin, 10), npepPairingEnabled: true}});
+  const webScreenPath = '/api/v2/classroom-screens';
+  const loginScreen = async targetOrigin => (await json(targetOrigin, webScreenPath + '/login', {body: {
+    schoolCode: school.code, loginCode: 'front', pin, deviceFingerprint: 'transfer-' + randomUUID(),
+  }})).data.token;
+  const beforeWeb = await loginScreen(origin);
+  const rear = await prisma.classroomScreenBinding.create({data: {schoolId: school.id, administrativeClassId: classId, name: '后屏',
+    tokenHash: makeDigest(credentials()), createdByAccountId: managerId, npepPairingEnabled: true, npepPrepared: true}});
+  const command = await prisma.classroomScreenCommand.create({data: {screenBindingId: front.id, issuedByAccountId: managerId, type: 'REFRESH_DATA',
+    status: 'PENDING', expiresAt: new Date(Date.now() + 10 * 60_000), bindingRevision: front.npepBindingRevision,
+    credentialVersion: front.credentialVersion}});
+  const classSecret = credentials();
+  const {managementVerifier} = await fromKv('domain/npep/schoolManagement.js');
+  await prisma.$executeRaw`INSERT INTO "NpepClassManagement" ("schoolId","classId",revision,verifier,"updatedAt")
+      VALUES (${school.id},${classId},7,${JSON.stringify(managementVerifier(classSecret))}::jsonb,now())`;
+  const policy = {mode: 'OFF'};
+  await prisma.$executeRaw`INSERT INTO "NpepStudySetting" ("schoolId","termId","targetType","targetId",revision,policy,"updatedBy")
+      VALUES (${school.id},${term.id},'CLASS',${classId},3,${JSON.stringify(policy)}::jsonb,${managerId})`;
+  const {png} = await fromKv('tests/helpers/npepSeatingFixture.js');
+  const image = png();
+  const imageDigest = makeDigest(image);
+  await prisma.$executeRaw`INSERT INTO "NpepSeatingVersion" ("schoolId","termId","classId",revision,hash,width,height,"imageBytes","requestId",digest,"actorId")
+      VALUES (${school.id},${term.id},${classId},2,${imageDigest},2,2,${image},${randomUUID()}::uuid,${imageDigest},${managerId})`;
+  const event = randomUUID(), exit = randomUUID(), device = fixture.devices[0], expires = new Date(Date.now() + 86400000);
+  const {NpepPhotoStore} = await fromKv('services/npepPhotoStore.js');
+  const samplePhoto = kvRequire('jpeg-js').encode({width: 12, height: 8, data: Buffer.alloc(12 * 8 * 4, 210)}, 75).data;
+  const photoStore = new NpepPhotoStore();
+  await photoStore.put(event, samplePhoto);
+  const digest = makeDigest(samplePhoto);
+  await prisma.$executeRaw`INSERT INTO "NpepStudyPhoto" ("eventId","deviceId","schoolId","termId","classId","leaseId",version,metadata,
+      digest,"storedHash",width,height,"byteCount","capturedAt","expiresAt",state)
+      VALUES (${event}::uuid,${device}::uuid,${school.id},${term.id},${classId},${randomUUID()}::uuid,${digest},'{}'::jsonb,
+      ${digest},${digest},12,8,${samplePhoto.length},now(),${expires},'Stored')`;
+  await prisma.$executeRaw`INSERT INTO "NpepStudyExitEvent" ("eventId","deviceId","schoolId","termId","classId",digest,metadata,"createdAt","expiresAt")
+      VALUES (${exit}::uuid,${device}::uuid,${school.id},${term.id},${classId},${digest},'{}'::jsonb,now(),${expires})`;
+  const oldSession = await login(origin, school.code, 'viewer', pin);
+  const owner = await login(origin, school.code, 'admin', pin);
+  const target = await startTarget(context);
+  const relay = await dropImportReply(target.origin);
+  const {Client} = kvRequire('pg');
+  const record = new Client({connectionString: target.databaseUrl});
+  const file = join(evidence, `desktop-school-${randomUUID()}.npcw-transfer`);
+  const evidenceRoot = await realpath(evidence);
+  const nativeDirectory = await mkdtemp(join(evidenceRoot, 'isolated-native-'));
+  try {
+    await record.connect();
+    const access = join(directory, 'transfer-desktop.json'), passphrase = phrase();
+    await writeFile(access, JSON.stringify({sourceOrigin: origin, targetOrigin: relay.origin, file, pin, schoolCode: school.code,
+      schoolId: school.id, setupKey: target.setupKey, passphrase, frontId: front.id, rearId: rear.id, isolated: true}));
+    await runDesktop(['--live-school-transfer', access, evidence]);
+    const packageBuffer = await readFile(file);
+    const {decryptMigrationPackage} = await fromKv('services/schoolMigrationService.js');
+    const payload = await decryptMigrationPackage(packageBuffer, passphrase);
+    const serialized = JSON.stringify(payload);
+    assert.ok(![event, exit, other.id, beforeWeb, classroomBearer, oldSession, digest, command.id, samplePhoto.toString('base64')]
+      .some(value => serialized.includes(value)));
+    assert.equal(payload.manifest.retained.photos, 1);
+    assert.equal(payload.manifest.retained.exitEvents, 1);
+    assert.equal(payload.data.seatVersions[0].imageBase64, image.toString('base64'));
+    assert.deepEqual(relay.counts(), {dropped: 1, reads: 1});
+    const exists = (name, id) => record.query(`SELECT id FROM "${name}" WHERE id=$1`, [id]).then(result => result.rowCount);
+    for (const [table, id] of [['School', school.id], ['AcademicTerm', term.id], ['Workspace', classId], ['Account', teacher.id],
+      ['AdministrativeClassStudent', student.id], ['TeachingAssignment', relation.id], ['Publication', publication.id],
+      ['AdministrativeClassLeadership', leadership.id], ['PublicationRevision', history.id], ['AuditLog', audit.id],
+      ['ClassroomScreenBinding', front.id], ['ClassroomScreenBinding', rear.id]]) assert.equal(await exists(table, id), 1, table);
+    assert.equal(await exists('School', other.id), 0);
+    const check = (sql, params) => record.query(sql, params).then(result => result.rows[0]);
+    assert.deepEqual(await check('SELECT "adminEpoch","ownerEpoch" FROM "SchoolManagementAuthority" WHERE "schoolId"=$1 AND "accountId"=$2', [school.id, managerId]),
+      {adminEpoch, ownerEpoch});
+    assert.deepEqual(await check('SELECT "adminEpoch","ownerEpoch" FROM "SchoolManagementAuthority" WHERE "schoolId"=$1 AND "accountId"=$2', [school.id, historicalAdmin.id]),
+      {adminEpoch: previousAdminEpoch, ownerEpoch: null});
+    const targetAdmin = await login(target.origin, school.code, 'oldadmin', pin);
+    const migrationPath = '/api/v2/admin/schools/' + school.id + '/migration/';
+    assert.equal((await json(target.origin, migrationPath + 'readiness', {token: targetAdmin})).data.role, 'ADMIN');
+    assert.equal((await json(target.origin, migrationPath + 'export', {token: targetAdmin, body: {currentPin: pin, passphrase}, status: null})).status, 403);
+    assert.equal((await check('SELECT policy FROM "NpepStudySetting" WHERE "schoolId"=$1', [school.id])).policy.mode, policy.mode);
+    assert.ok((await check('SELECT "imageBytes" FROM "NpepSeatingVersion" WHERE "schoolId"=$1', [school.id])).imageBytes.equals(image));
+    const empty = await check('SELECT (SELECT count(*)::int FROM "NpepStudyPhoto") AS photos, (SELECT count(*)::int FROM "NpepStudyExitEvent") AS exits, (SELECT count(*)::int FROM "ClassroomScreenCommand") AS commands');
+    assert.deepEqual(empty, {photos: 0, exits: 0, commands: 0});
+    const entries = await readdir(target.photoDirectory).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
+    assert.equal(entries.length, 0);
+    assert.deepEqual((await prisma.$queryRaw`SELECT "expiresAt" FROM "NpepStudyPhoto" WHERE "eventId"=${event}::uuid`)[0].expiresAt, expires);
+    assert.deepEqual((await prisma.$queryRaw`SELECT "expiresAt" FROM "NpepStudyExitEvent" WHERE "eventId"=${exit}::uuid`)[0].expiresAt, expires);
+    assert.ok((await photoStore.read(event, digest)).equals(samplePhoto));
+    const sourcePhoto = await fetch(origin + `/api/v2/npep/schools/${school.id}/study-photos/${event}/image?termId=${term.id}&classId=${classId}`,
+      {headers: {Authorization: 'Bearer ' + owner, 'X-NPEP-Version': '0.15', 'X-Request-Id': randomUUID()}});
+    assert.equal(sourcePhoto.status, 200);
+    assert.ok(Buffer.from(await sourcePhoto.arrayBuffer()).equals(samplePhoto));
+    assert.equal((await prisma.classroomScreenCommand.findUniqueOrThrow({where: {id: command.id}})).status, 'PENDING');
+    const targetTeacher = await login(target.origin, school.code, 'viewer', pin);
+    assert.ok((await json(target.origin, '/api/v2/me/workspaces', {token: targetTeacher})).data.some(row => row.workspace.id === classId));
+    assert.equal((await json(target.origin, '/api/v2/me/workspaces', {token: oldSession, status: null})).status, 401);
+    const screenSession = (endpoint, token) => fetch(endpoint + webScreenPath + '/session', {headers: {'X-Classworks-Screen-Token': token}});
+    assert.equal((await screenSession(origin, beforeWeb)).status, 200);
+    assert.equal((await screenSession(target.origin, beforeWeb)).status, 401);
+    assert.equal((await screenSession(target.origin, await loginScreen(target.origin))).status, 200);
+    const reqId = randomUUID();
+    const obsolete = await fetch(target.origin + '/api/v2/npep/device/sessions', {method: 'POST', headers: {
+      Authorization: 'Bearer ' + classroomBearer, 'X-NPEP-Version': '0.1', 'X-Request-Id': reqId, 'Content-Type': 'application/json'},
+    body: JSON.stringify({...identity, requestId: reqId, runId: randomUUID(), expectedStatusEpoch: 0})});
+    assert.ok(!obsolete.ok, 'old native bearer must not open or report on target');
+    const native = join(directory, 'transfer-native.json');
+    await writeFile(native, JSON.stringify({origin: target.origin, schoolId: school.id, schoolCode: school.code, classId,
+      bindingId: front.id, rearId: rear.id, managementSecret: classSecret, password: pin, nativeDirectory, isolated: true}));
+    await runNative(['--native-school-transfer', native]);
+    assert.equal((await check('SELECT count(*)::int AS count FROM "NpepDevice" WHERE "screenBindingId"=$1 AND "lastSeenAt" IS NOT NULL', [front.id])).count, 1);
+    assert.equal((await check('SELECT count(*)::int AS count FROM "NpepDevice" WHERE "screenBindingId"=$1', [rear.id])).count, 0);
+    await json(origin, '/api/v2/admin/schools/' + school.id + '/migration/readiness', {token: owner});
+    const legacyTarget = await startTarget(context);
+    let legacy;
+    try {
+      legacy = await verifyLegacyTransferWeb({...context, school, token: owner, file, passphrase, pin, target: legacyTarget});
+      const legacyOwner = await login(legacyTarget.origin, school.code, 'admin', pin);
+      assert.ok((await json(legacyTarget.origin, '/api/v2/me/schools', {token: legacyOwner})).data
+        .some(row => row.school.id === school.id && row.role === 'OWNER'));
+    } finally { await legacyTarget.close(); }
+    await verifyFreshExportAuthentication({...context, school, passphrase});
+    await writeFile(join(evidence, 'dual-kv-school-transfer.json'), JSON.stringify({sourceAndTargetIndependent: true,
+      restored: {school: school.id, class: classId, front: front.id, rear: rear.id}, durableReceipt: relay.counts(), originalTeacherLogin: true,
+      oldAccountAndDeviceCredentialsRejected: true, photosAndExitsRetainedOnSource: [1, 1], target: empty,
+      sourcePhotoReadableAndPendingCommandPreserved: true, historicalOwnerAndAdminAuthoritiesPreserved: true,
+      oldBrowserTokenRejectedAndOriginalScreenPinCanLogIn: true,
+      nativePairedUsingOriginalClassSecret: true, frontReported: true, rearStillNeedsPairing: true, legacy,
+      freshExportReauthenticationTest: 'oauth-export-evidence.json'}, null, 2));
+  } finally {
+    await rm(file, {force: true});
+    const nativeRoot = await realpath(nativeDirectory);
+    assert.equal(dirname(nativeRoot), evidenceRoot);
+    assert.equal(nativeRoot.toLowerCase(), nativeDirectory.toLowerCase());
+    await rm(nativeRoot, {recursive: true, force: true});
+    await record.end();
+    await relay.close();
+    await target.close();
+  }
+}
