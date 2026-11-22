@@ -13,11 +13,12 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
     private SchoolOverview? _snapshot;
     private IReadOnlyList<OverviewScreenItem> _rows = [];
     private string _status = "";
-    private (string ScreenId, Vector Offset)? _returnPosition;
+    private (string ScreenId, Vector Offset, bool Duty)? _returnPosition;
     private (string School, string? Term)? _filterScope;
 
     public event Action? RefreshRequested;
     public event Action<SchoolOverview, OverviewScreenItem>? ScreenRequested;
+    public event Action<string?, string?, Control?>? DutyRequested;
 
     public SchoolDeviceDirectoryView()
     {
@@ -95,7 +96,9 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
             Dispatcher.UIThread.Post(() =>
             {
                 if (!IsEffectivelyVisible || !ReferenceEquals(_snapshot, snapshot)) return;
-                var action = DeviceDirectoryRows.ContainerFromItem(row)?.GetVisualDescendants().OfType<Button>().FirstOrDefault();
+                bool duty = previous?.Duty == true;
+                var action = DeviceDirectoryRows.ContainerFromItem(row)?.GetVisualDescendants().OfType<Button>()
+                    .FirstOrDefault(button => button.Classes.Contains("screen-duty-entry") == duty);
                 if (action is not null) action.Focus();
                 else DeviceSearch.Focus();
             }, DispatcherPriority.Background);
@@ -138,12 +141,24 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
 
     private void RefreshClicked(object? sender, RoutedEventArgs args) => RefreshRequested?.Invoke();
 
+    private void OpenDutyDirectoryClicked(object? sender, RoutedEventArgs args) => DutyRequested?.Invoke(null, null, sender as Control);
+
+    private void OpenDutyClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_snapshot is not null && sender is Button { DataContext: OverviewScreenItem row } button)
+        {
+            var scroll = DeviceDirectoryRows.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+            _returnPosition = (row.ScreenId, scroll?.Offset ?? default, true);
+            DutyRequested?.Invoke(row.ScreenId, row.ClassId, button);
+        }
+    }
+
     private void OpenClicked(object? sender, RoutedEventArgs args)
     {
         if (_snapshot is { } snapshot && sender is Button { Tag: OverviewScreenItem row })
         {
             var scroll = DeviceDirectoryRows.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
-            _returnPosition = (row.ScreenId, scroll?.Offset ?? default);
+            _returnPosition = (row.ScreenId, scroll?.Offset ?? default, false);
             ScreenRequested?.Invoke(snapshot, row);
         }
     }

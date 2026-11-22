@@ -4,7 +4,8 @@ using System.Text;
 using System.Text.Json.Nodes;
 using NPEduTools.Integrations.Npep;
 
-if (args is not [var phase, var fixtureFile, var dataRoot] || phase is not ("pair" or "report" or "invalidated" or "repair-first" or "report-first" or "repair-third" or "report-third" or "invalidated-third") || !OperatingSystem.IsWindows()) return 2;
+if (args is not [var phase, var fixtureFile, var dataRoot] || phase is not ("pair" or "report" or "invalidated" or "repair-first" or "report-first" or
+    "repair-second" or "report-second" or "invalidated-second" or "repair-third" or "report-third" or "invalidated-third") || !OperatingSystem.IsWindows()) return 2;
 string step = "read fixture";
 try
 {
@@ -20,8 +21,9 @@ try
     var classIds = fixture["classIds"] is JsonArray supplied
         ? supplied.Select(row => row!.GetValue<string>()).ToArray() : bindingIds.Select(_ => classId).ToArray();
     if (bindingIds.Length is < 2 or > 3 || bindingIds.Distinct().Count() != bindingIds.Length || classIds.Length != bindingIds.Length) return 2;
-    bool repair = phase is "repair-first" or "repair-third";
+    bool repair = phase.StartsWith("repair-", StringComparison.Ordinal);
     int[] slots = phase.EndsWith("-third", StringComparison.Ordinal) ? [2] :
+        phase.EndsWith("-second", StringComparison.Ordinal) ? [1] :
         phase.EndsWith("-first", StringComparison.Ordinal) ? [0] : Enumerable.Range(0, bindingIds.Length).ToArray();
     if (slots.Any(slot => slot >= bindingIds.Length)) return 2;
 
@@ -31,7 +33,7 @@ try
         string data = Path.Combine(dataRoot, $"device-{slot + 1}");
         step = "open isolated native profile";
         using var device = new NpepDevice(data);
-        if (phase is "invalidated" or "invalidated-third")
+        if (phase.StartsWith("invalidated", StringComparison.Ordinal))
         {
             step = "check rejected original credential";
             try { await device.OpenSessionAsync(); }

@@ -298,6 +298,7 @@
             <Button x:Name="OpenGradeTeachingPlanButton" Classes="action" Content="年级教学安排" Click="OpenGradeTeachingPlanClicked" IsVisible="False" />
             <Button x:Name="OpenCourseGroupsButton" Classes="action" Content="走班教学班" Click="OpenCourseGroupsClicked" IsVisible="False" />
             <Button x:Name="OpenTeacherAccountsButton" Classes="action" Content="教师账号" Click="OpenTeacherAccountsClicked" IsVisible="False" />
+            <Button x:Name="OpenClassScreenDirectoryButton" Classes="action" Content="管理班级大屏" Click="OpenClassScreenDirectoryClicked" IsVisible="False" />
             <Button x:Name="OpenSchoolSubjectsButton" Classes="action" Content="学科目录" Click="OpenSchoolSubjectsClicked" IsVisible="False" />
             <Button x:Name="RefreshButton" Classes="action" Content="刷新" Click="RefreshClicked" IsEnabled="False" />
           </WrapPanel>
@@ -350,7 +351,7 @@
             <TextBlock x:Name="ScreensHeading" Text="绑定大屏和设备" FontSize="18" FontWeight="SemiBold" IsVisible="False" />
             <Border x:Name="ScreenEvidenceCard" IsVisible="False" Classes="card" Padding="19,15"
                     Focusable="True" AutomationProperties.Name="大屏接入记录">
-              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,*" RowSpacing="13" ColumnSpacing="17">
+              <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,*" RowSpacing="13" ColumnSpacing="17">
                 <Grid Grid.ColumnSpan="2" ColumnDefinitions="Auto,*" ColumnSpacing="14">
                   <TextBlock Text="接入记录" Classes="label" FontSize="18" />
                   <TextBlock Grid.Column="1" x:Name="ScreenEvidenceTime" Classes="muted" FontSize="12"
@@ -364,6 +365,8 @@
                   <TextBlock Text="网页值守" Classes="muted" FontSize="13" />
                   <ContentControl x:Name="ScreenBrowserEvidence" ContentTemplate="{StaticResource ScreenEvidenceTemplate}" />
                 </StackPanel>
+                <Button Grid.Row="2" Grid.ColumnSpan="2" x:Name="OpenScreenDutyButton" Classes="action" Content="管理网页账号与值守"
+                        Click="OpenScreenDutyClicked" />
               </Grid>
             </Border>
             <StackPanel x:Name="ScreenCards" Spacing="12" />

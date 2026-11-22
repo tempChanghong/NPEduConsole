@@ -71,6 +71,11 @@ public sealed partial class MainWindow : Window
         };
         DeviceDirectory.RefreshRequested += async () => await SchoolOverviewWorkspace.RefreshAsync();
         DeviceDirectory.ScreenRequested += async (snapshot, row) => await OpenDeviceDirectoryTargetAsync(snapshot, row);
+        DeviceDirectory.DutyRequested += async (binding, room, anchor) =>
+        {
+            if (_page == ShellPage.Devices && _client is { } client && _school is { } school)
+                await ShowScreenDutyAsync(client, school, binding, room, anchor);
+        };
         ObjectPicker.TargetChosen += async item => await OpenSearchTargetAsync(item);
         SizeChanged += (_, args) => ApplyLoginLayout(args.NewSize);
         UpdateShellPage();
@@ -177,6 +182,7 @@ public sealed partial class MainWindow : Window
             CloseSchoolSubjects();
             CloseStaffResponsibilities();
             CloseTeacherAccounts();
+            CloseScreenDuty();
             CloseCourseGroups();
             CloseSchoolStudy();
             CloseOrganizationImport();
@@ -336,6 +342,14 @@ public sealed partial class MainWindow : Window
         Grid.SetColumn(replacement, 2);
         summary.Children.Add(replacement);
         list.Children.Add(summary);
+        var web = new Button { Content = "网页账号与值守", Classes = { "action" } };
+        AutomationProperties.SetAutomationId(web, "ClassScreenDuty-" + screen.Id);
+        web.Click += async (_, _) =>
+        {
+            if (_client is { } client && _school is { } school && _classroom is { } room && room.Screens.Contains(screen))
+                await ShowScreenDutyAsync(client, school, screen.Id, room.Id, web);
+        };
+        list.Children.Add(web);
         if (screen.DeviceOverviewUnavailable)
         {
             list.Children.Add(new TextBlock { Text = "设备状态暂不可用", Classes = { "muted" } });
@@ -521,6 +535,7 @@ public sealed partial class MainWindow : Window
         CloseSchoolSubjects();
         CloseStaffResponsibilities();
         CloseTeacherAccounts();
+        CloseScreenDuty();
         CloseCourseGroups();
         CloseSchoolStudy();
         CloseOrganizationImport();

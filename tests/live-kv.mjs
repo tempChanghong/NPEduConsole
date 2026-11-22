@@ -33,6 +33,7 @@ import { verifySchoolStudy } from './school-study-fixture.mjs';
 import { verifyOrganizationImport } from './school-organization-import-fixture.mjs';
 import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
+import { verifyScreenDuty } from './screen-duty-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
@@ -41,7 +42,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
-  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db'].includes(mode)),
+  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--screen-duty', '--screen-duty-db'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -85,7 +86,7 @@ const data = join(directory, 'data');
 const passwordFile = join(directory, 'password');
 const databasePassword = randomBytes(32).toString('hex');
 const pg = command => join(resolve(binaries), command + (process.platform === 'win32' ? '.exe' : ''));
-let prisma, server, stopClassroom, lostReply, rename, batch;
+let prisma, server, fixtureSocket, stopClassroom, lostReply, rename, batch;
 
 // Model a gateway losing an acknowledgement after KV has already committed.
 // The destination is pinned to this run's loopback fixture for every request.
@@ -138,7 +139,8 @@ async function createDatabase() {
   await new Promise(res => probe.close(res));
   const connection = { host: '127.0.0.1', port, user: 'npconsole', password: databasePassword };
   for (const key of ['AXIOM_TOKEN', 'AXIOM_DATASET', 'PGSERVICE', 'PGSERVICEFILE', 'PGOPTIONS', 'PGHOST', 'PGDATABASE', 'PGUSER', 'PGPORT', 'PGPASSWORD', 'TRUST_PROXY']) delete process.env[key];
-  const fixtureDatabase = mode === '--teacher-allocation-db' ? 'npclassworks_test_teacher_allocation' :
+  const fixtureDatabase = mode === '--screen-duty-db' ? 'npclassworks_test_screen_duty' :
+    mode === '--teacher-allocation-db' ? 'npclassworks_test_teacher_allocation' :
     mode === '--organization-import-db' ? 'npclassworks_test_organization_import' :
     mode === '--school-study-db' ? 'npclassworks_test_school_study' :
     gradePlanDatabase ? 'npclassworks_test_grade_plan' : 'npconsole_fixture';
@@ -200,7 +202,8 @@ async function seed() {
   }
   const manager = await account('admin', 'ADMIN');
   await account('viewer', 'VIEWER');
-  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation) await account('admin2', 'ADMIN');
+  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || mode === '--screen-duty')
+    await account('admin2', 'ADMIN');
   const term = await prisma.academicTerm.create({ data: {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
   } });
@@ -488,6 +491,20 @@ async function runFixture() {
   }
   const databasePort = await createDatabase();
   ({ prisma } = await fromKv('utils/prisma.js'));
+  if (mode === '--screen-duty-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_SCREEN_DUTY_EVIDENCE || fileURLToPath(new URL('../.artifacts/screen-duty', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    const log = 'screen-duty-postgres.log';
+    try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/classroomScreenManagement.integration.test.js',
+      'tests/classroomScreenAccount.test.js', 'tests/schoolManagementOverview.integration.test.js', 'tests/termScreenPlacement.integration.test.js'],
+    {...process.env, RUN_DATABASE_TESTS: 'true'}, log); }
+    finally { await copyFile(join(directory, log), join(evidence, log)); }
+    const nativeLog = 'screen-duty-existing-npep.log';
+    try { run(process.execPath, ['--test', 'tests/npepDatabase.integration.test.js'],
+      {...process.env, RUN_DATABASE_TESTS: 'true', INTEGRATION_NATIVE_POSTGRES: 'true', NPEP_TEST_PG_BIN: resolve(binaries)}, nativeLog); }
+    finally { await copyFile(join(directory, nativeLog), join(evidence, nativeLog)); }
+    return;
+  }
   if (mode === '--teacher-allocation-db') {
     const evidence = resolve(process.env.NP_CONSOLE_TEACHER_ALLOCATION_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/teacher-allocation', import.meta.url)));
@@ -524,6 +541,16 @@ async function runFixture() {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
+  if (mode === '--screen-duty') {
+    const {initSocket} = await fromKv('utils/socket.js');
+    fixtureSocket = initSocket(server);
+    const desktop = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_SCREEN_DUTY_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/screen-duty/desktop', import.meta.url)));
+    return verifyScreenDuty({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(desktop, args), runNative: args => runDesktop(native, args)});
+  }
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
   if (teacherAllocation) {
     const desktop = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
@@ -901,6 +928,7 @@ try {
     try { await stopClassroom(); }
     catch (error) { passed = false; process.exitCode = 1; console.error('Fixture device stopped:', error.message); }
   }
+  if (fixtureSocket) await fixtureSocket.close();
   for (const listener of [lostReply?.server, rename?.server, batch?.server, server].filter(Boolean)) {
     const closed = new Promise(res => listener.close(res));
     listener.closeAllConnections();

@@ -23,7 +23,10 @@
   <Grid Margin="25,20,25,20" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
       <TextBlock Text="教室设备" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center" />
-      <Button Content="刷新目录" Grid.Column="1" Classes="action" Click="RefreshClicked" />
+      <WrapPanel Grid.Column="1" ItemSpacing="6">
+        <Button x:Name="DeviceDutyDirectory" Content="大屏账号与值守" Classes="action" Click="OpenDutyDirectoryClicked" />
+        <Button Content="刷新目录" Classes="action" Click="RefreshClicked" />
+      </WrapPanel>
     </Grid>
     <Grid Grid.Row="1" ColumnDefinitions="1.35*,*,*,Auto" ColumnSpacing="12">
       <StackPanel Spacing="5">
@@ -45,7 +48,7 @@
       <Grid RowDefinitions="Auto,*">
         <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="13,13,0,0" Padding="17,10"
                 BorderThickness="0,0,0,1" BorderBrush="{DynamicResource LineBrush}">
-          <Grid ColumnDefinitions="1.2*,*,*,65" ColumnSpacing="12">
+          <Grid ColumnDefinitions="1.2*,*,*,132" ColumnSpacing="12">
             <TextBlock Text="大屏 / 班级" Classes="column-caption" />
             <TextBlock Grid.Column="1" Text="NPEduTools" Classes="column-caption" />
             <TextBlock Grid.Column="2" Text="网页大屏" Classes="column-caption" />
@@ -56,7 +59,7 @@
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="local:OverviewScreenItem">
               <Border Padding="10,10">
-                <Grid ColumnDefinitions="1.2*,*,*,65" ColumnSpacing="12">
+                <Grid ColumnDefinitions="1.2*,*,*,132" ColumnSpacing="12">
                   <StackPanel VerticalAlignment="Center" Spacing="3" ToolTip.Tip="{Binding ScreenId}">
                     <TextBlock Text="{Binding DisplayName}" FontSize="16" Classes="label" />
                     <TextBlock Text="{Binding Screen.ClassName}" Classes="muted" FontSize="12" />
@@ -64,9 +67,11 @@
                   </StackPanel>
                   <ContentControl Grid.Column="1" Content="{Binding Native}" ContentTemplate="{StaticResource ScreenEvidenceTemplate}" VerticalAlignment="Center" />
                   <ContentControl Grid.Column="2" Content="{Binding Browser}" ContentTemplate="{StaticResource ScreenEvidenceTemplate}" VerticalAlignment="Center" />
-                  <Button Grid.Column="3" Classes="action" Content="查看" Tag="{Binding}" Click="OpenClicked"
-                          AutomationProperties.Name="{Binding Title}" AutomationProperties.AutomationId="{Binding AutomationId}"
-                          HorizontalAlignment="Right" VerticalAlignment="Center" />
+                  <WrapPanel Grid.Column="3" ItemSpacing="5" VerticalAlignment="Center">
+                    <Button Classes="action" Content="查看" Tag="{Binding}" Click="OpenClicked"
+                            AutomationProperties.Name="{Binding Title}" AutomationProperties.AutomationId="{Binding AutomationId}" />
+                    <Button Classes="action screen-duty-entry" Content="账号与值守" Click="OpenDutyClicked" />
+                  </WrapPanel>
                 </Grid>
               </Border>
             </DataTemplate>

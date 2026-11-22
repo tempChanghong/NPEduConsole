@@ -40,6 +40,8 @@ internal static partial class Program
             return StartOrganizationImport(organizationFixture, organizationOutput);
         if (args is ["--live-teacher-allocation", var allocationFixture, var allocationOutput])
             return StartTeacherAllocation(allocationFixture, allocationOutput);
+        if (args is ["--live-screen-duty", var dutyFixture, var dutyOutput])
+            return StartScreenDuty(dutyFixture, dutyOutput);
         if (args is ["--live-grade-teaching-plan", var gradePlanFixture, var gradePlanOutput])
             return StartGradeTeachingPlan(gradePlanFixture, gradePlanOutput);
         if (args is ["--live-course-groups", var walkingFixture, var walkingOutput])

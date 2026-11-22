@@ -153,14 +153,16 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   }
 }
 
-export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent, afterSelection}) {
+export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent, afterSelection, realtime = false}) {
   const require = createRequire(join(web, 'package.json'));
   const {chromium} = require('@playwright/test');
   const outDir = join(directory, 'walking-web-build');
   const viteRoot = dirname(require.resolve('vite/package.json'));
   const {preview} = await import(pathToFileURL(join(viteRoot, 'dist/node/index.js')).href);
+  const proxy = {'/api': origin, '/accounts': origin};
+  if (realtime) proxy['/socket.io'] = {target: origin, ws: true};
   const frontend = await preview({configFile: false, root: web, build: {outDir}, preview: {
-    host: '127.0.0.1', port: 0, proxy: {'/api': origin, '/accounts': origin}
+    host: '127.0.0.1', port: 0, proxy
   }});
   const url = 'http://127.0.0.1:' + frontend.httpServer.address().port;
   let browser, page;
