@@ -12,6 +12,9 @@ public sealed partial class GradeTeachingPlanWindow
     private CancellationTokenSource? _staffRead;
     private StaffResponsibilitiesWindow? _staffEditor;
     private StaffReviewWindow? _staffReview;
+    private ClassSubjectRulesWindow? _classRulesEditor;
+    private sealed record LinkedClassRule(string ClassId, string SubjectId, string Action);
+    private LinkedClassRule? _linkedClassRule;
     private sealed record LinkedTeacher(string? GradeId, string? SubjectId, string? ClassId, string? GroupId, string AccountId);
     private LinkedTeacher? _linkedTeacher;
     private bool _openedFromStaffReview;
@@ -231,6 +234,8 @@ public sealed partial class GradeTeachingPlanWindow
         if (_specifiedTermId is null) return;
         PlanOpenSubjectFromClass.IsEnabled = !_busy && !_scopeLost && !HasDraft && Pending is null &&
             SummaryClass is not null && PlanClassSubjects.SelectedItem is TermTeachingSubjectLine;
+        PlanEditClassRules.IsEnabled = !_busy && !_scopeLost && !HasDraft && Pending is null &&
+            _classRulesEditor is null && SummaryClass is not null && _catalog?.Term is not null;
         PlanOpenGradeStaff.IsEnabled = editable && _staffEditor is null && _staffReadError is null && _gradeStaff is not null;
         PlanOpenClassStaff.IsEnabled = editable && _staffEditor is null && _staffReadError is null && _classStaff is not null;
         PlanOpenStaffReview.IsVisible = !_openedFromStaffReview;
@@ -239,6 +244,46 @@ public sealed partial class GradeTeachingPlanWindow
         PlanContinueTeaching.IsEnabled = editable;
         PlanRuleMode.IsEnabled = PlanCompulsory.IsEnabled = editable;
         PlanTeacher.IsEnabled = PlanTeacherRole.IsEnabled = editable;
+    }
+
+    private async void EditClassRulesClicked(object? sender, RoutedEventArgs args)
+    {
+        if (!PlanEditClassRules.IsEnabled || SummaryClass is not { } room || _catalog?.Term is not { } term) return;
+        var window = new ClassSubjectRulesWindow(_client, _school, term.Id, room.Id) { AccessChanged = SessionExpired };
+        _classRulesEditor = window;
+        Render();
+        try { await window.ShowDialog(this); }
+        finally { _classRulesEditor = null; }
+        if (_closed) return;
+        WorkspaceChanged |= window.WorkspaceChanged;
+        await RunAsync(LoadAsync);
+        Focus(PlanEditClassRules);
+    }
+
+    private void OpenLinkedClassRule()
+    {
+        if (_linkedClassRule is not { } target || _catalog is not { } catalog || HasDraft || Pending is not null) return;
+        _linkedClassRule = null;
+        if (_subjectId != target.SubjectId || catalog.Classes.All(room => room.Id != target.ClassId))
+        {
+            Notice("原行政班或科目已变化，请返回整班规则重新核对。", true);
+            return;
+        }
+        FocusKey(RowKey(target.ClassId, target.SubjectId));
+        if (target.Action == "TEACHING")
+        {
+            PlanTabs.SelectedIndex = 2;
+            PlanTeachingTarget.SelectedIndex = 0;
+            Focus(catalog.Term?.Status == "ARCHIVED" ? PlanEditArchive : PlanTeachingTarget);
+        }
+        else
+        {
+            PlanTabs.SelectedIndex = 1;
+            var source = PlanSources.Items.OfType<Option>().FirstOrDefault(row => row.Id == target.ClassId);
+            if (source is not null && PlanSources.SelectedItems is { } selected && !selected.Contains(source)) selected.Add(source);
+            PlanSetSourceRules.IsChecked = true;
+            Focus(catalog.Term?.Status == "ARCHIVED" ? PlanEditArchive : PlanGroupOperation);
+        }
     }
 
     private void ContinueTeachingClicked(object? sender, RoutedEventArgs args)

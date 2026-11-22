@@ -116,10 +116,11 @@
           </TabItem>
           <TabItem x:Name="PlanClassSummaryTab" Header="班级全科" IsVisible="False">
             <Grid RowDefinitions="Auto,*" RowSpacing="8">
-              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                 <ComboBox x:Name="PlanSummaryClass" HorizontalAlignment="Stretch" AutomationProperties.Name="按班查看全科"
                           SelectionChanged="SummaryClassChanged"/>
                 <Button x:Name="PlanOpenSubjectFromClass" Grid.Column="1" Classes="action" Content="查看所选学科" Click="OpenSubjectFromClassClicked"/>
+                <Button x:Name="PlanEditClassRules" Grid.Column="2" Classes="action accent" Content="编辑整班规则" Click="EditClassRulesClicked"/>
               </Grid>
               <ListBox x:Name="PlanClassSubjects" Grid.Row="1" Classes="object-list" Background="Transparent" BorderThickness="0"
                        AutomationProperties.Name="本班全科安排" SelectionChanged="ClassSubjectChanged"

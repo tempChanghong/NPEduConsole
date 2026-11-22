@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
 import {createServer, request} from 'node:http';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
@@ -50,6 +51,20 @@ export async function verifySubjectSetup({prisma, origin, fixture, directory, ev
   const prefix = '/api/v2/admin/schools/' + school.id;
   const setup = id => prefix + '/current-term/administrative-classes/' + id + '/subject-setup';
   const legacy = id => prefix + '/administrative-classes/' + id + '/subject-rules';
+  async function saveWholeClassRules(id, changes, editArchived = false) {
+    const path = legacy(id);
+    const current = await api(path + '?termId=' + term.id, {token: second});
+    const draft = {termId: term.id, editArchived, baselineVersion: current.version,
+      rows: current.rows.map(({subjectId, mode, compulsory}) => ({
+        subjectId, mode, compulsory, ...changes.find(row => row.subjectId === subjectId),
+      }))};
+    const review = await api(path + '/preview', {method: 'POST', token: second, body: draft});
+    assert.equal(review.canApply, true, JSON.stringify(review.issues));
+    const saved = await api(path, {method: 'PUT', token: second, body: {...draft,
+      previewVersion: review.version, requestId: randomUUID(),
+      confirmedSourceIds: review.removals.map(row => row.groupId), confirmClear: review.clearsClass}});
+    assert.equal(saved.state, 'APPLIED');
+  }
   const preview = (id, targets) => api(setup(id) + '/preview', {method: 'POST', token, body: {termId: term.id, targets}});
   const body = (targets, receipt) => ({termId: term.id, targets,
     expected: receipt.rows.map(({classId, subjectId, version}) => ({classId, subjectId, version}))});
@@ -140,8 +155,9 @@ export async function verifySubjectSetup({prisma, origin, fixture, directory, ev
     assert.deepEqual(await prisma.administrativeClassStudent.findUniqueOrThrow({where: {id: originalRoster.id}}), originalRoster);
     console.log('PASS: real KV verified only class 7 received the math task and preserved roster, assignments, source links and permissions.');
 
-    await api(legacy(seven.id), {method: 'PUT', token: second, status: 409,
-      body: {expectedUpdatedAt: seven.updatedAt, subjectRules: [{subjectId: english.id, deliveryMode: 'ADMIN_CLASS'}]}});
+    assert.equal((await api(legacy(seven.id), {method: 'PUT', token: second, status: 409,
+      body: {expectedUpdatedAt: seven.updatedAt, subjectRules: [{subjectId: english.id, deliveryMode: 'ADMIN_CLASS'}]}})).code,
+    'CLASS_RULE_REVIEW_REQUIRED');
     const ten = await prisma.workspace.findUniqueOrThrow({where: {termId_code: {termId: term.id, code: 'G1-C10'}}});
     const eleven = await prisma.workspace.findUniqueOrThrow({where: {termId_code: {termId: term.id, code: 'G1-C11'}}});
     const more = [
@@ -151,9 +167,7 @@ export async function verifySubjectSetup({prisma, origin, fixture, directory, ev
     ];
     const beforeLegacy = await preview(ten.id, more);
     assert.deepEqual(beforeLegacy.rows.map(row => row.state), ['ADD', 'ADD', 'ADD']);
-    await api(legacy(ten.id), {method: 'PUT', token: second, body: {
-      expectedUpdatedAt: ten.updatedAt, subjectRules: [{subjectId: english.id, deliveryMode: 'COURSE_GROUP'}],
-    }});
+    await saveWholeClassRules(ten.id, [{subjectId: english.id, mode: 'COURSE_GROUP', compulsory: false}]);
     const stale = await commit(ten.id, more, beforeLegacy);
     assert.equal(stale.state, 'STALE');
     assert.deepEqual(stale.rows.map(row => [row.classId, row.subjectId, row.state]), [[ten.id, english.id, 'WALKING_CONFLICT']]);
@@ -172,8 +186,7 @@ export async function verifySubjectSetup({prisma, origin, fixture, directory, ev
       prisma.academicTerm.update({where: {id: next.id}, data: {status: 'ACTIVE'}}),
     ]);
     assert.equal((await commit(ten.id, remaining, old, 409)).code, 'SUBJECT_SETUP_TERM_CHANGED');
-    await api(legacy(ten.id), {method: 'PUT', token: second,
-      body: {subjectRules: [{subjectId: english.id, deliveryMode: 'COURSE_GROUP'}, {subjectId: physics.id, deliveryMode: 'ADMIN_CLASS'}]}});
+    await saveWholeClassRules(ten.id, [{subjectId: physics.id, mode: 'ADMIN_CLASS', compulsory: false}], true);
     console.log('PASS: multi-subject cell exclusion, stale web/editor and Console writes, idempotency, term change, cross-school rejection, and archived legacy compatibility.');
     await runDatabase();
   } finally {

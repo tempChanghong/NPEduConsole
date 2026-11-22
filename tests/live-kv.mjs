@@ -45,6 +45,7 @@ import { verifyHomeworkSettings } from './homework-settings-fixture.mjs';
 import {verifyScopedTermClasses} from './scoped-term-classes-fixture.mjs';
 import {verifyScopedTermTeaching} from './scoped-term-teaching-fixture.mjs';
 import {verifyStaffReview} from './staff-review-fixture.mjs';
+import {verifyClassSubjectRules} from './class-subject-rules-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
@@ -58,7 +59,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console',
   '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching',
-  '--staff-review', '--staff-review-db'].includes(mode)),
+  '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -164,6 +165,7 @@ async function createDatabase() {
     mode === '--scoped-term-classes-db' ? 'npclassworks_test_scoped_term_classes' :
     ['--staff-workspace-default-db', '--scoped-term-teaching-db'].includes(mode) ? 'npclassworks_test_scoped_term_teaching' :
     mode === '--staff-review-db' ? 'npclassworks_test_staff_policy' :
+    mode === '--class-rules-db' ? 'npclassworks_test_class_rules' :
     mode === '--school-login-profile-db' ? 'npclassworks_test_school_profile' :
     mode === '--management-accounts-db' ? 'npclassworks_test_management' :
     mode === '--homework-settings-db' ? 'npclassworks_test_homework_settings' :
@@ -776,6 +778,25 @@ async function runFixture() {
     return;
   }
   if (classBatch) return verifyClassBatch(origin, fixture);
+  if (mode === '--class-rules') {
+    const evidence = resolve(process.env.NP_CONSOLE_CLASS_RULES_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/class-rules/desktop-live', import.meta.url)));
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    return verifyClassSubjectRules({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(project, args)});
+  }
+  if (mode === '--class-rules-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_CLASS_RULES_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/class-rules', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    const report = 'class-rules-postgres.log';
+    try {
+      run(process.execPath, ['--test', '--test-concurrency=1', 'tests/wholeClassRules.integration.test.js',
+        'tests/gradeTeachingPlans.integration.test.js', 'tests/currentSubjectSetup.integration.test.js',
+        'tests/schoolOrganizationImport.test.js'], {...process.env, RUN_DATABASE_TESTS: 'true'}, report);
+    } finally { await copyFile(join(directory, report), join(evidence, report)); }
+    return;
+  }
   if (mode === '--staff-review' || mode === '--staff-review-db') {
     const evidence = resolve(process.env.NP_CONSOLE_STAFF_REVIEW_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/staff-review', import.meta.url)));

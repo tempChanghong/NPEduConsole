@@ -125,8 +125,11 @@ async function verify({prisma, origin, fixture, directory, evidence, web, native
       const room = await prisma.workspace.findUniqueOrThrow({where: {termId_code: {termId: createdTerm.id, code: eight.code}}});
       await api(schoolPath + '/administrative-classes/' + room.id, {method: 'PATCH', token,
         body: {name: '高二（8）班新版', code: 'G2-8-NEW', expectedUpdatedAt: room.updatedAt}});
-      await api(schoolPath + '/administrative-classes/' + room.id + '/subject-rules', {method: 'PUT', token,
-        body: {subjectRules: [{subjectId: subject.id, deliveryMode: 'COURSE_GROUP', isCompulsory: true}]}});
+      // Inject a legacy incomplete rule so readiness can exercise a missing compulsory walking group.
+      await prisma.administrativeClassSubject.update({
+        where: {administrativeClassId_subjectId: {administrativeClassId: room.id, subjectId: subject.id}},
+        data: {deliveryMode: 'COURSE_GROUP', isCompulsory: true},
+      });
       break;
     }
     default: throw new Error('unknown term preparation checkpoint');

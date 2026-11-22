@@ -26,15 +26,18 @@ public sealed partial class TermTeachingReviewView : UserControl
     /// 1160 这类宽窗仍是横表。同一份行数据、同一个 ListBox，只换模板，
     /// 选中与滚动位置都不丢。
     /// </summary>
-    private const double CompactWidth = 900;
+    private readonly double _compactWidth;
 
     private IReadOnlyList<TermTeachingReviewLine> _rows = Array.Empty<TermTeachingReviewLine>();
     private bool? _compact;
     /// <summary>上一次选中的行 Key，用来在宿主重新读取同一批行时保持选中不跳。</summary>
     private string? _lastKey;
 
-    public TermTeachingReviewView()
+    public TermTeachingReviewView() : this(900) { }
+
+    internal TermTeachingReviewView(double compactWidth)
     {
+        _compactWidth = compactWidth;
         InitializeComponent();
         ApplyLayout(false);
         TermTeachingReviewList.SelectionChanged += (_, _) =>
@@ -42,7 +45,7 @@ public sealed partial class TermTeachingReviewView : UserControl
         PropertyChanged += (_, change) =>
         {
             if (change.Property == BoundsProperty)
-                ApplyLayout(Bounds.Width > 0 && Bounds.Width < CompactWidth);
+                ApplyLayout(Bounds.Width > 0 && Bounds.Width < _compactWidth);
         };
     }
 
