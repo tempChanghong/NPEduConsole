@@ -38,6 +38,7 @@ import { verifySchoolLoginProfile, verifyFirstSchoolSetup } from './school-login
 import { verifyConsoleFirstSchool, verifyConsoleSchoolTransfer } from './school-transfer-fixture.mjs';
 import { verifyOrganizationImport } from './school-organization-import-fixture.mjs';
 import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs';
+import { verifyArchivedBatchCorrection } from './archived-batch-correction-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
 import { verifyScreenDuty } from './screen-duty-fixture.mjs';
 import { verifyExamWorkbench } from './exam-workbench-fixture.mjs';
@@ -56,7 +57,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-status', '--term-status-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
-  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
+  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console',
@@ -92,7 +93,8 @@ const gradePlan = mode === '--grade-teaching-plan';
 const studyMonitoring = mode === '--study-monitoring';
 const managementAccounts = mode === '--management-accounts';
 const schoolStudy = ['--school-study', '--school-study-db', '--study-display', '--device-field-actions', '--device-run-reports'].includes(mode) || studyMonitoring;
-const organizationImport = mode === '--organization-import' || mode === '--organization-import-db';
+const archivedCorrection = mode === '--archived-batch-correction';
+const organizationImport = archivedCorrection || mode === '--organization-import' || mode === '--organization-import-db';
 const teacherAllocation = mode === '--teacher-allocation';
 const teacherAccounts = mode === '--teacher-accounts';
 const currentStaff = mode === '--current-staff';
@@ -178,6 +180,7 @@ async function createDatabase() {
     mode === '--screen-duty-db' ? 'npclassworks_test_screen_duty' :
     mode === '--teacher-allocation-db' ? 'npclassworks_test_teacher_allocation' :
     mode === '--organization-import-db' ? 'npclassworks_test_organization_import' :
+    mode === '--archived-batch-correction-db' ? 'npclassworks_test_archivecorr' :
     mode === '--school-study-db' ? 'npclassworks_test_school_study' :
     gradePlanDatabase ? 'npclassworks_test_grade_plan' : 'npconsole_fixture';
   Object.assign(process.env, {
@@ -705,6 +708,17 @@ async function runFixture() {
       runDesktop: args => runDesktop(desktop, args), runNative: args => runDesktop(native, args)});
   }
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
+  if (mode === '--archived-batch-correction-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_ARCHIVE_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/archived-batch-correction', import.meta.url)));
+    await mkdir(evidence, {recursive: true});
+    const report = 'archive-postgres.log';
+    try {
+      run(process.execPath, ['tests/archiveBatchCorrection.integration.test.js'],
+        {...process.env, RUN_DATABASE_TESTS: 'true'}, report);
+    } finally { await copyFile(join(directory, report), join(evidence, report)); }
+    return;
+  }
   if (teacherAllocation) {
     const desktop = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = resolve(process.env.NP_CONSOLE_TEACHER_ALLOCATION_EVIDENCE ||
@@ -713,6 +727,14 @@ async function runFixture() {
       runDesktop: args => runDesktop(desktop, args)});
   }
   if (organizationImport) {
+    if (archivedCorrection) {
+      const desktop = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+      const native = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
+      const evidence = resolve(process.env.NP_CONSOLE_ARCHIVE_EVIDENCE ||
+        fileURLToPath(new URL('../.artifacts/archived-batch-correction', import.meta.url)));
+      return verifyArchivedBatchCorrection({prisma, origin, fixture, directory, evidence, fromKv, web: join(kv, '..', 'NPClassworks'),
+        runDesktop: args => runDesktop(desktop, args), runNative: args => runDesktop(native, args)});
+    }
     const evidence = resolve(process.env.NP_CONSOLE_ORGANIZATION_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/school-organization-import', import.meta.url)));
     await mkdir(evidence, {recursive: true});

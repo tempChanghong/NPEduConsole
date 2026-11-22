@@ -182,6 +182,11 @@ public sealed partial class TeacherAllocationWindow : Window
         return true;
     }
 
+    private void RevealArchivedIdentity()
+    {
+        if (_compact && _compactDetail) RevealAllocationAccess(false);
+    }
+
     private void OpenEditorClicked(object? sender, RoutedEventArgs args)
     {
         if (_closed || !_compact || _compactDetail || SelectedTeacher is null) return;

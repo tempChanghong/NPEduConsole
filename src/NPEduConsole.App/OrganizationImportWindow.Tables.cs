@@ -332,6 +332,7 @@ public sealed partial class OrganizationImportWindow
     {
         var path = difference.Path;
         if (!CanEdit) return;
+        if (FocusArchivedGrade(difference)) return;
         if (path.StartsWith("declaration.", StringComparison.Ordinal))
         {
             if (path.StartsWith("declaration.school", StringComparison.Ordinal)) OrgOpenFile.Focus();

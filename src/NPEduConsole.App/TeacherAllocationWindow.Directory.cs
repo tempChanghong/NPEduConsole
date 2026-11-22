@@ -159,7 +159,7 @@ public sealed partial class TeacherAllocationWindow
             content.Children.Add(Description("任课记录 · " + string.Join("、", assignments.Select(row =>
                 row.Subject.Name + (row.Position == "CO_TEACHER" ? "协同" : "主讲")))));
         if (invite is { } item)
-            content.Children.Add(Description(item.ClaimedAt is null ? "邮箱待认领 · " + RoleLabel(item.Role) :
+            content.Children.Add(Description(item.ClaimedAt is null ? (_archivedCorrection ? "同邮箱邀请待认领 · " : "邮箱待认领 · ") + RoleLabel(item.Role) :
                 member is null ? "邮箱已认领 · 当前无直接成员权限" : "邮箱已认领"));
         var actions = new WrapPanel {ItemSpacing = 6, LineSpacing = 4};
         if (teacher.Manageable && !teacher.Disabled && member is { Role: not "OWNER" })
@@ -168,17 +168,18 @@ public sealed partial class TeacherAllocationWindow
             remove.Click += (_, _) => AddDirectoryAction(teacher, new(room.Id, room.Code, "REMOVE", null));
             actions.Children.Add(remove);
         }
-        if (invite is {ClaimedAt: null, Role: not "OWNER"} pending && data.Mode == "OAUTH_EMAIL")
+        if (!_archivedCorrection && invite is {ClaimedAt: null, Role: not "OWNER"} pending && data.Mode == "OAUTH_EMAIL")
         {
             var revoke = new Button {Content = "把撤回加入教师表", Classes = { "action" }};
             revoke.Click += (_, _) => AddDirectoryAction(new(null, "邮箱邀请", null, pending.NormalizedEmail, false, true),
                 new(room.Id, room.Code, "REVOKE", null, InvitationId: pending.Id));
             actions.Children.Add(revoke);
         }
-        if (teacher.Id is { } id && teacher.Manageable && !teacher.Disabled && Term is { Status: "ACTIVE" } term &&
+        if (teacher.Id is { } id && teacher.Manageable && !teacher.Disabled && Term is { } term &&
+            (term.Status == "ACTIVE" || _archivedCorrection && term.Status == "ARCHIVED") &&
             (member is not null || duties.Length > 0 || assignments.Length > 0))
         {
-            var teach = new Button {Content = "继续分配任课", Classes = { "action" }};
+            var teach = new Button {Content = _archivedCorrection ? "查看历史任课" : "继续分配任课", Classes = { "action" }};
             teach.Click += (_, _) =>
             {
                 if (_busy || _dirty || Pending is not null)
@@ -198,7 +199,7 @@ public sealed partial class TeacherAllocationWindow
 
     private void AddDirectoryAction(DirectoryPerson person, AllocationAccess change)
     {
-        if (!CanEdit) return;
+        if (!CanEdit || _archivedCorrection && (person.Id is null || change.Operation != "REMOVE")) return;
         var row = GetOrAdd(person.Id, person.Username, person.Email, person.Id is null ? null : person.Name);
         row.Access.RemoveAll(item => item.WorkspaceId == change.WorkspaceId || item.WorkspaceCode == change.WorkspaceCode);
         row.Access.Add(change);

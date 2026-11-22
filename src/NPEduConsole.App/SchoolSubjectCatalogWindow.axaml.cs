@@ -30,6 +30,7 @@ public sealed partial class SchoolSubjectCatalogWindow : Window
     private readonly School _school = null!;
     private readonly Dictionary<string, PendingCreation> _pendingBySchool = null!;
     private readonly bool _returnToSetup;
+    private readonly string _returnDestination = "开科";
     private SchoolSubjectCatalog? _catalog;
     private SchoolSubjectCatalog? _observedCatalog;
     private SchoolSubject? _baseline;
@@ -44,16 +45,19 @@ public sealed partial class SchoolSubjectCatalogWindow : Window
 
     public SchoolSubjectCatalogWindow() => InitializeComponent();
 
-    internal SchoolSubjectCatalogWindow(ConsoleClient client, School school, bool returnToSetup = false) : this()
+    internal SchoolSubjectCatalogWindow(ConsoleClient client, School school, bool returnToSetup = false, string returnDestination = "开科") : this()
     {
         _client = client;
         _school = school;
         _returnToSetup = returnToSetup;
+        _returnDestination = returnDestination;
         _pendingBySchool = PendingBySession.GetOrCreateValue(client);
         _pending = _pendingBySchool.GetValueOrDefault(school.Id);
         CatalogScope.Text = $"{school.Name} · 全校共用";
         SubjectCategory.ItemsSource = Categories;
         SubjectCreateScope.IsVisible = returnToSetup;
+        if (returnToSetup && returnDestination != "开科")
+            SubjectCreateScope.Text = $"学科保存到全校目录。返回{returnDestination}后仍需确认归档组织差异。";
         SizeChanged += (_, _) => ArrangePanes();
         Opened += async (_, _) =>
         {
@@ -136,12 +140,12 @@ public sealed partial class SchoolSubjectCatalogWindow : Window
         NewSubjectButton.Classes.Set("accent", !HasEditor);
         SubjectName.IsEnabled = SubjectCode.IsEnabled = SubjectCategory.IsEnabled = SubjectOrder.IsEnabled = ready && !awaiting;
         CloseSubjectCatalogButton.IsEnabled = !_writing;
-        CloseSubjectCatalogButton.Content = _returnToSetup ? "返回开科" : HasEditor ? "返回目录" : "关闭";
+        CloseSubjectCatalogButton.Content = _returnToSetup ? $"返回{_returnDestination}" : HasEditor ? "返回目录" : "关闭";
         ReloadSubjectsButton.IsVisible = (!_returnToSetup && !HasEditor) || awaiting || _requiresRead || _catalog is null;
         ReloadSubjectsButton.IsEnabled = !_busy;
         ReloadSubjectsButton.Content = awaiting || _requiresRead ? "核对服务器" : "刷新目录";
         SaveSubjectButton.IsVisible = HasEditor;
-        SaveSubjectButton.Content = _retryCreate ? "按原请求重试" : _returnToSetup ? "创建并返回开科" : _creating ? "创建学科" : "保存学科";
+        SaveSubjectButton.Content = _retryCreate ? "按原请求重试" : _returnToSetup ? $"创建并返回{_returnDestination}" : _creating ? "创建学科" : "保存学科";
         SaveSubjectButton.IsEnabled = ready && (_retryCreate || !awaiting && !_requiresRead && !_subjectMissing && _serverValue is null &&
             !SubjectCodeError.IsVisible && (_creating || _dirty));
         SaveSubjectButton.Classes.Set("accent", !awaiting || _retryCreate);

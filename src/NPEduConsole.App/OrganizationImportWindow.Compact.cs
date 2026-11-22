@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -178,10 +179,38 @@ public sealed partial class OrganizationImportWindow : Window
 
     private void LocateDifference(OrganizationDifference difference)
     {
-        // 切 Tab、展开面板、聚焦字段都由本体的 FocusIssue 决定。
         FocusIssue(difference);
         UpdateCompactDifference();
     }
+
+    private bool FocusArchivedGrade(OrganizationDifference difference)
+    {
+        if (!_archivedCorrection || difference.Path != "grade") return false;
+        var reordered = GradeOrder(difference.Current) != GradeOrder(difference.After);
+        Control target = (reordered ? FirstUsable(OrgGradeOrder) : null)
+            ?? FirstUsable(OrgGradeName) ?? FirstUsable(OrgGradeCode) ?? OrgGrade;
+        Status(reordered
+            ? "归档学期的年级排序有变化：确认这里的顺序，再返回预览。"
+            : "归档学期的年级名称有变化：确认这里的名称，再返回预览。");
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed) return;
+            target.BringIntoView();
+            target.Focus(NavigationMethod.Tab);
+        }, DispatcherPriority.Loaded);
+        return true;
+    }
+
+    private static int? GradeOrder(string? text)
+    {
+        var match = GradeOrderText.Match(text ?? "");
+        return match.Success && int.TryParse(match.Groups[1].Value, out var value) ? value : null;
+    }
+
+    private static Control? FirstUsable(Control control) =>
+        control.IsEffectivelyVisible && control.IsEffectivelyEnabled ? control : null;
+
+    private static readonly Regex GradeOrderText = new(@" · 顺序 (-?\d+)$", RegexOptions.CultureInvariant);
 
     private bool JumpToBlockingDifference()
     {

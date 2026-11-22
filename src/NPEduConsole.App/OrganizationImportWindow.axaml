@@ -5,12 +5,12 @@
   <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,8">
       <StackPanel Spacing="3">
-        <TextBlock Text="开学组织导入" FontSize="24" FontWeight="SemiBold"/>
+        <TextBlock x:Name="OrgHeading" Text="开学组织导入" FontSize="24" FontWeight="SemiBold"/>
         <TextBlock x:Name="OrgScope" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" Classes="muted"/>
       </StackPanel>
     </Border>
-    <Grid Grid.Row="1" Margin="14,6,14,2" RowDefinitions="Auto,Auto" RowSpacing="5">
-      <Grid ColumnDefinitions="1.4*,1.15*,0.65*,1*" ColumnSpacing="7">
+    <Grid Grid.Row="1" Margin="14,6,14,2" RowDefinitions="Auto,Auto,Auto" RowSpacing="5">
+      <Grid ColumnDefinitions="1.4*,1.15*,0.65*,1*,Auto" ColumnSpacing="7">
         <ComboBox x:Name="OrgTerm" SelectionChanged="TermSelectionChanged" HorizontalAlignment="Stretch"
                   AutomationProperties.Name="目标学期" PlaceholderText="目标学期"/>
         <ComboBox Grid.Column="1" x:Name="OrgGrade" SelectionChanged="GradeSelectionChanged" HorizontalAlignment="Stretch"
@@ -19,14 +19,28 @@
                  AutomationProperties.Name="目标年级代码" TextChanged="TargetGradeEdited"/>
         <TextBox Grid.Column="3" x:Name="OrgGradeName" PlaceholderText="年级名称" MaxLength="191"
                  AutomationProperties.Name="目标年级名称" TextChanged="TargetGradeEdited"/>
+        <StackPanel x:Name="OrgGradeOrderField" Grid.Column="4" Orientation="Horizontal" Spacing="5" IsVisible="False">
+          <TextBlock Text="顺序" Classes="muted" VerticalAlignment="Center"/>
+          <NumericUpDown x:Name="OrgGradeOrder" Width="72" Minimum="-10000" Maximum="10000" Increment="1"
+                         FormatString="0" ShowButtonSpinner="False" AutomationProperties.Name="年级显示顺序"/>
+        </StackPanel>
       </Grid>
-      <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="6">
+      <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="6">
         <Button x:Name="OrgOpenFile" Classes="action" Content="打开旧 JSON" Click="OpenFileClicked"/>
         <Button Grid.Column="1" x:Name="OrgExample" Classes="action" Content="七班制示例" Click="LoadExampleClicked"/>
         <Button Grid.Column="2" x:Name="OrgExcel" Classes="action" Content="从 Excel 粘贴" Click="PasteClicked"/>
-        <TextBlock Grid.Column="3" x:Name="OrgStatus" TextWrapping="Wrap" VerticalAlignment="Center" MaxLines="2"
+        <Button Grid.Column="3" x:Name="OrgSchoolSubjects" Classes="action" Content="学科目录" Click="SchoolSubjectsClicked" IsVisible="False"/>
+        <TextBlock Grid.Column="4" x:Name="OrgStatus" TextWrapping="Wrap" VerticalAlignment="Center" MaxLines="2"
                    TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
       </Grid>
+      <Border Grid.Row="2" x:Name="OrgFileMismatch" Background="{DynamicResource WarningTintBrush}"
+              CornerRadius="7" Padding="8,4" IsVisible="False">
+        <DockPanel LastChildFill="True">
+          <Button DockPanel.Dock="Right" Classes="action" Content="保留原表" Click="KeepOrganizationDraftClicked" Margin="6,0,0,0"/>
+          <TextBlock x:Name="OrgFileMismatchText" TextWrapping="Wrap" MaxLines="3"
+                     TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
+        </DockPanel>
+      </Border>
     </Grid>
     <TabControl Grid.Row="2" Margin="12,0,12,3" x:Name="OrgSections" SelectionChanged="SectionChanged">
       <TabItem Header="行政班与学科">
@@ -162,6 +176,7 @@
         <Button x:Name="OrgClose" Classes="action" Content="返回" Click="CloseClicked"/>
         <TextBlock Grid.Column="1" x:Name="OrgFooter" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
         <Button Grid.Column="2" x:Name="OrgTeacherAllocation" Classes="action" Content="继续分配教师" Click="AllocateTeachersClicked" IsVisible="False"/>
+        <Button Grid.Column="3" x:Name="OrgHistoryClass" Classes="action" Content="查看历史班级" Click="HistoryClassClicked" IsVisible="False"/>
         <Button Grid.Column="3" x:Name="OrgVerify" Classes="action" Content="只读核对原回执" Click="VerifyClicked" IsVisible="False"/>
         <Button Grid.Column="3" x:Name="OrgPreview" Classes="action" Content="预览导入差异" Click="PreviewClicked"/>
         <Button Grid.Column="4" x:Name="OrgSave" Classes="action accent" Content="确认导入" Click="SaveClicked"/>

@@ -50,13 +50,13 @@ public sealed partial class MainWindow
     }
 
     private async Task<bool> ShowTeacherAllocationAsync(Window owner, ConsoleClient client, School school,
-        string? termId = null, string? gradeId = null)
+        string? termId = null, string? gradeId = null, bool archivedCorrection = false, string? workspaceId = null)
     {
         if (_teacherAllocationWindow is not null || _client != client || _school != school) return false;
-        var window = new TeacherAllocationWindow(client, school, termId, gradeId)
+        var window = new TeacherAllocationWindow(client, school, termId, gradeId, archivedCorrection, workspaceId)
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
-            OpenSchoolProfile = popup => ShowSchoolProfileAsync(popup, client, school)
+            OpenSchoolProfile = archivedCorrection ? null : popup => ShowSchoolProfileAsync(popup, client, school)
         };
         _teacherAllocationWindow = window;
         try { await window.ShowDialog(owner); }
@@ -64,7 +64,7 @@ public sealed partial class MainWindow
         if (_client != client || _school != school) return false;
         if (window.TeachingTarget is { } next)
             await ShowTeachingAsync(client, school, next.TermId, next.WorkspaceId, next.SubjectId, next.AccountId, next.IsGroup, owner);
-        if (window.AccessChanged && _client == client && _school == school)
+        if (window.AccessChanged && !archivedCorrection && _client == client && _school == school)
             await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
         bool changed = window.AccessChanged && _client == client && _school == school;
         ApplyPendingSchoolLabel();

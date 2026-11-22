@@ -21,7 +21,7 @@ public sealed partial class MainWindow
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
             OpenPlacement = (owner, termId, bindingId) => ShowTermScreenPlacementAsync(owner, client, school, termId, bindingId),
-            OpenOrganizationImport = (owner, termId) => ShowOrganizationImportAsync(owner, client, school, termId)
+            OpenOrganizationImport = (owner, term) => ShowOrganizationImportAsync(owner, client, school, term.Id, term.Status == "ARCHIVED" ? term : null)
         };
         _termPreparationWindow = window;
         window.Closed += Release;

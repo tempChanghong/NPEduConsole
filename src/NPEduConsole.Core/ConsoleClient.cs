@@ -363,6 +363,9 @@ public sealed partial class ConsoleClient : IDisposable
                     throw GradePlanError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsCourseGroupsPath(path))
                     throw CourseGroupError(status, await AcademicErrorCodeAsync(response, ct));
+                if (path.Contains("/organization-import", StringComparison.Ordinal) ||
+                    path.Contains("/teacher-allocation", StringComparison.Ordinal))
+                    throw SchoolImportError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsTeacherAccountsPath(path))
                     throw TeacherAccountError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSchoolManagementAccountsPath(path))

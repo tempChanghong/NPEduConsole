@@ -46,7 +46,8 @@ public sealed partial class TermClassManagementWindow : Window
         };
     }
 
-    internal TermClassManagementWindow(ConsoleClient client, School school, ManagedAcademicTerm term) : this()
+    internal TermClassManagementWindow(ConsoleClient client, School school, ManagedAcademicTerm term,
+        string? initialClass = null, string? initialGrade = null) : this()
     {
         _client = client;
         _school = school;
@@ -59,7 +60,7 @@ public sealed partial class TermClassManagementWindow : Window
         Opened += async (_, _) =>
         {
             BatchWorkspaceWindow.FitSchoolWindow(this);
-            await ReadAsync();
+            await ReadAsync(initialClass, initialGrade);
         };
         ShowSelection();
     }

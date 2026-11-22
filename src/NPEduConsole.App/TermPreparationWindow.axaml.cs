@@ -83,7 +83,7 @@ public sealed partial class TermPreparationWindow : Window
     }
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
-    internal Func<Window, string, Task<string?>>? OpenOrganizationImport { get; init; }
+    internal Func<Window, ManagedAcademicTerm, Task<string?>>? OpenOrganizationImport { get; init; }
     private Dictionary<string, Operation> Operations => PendingByClient.GetOrCreateValue(_client);
     private Operation? Pending => Operations.GetValueOrDefault(_school.Id);
     private ManagedAcademicTerm? SelectedTerm => PreparedTerms.SelectedItem as ManagedAcademicTerm;
@@ -397,18 +397,18 @@ public sealed partial class TermPreparationWindow : Window
 
     private async void OrganizationImportClicked(object? sender, RoutedEventArgs args)
     {
-        var termId = _page == Page.Check ? _check?.Term.Id : SelectedDraft?.Id;
-        if (_busy || termId is null || OpenOrganizationImport is not { } open) return;
+        var term = _page == Page.Check ? _check?.Term : SelectedTerm;
+        if (_busy || term is null || term.Status is not ("DRAFT" or "ARCHIVED") || OpenOrganizationImport is not { } open) return;
         await RunAsync(async () =>
         {
-            var target = await open(this, termId);
+            var target = await open(this, term);
             if (_closed) return;
             if (target is not null)
             {
                 _checkBack = Page.Directory;
                 await OpenCheckAsync(target);
             }
-            else if (_page == Page.Check) await ReadCheckAsync(termId);
+            else if (_page == Page.Check) await ReadCheckAsync(term.Id);
             else await LoadCatalogAsync();
         });
     }
@@ -730,7 +730,8 @@ public sealed partial class TermPreparationWindow : Window
         TermExistingButton.IsEnabled = editable && (_page == Page.Directory ? SelectedDraft is not null : _existingId is not null);
         TermOrganizationImport.IsVisible = !pending && OpenOrganizationImport is not null &&
             (_page == Page.Directory && PreparedTerms.ItemCount > 0 || _page == Page.Check && _check is not null);
-        TermOrganizationImport.IsEnabled = editable && (_page == Page.Check ? _check is not null : SelectedDraft is not null);
+        TermOrganizationImport.Content = _page == Page.Directory && SelectedTerm?.Status == "ARCHIVED" ? "批量更正" : "导入草稿组织";
+        TermOrganizationImport.IsEnabled = editable && (_page == Page.Check ? _check is not null : SelectedTerm?.Status is "DRAFT" or "ARCHIVED");
         TermWeb.IsVisible = !pending && _catalog is not null && (_page == Page.Directory &&
             (!_catalog.HasAnyTerm || _catalog.Terms is null && _activeTerm is null) || _page == Page.Check);
         TermWeb.Content = _catalog?.HasAnyTerm == false ? "打开初始化入口" : "网页学期管理";

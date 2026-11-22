@@ -29,7 +29,7 @@ public sealed record AllocationAccess(string? WorkspaceId, string? WorkspaceCode
 public sealed record AllocationTeacher(string? Username, string? Email, string? AccountId, string? Name, string? Pin,
     bool ConfirmSameName, AllocationAccess[] Access);
 public sealed record TeacherAllocationDraft(string Mode, string? TermId, string? TermStatus, string? GradeId,
-    AllocationTeacher[] Teachers)
+    AllocationTeacher[] Teachers, bool ArchivedCorrection = false)
 {
     public TeacherAllocationDraft WithoutPins() => this with { Teachers = Teachers.Select(row => row with { Pin = null }).ToArray() };
 }

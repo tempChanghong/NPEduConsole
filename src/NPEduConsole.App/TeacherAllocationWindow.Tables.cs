@@ -75,7 +75,10 @@ public sealed partial class TeacherAllocationWindow
             AllocationTeachers.ItemsSource = _teachers.Select((row, i) =>
             {
                 var path = $"teachers[{i}]";
-                var person = Input(path + (EmailMode ? ".email" : ".username"), row.Identity, EmailMode ? "邮箱" : "短账号",
+                var identity = _archivedCorrection ?
+                    _catalog?.Accounts.FirstOrDefault(account => account.Id == row.AccountId)?.ToString() ?? row.AccountId ?? "" :
+                    row.Identity;
+                var person = Input(path + (EmailMode ? ".email" : ".username"), identity, EmailMode ? "邮箱" : "短账号",
                     EmailMode ? 191 : 32, changed =>
                     {
                         row.Identity = changed;
@@ -87,6 +90,11 @@ public sealed partial class TeacherAllocationWindow
                     row.Name = changed;
                     if (SelectedTeacher == row) UpdateAllocationEditorTitle(row);
                 });
+                if (_archivedCorrection)
+                {
+                    person.IsReadOnly = name.IsReadOnly = true;
+                    _allocationFields[path + ".accountId"] = person;
+                }
                 var known = _catalog?.Accounts.Any(item => item.Username is not null &&
                     string.Equals(item.Username, row.Identity, StringComparison.OrdinalIgnoreCase)) == true;
                 var pin = PinMode ? Input(path + ".pin", row.Pin, known ? "沿用原凭据" : "初始 PIN", 8, value => row.Pin = value, secret: true) :
@@ -115,7 +123,7 @@ public sealed partial class TeacherAllocationWindow
         try
         {
             UpdateAllocationEditorTitle(teacher);
-            AllocationConfirmName.IsVisible = teacher is not null && !EmailMode;
+            AllocationConfirmName.IsVisible = teacher is not null && !EmailMode && !_archivedCorrection;
             AllocationConfirmName.IsChecked = teacher?.ConfirmSameName ?? false;
             AllocationAddAccess.IsVisible = teacher is not null && Term is not null;
             AllocationAccessRows.Children.Clear();
@@ -125,7 +133,8 @@ public sealed partial class TeacherAllocationWindow
             if (teacher.Access.Count == 0)
                 AllocationAccessRows.Children.Add(new TextBlock
                 {
-                    Text = EmailMode ? "选择至少一个行政班或走班教学班。" : "留空只建普通学校账号。班级访问可稍后分配。",
+                    Text = _archivedCorrection ? "请选择要办理直接访问的行政班或走班教学班。" :
+                        EmailMode ? "选择至少一个行政班或走班教学班。" : "留空只建普通学校账号。班级访问可稍后分配。",
                     Classes = { "muted" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap
                 });
             for (var i = 0; i < teacher.Access.Count; i++)
@@ -169,7 +178,7 @@ public sealed partial class TeacherAllocationWindow
                         teacher.Access[index] = teacher.Access[index] with
                         {
                             Operation = selectedOperation,
-                            Role = operation.SelectedIndex == 1 ? null : teacher.Access[index].Role ?? "TEACHER",
+                            Role = operation.SelectedIndex == 1 ? null : teacher.Access[index].Role ?? (_archivedCorrection ? "VIEWER" : "TEACHER"),
                             ConfirmReduction = false
                         };
                         RebuildAccessEditor();
@@ -265,7 +274,7 @@ public sealed partial class TeacherAllocationWindow
     {
         var identity = EmailMode ? email : username;
         var row = _teachers.FirstOrDefault(item => id is not null && item.AccountId == id ||
-            identity is not null && item.Identity.Equals(identity, StringComparison.OrdinalIgnoreCase));
+            !_archivedCorrection && identity is not null && item.Identity.Equals(identity, StringComparison.OrdinalIgnoreCase));
         if (row is not null) return row;
         row = new(new(username, email, id, name, null, false, []));
         _teachers.Add(row);
@@ -289,7 +298,9 @@ public sealed partial class TeacherAllocationWindow
     private void AddAccessClicked(object? sender, RoutedEventArgs args)
     {
         if (SelectedTeacher is not { } teacher || Term is null) return;
-        teacher.Access.Add(new(null, null, "SET", "TEACHER"));
+        var initial = _archivedCorrection && teacher.Access.Count == 0 ?
+            _catalog?.Workspaces.FirstOrDefault(room => room.Id == _initialWorkspaceId) : null;
+        teacher.Access.Add(new(initial?.Id, initial?.Code, "SET", _archivedCorrection ? "VIEWER" : "TEACHER"));
         RebuildAccessEditor();
         FocusAllocationField($"teachers[{AllocationTeachers.SelectedIndex}].access[{teacher.Access.Count - 1}]");
         Edited();
@@ -318,7 +329,12 @@ public sealed partial class TeacherAllocationWindow
         }
         AllocationTabs.SelectedIndex = 0;
         AllocationTeachers.SelectedIndex = index;
-        if (row.Path.Contains(".access", StringComparison.Ordinal) || row.Path.EndsWith(".confirmSameName", StringComparison.Ordinal))
+        if (_archivedCorrection && row.Path.EndsWith(".accountId", StringComparison.Ordinal))
+        {
+            RevealArchivedIdentity();
+            Status(row.Message ?? "请在教师目录重新核对原账号。");
+        }
+        else if (row.Path.Contains(".access", StringComparison.Ordinal) || row.Path.EndsWith(".confirmSameName", StringComparison.Ordinal))
             RevealAllocationAccess();
         FocusAllocationField(row.Path, match.Groups[1].Value);
     }
