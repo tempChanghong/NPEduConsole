@@ -4,6 +4,9 @@ using System.Text;
 using System.Text.Json.Nodes;
 using NPEduTools.Integrations.Npep;
 
+if (args is ["exam-workbench", var examFixture, var examRoot])
+    return await ExamWorkbenchNative.RunAsync(examFixture, examRoot);
+
 if (args is not [var phase, var fixtureFile, var dataRoot] || phase is not ("pair" or "report" or "invalidated" or "repair-first" or "report-first" or
     "repair-second" or "report-second" or "invalidated-second" or "repair-third" or "report-third" or "invalidated-third") || !OperatingSystem.IsWindows()) return 2;
 string step = "read fixture";

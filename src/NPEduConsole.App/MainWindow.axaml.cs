@@ -183,6 +183,7 @@ public sealed partial class MainWindow : Window
             CloseStaffResponsibilities();
             CloseTeacherAccounts();
             CloseScreenDuty();
+            CloseScreenExam();
             CloseCourseGroups();
             CloseSchoolStudy();
             CloseOrganizationImport();
@@ -349,7 +350,17 @@ public sealed partial class MainWindow : Window
             if (_client is { } client && _school is { } school && _classroom is { } room && room.Screens.Contains(screen))
                 await ShowScreenDutyAsync(client, school, screen.Id, room.Id, web);
         };
-        list.Children.Add(web);
+        var screenActions = new WrapPanel { ItemSpacing = 7, LineSpacing = 5 };
+        screenActions.Children.Add(web);
+        var exam = new Button { Content = "考试与放映", Classes = { "action" } };
+        AutomationProperties.SetAutomationId(exam, "ClassScreenExam-" + screen.Id);
+        AutomationProperties.SetName(exam, $"考试与放映 · {ScreenDisplayName(screen)}");
+        exam.Click += async (_, _) =>
+        {
+            if (_classroom is { } room && room.Screens.Contains(screen)) await ShowScreenExamAsync(room, screen.Id, exam);
+        };
+        screenActions.Children.Add(exam);
+        list.Children.Add(screenActions);
         if (screen.DeviceOverviewUnavailable)
         {
             list.Children.Add(new TextBlock { Text = "设备状态暂不可用", Classes = { "muted" } });
@@ -536,6 +547,7 @@ public sealed partial class MainWindow : Window
         CloseStaffResponsibilities();
         CloseTeacherAccounts();
         CloseScreenDuty();
+        CloseScreenExam();
         CloseCourseGroups();
         CloseSchoolStudy();
         CloseOrganizationImport();

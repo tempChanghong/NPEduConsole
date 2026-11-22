@@ -1,0 +1,65 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.ExamScheduleView">
+    <UserControl.Styles>
+        <Style Selector="Border.exam-row">
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="8,6" />
+        </Style>
+        <Style Selector="Border.exam-row:focus">
+            <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+        <Style Selector="Border.exam-row:pointerover">
+            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+        </Style>
+        <Style Selector="TextBlock.exam-head">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style Selector="TextBlock.exam-cell">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        </Style>
+        <Style Selector="TextBlock.exam-name">
+            <Setter Property="FontSize" Value="15" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="TextBlock.exam-note">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+    </UserControl.Styles>
+
+    <Grid RowDefinitions="Auto,*">
+        <Border x:Name="ExamScheduleEmpty" IsVisible="False" Focusable="True" Padding="8,6" CornerRadius="6">
+            <TextBlock Classes="exam-note" Text="设备尚未回传考程。" TextWrapping="Wrap" />
+        </Border>
+
+        <Grid x:Name="ExamScheduleWide" RowDefinitions="Auto,*" IsVisible="False">
+            <Border Grid.Row="0" Padding="8,0" Margin="0,0,0,2">
+                <Grid ColumnDefinitions="2*,1.4*,1.4*,1*" ColumnSpacing="8">
+                    <TextBlock Classes="exam-head" Text="科目" />
+                    <TextBlock Grid.Column="1" Classes="exam-head" Text="开始" />
+                    <TextBlock Grid.Column="2" Classes="exam-head" Text="结束" />
+                    <TextBlock Grid.Column="3" Classes="exam-head" Text="提醒" />
+                </Grid>
+            </Border>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="ExamScheduleRows" Spacing="2" />
+            </ScrollViewer>
+        </Grid>
+
+        <ScrollViewer x:Name="ExamScheduleCompact" IsVisible="False" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="ExamScheduleCards" Spacing="6" />
+        </ScrollViewer>
+    </Grid>
+</UserControl>

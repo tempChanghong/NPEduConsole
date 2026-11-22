@@ -323,6 +323,8 @@ public sealed partial class ConsoleClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 int status = (int)response.StatusCode;
+                if (version is "0.4" or "0.5" && IsExamPath(path))
+                    throw await ExamErrorAsync(status, response, version, requestId, ct);
                 if (IsTermPreparationPath(path))
                     throw await TermPreparationErrorAsync(response, ct);
                 if (IsClassBatchPath(path))
