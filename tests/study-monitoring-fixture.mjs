@@ -70,12 +70,20 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
     return value.data ?? value.error;
   }
   const image = join(directory, 'synthetic-photo.jpg');
-  const pixels = Buffer.alloc(320 * 180 * 4);
-  for (let y = 0; y < 180; y++) for (let x = 0; x < 320; x++) {
-    const i = (y * 320 + x) * 4, seat = x % 43 > 6 && y % 35 > 6;
-    pixels[i] = seat ? 28 : 216; pixels[i + 1] = seat ? 95 : 234; pixels[i + 2] = seat ? 160 : 248; pixels[i + 3] = 255;
+  function syntheticPhoto(width, height, rearScreen = false) {
+    const pixels = Buffer.alloc(width * height * 4);
+    const tile = width / 8;
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const seat = x % tile > tile / 7 && y % tile > tile / 7;
+      pixels[i] = seat ? rearScreen ? 133 : 28 : 237;
+      pixels[i + 1] = seat ? rearScreen ? 54 : 95 : 240;
+      pixels[i + 2] = seat ? rearScreen ? 33 : 160 : 245;
+      pixels[i + 3] = 255;
+    }
+    return kvRequire('jpeg-js').encode({width, height, data: pixels}, 75).data;
   }
-  await writeFile(image, kvRequire('jpeg-js').encode({width: 320, height: 180, data: pixels}, 75).data);
+  await writeFile(image, syntheticPhoto(320, 180));
   const native = join(directory, 'native-monitoring.json'), nativeOutput = join(evidence, 'native');
   await writeFile(native, JSON.stringify({origin, deployment: identity, isolated: true, bearer: front.bearer, date, image, classId: seven.id}), {mode: 0o600});
   await runNative([nativeOutput, '--live-school-study-photo', native]);
@@ -123,6 +131,27 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
   let lost = false, receipts = 0, holdPhoto = false, stoppedImage;
   let savedExpiry;
   const existing = await prisma.npepStudyPhoto.findUniqueOrThrow({where: {eventId: capture.photoId}});
+  const rearPhotoId = randomUUID();
+  const rearPath = resource + '/study-photos/' + rearPhotoId;
+  async function seedLargeRear() {
+    // Deliberately seed a separate synthetic image after testing the historical rear report without a photo.
+    // Store it through the same private storage class in the temporary KV root and read it through actual admin authorization.
+    const {NpepPhotoStore, sanitizePhoto} = await fromKv('services/npepPhotoStore.js');
+    const privateDirectory = join(directory, 'photos');
+    assert.equal(process.env.NPEP_PHOTO_STORAGE_DIR, privateDirectory);
+    const {bytes, width, height} = await sanitizePhoto(syntheticPhoto(1280, 720, true));
+    assert.equal(width, 1280);
+    assert.equal(height, 720);
+    const storedHash = createHash('sha256').update(bytes).digest('hex');
+    const capturedAt = new Date(existing.capturedAt.getTime() + 250);
+    const leaseId = randomUUID();
+    await new NpepPhotoStore(privateDirectory).put(rearPhotoId, bytes);
+    await prisma.npepStudyPhoto.create({data: {...existing, eventId: rearPhotoId, deviceId: rear.unit.id, leaseId,
+      digest: storedHash, storedHash, width, height, byteCount: bytes.length, capturedAt,
+      metadata: {...existing.metadata, eventId: rearPhotoId, leaseId, sessionId: randomUUID(), capturedAt: capturedAt.toISOString(),
+        hash: storedHash, width, height, byteCount: bytes.length}}});
+    assert.deepEqual((await api(rearPath + '/image' + query)).bytes, bytes);
+  }
   const currentPolicy = () => prisma.npepStudySetting.findFirstOrThrow({where: {schoolId: school.id, targetId: grade.id}});
   const server = createServer(async (req, res) => {
     if (req.method === 'POST' && req.url.startsWith('/__monitor/')) {
@@ -162,9 +191,12 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
           await api(studyPath, {method: 'POST', version: '0.10', body: {...change, expectedPreviewFingerprint: next.previewFingerprint}});
           assert.deepEqual((await prisma.npepStudyPhoto.findUniqueOrThrow({where: {eventId: capture.photoId}})).expiresAt, shortened.expiresAt);
           assert.deepEqual((await prisma.npepStudyExitEvent.findUniqueOrThrow({where: {eventId: capture.exitId}})).expiresAt, oldExit.expiresAt);
-        } else if (step === 'photo-retained-after-selection-change') {
+        } else if (step === 'seed-large-rear') {
+          await seedLargeRear();
+        } else if (step === 'photo-retained-after-selection-change' || step === 'photos-retained-after-compact-cancel') {
           assert.equal((await api(photoPath + '/image' + query)).bytes.length, download.bytes.length);
-          assert.equal(await prisma.npepAudit.count({where: {objectId: capture.photoId, action: 'STUDY_PHOTO_DELETE'}}), 0);
+          assert.equal((await api(rearPath + '/image' + query)).bytes.length > 1000, true);
+          assert.equal(await prisma.npepAudit.count({where: {objectId: {in: [capture.photoId, rearPhotoId]}, action: 'STUDY_PHOTO_DELETE'}}), 0);
         } else if (step === 'expire-image') {
           savedExpiry = (await prisma.npepStudyPhoto.findUniqueOrThrow({where: {eventId: capture.photoId}})).expiresAt;
           await prisma.npepStudyPhoto.update({where: {eventId: capture.photoId}, data: {expiresAt: new Date(Date.now() - 1000)}});
@@ -200,7 +232,7 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
     const desktop = join(directory, 'desktop-monitoring.json');
     await writeFile(desktop, JSON.stringify({origin: 'http://127.0.0.1:' + server.address().port, schoolCode: school.code,
       schoolId: school.id, otherSchoolId: other.id, password: pin, gradeId: grade.id, sevenId: seven.id, eightId: eight.id, nineId: nine.id,
-      frontId: front.unit.id, photoId: capture.photoId, exitId: capture.exitId, date, isolated: true}), {mode: 0o600});
+      frontId: front.unit.id, photoId: capture.photoId, rearPhotoId, exitId: capture.exitId, date, isolated: true}), {mode: 0o600});
     const legacyFile = await (await legacy).photos(seven, capture.photoId);
     assert.equal(createHash('sha256').update(await readFile(legacyFile)).digest('hex'), capture.digest);
     checks.push('edge-photo-preview-and-explicit-download');
@@ -214,8 +246,10 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
     assert.equal((await retry.json()).error.code, 'PHOTO_DELETED');
     await api(photoPath + '/image' + query, {status: 404});
     assert.equal(await prisma.npepAudit.count({where: {objectId: capture.photoId, action: 'STUDY_PHOTO_DELETE'}}), 1);
+    await api(rearPath + '/image' + query);
+    assert.equal(await prisma.npepAudit.count({where: {objectId: rearPhotoId, action: 'STUDY_PHOTO_DELETE'}}), 0);
     checks.push('explicit-deletion-audit-and-device-retry-cannot-restore');
-    await writeFile(join(evidence, 'cross-end-result.json'), JSON.stringify({passed: true, checks, scope, capture,
+    await writeFile(join(evidence, 'cross-end-result.json'), JSON.stringify({passed: true, checks, scope, capture, rearPhotoId,
       screens: {front: front.binding.id, rear: rear.binding.id},
       receipt: {front: observation.receivedAt, frontApplied: observation.configurationApplied, frontSignal: observation.captureVerified,
         rearApplied: rearObservation.configurationApplied, rearSignal: rearObservation.captureVerified},

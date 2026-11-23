@@ -1,6 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="using:NPEduConsole.App"
-             x:Class="NPEduConsole.App.StudyRecordsView" KeyDown="ViewKeyDown">
+             x:Class="NPEduConsole.App.StudyRecordsView">
   <UserControl.Styles>
     <Style Selector="ListBox.record-list > ListBoxItem">
       <Setter Property="Padding" Value="8,6" />
@@ -23,13 +23,14 @@
     </Style>
   </UserControl.Styles>
 
-  <Grid RowDefinitions="Auto,*" RowSpacing="7">
+  <Grid x:Name="StudyRecordsBody" RowDefinitions="Auto,*">
     <TextBlock x:Name="StudyRecordsStatus" Classes="muted" TextWrapping="Wrap"
                AutomationProperties.LiveSetting="Polite" />
-    <Grid x:Name="StudyRecordsColumns" Grid.Row="1" ColumnDefinitions="3*,2*" ColumnSpacing="9" ClipToBounds="True">
+    <Grid x:Name="StudyRecordsColumns" Grid.Row="1" ColumnDefinitions="4*,5*" ColumnSpacing="9" ClipToBounds="True">
       <Border x:Name="StudyRecordsListPane" Classes="card" Padding="10" ClipToBounds="True">
         <Grid RowDefinitions="*,Auto" RowSpacing="6">
-          <ListBox x:Name="StudyRecordsList" Classes="object-list record-list" SelectionChanged="RowSelectionChanged"
+          <ListBox x:Name="StudyRecordsList" Classes="object-list record-list" Background="Transparent" SelectionChanged="RowSelectionChanged"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                    KeyDown="RowKeyDown" AutomationProperties.Name="自习记录列表">
             <ListBox.ItemTemplate>
               <DataTemplate x:DataType="local:StudyRecordRow">
@@ -48,7 +49,7 @@
       </Border>
 
       <Border x:Name="StudyRecordsPreviewPane" Grid.Column="1" Classes="card" Padding="12" ClipToBounds="True">
-        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="7">
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="6">
           <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
             <TextBlock x:Name="StudyRecordsPreviewTitle" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"
                        Text="选择一条记录" AutomationProperties.LiveSetting="Polite" />
@@ -66,12 +67,6 @@
                          Text="选择左侧记录查看照片" />
             </Grid>
           </Border>
-          <WrapPanel Grid.Row="3" ItemSpacing="6" LineSpacing="5">
-            <Button x:Name="StudyRecordsDownload" Content="下载照片" Classes="action" IsVisible="False"
-                    Click="DownloadClicked" />
-            <Button x:Name="StudyRecordsDelete" Content="删除照片" Classes="action" IsVisible="False"
-                    Click="DeleteClicked" />
-          </WrapPanel>
         </Grid>
       </Border>
     </Grid>

@@ -1,31 +1,3 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.StudyRecordsWindow"
-        Title="照片与退出记录" Width="1160" Height="780" MinWidth="670" MinHeight="440"
-        WindowStartupLocation="CenterOwner">
-  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
-    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,9">
-      <StackPanel Spacing="4">
-        <TextBlock Text="照片与退出记录" FontSize="23" Classes="label"/>
-        <TextBlock x:Name="RecordsScope" TextWrapping="Wrap" Classes="muted"/>
-      </StackPanel>
-    </Border>
-    <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" RowSpacing="8" Margin="13,8">
-      <WrapPanel ItemSpacing="8" LineSpacing="5">
-        <CheckBox x:Name="RecordsAllDays" Content="查看所有保留日期" IsCheckedChanged="DateChanged"/>
-        <Button x:Name="RecordsRefresh" Classes="action" Content="刷新记录" Click="Refresh"/>
-      </WrapPanel>
-      <TextBlock Grid.Row="1" x:Name="RecordsStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
-      <local:StudyRecordsView Grid.Row="2" x:Name="Records"/>
-    </Grid>
-    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="13,8">
-      <Grid RowDefinitions="Auto,Auto" RowSpacing="5">
-        <TextBlock x:Name="RemoveRecordSummary" IsVisible="False" TextWrapping="Wrap"/>
-        <WrapPanel Grid.Row="1" ItemSpacing="8" LineSpacing="4">
-          <Button x:Name="RecordsDone" Classes="action" Content="关闭" Click="CloseRecords"/>
-          <Button x:Name="RemoveRecordCancel" Classes="action" Content="保留照片" IsVisible="False" Click="CancelRemoval"/>
-          <Button x:Name="RemoveRecordConfirm" Classes="action" Content="确认删除单张照片" IsVisible="False" Click="RemovePhoto"/>
-        </WrapPanel>
-      </Grid>
-    </Border>
-  </Grid>
-</Window>
+        x:Class="NPEduConsole.App.StudyRecordsWindow" Title="照片与退出记录"
+        Width="1160" Height="780" MinWidth="670" MinHeight="440" WindowStartupLocation="CenterOwner" />

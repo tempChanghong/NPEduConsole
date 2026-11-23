@@ -41,11 +41,10 @@ public sealed partial class StudyRecordsView : UserControl
     /// <summary>选中某条记录（或键盘确认）时请求调用方加载预览。</summary>
     public event Action<StudyRecordRow>? PreviewRequested;
 
-    public event Action<StudyRecordRow>? DownloadRequested;
-
-    public event Action<StudyRecordRow>? DeleteRequested;
-
     public event Action? MoreRequested;
+    internal event Action? CompactPreviewChanged;
+    internal bool IsCompactPreview => _compact && _previewOpen;
+    internal StudyRecordRow? Current => _current;
 
     /// <summary>窄窗返回、宽窗关闭或记录消失导致预览结束时触发；调用方据此立即释放位图。</summary>
     public event Action? PreviewClosed;
@@ -76,11 +75,6 @@ public sealed partial class StudyRecordsView : UserControl
         StudyRecordsPreviewDetails.Text = row?.Details ?? string.Empty;
         StudyRecordsPreviewDetails.IsVisible = row is not null;
 
-        // 没有照片的记录只留文字：下载与删除都依赖 PhotoId。
-        var hasPhoto = !string.IsNullOrEmpty(row?.PhotoId);
-        StudyRecordsDownload.IsVisible = hasPhoto;
-        StudyRecordsDelete.IsVisible = hasPhoto;
-
         StudyRecordsPhotoEmpty.Text = row is null ? "选择左侧记录查看照片" : "这次记录没有照片";
         StudyRecordsPhotoEmpty.IsVisible = image is null;
 
@@ -94,11 +88,11 @@ public sealed partial class StudyRecordsView : UserControl
             return;
         }
 
-        if (_compact && !_previewOpen)
+        if (!_previewOpen)
         {
             _previewOpen = true;
             ApplyLayout();
-            FocusPreviewControls();
+            if (_compact) FocusPreviewControls();
         }
     }
 
@@ -125,7 +119,7 @@ public sealed partial class StudyRecordsView : UserControl
             _syncingSelection = true;
             StudyRecordsList.SelectedItem = match;
             _syncingSelection = false;
-            _current = match;
+            if (_previewOpen) _current = match;
         }
         else if (_current is not null)
         {
@@ -152,8 +146,11 @@ public sealed partial class StudyRecordsView : UserControl
     }
 
     /// <summary>状态行只在有记录、且窄窗预览没有占掉它的时候出现。</summary>
-    private void SyncStatusVisibility() =>
-        StudyRecordsStatus.IsVisible = _rows.Count > 0 && !(_compact && _previewOpen);
+    private void SyncStatusVisibility()
+    {
+        StudyRecordsStatus.IsVisible = _rows.Count > 0 && !IsCompactPreview;
+        StudyRecordsBody.RowSpacing = StudyRecordsStatus.IsVisible ? 7 : 0;
+    }
 
     private StudyRecordRow? SelectedRow() => StudyRecordsList.SelectedItem as StudyRecordRow;
 
@@ -187,27 +184,10 @@ public sealed partial class StudyRecordsView : UserControl
         PreviewRequested?.Invoke(row);
     }
 
-    private void ViewKeyDown(object? sender, KeyEventArgs args)
-    {
-        if (args.Key != Key.Escape || !_compact || !_previewOpen) return;
-        args.Handled = true;
-        ClosePreview();
-    }
-
     private void BackClicked(object? sender, RoutedEventArgs args)
     {
         if (!_previewOpen) return;
         ClosePreview();
-    }
-
-    private void DownloadClicked(object? sender, RoutedEventArgs args)
-    {
-        if (_current is { } row) DownloadRequested?.Invoke(row);
-    }
-
-    private void DeleteClicked(object? sender, RoutedEventArgs args)
-    {
-        if (_current is { } row) DeleteRequested?.Invoke(row);
     }
 
     private void MoreClicked(object? sender, RoutedEventArgs args) => MoreRequested?.Invoke();
@@ -218,9 +198,13 @@ public sealed partial class StudyRecordsView : UserControl
         if (double.IsNaN(width) || width <= 0) return;
         var compact = width < CompactWidth;
         if (!force && _arranged && compact == _compact) return;
+        var focusList = !compact && IsCompactPreview && StudyRecordsBack.IsFocused;
+        var focusPreview = compact && _previewOpen && StudyRecordsList.IsKeyboardFocusWithin;
         _compact = compact;
         _arranged = true;
         ApplyLayout();
+        if (focusList) RestoreRowFocus();
+        if (focusPreview) FocusPreviewControls();
     }
 
     private void ApplyLayout()
@@ -228,8 +212,8 @@ public sealed partial class StudyRecordsView : UserControl
         var columns = StudyRecordsColumns.ColumnDefinitions;
         if (columns.Count >= 2)
         {
-            columns[0].Width = new GridLength(3, GridUnitType.Star);
-            columns[1].Width = _compact ? new GridLength(0) : new GridLength(2, GridUnitType.Star);
+            columns[0].Width = new GridLength(_compact ? 1 : 4, GridUnitType.Star);
+            columns[1].Width = _compact ? new GridLength(0) : new GridLength(5, GridUnitType.Star);
         }
 
         StudyRecordsColumns.ColumnSpacing = _compact ? 0 : 9;
@@ -238,6 +222,7 @@ public sealed partial class StudyRecordsView : UserControl
         Grid.SetColumn(StudyRecordsPreviewPane, _compact ? 0 : 1);
         StudyRecordsBack.IsVisible = _compact && _previewOpen;
         SyncStatusVisibility();
+        CompactPreviewChanged?.Invoke();
     }
 
     private void FocusPreviewControls()
@@ -257,17 +242,18 @@ public sealed partial class StudyRecordsView : UserControl
 
     private void RestoreRowFocus()
     {
-        var row = _current;
+        var row = SelectedRow();
         Dispatcher.UIThread.Post(() =>
         {
-            if (row is not null && StudyRecordsList.ContainerFromItem(row) is Control container && Usable(container))
+            if (IsCompactPreview || !ReferenceEquals(row, SelectedRow())) return;
+            if (row is not null) StudyRecordsList.ScrollIntoView(row);
+            Dispatcher.UIThread.Post(() =>
             {
-                container.BringIntoView();
-                container.Focus(NavigationMethod.Tab);
-                return;
-            }
-
-            if (Usable(StudyRecordsList)) StudyRecordsList.Focus(NavigationMethod.Tab);
+                if (IsCompactPreview || !ReferenceEquals(row, SelectedRow()) || !Usable(StudyRecordsList)) return;
+                if (row is not null && StudyRecordsList.ContainerFromItem(row) is Control container && Usable(container) &&
+                    container.Focus(NavigationMethod.Tab)) return;
+                StudyRecordsList.Focus(NavigationMethod.Tab);
+            }, DispatcherPriority.Background);
         }, DispatcherPriority.Loaded);
     }
 
