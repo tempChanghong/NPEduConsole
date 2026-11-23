@@ -17,7 +17,8 @@ export async function verifyOrganizationImport(options) {
 }
 
 async function verify({prisma, origin, fixture, directory, evidence, web, runDesktop, runNative, nativeRoot}) {
-  const {school, term, pin, managerId} = fixture;
+  const {school, other, term, pin, managerId} = fixture;
+  await prisma.schoolMember.create({data: {schoolId: other.id, accountId: managerId, role: 'ADMIN'}});
   const path = '/api/v2/admin/schools/' + school.id;
   const importPath = path + '/organization-import';
   const marks = [];
@@ -91,7 +92,14 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   await writeFile(wrongGradeFile, JSON.stringify({...file, grade: {code: otherGrade.code, name: otherGrade.name},
     administrativeClasses: [{code: 'G1-C01', name: '高一（01）班', subjectRules: {PHY: 'ADMIN_CLASS'}}], courseGroups: []}), {mode: 0o600});
 
-  let browser, url, firstReceipt, receiptReads = 0, staleCommits = 0, currentReceipt;
+  let browser, url, firstReceipt, staleCommits = 0, currentReceipt, holdCatalog = false;
+  const receiptRequests = [];
+  const catalogHeld = Promise.withResolvers();
+  const releaseCatalog = Promise.withResolvers();
+  const catalogReturned = Promise.withResolvers();
+  const countReceipts = termId => prisma.schoolOrganizationImportReceipt.count({where: {
+    schoolId: school.id, result: {path: ['termId'], equals: termId}
+  }});
   async function legacyChange() {
     const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: 'block'});
     try {
@@ -133,8 +141,16 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       assert.equal(await prisma.workspace.count({where: {termId: draft.id}}), 1);
       assert.equal((await prisma.workspace.findUniqueOrThrow({where: {id: draftEight.id}})).name, '高二（08）班 · 网页已改');
       assert.equal((await prisma.$queryRaw`SELECT count(*)::int AS n FROM "SchoolOrganizationImportReceipt" WHERE "schoolId"=${school.id}`)[0].n, 0);
+    } else if (step === 'draft-awaiting') {
+      assert.equal(receiptRequests.length, 1);
+      assert.equal(receiptRequests[0], firstReceipt.requestId);
+      assert.equal(await countReceipts(draft.id), 1);
+    } else if (step === 'active-draft-before-recovery') {
+      assert.equal(receiptRequests.length, 1, 'opening the active workspace does not automatically check the spring request');
+      assert.equal(await prisma.workspace.count({where: {termId: term.id, code: {in: ['G2-C15', 'G2-C99']}}}), 0);
     } else if (step === 'draft-applied') {
-      assert.equal(receiptReads, 1);
+      assert.deepEqual(receiptRequests, [firstReceipt.requestId, firstReceipt.requestId]);
+      assert.equal(await countReceipts(draft.id), 1);
       assert.equal(firstReceipt.administrativeClasses.length, 7);
       assert.equal(firstReceipt.courseGroups.length, 1);
       assert.equal(firstReceipt.gradeId, grade.id);
@@ -176,6 +192,15 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       assert.equal(row.subjectRules[0].subjectId, subject.id);
       assert.equal(row.subjectRules[0].deliveryMode, 'ADMIN_CLASS');
       assert.equal((await prisma.workspace.findUniqueOrThrow({where: {id: oldNine.id}})).name, oldNine.name);
+    } else if (step === 'arm-delayed-catalog') holdCatalog = true;
+    else if (step === 'await-delayed-catalog') await catalogHeld.promise;
+    else if (step === 'release-delayed-catalog') releaseCatalog.resolve();
+    else if (step === 'late-catalog-returned') await catalogReturned.promise;
+    else if (step === 'revoke-active-admin') {
+      await prisma.schoolMember.update({where: {schoolId_accountId: {schoolId: school.id, accountId: managerId}}, data: {role: 'VIEWER'}});
+    } else if (step === 'revoked-zero-write') {
+      assert.equal(await countReceipts(term.id), 1);
+      assert.equal(await prisma.workspace.count({where: {termId: term.id, code: 'G2-C99'}}), 0);
     } else throw new Error('Unknown organization import checkpoint.');
     marks.push(step);
   }
@@ -187,8 +212,25 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       catch (error) { console.error(error); res.writeHead(500).end(); }
       return;
     }
-    if (req.method === 'GET' && req.url.startsWith(importPath + '/receipts/')) receiptReads++;
+    const pathname = new URL(req.url, upstreamOrigin).pathname;
+    if (req.method === 'GET' && pathname.startsWith(importPath + '/receipts/')) {
+      receiptRequests.push(pathname.split('/').at(-1));
+      if (receiptRequests.length === 1) { res.writeHead(502).end(); return; }
+    }
+    const delayed = holdCatalog && req.method === 'GET' && pathname === importPath;
+    if (delayed) holdCatalog = false;
     const upstream = request(new URL(req.url, upstreamOrigin), {method: req.method, headers: {...req.headers, host: upstreamOrigin.host}}, reply => {
+      if (delayed) {
+        const chunks = [];
+        reply.on('data', piece => chunks.push(piece));
+        reply.on('end', async () => {
+          catalogHeld.resolve();
+          await releaseCatalog.promise;
+          if (!res.destroyed) res.writeHead(reply.statusCode, reply.headers).end(Buffer.concat(chunks));
+          catalogReturned.resolve();
+        });
+        return;
+      }
       if (req.method !== 'POST' || req.url !== importPath || reply.statusCode !== 200) {
         res.writeHead(reply.statusCode, reply.headers); reply.pipe(res);
         return;
@@ -215,7 +257,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   try {
     const desktopAccess = join(directory, 'organization-desktop.json');
     await writeFile(desktopAccess, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id,
-      schoolCode: school.code, password: pin, draftId: draft.id, draftName: draft.name, activeId: term.id, draftFile, wrongGradeFile,
+      schoolCode: school.code, password: pin, draftId: draft.id, draftName: draft.name, activeId: term.id, otherSchoolId: other.id, draftFile, wrongGradeFile,
       allowOrganizationTestWrites: true}), {mode: 0o600});
     // Use the same real Edge instance for old administration and post-import student selection.
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (b, frontend) => {
@@ -236,13 +278,15 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
     }
     assert.equal((await prisma.academicTerm.findUniqueOrThrow({where: {id: draft.id}})).status, 'DRAFT');
     assert.equal(await prisma.administrativeClassStudent.count({where: {administrativeClassId: oldSeven.id}}), 1);
-    await writeFile(join(evidence, 'organization-cross-end-result.json'), JSON.stringify({passed: true, marks, staleCommits, receiptReads,
+    await writeFile(join(evidence, 'organization-cross-end-result.json'), JSON.stringify({passed: true, marks, staleCommits,
+      receiptReads: receiptRequests.length, originalReceiptRequests: receiptRequests,
       draftId: draft.id, draftRooms: firstReceipt.administrativeClasses.length, draftGroups: firstReceipt.courseGroups.length,
       currentRoomId: currentReceipt.administrativeClasses[0].id, originalTermId: term.id, teacherWorkspaces: teacherBefore,
       nativeBindings: devicesAfter.map(row => ({bindingId: row.screenBindingId, classId: row.administrativeClassId,
         state: row.state, reportedAt: row.lastReportedAt}))}, null, 2));
     console.log('PASS: Windows organization import, Edge legacy edit and student selection, PostgreSQL, teacher and original native pairings.');
   } finally {
+    releaseCatalog.resolve();
     relay.closeAllConnections();
     await new Promise(resolve => relay.close(resolve));
   }

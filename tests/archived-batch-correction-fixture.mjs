@@ -240,7 +240,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, fromKv
     const desktopFile = join(directory, 'archived-desktop.json');
     await writeFile(desktopFile, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id,
       schoolCode: school.code, password: pin, archivedTermId: archive.id, activeName: active.name, archiveName: archive.name,
-      file, groupId: historicGroup.id, teacherId: teacher.id}));
+      file, classId: historicEight.id, groupId: historicGroup.id, teacherId: teacher.id}));
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, frontend) => {
       browser = edge;
       url = frontend;

@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation;
@@ -14,7 +13,7 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record OrganizationImportAccess(string Origin, string SchoolId, string SchoolCode, string Password, string DraftId,
-        string DraftName, string ActiveId, string DraftFile, string WrongGradeFile, bool AllowOrganizationTestWrites);
+        string DraftName, string ActiveId, string OtherSchoolId, string DraftFile, string WrongGradeFile, bool AllowOrganizationTestWrites);
 
     private static int StartOrganizationImport(string fixture, string output)
     {
@@ -41,154 +40,285 @@ internal static partial class Program
             Find<TextBox>(main, "Username").Text = "admin";
             Find<TextBox>(main, "Password").Text = access.Password;
             Click(Find<Button>(main, "LoginButton"));
-            var school = Find<ComboBox>(main, "SchoolPicker");
-            await Until(() => school.Items.OfType<School>().Any(row => row.Id == access.SchoolId), "real administrator has school selection");
-            school.SelectedItem = school.Items.OfType<School>().Single(row => row.Id == access.SchoolId);
-            var classes = Find<Button>(main, "OpenClassWorkspaceButton");
-            await Until(() => classes.IsEffectivelyVisible && classes.IsEffectivelyEnabled, "class workspace open");
-            Click(classes);
-
-            Click(Find<Button>(main, "OpenTermPreparationButton"));
+            var schools = Find<ComboBox>(main, "SchoolPicker");
+            await Until(() => schools.Items.OfType<School>().Count() == 2, "both separately manageable schools are available");
+            SelectSchool(access.SchoolId);
+            await PressScoped(main, "OpenClassWorkspaceButton");
+            await PressScoped(main, "OpenTermPreparationButton");
             var termManager = await AcademicPageAsync<TermPreparationView>(main);
             var terms = Find<ListBox>(termManager, "PreparedTerms");
             await Until(() => terms.Items.OfType<ManagedAcademicTerm>().Any(row => row.Id == access.DraftId), "existing draft shown in term manager");
             terms.SelectedItem = terms.Items.OfType<ManagedAcademicTerm>().Single(row => row.Id == access.DraftId);
-            var entry = Find<Button>(termManager, "TermOrganizationImport");
-            await Until(() => entry.IsEffectivelyVisible && entry.IsEffectivelyEnabled, "draft term carries its ID into organization editor");
-            Click(entry);
+            await PressScoped(termManager, "TermOrganizationImport");
 
-            var window = await WindowOf<OrganizationImportWindow>();
-            await Until(() => Find<ComboBox>(window, "OrgTerm").SelectedItem is OrganizationTerm { Status: "DRAFT" } term &&
+            var draft = await AcademicPageAsync<OrganizationImportView>(main);
+            var draftTerm = Find<ComboBox>(draft, "OrgTerm");
+            await Until(() => draftTerm.SelectedItem is OrganizationTerm { Status: "DRAFT" } term &&
                 term.Id == access.DraftId, "organization editor scopes the existing draft");
-            Click(Find<Button>(window, "OrgExample"));
-            Check(Find<ListBox>(window, "OrgClasses").ItemCount == 7 && Status(window).Contains("示例"), "real action loads seven-class example");
-            var gradeChoice = Find<ComboBox>(window, "OrgGrade");
-            gradeChoice.SelectedItem = gradeChoice.Items.OfType<object>().Single(row => row.ToString()?.Contains("高二（G2）") == true);
-            window.Width = 840;
-            window.Height = 480;
-            await Until(() => window.ClientSize is { Width: <= 845, Height: <= 485 }, "compact editor geometry");
-            var loadDocument = typeof(OrganizationImportWindow).GetMethod("LoadOrganizationText", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            loadDocument.Invoke(window, [await File.ReadAllTextAsync(access.WrongGradeFile)]);
-            Check(Find<TextBox>(window, "OrgGradeCode").Text == "G2" && Status(window).Contains("高一（G1）"),
-                "loading a G1 document preserves the manually selected G2 target and calls out G1 locally");
-            Click(Find<Button>(window, "OrgPreview"));
-            var differences = Find<ListBox>(window, "OrgDifferences");
-            await Until(() => differences.Items.OfType<OrganizationDifference>().Any(row => row.Action == "BLOCK" &&
-                row.Path == "declaration.gradeCode" && row.Current?.Contains("G2") == true && row.After?.Contains("G1") == true),
-                "the server blocks the grade mismatch and returns both target and file values");
-            Check(!Find<Button>(window, "OrgSave").IsEnabled, "mismatched grade cannot be confirmed");
+            Check(!draftTerm.IsEnabled && TopLevel.GetTopLevel(draft) == main, "the draft entry is locked to the original term in the same HWND");
+            SelectGrade(draft);
+            await PressScoped(draft, "OrgExample");
+            var rows = Find<ListBox>(draft, "OrgClasses");
+            Check(rows.ItemCount == 7 && Status(draft).Contains("示例"), "real action loads seven-class example");
+            var groupTitle = Find<TextBlock>(draft, "OrgGroupTitle");
+            string priorTitle = groupTitle.Text ?? "";
+
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "compact main window geometry");
+            await CancelOrganizationPickerAsync(main, Find<Button>(draft, "OrgOpenFile"));
+            Check(rows.ItemCount == 7 && groupTitle.Text == priorTitle && Find<TextBox>(draft, "OrgGradeCode").Text == "G2",
+                "cancelling the system picker preserves the edited table and its selected target");
+            draft.LoadOrganizationText(await File.ReadAllTextAsync(access.WrongGradeFile));
+            var wrongTarget = Find<TextBlock>(draft, "OrgFileMismatchText");
+            Check(Find<TextBox>(draft, "OrgGradeCode").Text == "G2" && rows.ItemCount == 7 &&
+                wrongTarget.Text?.Contains("高一（G1）") == true && wrongTarget.Text.Contains("高二（G2）") &&
+                !Find<Button>(draft, "OrgPreview").IsEnabled, "wrong file leaves the original seven rows and exact target untouched");
             await Signal("wrong-grade-zero-write");
-            await Capture(window, output, "00-compact-grade-declaration-blocked");
-            differences.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F8 });
-            await Until(() => gradeChoice.IsFocused, "F8 on a grade declaration conflict returns focus to the selected target");
-            loadDocument.Invoke(window, [await File.ReadAllTextAsync(access.DraftFile)]);
-            Check(Find<ListBox>(window, "OrgClasses").ItemCount == 7 && Find<ListBox>(window, "OrgGroups").ItemCount == 1,
-                "legacy file populates seven classes and one teaching group");
-            Click(Find<Button>(window, "OrgPreview"));
+            await CaptureWithFrame(main, output, "00-compact-grade-declaration-blocked");
+
+            var file = await File.ReadAllTextAsync(access.DraftFile);
+            draft.LoadOrganizationText(file);
+            await Until(() => Find<Button>(draft, "OrgCancelReplacement").IsFocused, "matching file asks before replacing the unsaved table");
+            Check(rows.ItemCount == 7 && groupTitle.Text == priorTitle, "on-screen original remains untouched during confirmation");
+            await CaptureWithFrame(main, output, "00a-compact-confirm-replacement");
+            await PressScoped(draft, "OrgCancelReplacement");
+            Check(rows.ItemCount == 7 && groupTitle.Text == priorTitle, "cancel restores the original worksheet");
+            draft.LoadOrganizationText(file);
+            await PressScoped(draft, "OrgConfirmReplacement");
+            Check(rows.ItemCount == 7 && Find<ListBox>(draft, "OrgGroups").ItemCount == 1, "confirmed file supplies its seven classes and course group");
+            await PressScoped(draft, "OrgPreview");
+            var differences = Find<ListBox>(draft, "OrgDifferences");
             await Until(() => differences.Items.OfType<OrganizationDifference>().Any(row => row.Action == "BLOCK" && row.Object.Contains("09")),
                 "nine follows administrative class and cannot be selected for A1");
-            Check(!Find<Button>(window, "OrgSave").IsEnabled, "conflict blocks committing the batch");
-            await Capture(window, output, "01-compact-source-blocked");
-            differences.SelectedItem = differences.Items.OfType<OrganizationDifference>().Single(row => row.Action == "BLOCK");
-            differences.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
-            var source = Find<TextBox>(window, "OrgSourceCodes");
+            Check(!Find<Button>(draft, "OrgSave").IsEffectivelyVisible, "the conflict has no active commit button");
+            await CaptureWithFrame(main, output, "01-compact-source-blocked");
+            main.Width = 1160;
+            main.Height = 780;
+            await Until(() => main.ClientSize.Width >= 1150, "wide main window geometry");
+            var blockedRow = differences.Items.OfType<OrganizationDifference>().Single(row => row.Action == "BLOCK" && row.Object.Contains("09"));
+            differences.SelectedItem = blockedRow;
+            await VisibleIssue(blockedRow);
+            await CaptureWithFrame(main, output, "01a-wide-source-blocked");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize.Width <= 845, "same issue at compact width");
+            await VisibleIssue(blockedRow);
+            await CaptureWithFrame(main, output, "01b-compact-source-blocked-selected");
+            main.Width = 1160;
+            main.Height = 780;
+            await Until(() => main.ClientSize.Width >= 1150, "same issue after widening again");
+            await VisibleIssue(blockedRow);
+
+            async Task VisibleIssue(OrganizationDifference issue)
+            {
+                differences.ScrollIntoView(issue);
+                await Until(() => ReferenceEquals(differences.SelectedItem, issue) &&
+                    differences.GetVisualDescendants().OfType<TextBlock>().Any(block =>
+                        block.IsEffectivelyVisible && block.Text?.Contains(issue.Object) == true &&
+                        block.Bounds.Width > 0 && block.Bounds.Height > 0),
+                    "selected issue remains readable across the width change");
+            }
+
+            var source = Find<TextBox>(draft, "OrgSourceCodes");
+            differences.Focus();
+            KeyPress(differences, Key.F8);
             await Until(() => source.IsFocused && source.IsEffectivelyVisible && source.Text?.Contains("G2-C09") == true,
-                "Enter from blocked source opens the correct compact editor and focuses that cell");
-            await Capture(window, output, "02-compact-focused-source");
-            var rear = Find<StackPanel>(window, "OrgSources").Children.OfType<CheckBox>().Single(check =>
+                "F8 opens the exact wide source cell");
+            await PressScoped(draft, "OrgBackToReview");
+            Check(differences.SelectedItem is OrganizationDifference { Action: "BLOCK" } &&
+                Find<ComboBox>(draft, "OrgDifferenceFilter").SelectedIndex == 4, "returns to the same issue and filter");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize.Width <= 845 && differences.IsKeyboardFocusWithin, "narrow review restores the keyboard focus");
+            KeyPress((Control)TopLevel.GetTopLevel(differences)!.FocusManager!.GetFocusedElement()!, Key.Enter);
+            await Until(() => source.IsFocused && source.IsEffectivelyVisible, "Enter opens the exact narrow source cell");
+            await CaptureWithFrame(main, output, "02-compact-focused-source");
+            var rear = Find<StackPanel>(draft, "OrgSources").Children.OfType<CheckBox>().Single(check =>
                 check.Content?.ToString()?.Contains("G2-C09") == true);
             rear.IsChecked = false;
             Check(source.Text == "G2-C07，G2-C08", "removing ninth class retains seventh and eighth");
-            Click(Find<Button>(window, "OrgBackGroupTable"));
-            await Until(() => Find<ListBox>(window, "OrgGroups").IsEffectivelyVisible, "compact return restores table");
-            window.Width = 1160;
-            window.Height = 780;
-            Click(Find<Button>(window, "OrgPreview"));
-            await Until(() => Find<CheckBox>(window, "OrgApprove").IsEffectivelyEnabled && Status(window).Contains("请核对差异"),
+            await PressScoped(draft, "OrgBackGroupTable");
+            await Until(() => Find<ListBox>(draft, "OrgGroups").IsEffectivelyVisible, "compact return restores the teaching group table");
+            await PressScoped(draft, "OrgPreview");
+            await Until(() => Find<CheckBox>(draft, "OrgApprove").IsEffectivelyEnabled && Status(draft).Contains("请核对差异"),
                 "corrected draft computes a fresh server preview");
-            await Capture(window, output, "03-wide-corrected-impact");
             await Signal("legacy-change");
-            Find<CheckBox>(window, "OrgApprove").IsChecked = true;
-            Click(Find<Button>(window, "OrgSave"));
+            await Commit(draft);
             await Until(() => differences.Items.OfType<OrganizationDifference>().Any(row => row.Key == "class:G2-C08" && row.NeedsReview) &&
-                Status(window).Contains("零写入"), "old web change invalidates the entire preview and marks eight");
+                Status(draft).Contains("本次没有保存任何更改"), "old web change invalidates the entire preview and marks eight");
             await Signal("stale-zero-write");
-            await Capture(window, output, "04-wide-stale-eighth");
+            var staleRow = differences.Items.OfType<OrganizationDifference>().First(row =>
+                row.Key == "class:G2-C08" && row.NeedsReview && !string.IsNullOrWhiteSpace(row.Current) && !string.IsNullOrWhiteSpace(row.After));
+            differences.SelectedItem = staleRow;
+            await VisibleIssue(staleRow);
+            await CaptureWithFrame(main, output, "03-compact-stale-eighth");
+            main.Width = 1160;
+            main.Height = 780;
+            await Until(() => main.ClientSize.Width >= 1150, "same stale difference at full width");
+            await VisibleIssue(staleRow);
+            await CaptureWithFrame(main, output, "04-wide-stale-eighth");
 
-            Click(Find<Button>(window, "OrgPreview"));
-            await Until(() => Find<CheckBox>(window, "OrgApprove").IsEffectivelyEnabled, "fresh reviewed draft");
-            Find<CheckBox>(window, "OrgApprove").IsChecked = true;
-            Click(Find<Button>(window, "OrgSave"));
-            await Until(() => Status(window).Contains("找回本次") && Find<ListBox>(window, "OrgReceiptClasses").ItemCount == 8,
-                "dropped success response is recovered by the original read-only receipt");
+            await PressScoped(draft, "OrgPreview");
+            await Commit(draft);
+            await Until(() => Find<Button>(draft, "OrgVerify").IsEffectivelyEnabled && Status(draft).Contains("保留原请求"),
+                "dropped write reply and dropped first read leave the original receipt pending");
+            await Signal("draft-awaiting");
+            await PressScoped(draft, "OrgClose");
+            await Until(() => Find<Button>(termManager, "TermOrganizationImport").IsFocused, "draft entry regains focus");
+            await PressScoped(termManager, "TermBack");
+            await Until(() => !termManager.IsEffectivelyVisible, "returned to the normal class workspace");
+
+            var active = await OpenNormal(access.ActiveId);
+            SelectGrade(active);
+            var activeClasses = Find<ListBox>(active, "OrgClasses");
+            var resume = Find<WrapPanel>(active, "OrgPendingActions").Children.OfType<Button>()
+                .Single(button => AutomationProperties.GetAutomationId(button)?.StartsWith("OrgResumePending-") == true);
+            Check(resume.Content?.ToString()?.Contains(access.DraftName) == true && activeClasses.ItemCount == 0,
+                "the current entry offers the pending spring request without switching the active workspace");
+            await PressScoped(active, "OrgExcel");
+            var excel = Find<TextBox>(active, "OrgExcelText");
+            excel.Text = "G2-C99\t不应写入";
+            Check(TopLevel.GetTopLevel(excel) == main, "Excel entry is inline within the main window");
+            await PressScoped(active, "OrgCancelExcel");
+            await Until(() => activeClasses.ItemCount == 0 && Find<Button>(active, "OrgExcel").IsFocused, "cancelling paste keeps the table empty");
+            await PressScoped(active, "OrgExcel");
+            excel.Text = "班级代码\t班名\t学科代码\t学科名称\t授课方式\t必修\t学生自选\nG2-C15\t高二（15）班\tPHY\t物理\t随班\t是\t是";
+            await PressScoped(active, "OrgApplyExcel");
+            await Until(() => activeClasses.ItemCount == 1, "inline Excel keeps the selected active term and the intended class");
+            await Signal("active-draft-before-recovery");
+
+            Click(resume);
+            var recovery = await AcademicPageAsync<OrganizationImportView>(main);
+            Check(!ReferenceEquals(active, recovery), "explicit recovery opens a separate main-window page");
+            var result = Find<ListBox>(recovery, "OrgReceiptClasses");
+            await Until(() => Status(recovery).Contains("找回本次") && result.ItemCount == 8,
+                "recovery reads the exact original receipt by request ID");
             await Signal("draft-applied");
-            await Capture(window, output, "05-draft-receipt");
+            await CaptureWithFrame(main, output, "05-draft-receipt");
 
-            Click(Find<Button>(window, "OrgPreview"));
-            await Until(() => Status(window).Contains("已与服务器一致") && differences.Items.OfType<OrganizationDifference>().Any() &&
-                !Find<Button>(window, "OrgSave").IsEnabled,
-                "same table can be compared again");
-            Check(differences.Items.OfType<OrganizationDifference>().All(row => row.Action == "KEEP"),
-                "same table preview is entirely consistent");
+            await PressScoped(recovery, "OrgContinue");
+            var check = await AcademicPageAsync<TermPreparationView>(main);
+            var heading = Find<TextBlock>(check, "TermHeading");
+            await Until(() => heading.Text?.Contains(access.DraftName) == true && heading.Text.Contains("启用前检查") &&
+                Find<TextBlock>(check, "TermCheckStatus").Text?.Contains("正在读取") == false, "receipt opens exact draft readiness within the main HWND");
+            await CaptureWithFrame(main, output, "06-draft-term-readiness");
+            await PressScoped(check, "TermBack");
+            await Until(() => Find<Button>(recovery, "OrgContinue").IsFocused && result.ItemCount == 8,
+                "return restores the same receipt and action focus");
+
+            await PressScoped(recovery, "OrgBackToTable");
+            await PressScoped(recovery, "OrgPreview");
+            var repeated = Find<ListBox>(recovery, "OrgDifferences");
+            await Until(() => Status(recovery).Contains("已与服务器一致") && repeated.ItemCount > 0,
+                "the same committed rows preview as already consistent");
+            Check(repeated.Items.OfType<OrganizationDifference>().All(row => row.Action == "KEEP"), "repeat preview has no writes");
             await Signal("repeat-kept");
-            Find<TabControl>(window, "OrgSections").SelectedIndex = 4;
-            Click(Find<Button>(window, "OrgContinue"));
-            var heading = Find<TextBlock>(termManager, "TermHeading");
-            await Until(() => heading.Text?.Contains(access.DraftName) == true &&
-                heading.Text.Contains("启用前检查") && Find<TextBlock>(termManager, "TermCheckStatus").Text?.Contains("正在读取") == false,
-                "receipt opens the existing exact draft term readiness view");
-            await Capture(termManager, output, "06-draft-term-readiness");
-            termManager.Close();
-            await Until(() => !termManager.IsVisible && main.IsEnabled, "main workspace restored");
+            await PressScoped(recovery, "OrgClose");
+            await Until(() => active.IsEffectivelyVisible && ((OrganizationTerm)Find<ComboBox>(active, "OrgTerm").SelectedItem!).Id == access.ActiveId,
+                "return restores the original active workspace");
+            Check(activeClasses.ItemCount == 1 && activeClasses.GetVisualDescendants().OfType<TextBox>().Any(box => box.Text == "G2-C15"),
+                "recovery leaves the active worksheet unchanged");
 
-            Click(Find<Button>(main, "OpenOrganizationImportButton"));
-            window = await WindowOf<OrganizationImportWindow>();
-            await Until(() => Find<ComboBox>(window, "OrgTerm").SelectedItem is OrganizationTerm { Status: "ACTIVE" } term &&
-                term.Id == access.ActiveId, "normal workspace entry defaults to active term");
-            var grade = Find<ComboBox>(window, "OrgGrade");
-            grade.SelectedItem = grade.Items.OfType<object>().Single(row => row.ToString()?.Contains("高二（G2）") == true);
-            Click(Find<Button>(window, "OrgExcel"));
-            await Until(() => desktop.Windows.Any(row => row.IsVisible && row.Title == "从 Excel 粘贴"), "Excel column dialog opened");
-            var paste = desktop.Windows.Single(row => row.IsVisible && row.Title == "从 Excel 粘贴");
-            var pasteCell = paste.GetVisualDescendants().OfType<TextBox>().Single(row => AutomationProperties.GetName(row) == "粘贴 Excel 列");
-            pasteCell.Text = "班级代码\t班名\t学科代码\t学科名称\t授课方式\t必修\t学生自选\nG2-C15\t高二（15）班\tPHY\t物理\t随班\t是\t是";
-            Click(paste.GetVisualDescendants().OfType<Button>().Single(row => Equals(row.Content, "替换本表草稿")));
-            await Until(() => !paste.IsVisible && Find<ListBox>(window, "OrgClasses").ItemCount == 1, "Excel rows loaded through the actual editor");
-            Click(Find<Button>(window, "OrgPreview"));
-            await Until(() => Find<CheckBox>(window, "OrgApprove").IsEffectivelyEnabled, "active term preview can be confirmed");
-            Find<CheckBox>(window, "OrgApprove").IsChecked = true;
-            Click(Find<Button>(window, "OrgSave"));
-            await Until(() => Status(window).Contains("由服务器确认") && Find<ListBox>(window, "OrgReceiptClasses").ItemCount == 1, "active import result");
+            await PressScoped(active, "OrgPreview");
+            await Commit(active);
+            var activeReceipt = Find<ListBox>(active, "OrgReceiptClasses");
+            await Until(() => Status(active).Contains("由服务器确认") && activeReceipt.ItemCount == 1, "active term import confirmed");
             await Signal("current-applied");
-            await Capture(window, output, "07-current-receipt");
-            Click(Find<Button>(window, "OrgContinue"));
-            var teaching = await WindowOf<TeachingWindow>();
+            await CaptureWithFrame(main, output, "07-current-receipt");
+            await PressScoped(active, "OrgTeacherAllocation");
+            var allocation = await TaskWindow<TeacherAllocationWindow>();
+            await Until(() => Find<TextBlock>(allocation, "AllocationScope").Text?.Contains("秋季学期") == true,
+                "organization receipt opens teacher allocation in the exact active term");
+            Check(Find<ComboBox>(allocation, "AllocationGrade").SelectedItem?.ToString()?.Contains("G2") == true,
+                "teacher allocation receives the original grade ID");
+            await PressScoped(allocation, "AllocationClose");
+            await Until(() => Find<Button>(active, "OrgTeacherAllocation").IsFocused && activeReceipt.SelectedItem is not null,
+                "closing teacher allocation returns to the same selected receipt");
+            await PressScoped(active, "OrgContinue");
+            var teaching = await AcademicPageAsync<TeachingView>(main);
             var subjects = Find<ComboBox>(teaching, "TeachingSubjectPicker");
-            await Until(() => subjects.Items.OfType<TeachingSubject>().Any(row => row.Name == "物理"), "teaching dialog resolves imported class and physics");
-            Check(teaching.GetVisualDescendants().OfType<TextBlock>().Any(row => row.Text?.Contains("高二（15）班") == true),
-                "receipt takes the administrator to the exact imported class");
-            await Capture(teaching, output, "08-current-teaching");
-            Console.WriteLine("PASS: Windows compact conflict correction, actual draft and active workflows, receipts and destination.");
+            await Until(() => subjects.Items.OfType<TeachingSubject>().Any(row => row.Name == "物理") &&
+                Find<TextBlock>(teaching, "TeachingContext").Text?.Contains("高二（15）班") == true,
+                "teaching resolves the new class and real physics subject in the main window");
+            await CaptureWithFrame(main, output, "08-current-teaching");
+            await PressScoped(teaching, "CloseTeachingButton");
+            await Until(() => Find<Button>(active, "OrgContinue").IsFocused, "teaching returns to the original class receipt");
+            await PressScoped(active, "OrgClose");
+            await Until(() => Find<Button>(main, "OpenOrganizationImportButton").IsFocused, "return restores the regular route anchor");
+
+            await Signal("arm-delayed-catalog");
+            await PressScoped(main, "OpenOrganizationImportButton");
+            var delayed = await AcademicPageAsync<OrganizationImportView>(main);
+            await Signal("await-delayed-catalog");
+            SelectSchool(access.OtherSchoolId);
+            await Until(() => !delayed.IsEffectivelyVisible && (schools.SelectedItem as School)?.Id == access.OtherSchoolId, "switch cancels the old work page");
+            await Signal("release-delayed-catalog");
+            await Signal("late-catalog-returned");
+            Check(!delayed.IsEffectivelyVisible && Find<ListBox>(delayed, "OrgClasses").ItemCount == 0 &&
+                !main.GetVisualDescendants().OfType<OrganizationImportView>().Any(view => view.IsEffectivelyVisible),
+                "late original-school success cannot repopulate the document");
+
+            SelectSchool(access.SchoolId);
+            await PressScoped(main, "OpenClassWorkspaceButton");
+            var revoked = await OpenNormal(access.ActiveId);
+            SelectGrade(revoked);
+            await PressScoped(revoked, "OrgExample");
+            await Signal("revoke-active-admin");
+            await PressScoped(revoked, "OrgPreview");
+            await Until(() => !revoked.IsEffectivelyVisible && schools.Items.OfType<School>().All(row => row.Id != access.SchoolId),
+                "an actual server 403 clears the old school and closes import");
+            Check(Find<ListBox>(revoked, "OrgClasses").ItemCount == 0 && Find<ListBox>(revoked, "OrgReceiptClasses").ItemCount == 0 &&
+                schools.Items.OfType<School>().Any(row => row.Id == access.OtherSchoolId), "revocation clears draft and receipt and retains independent school access");
+            await Signal("revoked-zero-write");
+            Console.WriteLine("PASS: one Windows HWND, all organization stages, exact same-school receipt, stale and late reads, revoked school, precise term/teacher destinations.");
             desktop.Shutdown(0);
+
+            void SelectSchool(string id) => schools.SelectedItem = schools.Items.OfType<School>().Single(row => row.Id == id);
+            async Task<OrganizationImportView> OpenNormal(string expectedTerm)
+            {
+                await PressScoped(main, "OpenOrganizationImportButton");
+                var view = await AcademicPageAsync<OrganizationImportView>(main);
+                await Until(() => Find<ComboBox>(view, "OrgTerm").SelectedItem is OrganizationTerm term && term.Id == expectedTerm &&
+                    Find<Button>(view, "OrgOpenFile").IsEffectivelyEnabled, "normal entry has the actual active term");
+                return view;
+            }
         }
         catch (Exception error)
         {
             Console.Error.WriteLine(error);
-            var visible = desktop.Windows.LastOrDefault(row => row.IsVisible && row.Title != "从 Excel 粘贴");
-            if (visible is not null) try { await Capture(visible, output, "desktop-organization-failure"); } catch { }
+            try { await CaptureWithFrame(main, output, "desktop-organization-failure"); } catch { }
             desktop.Shutdown(1);
         }
 
-        async Task<T> WindowOf<T>() where T : Window
+        async Task<T> TaskWindow<T>() where T : Window
         {
             await Until(() => desktop.Windows.OfType<T>().Any(row => row.IsVisible), typeof(T).Name + " is visible");
             return desktop.Windows.OfType<T>().Single(row => row.IsVisible);
         }
+
         async Task Signal(string mark)
         {
             using var response = await control.PostAsync("/__org/" + mark, null);
             Check(response.IsSuccessStatusCode, "isolated PostgreSQL checkpoint: " + mark);
         }
-        static string Status(Window window) => Find<TextBlock>(window, "OrgStatus").Text ?? "";
+
+        static async Task Commit(OrganizationImportView view)
+        {
+            var approve = Find<CheckBox>(view, "OrgApprove");
+            await Until(() => approve.IsEffectivelyVisible && approve.IsEffectivelyEnabled, "review is ready to be confirmed");
+            approve.IsChecked = true;
+            await PressScoped(view, "OrgSave");
+        }
+
+        static void SelectGrade(OrganizationImportView view)
+        {
+            var choice = Find<ComboBox>(view, "OrgGrade");
+            choice.SelectedItem = choice.Items.OfType<object>().Single(row => row.ToString()?.Contains("高二（G2）") == true);
+        }
+
+        static string Status(Control view) => Find<TextBlock>(view, "OrgStatus").Text ?? "";
+        static void KeyPress(Control target, Key key) =>
+            target.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key });
     }
 }

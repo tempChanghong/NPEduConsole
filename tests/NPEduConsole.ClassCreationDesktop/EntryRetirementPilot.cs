@@ -87,7 +87,7 @@ internal static partial class Program
                 "return to same selected term and finish refreshing actions");
 
             Click(Find<Button>(terms, "TermOrganizationImport"));
-            var org = await WindowOf<OrganizationImportWindow>();
+            var org = await AcademicPageAsync<OrganizationImportView>(main);
             var grade = Find<ComboBox>(org, "OrgGrade");
             await Until(() => grade.Items.Count > 1, "archive correction catalog loaded");
             grade.SelectedItem = grade.Items.Cast<object>().Single(item => item.ToString()!.Contains("高二（G2）"));
@@ -113,6 +113,7 @@ internal static partial class Program
             await Until(() => Find<TextBlock>(allocation, "AllocationStatus").Text!.Contains("已被认领"), "claim wins without false revoke");
             await Capture(allocation, output, "04-narrow-invitation-claimed");
             allocation.Close();
+            await PressScoped(org, "OrgClose");
             await Until(() => terms.IsEffectivelyEnabled, "invitation workflow returns to term directory");
 
             await SelectTerm(terms, access.ActiveTermId);

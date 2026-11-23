@@ -243,7 +243,6 @@ public sealed partial class MainWindow : Window
             CloseDeviceRunReports();
             CloseCourseGroups();
             CloseSchoolStudy();
-            CloseOrganizationImport();
             CloseTermPreparation();
             CloseTeaching();
             _subjectSetup.Close();
@@ -626,6 +625,7 @@ public sealed partial class MainWindow : Window
 
     private void ResetSession()
     {
+        if (_client is { } endingClient) OrganizationImportView.EndSession(endingClient);
         CancelRequest();
         ResetSchoolServerStatus();
         CloseClassRoster();
@@ -644,7 +644,6 @@ public sealed partial class MainWindow : Window
         CloseDeviceRunReports();
         CloseCourseGroups();
         CloseSchoolStudy();
-        CloseOrganizationImport();
         CloseTermPreparation();
         ResetClassCreation();
         ResetClassMaintenance();

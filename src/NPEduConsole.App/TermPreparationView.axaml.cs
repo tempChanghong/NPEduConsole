@@ -64,17 +64,26 @@ public sealed partial class TermPreparationView : UserControl
                 ShowPreview(pending.Preview, false);
                 await VerifyAsync(pending);
             }
-            else if (_initialDraftCheck is not null && _catalog?.Drafts.Any(row => row.Id == _initialDraftCheck) == true)
+            else if (_initialDraftCheck is not null)
             {
                 _checkBack = Page.Directory;
-                await OpenCheckAsync(_initialDraftCheck);
+                if (_catalog?.Drafts.Any(row => row.Id == _initialDraftCheck) == true)
+                    await OpenCheckAsync(_initialDraftCheck);
+                else
+                {
+                    SetPage(Page.Check);
+                    Notice("这份导入回执对应的学期已不再是草稿。请返回结果，或从学期管理查看当前状态。", true);
+                }
             }
             else Focus(PreparedTerms.ItemCount > 0 ? PreparedTerms : TermPrimary);
         });
     }
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
-    internal Func<Window, ManagedAcademicTerm, Task<string?>>? OpenOrganizationImport { get; init; }
+    internal Func<ManagedAcademicTerm, Task<bool>>? OpenOrganizationImport { get; init; }
+    internal static bool HasPendingSchoolRequest(ConsoleClient client, string schoolId) =>
+        PendingByClient.TryGetValue(client, out var drafts) && drafts.ContainsKey(schoolId) ||
+        ActivationsByClient.TryGetValue(client, out var activations) && activations.ContainsKey(schoolId);
     internal Action? CloseRequested { get; set; }
     private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
     private Dictionary<string, Operation> Operations => PendingByClient.GetOrCreateValue(_client);
@@ -394,15 +403,10 @@ public sealed partial class TermPreparationView : UserControl
         if (_busy || term is null || term.Status is not ("DRAFT" or "ARCHIVED") || OpenOrganizationImport is not { } open) return;
         await RunAsync(async () =>
         {
-            var target = await open(HostWindow, term);
-            if (_closed) return;
-            if (target is not null)
-            {
-                _checkBack = Page.Directory;
-                await OpenCheckAsync(target);
-            }
-            else if (_page == Page.Check) await ReadCheckAsync(term.Id);
+            if (!await open(term) || _closed) return;
+            if (_page == Page.Check) await ReadCheckAsync(term.Id);
             else await LoadCatalogAsync();
+            if (!_closed) Focus(TermOrganizationImport.IsVisible ? TermOrganizationImport : PreparedTerms);
         });
     }
 
@@ -551,7 +555,7 @@ public sealed partial class TermPreparationView : UserControl
     private async void BackClicked(object? sender, RoutedEventArgs args)
     {
         if (_busy) return;
-        if (Pending is not null || PendingActivation is not null || _page == Page.Directory) { Close(); return; }
+        if (_initialDraftCheck is not null || Pending is not null || PendingActivation is not null || _page == Page.Directory) { Close(); return; }
         if (_page == Page.Create && _dirty) { OfferDiscard(); return; }
         var destination = _page == Page.Check ? _checkBack : Page.Directory;
         _receipt = null;
@@ -737,6 +741,7 @@ public sealed partial class TermPreparationView : UserControl
         TermBack.IsEnabled = TermRefresh.IsEnabled = TermDiscard.IsEnabled = !_busy;
         RenderActivation();
         RenderTermDirectory(editable);
+        if (_initialDraftCheck is not null) TermBack.Content = "返回导入结果";
         ApplyLayout();
     }
 

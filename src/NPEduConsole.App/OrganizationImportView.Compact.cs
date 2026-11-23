@@ -14,8 +14,8 @@ using NPEduConsole.Core;
 namespace NPEduConsole.App;
 
 // 窄窗布局与差异摘要：列宽原地改、面板换显示，列表与编辑器都不重挂。
-// 差异行只给对象和原因；「现在 → 导入后」只在底部摘要里、且要真的有值。
-public sealed partial class OrganizationImportWindow : Window
+// 窄窗把选中对象的前后值展开在同一行下方。
+public sealed partial class OrganizationImportView : UserControl
 {
     private const double CompactWidth = 940;
     private const int BlockingFilter = 4;
@@ -28,14 +28,14 @@ public sealed partial class OrganizationImportWindow : Window
     private bool _lastDetailGroup;
     private bool _hooked;
     private int _lastSection = -1;
-    private IDataTemplate? _wideDifferenceTemplate;
+    private OrganizationDifference? _lastLocatedDifference;
 
     private void ArrangeOrganizationLayout(bool force = false)
     {
         if (_closed) return;
         HookCompactBehaviour();
 
-        var compact = ClientSize.Width > 0 && ClientSize.Width < CompactWidth;
+        var compact = Bounds.Width > 0 && Bounds.Width < CompactWidth;
         if (!compact)
         {
             _compactDetail = false;
@@ -84,108 +84,106 @@ public sealed partial class OrganizationImportWindow : Window
 
     private void ArrangeDifferences(bool compact)
     {
-        OrgBeforeHeader.IsVisible = !compact;
-        OrgAfterHeader.IsVisible = !compact;
-        SwapDifferenceTemplate(compact);
-        UpdateCompactDifference();
+        // Hidden headers remain grid children during a resize. Keep all four column indices valid.
+        var columns = OrgDifferenceHeaders.ColumnDefinitions;
+        columns[1].Width = new GridLength(compact ? 1 : 1.35, GridUnitType.Star);
+        columns[2].Width = columns[3].Width = compact ? new GridLength(0) : GridLength.Star;
+        OrgBeforeHeader.IsVisible = OrgAfterHeader.IsVisible = !compact;
+        OrgDifferences.ItemTemplate = compact ? CompactDifferenceTemplate : WideDifferenceTemplate;
     }
 
-    private void SwapDifferenceTemplate(bool compact)
-    {
-        if (compact)
-        {
-            if (ReferenceEquals(OrgDifferences.ItemTemplate, CompactDifferenceTemplate)) return;
-            _wideDifferenceTemplate ??= OrgDifferences.ItemTemplate;
-            OrgDifferences.ItemTemplate = CompactDifferenceTemplate;
-            return;
-        }
-        if (_wideDifferenceTemplate is not null && !ReferenceEquals(OrgDifferences.ItemTemplate, _wideDifferenceTemplate))
-            OrgDifferences.ItemTemplate = _wideDifferenceTemplate;
-    }
-
-    // 窄窗行：状态 + 对象 + 原因，没有原因就只占一行；「现在 → 导入后」留给底部摘要。
     private static readonly IDataTemplate CompactDifferenceTemplate =
-        new FuncDataTemplate<OrganizationDifference>((row, _) => CompactDifferenceRow(row));
+        new FuncDataTemplate<OrganizationDifference>((row, _) => DifferenceRow(row, compact: true));
 
-    private static Control CompactDifferenceRow(OrganizationDifference? row)
+    private static readonly IDataTemplate WideDifferenceTemplate =
+        new FuncDataTemplate<OrganizationDifference>((row, _) => DifferenceRow(row, compact: false));
+
+    private static Control DifferenceRow(OrganizationDifference? row, bool compact)
     {
         var grid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto"),
-            ColumnSpacing = 6,
-            RowSpacing = 2,
-            Margin = new Thickness(2, 1, 2, 1),
+            ColumnDefinitions = new(compact ? "76,*" : "76,1.35*,*,*"),
+            RowDefinitions = new("Auto,Auto,Auto"),
+            ColumnSpacing = 9,
+            RowSpacing = 3,
         };
-        var state = new TextBlock
-        {
-            Text = row?.ActionLabel ?? "",
-            Classes = { "label" },
-            VerticalAlignment = VerticalAlignment.Top,
-        };
-        var target = new TextBlock { Text = row?.Object ?? "", TextWrapping = TextWrapping.Wrap };
-        var message = new TextBlock
-        {
-            Text = row?.Message ?? "",
-            Classes = { "muted" },
-            TextWrapping = TextWrapping.Wrap,
-            MaxLines = 2,
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            IsVisible = !string.IsNullOrEmpty(row?.Message),
-        };
-        Grid.SetColumn(target, 1);
-        Grid.SetRow(message, 1);
-        Grid.SetColumnSpan(message, 2);
-        grid.Children.Add(state);
-        grid.Children.Add(target);
-        grid.Children.Add(message);
-        return grid;
-    }
+        var border = new Border { Classes = { "org-difference-row" }, Padding = new(10, 7), Child = grid };
+        if (row is null) return border;
+        bool issue = row.Action == "BLOCK" || row.NeedsReview;
+        bool declaration = row.Path.StartsWith("declaration.", StringComparison.Ordinal);
+        AutomationProperties.SetAutomationId(border, $"OrgDifference-{row.Key}-{row.Path}");
 
-    private void DifferenceSelected(object? sender, SelectionChangedEventArgs args)
-    {
-        if (_closed) return;
-        UpdateCompactDifference();
-    }
-
-    private void DifferenceKeyDown(object? sender, KeyEventArgs args)
-    {
-        if (_closed) return;
-        switch (args.Key)
+        if (issue)
         {
-            case Key.Enter:
-                if (OrgDifferences.SelectedItem is OrganizationDifference chosen)
-                {
-                    args.Handled = true;
-                    LocateDifference(chosen);
-                }
-                break;
-            case Key.F8:
-                args.Handled = JumpToBlockingDifference();
-                break;
+            var label = new TextBlock { Text = row.ActionLabel, FontWeight = FontWeight.SemiBold };
+            grid.Children.Add(new Border
+            {
+                Classes = { "org-issue-label" }, HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Top, Child = label
+            });
+        }
+        else Add(row.ActionLabel, 0, emphasized: true);
+        Add(row.Object, 1);
+        if (!compact)
+        {
+            Add(row.BeforeText, 2);
+            Add(row.AfterText, 3);
+        }
+        if (row.HasMessage) Add(row.Message!, 0, line: 1, span: compact ? 2 : 4);
+        if (compact && (row.Current is not null || row.After is not null))
+        {
+            var values = new StackPanel { Classes = { "org-comparison-values" }, Spacing = 3 };
+            values.Children.Add(new TextBlock
+            {
+                Text = (declaration ? "所选目标　" : "现在　") + row.BeforeText, TextWrapping = TextWrapping.Wrap
+            });
+            values.Children.Add(new TextBlock
+            {
+                Text = (declaration ? "文件声明　" : "导入后　") + row.AfterText, TextWrapping = TextWrapping.Wrap
+            });
+            Grid.SetRow(values, 2);
+            Grid.SetColumn(values, 1);
+            grid.Children.Add(values);
+        }
+        return border;
+
+        void Add(string value, int column, bool emphasized = false, int line = 0, int span = 1)
+        {
+            var text = new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap };
+            text.Classes.Set("label", emphasized);
+            Grid.SetColumn(text, column);
+            Grid.SetColumnSpan(text, span);
+            Grid.SetRow(text, line);
+            grid.Children.Add(text);
         }
     }
 
-    private void UpdateCompactDifference()
+    private void WorkspaceKeyDown(object? sender, KeyEventArgs args)
     {
-        var row = OrgDifferences.SelectedItem as OrganizationDifference;
-        var detail = row is not null && (row.Current is not null || row.After is not null) ? row.NarrowDetails : "";
-        OrgCompactDifference.Text = detail;
-        OrgCompactDifference.IsVisible = _compact && detail.Length > 0;
-        AutomationProperties.SetName(OrgCompactDifference, row is null
-            ? "所选差异"
-            : detail.Length > 0 ? $"{row.Object}：{detail}" : $"{row.Object} {row.ActionLabel}");
+        if (_closed || _busy || _showExcel || _replacement is not null || _discard) return;
+        if (args.Key == Key.F8)
+        {
+            args.Handled = JumpToBlockingDifference();
+            return;
+        }
+        if (args.Key == Key.Enter && _stage == WorkStage.Difference && OrgDifferences.IsKeyboardFocusWithin &&
+            OrgDifferences.SelectedItem is OrganizationDifference chosen)
+        {
+            args.Handled = true;
+            LocateDifference(chosen);
+        }
     }
 
     private void LocateDifference(OrganizationDifference difference)
     {
+        _lastLocatedDifference = difference;
         FocusIssue(difference);
-        UpdateCompactDifference();
     }
 
     private bool FocusArchivedGrade(OrganizationDifference difference)
     {
         if (!_archivedCorrection || difference.Path != "grade") return false;
+        SetStage(WorkStage.Table);
         var reordered = GradeOrder(difference.Current) != GradeOrder(difference.After);
         Control target = (reordered ? FirstUsable(OrgGradeOrder) : null)
             ?? FirstUsable(OrgGradeName) ?? FirstUsable(OrgGradeCode) ?? OrgGrade;
@@ -214,11 +212,13 @@ public sealed partial class OrganizationImportWindow : Window
 
     private bool JumpToBlockingDifference()
     {
-        var target = _visibleReview.FirstOrDefault(item => item.Action == "BLOCK" || item.NeedsReview);
-        if (target is null) return false;
+        if (!CanEdit) return false;
+        var issues = _visibleReview.Where(item => item.Action == "BLOCK" || item.NeedsReview).ToArray();
+        if (issues.Length == 0) return false;
+        var index = Array.IndexOf(issues, _lastLocatedDifference);
+        var target = issues[(index + 1) % issues.Length];
         if (OrgDifferenceFilter.SelectedIndex != BlockingFilter) OrgDifferenceFilter.SelectedIndex = BlockingFilter;
         OrgDifferences.SelectedItem = target;
-        if (!ReferenceEquals(OrgDifferences.SelectedItem, target)) return false;
         LocateDifference(target);
         return true;
     }
@@ -328,7 +328,6 @@ public sealed partial class OrganizationImportWindow : Window
     {
         if (_hooked) return;
         _hooked = true;
-        AutomationProperties.SetLiveSetting(OrgCompactDifference, AutomationLiveSetting.Polite);
         OrgClasses.SelectionChanged += (_, _) => SyncOpenButtons();
         OrgGroups.SelectionChanged += (_, _) => SyncOpenButtons();
         OrgSections.SelectionChanged += (_, _) => TrackSection();

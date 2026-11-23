@@ -37,6 +37,10 @@ public sealed partial class TeacherAllocationWindow : Window
     private OrganizationTerm? Term => _catalog?.Terms.FirstOrDefault(row => row.Id == _catalog.TermId);
     private string PendingKey => _archivedCorrection ? $"{_school.Id}:{_initialTermId}:{_initialGradeId}" : _school.Id;
     private Dictionary<string, PendingRequest> SessionRequests => Requests.GetOrCreateValue(_client);
+    internal static bool HasOtherPendingTarget(ConsoleClient client, string schoolId, string termId, string gradeId) =>
+        Requests.TryGetValue(client, out var requests) && requests.TryGetValue(schoolId, out var pending) &&
+        (pending.Draft.TermId != termId || pending.Draft.GradeId != gradeId);
+
     private PendingRequest? Pending => SessionRequests.GetValueOrDefault(PendingKey);
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }

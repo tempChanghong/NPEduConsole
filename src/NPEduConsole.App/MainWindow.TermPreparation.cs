@@ -16,12 +16,13 @@ public sealed partial class MainWindow
 
     private async Task ShowTermPreparationAsync(ConsoleClient client, School school, Action? beforeNavigate = null, string? initialDraftCheck = null)
     {
-        if (_termPreparationView is not null || _client != client || _school != school) return;
+        var previous = _termPreparationView;
+        if (_client != client || _school != school || previous is not null && initialDraftCheck is null) return;
         var view = new TermPreparationView(client, school, initialDraftCheck)
         {
             SessionExpired = error => AcademicScopeUnavailable(error, client, school),
             OpenPlacement = (owner, termId, bindingId) => ShowTermScreenPlacementAsync(owner, client, school, termId, bindingId),
-            OpenOrganizationImport = (owner, term) => ShowOrganizationImportAsync(owner, client, school, term.Id, term.Status == "ARCHIVED" ? term : null),
+            OpenOrganizationImport = initialDraftCheck is null ? term => ShowOrganizationImportAsync(client, school, term.Id, term.Status == "ARCHIVED") : null,
             OpenTermDiagnostics = (owner, term) => ShowTermDiagnosticsAsync(owner, client, school, term),
             OpenTermClassDirectory = term => ShowTermClassDirectoryAsync(client, school, term),
         };
@@ -36,12 +37,13 @@ public sealed partial class MainWindow
         }
         finally
         {
-            if (_termPreparationView == view) _termPreparationView = null;
+            if (_termPreparationView == view) _termPreparationView = previous;
         }
-        if (!returned || _client != client || _school != school || _termPreparationView is not null || !view.ActivationObserved) return;
+        if (!returned || _client != client || _school != school || _termPreparationView != previous || !view.ActivationObserved) return;
         SetInactiveClassesFilter(false);
         if (view.ActivationDestination is { } target)
         {
+            if (initialDraftCheck is not null) CloseTermPreparation();
             beforeNavigate?.Invoke();
             await OpenTermResultDestinationAsync(client, school, target);
         }
@@ -54,7 +56,7 @@ public sealed partial class MainWindow
 
         void EndView()
         {
-            if (_termPreparationView == view) _termPreparationView = null;
+            if (_termPreparationView == view) _termPreparationView = previous;
             view.End();
         }
 

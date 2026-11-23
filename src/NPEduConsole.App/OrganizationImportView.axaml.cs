@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -8,7 +7,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class OrganizationImportWindow : Window
+public sealed partial class OrganizationImportView : UserControl
 {
     private sealed record Operation(OrganizationImportDraft Draft, OrganizationPreview Preview, Guid RequestId);
     private sealed record GradeChoice(string? Id, string Label, OrganizationGrade? Grade)
@@ -20,7 +19,8 @@ public sealed partial class OrganizationImportWindow : Window
         public override string ToString() => Title;
     }
 
-    private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<string, Operation>> PendingByClient = new();
+    private enum WorkStage { Table, Difference, Result }
+
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
     private readonly bool _archivedCorrection;
@@ -34,11 +34,15 @@ public sealed partial class OrganizationImportWindow : Window
     private OrganizationDifference[] _visibleReview = [];
     private string? _fileMismatch;
     private bool _binding, _busy, _writing, _closed, _allowClose, _dirty, _reviewed, _discard, _scopeUnavailable, _retryMissingReceipt;
+    private WorkStage _stage;
+    private (OrganizationImportDocument Document, string Source)? _replacement;
+    private bool _showExcel;
     private int _gradeOrder;
+    private OrganizationGrade _observedGrade = new("", "", 0);
 
-    public OrganizationImportWindow() => InitializeComponent();
+    public OrganizationImportView() => InitializeComponent();
 
-    internal OrganizationImportWindow(ConsoleClient client, School school, string? termId, bool archivedCorrection = false) : this()
+    internal OrganizationImportView(ConsoleClient client, School school, string? termId, bool archivedCorrection = false) : this()
     {
         _client = client;
         _school = school;
@@ -46,10 +50,9 @@ public sealed partial class OrganizationImportWindow : Window
         _archivedCorrection = archivedCorrection;
         if (archivedCorrection)
         {
-            Title = "归档学期批量更正";
             OrgHeading.Text = "归档学期批量更正 · 教学组织";
             OrgGradeOrderField.IsVisible = OrgSchoolSubjects.IsVisible = true;
-            OrgGradeOrder.ValueChanged += (_, _) => TargetGradeEdited(null, null!);
+        OrgGradeOrder.ValueChanged += (_, _) => OnGradeEdited();
             OrgApprove.Content = "我已核对所选归档学期及逐项变化";
             OrgTeacherAllocation.Content = "核对本年级教师访问";
         }
@@ -59,55 +62,68 @@ public sealed partial class OrganizationImportWindow : Window
         RebuildTables();
         Render();
         SizeChanged += (_, _) => ArrangeOrganizationLayout();
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            ArrangeOrganizationLayout();
-            await RunAsync(async () =>
-            {
-                if (Pending is { } pending)
-                {
-                    try { await LoadAsync(pending.Draft.TermId); }
-                    catch (ConsoleApiException error) when (error.Code == "ORG_IMPORT_TERM_CHANGED")
-                    { if (_archivedCorrection) _scopeUnavailable = true; else await LoadAsync(null, true); }
-                    if (_closed) return;
-                    SetDocument(new(pending.Draft.Grade, pending.Draft.Subjects, pending.Draft.AdministrativeClasses,
-                        pending.Draft.CourseGroups, pending.Draft.Declaration));
-                    await VerifyReceiptAsync(pending);
-                }
-                else await LoadAsync(termId);
-            });
-        };
-        Closing += (_, args) =>
-        {
-            args.Cancel = !_allowClose && (_writing || _dirty && Pending is null && !_discard);
-            if (args.Cancel && !_writing)
-            {
-                _discard = true;
-                Status("还有未导入的表格。再次点「放弃并返回」关闭，继续编辑会取消放弃。");
-                OrgClose.Content = "放弃并返回";
-            }
-        };
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
+        AddHandler(KeyDownEvent, WorkspaceKeyDown, RoutingStrategies.Tunnel);
     }
 
-    private Dictionary<string, Operation> Operations => PendingByClient.GetOrCreateValue(_client);
-    private string PendingKey => _archivedCorrection ? _school.Id + "/" + _fixedTermId : _school.Id;
-    private Operation? Pending => Operations.GetValueOrDefault(PendingKey);
+    internal async Task StartAsync()
+    {
+        ArrangeOrganizationLayout();
+        await RunAsync(async () =>
+        {
+            if (!await RestorePendingAsync() && !_closed) await LoadAsync(_fixedTermId);
+        });
+        if (!_closed && _stage == WorkStage.Table && !_showExcel)
+            (Pending is not null ? OrgVerify : _fixedTermId is null ? (Control)OrgTerm : OrgGrade).Focus(NavigationMethod.Tab);
+    }
+
+    internal bool CanClose()
+    {
+        if (_allowClose) return true;
+        if (_writing) return false;
+        if (_replacement is not null) { CancelReplacement(); return false; }
+        if (_showExcel) { EndExcel(); return false; }
+        if (!_dirty || Pending is not null) return true;
+        _discard = true;
+        Render();
+        OrgKeepEditing.Focus(NavigationMethod.Tab);
+        return false;
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        _replacement = null;
+        OrgExcelText.Clear();
+        _catalog = null;
+        _term = null;
+        _declaration = null;
+        _preview = null;
+        _receipt = null;
+        _visibleReview = [];
+        _fields.Clear();
+        _classes.Clear();
+        _groups.Clear();
+        _subjects.Clear();
+        OrgTerm.ItemsSource = OrgGrade.ItemsSource = OrgExistingSubject.ItemsSource = null;
+        OrgClasses.ItemsSource = OrgGroups.ItemsSource = OrgSubjects.ItemsSource = OrgDifferences.ItemsSource = OrgReceiptClasses.ItemsSource = null;
+    }
+
     private bool CanEdit => _catalog is not null && _term is not null && !_busy && !_scopeUnavailable && Pending is null;
+    private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<Window, Task<SchoolSubject?>>? OpenSubjects { get; init; }
+    internal Func<string, string, string?, Task>? OpenTeacherAllocation { get; set; }
+    internal Func<OrganizationImportView, Task>? OpenReceiptTarget { get; set; }
+    internal Action? CloseRequested { get; set; }
     internal bool ActiveTermChanged { get; private set; }
     internal string? GoToDraftId { get; private set; }
     internal (string TermId, string WorkspaceId, bool IsGroup)? GoToTeaching { get; private set; }
     internal (string TermId, string GradeId)? GoToTeacherAllocation { get; private set; }
     internal (string TermId, string GradeId, string WorkspaceId)? GoToHistoryClass { get; private set; }
-    internal string? SelectedReceiptWorkspace => (OrgReceiptClasses.SelectedItem as ReceiptChoice)?.Id;
+    internal string? SelectedReceiptWorkspace { get; private set; }
 
     private async Task LoadAsync(string? termId, bool clearTarget = false)
     {
@@ -139,13 +155,14 @@ public sealed partial class OrganizationImportWindow : Window
     {
         var term = _term?.ToString() ?? "请选择目标学期";
         var grade = OrgGradeName.Text?.Trim();
-        OrgScope.Text = $"{_school.Name} / {term} / {(string.IsNullOrEmpty(grade) ? "请选择或填写年级" : grade + "（" + OrgGradeCode.Text?.Trim() + "）")}";
+        OrgScope.Text = $"{_school.Name} / 办理学期　{term} / {(string.IsNullOrEmpty(grade) ? "请选择或填写年级" : grade + "（" + OrgGradeCode.Text?.Trim() + "）")}";
         if (_archivedCorrection) OrgScope.Text += $"　全校当前启用　{_catalog?.Terms.FirstOrDefault(row => row.Status == "ACTIVE")?.Name ?? "暂无"}";
     }
 
     private async void TermSelectionChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (_archivedCorrection || _binding || _busy || Pending is not null || OrgTerm.SelectedItem is not OrganizationTerm term || _term?.Id == term.Id) return;
+        if (_closed || _fixedTermId is not null || _binding || _busy || Pending is not null ||
+            OrgTerm.SelectedItem is not OrganizationTerm term || _term?.Id == term.Id) return;
         ClearDisplayedReceipt();
         InvalidateReview();
         await RunAsync(async () =>
@@ -170,21 +187,22 @@ public sealed partial class OrganizationImportWindow : Window
         _gradeOrder = choice.Grade?.SortOrder ?? 0;
         if (_archivedCorrection) OrgGradeOrder.Value = _gradeOrder;
         _binding = false;
-        if (_archivedCorrection)
-        {
-            UpdateScope();
-            RebuildGroupEditor();
-            ClearDisplayedReceipt();
-            InvalidateReview();
-            Render();
-            return;
-        }
-        TargetGradeEdited(null, null!);
+        _observedGrade = CurrentGrade();
+        UpdateScope();
+        RebuildGroupEditor();
+        ClearDisplayedReceipt();
+        InvalidateReview();
+        Render();
     }
 
-    private void TargetGradeEdited(object? sender, TextChangedEventArgs args)
+    private void TargetGradeEdited(object? sender, TextChangedEventArgs args) => OnGradeEdited();
+
+    private void OnGradeEdited()
     {
         if (_binding || _catalog is null) return;
+        var grade = CurrentGrade();
+        if (grade == _observedGrade) return;
+        _observedGrade = grade;
         UpdateScope();
         RebuildGroupEditor();
         Edited();
@@ -219,22 +237,24 @@ public sealed partial class OrganizationImportWindow : Window
             RebuildTables();
         }
         finally { _binding = false; }
+        _observedGrade = CurrentGrade();
         UpdateScope();
         Edited();
     }
 
     private async void OpenFileClicked(object? sender, RoutedEventArgs args)
     {
-        if (!CanEdit) return;
+        if (!CanEdit || TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
         await RunAsync(async () =>
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "打开旧组织 JSON", AllowMultiple = false,
                 FileTypeFilter = [new("组织配置 JSON") { Patterns = ["*.json"] }]
             });
             if (_closed || files.Count != 1) return;
             await using var stream = await files[0].OpenReadAsync();
+            if (_closed) return;
             using var reader = new StreamReader(stream);
             var text = new char[OrganizationImportDocumentReader.MaximumCharacters + 1];
             var count = await reader.ReadBlockAsync(text, _lifetime.Token);
@@ -245,9 +265,10 @@ public sealed partial class OrganizationImportWindow : Window
 
     internal void LoadOrganizationText(string text)
     {
+        if (_closed || _term is not { } term || _catalog is not { } catalog) return;
         var file = OrganizationImportDocumentReader.ReadLegacy(text);
         var current = CurrentGrade();
-        if (_archivedCorrection && _term is { } term && _catalog is { } catalog && file.Declaration is { } declared)
+        if (file.Declaration is { } declared)
         {
             var declarations = new List<string>();
             if (declared.SchoolId is { } schoolId && schoolId != catalog.School.Id ||
@@ -259,26 +280,24 @@ public sealed partial class OrganizationImportWindow : Window
                 declared.Semester is { } semester && semester != term.Semester ||
                 declared.TermName is { } termName && termName.Trim() != term.Name)
                 declarations.Add($"学期　所选：{term.Name}（{term.AcademicYear}/{term.Semester}）　文件：{declared.TermName} {declared.AcademicYear}/{declared.Semester} {declared.TermId}".TrimEnd());
-            if (!string.IsNullOrWhiteSpace(current.Code) && !SameCode(current.Code, file.Grade.Code))
+            if (current.Code.Length > 0 && file.Grade.Code.Length > 0 && !SameCode(current.Code, file.Grade.Code) ||
+                !_archivedCorrection && current.Name.Length > 0 && file.Grade.Name.Length > 0 && current.Name != file.Grade.Name)
                 declarations.Add($"年级　所选：{current.Name}（{current.Code}）　文件：{file.Grade.Name}（{file.Grade.Code}）");
             if (declarations.Count > 0)
             {
                 _fileMismatch = string.Join("\n", declarations);
+                SetStage(WorkStage.Table);
                 InvalidateReview();
                 Status("文件声明与所选目标不同，原表已保留。");
                 Render();
+                FocusLater(OrgKeepOriginal);
                 return;
             }
         }
-        _fileMismatch = null;
-        var target = current.Code.Length > 0 || current.Name.Length > 0 ? current : file.Grade;
-        if (_archivedCorrection && string.Equals(target.Code, file.Grade.Code, StringComparison.OrdinalIgnoreCase)) target = file.Grade;
-        SetDocument(file with { Grade = target });
-        OrgSections.SelectedIndex = 0;
-        var mismatch = !string.Equals(target.Code.Trim(), file.Grade.Code.Trim(), StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(target.Name.Trim(), file.Grade.Name.Trim(), StringComparison.Ordinal);
-        Status(mismatch ? $"所选目标：{target.Name}（{target.Code}）。文件声明：{file.Grade.Name}（{file.Grade.Code}）。请选择对应年级或换文件。" :
-            "已载入文件。预览时核对其中声明的学校、学期和年级。");
+        var target = new OrganizationGrade(current.Code.Length == 0 ? file.Grade.Code : current.Code,
+            current.Name.Length == 0 ? file.Grade.Name : current.Name, current.Code.Length == 0 ? file.Grade.SortOrder : current.SortOrder);
+        if (_archivedCorrection && SameCode(target.Code, file.Grade.Code)) target = file.Grade;
+        OfferReplacement(file with { Grade = target }, "所选 JSON 文件");
     }
 
     private static bool SameCode(string first, string second) => string.Equals(first.Trim(), second.Trim(), StringComparison.OrdinalIgnoreCase);
@@ -288,6 +307,7 @@ public sealed partial class OrganizationImportWindow : Window
         _fileMismatch = null;
         Status("已保留原表，请重新预览。");
         Render();
+        FocusLater(OrgOpenFile);
     }
 
     private void LoadExampleClicked(object? sender, RoutedEventArgs args)
@@ -301,14 +321,62 @@ public sealed partial class OrganizationImportWindow : Window
             return;
         }
         var example = OrganizationImportDocumentReader.SevenClassExample(grade);
-        SetDocument(example);
-        OrgSections.SelectedIndex = 0;
-        Status("示例已绑定页头所选目标。请核对每班的实际学科与来源。");
+        OfferReplacement(example, "七班制示例");
     }
+
+    private void OfferReplacement(OrganizationImportDocument document, string source)
+    {
+        if (_dirty && (_classes.Count + _groups.Count + _subjects.Count > 0 ||
+            _archivedCorrection && CurrentGrade() != document.Grade))
+        {
+            _replacement = (document, source);
+            OrgReplacementMessage.Text = $"载入{source}会替换此页尚未导入的表格。原表未改变。";
+            SetStage(WorkStage.Table);
+            Render();
+            FocusLater(OrgCancelReplacement);
+        }
+        else ApplyReplacement(document, source);
+    }
+
+    private void ApplyReplacement(OrganizationImportDocument document, string source)
+    {
+        _replacement = null;
+        _fileMismatch = null;
+        SetStage(WorkStage.Table);
+        SetDocument(document);
+        OrgSections.SelectedIndex = 0;
+        Status($"已载入{source}。请预览并核对差异。");
+        FocusLater(OrgPreview);
+    }
+
+    private void ConfirmReplacementClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_replacement is { } incoming && !_busy) ApplyReplacement(incoming.Document, incoming.Source);
+    }
+
+    private void CancelReplacementClicked(object? sender, RoutedEventArgs args) => CancelReplacement();
+
+    private void CancelReplacement()
+    {
+        var trigger = _replacement?.Source == "七班制示例" ? OrgExample : OrgOpenFile;
+        _replacement = null;
+        Status("已取消替换，原表和目标已保留。");
+        Render();
+        FocusLater(trigger);
+    }
+
+    private void FocusLater(Control target) => Dispatcher.UIThread.Post(() =>
+    {
+        if (!_closed && target.IsEffectivelyVisible && target.IsEffectivelyEnabled)
+        {
+            target.BringIntoView();
+            target.Focus(NavigationMethod.Tab);
+        }
+    }, DispatcherPriority.Loaded);
 
     private async void PreviewClicked(object? sender, RoutedEventArgs args)
     {
-        if (!CanEdit || _fileMismatch is not null || !_archivedCorrection && _classes.Count + _groups.Count == 0) return;
+        if (!CanEdit || HasUnresolvedTarget || _fileMismatch is not null || !_archivedCorrection && _classes.Count + _groups.Count == 0) return;
         await RunAsync(async () =>
         {
             var draft = Snapshot();
@@ -324,6 +392,7 @@ public sealed partial class OrganizationImportWindow : Window
     private void ShowPreview(OrganizationPreview review, IReadOnlyList<string> changedKeys, OrganizationPreview? prior = null)
     {
         _preview = review;
+        _lastLocatedDifference = null;
         var precise = new HashSet<OrganizationDifference>();
         var preciseKeys = new HashSet<string>(StringComparer.Ordinal);
         if (_archivedCorrection && prior is not null)
@@ -354,13 +423,20 @@ public sealed partial class OrganizationImportWindow : Window
         }
         OrgDifferenceFilter.SelectedIndex = _visibleReview.Any(row => row.Action == "BLOCK" || row.NeedsReview) ? 4 : 0;
         OrgApprove.IsChecked = false;
-        OrgSections.SelectedIndex = 3;
+        SetStage(WorkStage.Difference);
         ShowDifferences();
+        FocusSelectedDifference();
+    }
+
+    private void FocusSelectedDifference()
+    {
+        if (OrgDifferences.SelectedItem is { } selected) OrgDifferences.ScrollIntoView(selected);
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_closed && OrgSections.SelectedIndex == 3 && OrgDifferences.SelectedItem is { } selected &&
-                OrgDifferences.ContainerFromItem(selected) is Control item)
-                item.Focus(NavigationMethod.Tab);
+            if (_closed || _stage != WorkStage.Difference || !OrgDifferences.IsEffectivelyVisible) return;
+            var target = OrgDifferences.SelectedItem is { } row
+                ? OrgDifferences.ContainerFromItem(row) ?? OrgDifferences : OrgDifferences;
+            target.Focus(NavigationMethod.Tab);
         }, DispatcherPriority.Loaded);
     }
 
@@ -377,8 +453,13 @@ public sealed partial class OrganizationImportWindow : Window
         OrgAfterHeader.Text = declarationsOnly ? "文件声明" : "导入后";
         OrgDifferences.ItemsSource = displayed;
         OrgDifferences.SelectedIndex = displayed.Length > 0 ? 0 : -1;
-        OrgDifferenceCount.Text = $"新增 {_visibleReview.Count(row => row.Action == "ADD")} · 修改 {_visibleReview.Count(row => row.Action == "CHANGE")} · " +
-            $"移除 {_visibleReview.Count(row => row.Action == "REMOVE")} · 阻断 {_visibleReview.Count(row => row.Action == "BLOCK")}";
+        (string Code, string Label)[] kinds = [("ADD", "新增"), ("CHANGE", "修改"), ("REMOVE", "移除"), ("BLOCK", "阻断")];
+        var counts = kinds
+            .Select(kind => (kind.Label, Count: _visibleReview.Count(row => row.Action == kind.Code)))
+            .Where(item => item.Count > 0).Select(item => $"{item.Label} {item.Count}");
+        var summary = string.Join(" · ", counts);
+        var shown = filter > 0 ? $"筛选出 {displayed.Length} 项" : $"共 {displayed.Length} 项";
+        OrgDifferenceCount.Text = summary.Length > 0 ? $"{shown}　｜　全表 {summary}" : shown;
         OrgLocateError.IsEnabled = displayed.Length > 0;
     }
 
@@ -389,9 +470,9 @@ public sealed partial class OrganizationImportWindow : Window
             await SubmitAsync(pending);
             return;
         }
-        if (!CanEdit || !_reviewed || OrgApprove.IsChecked != true || _preview is not { CanApply: true } preview) return;
+        if (!CanEdit || HasUnresolvedTarget || !_reviewed || OrgApprove.IsChecked != true || _preview is not { CanApply: true } preview) return;
         var operation = new Operation(Snapshot(), preview, Guid.NewGuid());
-        Operations[PendingKey] = operation;
+        RememberPending(operation);
         await SubmitAsync(operation);
     }
 
@@ -404,14 +485,14 @@ public sealed partial class OrganizationImportWindow : Window
             var result = await _client.SaveOrganizationImportAsync(_school.Id, operation.Draft, preview,
                 operation.RequestId, _lifetime.Token);
             if (_closed) return;
-            Operations.Remove(PendingKey);
+            ClearPending(operation);
             if (result.Receipt is { } receipt) ShowReceipt(receipt);
             else if (result.Preview is { } current)
             {
                 _reviewed = false;
                 ShowPreview(current, result.ChangedKeys ?? [], preview);
-                Status(result.State == "STALE" ? "服务器已有变化，本次零写入。草稿已保留，请定位变化并重新预览。" :
-                    "本次零写入。请修正阻断项后重新预览。");
+                Status(result.State == "STALE" ? "服务器上的资料已变更。本次没有保存任何更改，原表已保留。请核对后重新预览。" :
+                    "本次没有保存任何更改。请修正阻断项后重新预览。");
             }
         }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
@@ -420,7 +501,7 @@ public sealed partial class OrganizationImportWindow : Window
         }
         catch (ConsoleApiException)
         {
-            Operations.Remove(PendingKey);
+            ClearPending(operation);
             _reviewed = false;
             throw;
         }
@@ -445,7 +526,7 @@ public sealed partial class OrganizationImportWindow : Window
         }
         else
         {
-            Operations.Remove(PendingKey);
+            ClearPending(operation);
             ShowReceipt(receipt);
             Status("已从服务器找回本次导入回执。");
         }
@@ -459,7 +540,6 @@ public sealed partial class OrganizationImportWindow : Window
         _reviewed = false;
         _dirty = false;
         OrgApprove.IsChecked = false;
-        OrgResultTab.IsVisible = true;
         OrgReceiptCaption.Text = $"{(receipt.TermStatus == "ARCHIVED" ? "教学组织已更正，教师直接访问可另行办理" : "服务器已确认")} · " +
             $"{receipt.AdministrativeClasses.Length} 个行政班 · {receipt.CourseGroups.Length} 个教学班 · {receipt.Subjects.Length} 个学科";
         var classes = _classes.ToDictionary(row => row.Code.Trim().ToUpperInvariant(), row => row.Name);
@@ -474,37 +554,43 @@ public sealed partial class OrganizationImportWindow : Window
             "ARCHIVED" => "查看历史任课",
             _ => "进入所选班级任课"
         };
-        OrgSections.SelectedIndex = 4;
+        SetStage(WorkStage.Result);
         Status("本次导入已由服务器确认。");
+        FocusLater(OrgReceiptClasses.ItemCount > 0 ? OrgReceiptClasses : OrgContinue);
     }
 
-    private void ContinueClicked(object? sender, RoutedEventArgs args)
+    private async void ContinueClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy || _receipt is not { } receipt) return;
+        if (_busy || _receipt is not { } receipt || OpenReceiptTarget is not { } open) return;
         if (receipt.TermStatus == "DRAFT") GoToDraftId = receipt.TermId;
         else if (OrgReceiptClasses.SelectedItem is ReceiptChoice room) GoToTeaching = (receipt.TermId, room.Id, room.IsGroup);
         else return;
-        _allowClose = true;
-        Close();
+        try { await RunAsync(() => open(this)); }
+        finally { GoToDraftId = null; GoToTeaching = null; }
+        FocusLater(OrgContinue);
     }
 
-    private void AllocateTeachersClicked(object? sender, RoutedEventArgs args)
+    private async void AllocateTeachersClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy || _scopeUnavailable || Pending is not null) return;
+        if (_busy || _scopeUnavailable || Pending is not null || OpenTeacherAllocation is not { } open) return;
         if (_receipt is { } receipt) GoToTeacherAllocation = (receipt.TermId, receipt.GradeId);
         else if (_archivedCorrection && !_dirty && _term is { } term && OrgGrade.SelectedItem is GradeChoice { Id: { } gradeId })
             GoToTeacherAllocation = (term.Id, gradeId);
         else return;
-        _allowClose = true;
-        Close();
+        var target = GoToTeacherAllocation.Value;
+        try { await RunAsync(() => open(target.TermId, target.GradeId, SelectedReceiptWorkspace)); }
+        finally { GoToTeacherAllocation = null; }
+        FocusLater(OrgTeacherAllocation);
     }
 
-    private void HistoryClassClicked(object? sender, RoutedEventArgs args)
+    private async void HistoryClassClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy || _receipt is not { TermStatus: "ARCHIVED" } receipt || OrgReceiptClasses.SelectedItem is not ReceiptChoice { IsGroup: false } room) return;
+        if (_busy || _receipt is not { TermStatus: "ARCHIVED" } receipt || OpenReceiptTarget is not { } open ||
+            OrgReceiptClasses.SelectedItem is not ReceiptChoice { IsGroup: false } room) return;
         GoToHistoryClass = (receipt.TermId, receipt.GradeId, room.Id);
-        _allowClose = true;
-        Close();
+        try { await RunAsync(() => open(this)); }
+        finally { GoToHistoryClass = null; }
+        FocusLater(OrgHistoryClass);
     }
 
     private async void SchoolSubjectsClicked(object? sender, RoutedEventArgs args)
@@ -512,7 +598,7 @@ public sealed partial class OrganizationImportWindow : Window
         if (!CanEdit || !_archivedCorrection || OpenSubjects is not { } open) return;
         await RunAsync(async () =>
         {
-            var subject = await open(this);
+            var subject = await open(HostWindow);
             if (_closed) return;
             InvalidateReview();
             await LoadAsync(_fixedTermId);
@@ -524,12 +610,11 @@ public sealed partial class OrganizationImportWindow : Window
 
     private void Edited()
     {
-        if (_binding) return;
+        if (_binding || _closed) return;
         if (_preview is not null || _receipt is not null) Status("表格已修改，请重新预览。");
         ClearDisplayedReceipt();
         _dirty = true;
         _discard = false;
-        OrgClose.Content = "返回";
         InvalidateReview();
         Render();
     }
@@ -538,8 +623,8 @@ public sealed partial class OrganizationImportWindow : Window
     {
         if (_receipt is null) return;
         _receipt = null;
-        if (OrgSections.SelectedIndex == 4) OrgSections.SelectedIndex = 0;
-        OrgResultTab.IsVisible = false;
+        if (_stage == WorkStage.Result) SetStage(WorkStage.Table);
+        OrgReceiptClasses.ItemsSource = null;
     }
 
     private void InvalidateReview()
@@ -561,19 +646,22 @@ public sealed partial class OrganizationImportWindow : Window
         _writing = writing;
         Render();
         try { await action(); }
-        catch (OperationCanceledException) when (_closed) { }
+        catch (Exception error) when (_closed && error is OperationCanceledException or ConsoleApiException or ObjectDisposedException or IOException) { }
         catch (ConsoleApiException error) when (!_closed && error.Code == "ORG_IMPORT_TERM_CHANGED")
         {
             InvalidateReview();
-            if (_archivedCorrection) _scopeUnavailable = true;
-            else try { await LoadAsync(null, true); } catch (ConsoleApiException loadError) { SessionExpired?.Invoke(loadError); }
+            SetStage(WorkStage.Table);
+            if (_fixedTermId is not null) _scopeUnavailable = true;
+            else try { await LoadAsync(null, true); }
+            catch (OperationCanceledException) when (_closed) { }
+            catch (ConsoleApiException loadError) { if (!_closed) SessionExpired?.Invoke(loadError); }
             if (!_closed) Status(_archivedCorrection ?
-                "目标已不再是归档学期，本次零写入。原表保留供核对，请返回学期目录。" :
-                "目标学期状态已变化，本次零写入。表格已保留，请重新选定学期后预览。");
+                "目标已不再是归档学期，本次没有保存任何更改。原表保留供核对，请返回学期目录。" :
+                "目标学期状态已变化，本次没有保存任何更改。表格已保留，请重新选定学期后预览。");
         }
         catch (ConsoleApiException error) when (!_closed)
         {
-            if (_archivedCorrection && error.StatusCode == 403)
+            if (error.StatusCode == 403)
             {
                 _scopeUnavailable = true;
                 InvalidateReview();
@@ -594,48 +682,129 @@ public sealed partial class OrganizationImportWindow : Window
 
     private void Render()
     {
-        if (OrgStatus is null) return;
+        if (_closed || OrgStatus is null) return;
         var pending = Pending is not null;
-        var edit = CanEdit;
-        OrgTerm.IsEnabled = !_archivedCorrection && !_busy && !pending && _catalog is not null;
+        bool table = _stage == WorkStage.Table;
+        bool difference = _stage == WorkStage.Difference;
+        bool result = _stage == WorkStage.Result;
+        bool confirming = _replacement is not null || _discard;
+        bool editingTable = table && !_showExcel;
+        bool edit = CanEdit && !confirming;
+        bool canPreview = !pending && !HasUnresolvedTarget && _fileMismatch is null &&
+            (_archivedCorrection ? !string.IsNullOrWhiteSpace(OrgGradeCode.Text) : _classes.Count + _groups.Count > 0);
+        OrgStageLabel.Text = _showExcel ? "录入" : _stage switch
+        {
+            WorkStage.Difference => "核对差异", WorkStage.Result => "导入结果", _ => "编辑导入表"
+        };
+        OrgTargetFields.IsVisible = OrgDocumentActions.IsVisible = OrgSections.IsVisible = editingTable;
+        OrgBody.IsEnabled = !confirming;
+        OrgDifferencePane.IsVisible = difference;
+        OrgResultPane.IsVisible = result;
+        OrgExcelPane.IsVisible = _showExcel;
+        OrgTerm.IsEnabled = _fixedTermId is null && !_busy && !pending && !confirming && _catalog is not null;
         OrgGrade.IsEnabled = OrgGradeName.IsEnabled = OrgGradeOrder.IsEnabled = edit;
         OrgGradeCode.IsEnabled = edit && (!_archivedCorrection || (OrgGrade.SelectedItem as GradeChoice)?.Id is null);
         OrgSchoolSubjects.IsEnabled = edit && OpenSubjects is not null;
         OrgOpenFile.IsEnabled = OrgExample.IsEnabled = OrgExcel.IsEnabled = edit;
         OrgClassTable.IsEnabled = OrgClassEditor.IsEnabled = OrgGroupTable.IsEnabled = OrgGroupEditor.IsEnabled = edit;
         OrgExistingSubject.IsEnabled = OrgSubjects.IsEnabled = OrgAddSubject.IsEnabled = edit;
-        OrgPreview.IsVisible = !pending && (!_archivedCorrection || OrgSections.SelectedIndex != 4);
-        OrgFileMismatch.IsVisible = _fileMismatch is not null;
+        OrgPreview.IsVisible = !pending && (editingTable || difference && !_reviewed);
+        OrgPreview.Content = difference ? "重新预览" : "预览导入差异";
+        UpdateDifferenceAction();
+        OrgFileMismatch.IsVisible = editingTable && _fileMismatch is not null;
         OrgFileMismatchText.Text = _fileMismatch;
-        ToolTip.SetTip(OrgFileMismatchText, _fileMismatch);
-        OrgPreview.IsEnabled = edit && _fileMismatch is null &&
-            (_archivedCorrection ? !string.IsNullOrWhiteSpace(OrgGradeCode.Text) : _classes.Count + _groups.Count > 0);
-        OrgVerify.IsVisible = pending;
+        OrgKeepOriginal.IsEnabled = !confirming && !_busy;
+        OrgPreview.IsEnabled = edit && canPreview;
+        OrgVerify.IsVisible = pending && !_retryMissingReceipt;
         OrgVerify.IsEnabled = !_busy;
-        OrgApprove.IsEnabled = edit && _reviewed;
-        OrgSave.IsVisible = OrgSections.SelectedIndex != 4 && (!pending || _retryMissingReceipt || !_archivedCorrection);
-        OrgSave.IsEnabled = !_busy && (pending ? _retryMissingReceipt : edit && _reviewed && OrgApprove.IsChecked == true);
-        if (_archivedCorrection)
-            OrgSave.Content = pending ? "按原编号重试" : $"确认更正 {_visibleReview.Count(row => row.Action is "ADD" or "CHANGE" or "REMOVE")} 项";
-        OrgContinue.IsVisible = OrgSections.SelectedIndex == 4 && _receipt is not null;
+        OrgApprove.IsVisible = _reviewed && !pending;
+        OrgApprove.IsEnabled = edit;
+        OrgSave.IsVisible = pending ? _retryMissingReceipt : difference && _reviewed;
+        OrgSave.IsEnabled = !_busy && (pending ? _retryMissingReceipt : difference && edit && canPreview && _reviewed && OrgApprove.IsChecked == true);
+        OrgSave.Content = pending ? "按原编号重试" : _archivedCorrection
+            ? $"确认更正 {_visibleReview.Count(row => row.Action is "ADD" or "CHANGE" or "REMOVE")} 项" : "确认导入";
+        OrgContinue.IsVisible = result && _receipt is not null;
         OrgHistoryClass.IsVisible = OrgContinue.IsVisible && _archivedCorrection && OrgReceiptClasses.SelectedItem is ReceiptChoice { IsGroup: false };
-        OrgTeacherAllocation.IsVisible = OrgContinue.IsVisible || _archivedCorrection && !pending && OrgGrade.SelectedItem is GradeChoice { Id: not null };
+        OrgTeacherAllocation.IsVisible = OpenTeacherAllocation is not null && (OrgContinue.IsVisible ||
+            editingTable && _archivedCorrection && !pending && OrgGrade.SelectedItem is GradeChoice { Id: not null });
         OrgTeacherAllocation.IsEnabled = !_busy && !_scopeUnavailable && (!_archivedCorrection || !_dirty);
         OrgContinue.IsEnabled = !_busy && (_receipt?.TermStatus == "DRAFT" || OrgReceiptClasses.SelectedItem is ReceiptChoice);
+        OrgBackToTable.IsVisible = (difference || result) && !pending;
+        OrgBackToTable.IsEnabled = !_busy;
+        OrgBackToReview.IsVisible = editingTable && _preview is not null && !pending;
+        OrgBackToReview.IsEnabled = !_busy;
         OrgClose.IsEnabled = !_writing;
+        OrgClose.Content = "返回";
+        OrgReplaceActions.IsVisible = _replacement is not null;
+        OrgDiscardActions.IsVisible = _discard;
+        OrgStandardActions.IsVisible = !confirming && !_showExcel;
         OrgFooter.Text = $"{_classes.Count} 个行政班 · {_groups.Count} 个教学班";
+        UpdatePendingActions();
     }
 
-    private void Status(string value) { OrgStatus.Text = value; ToolTip.SetTip(OrgStatus, value); }
+    private void SetStage(WorkStage stage)
+    {
+        _stage = stage;
+        Render();
+    }
+
+    private void BackToTableClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || Pending is not null) return;
+        SetStage(WorkStage.Table);
+        FocusLater(OrgSections.SelectedIndex switch { 0 => OrgClasses, 1 => OrgGroups, _ => OrgSubjects });
+    }
+
+    private void BackToReviewClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || _preview is null) return;
+        SetStage(WorkStage.Difference);
+        FocusSelectedDifference();
+    }
+
+    private void DifferenceRowChanged(object? sender, SelectionChangedEventArgs args) => UpdateDifferenceAction();
+
+    private void UpdateDifferenceAction()
+    {
+        if (OrgLocateError is null || OrgPreview is null || _closed) return;
+        bool needsCorrection = _stage == WorkStage.Difference && _visibleReview.Any(row => row.Action == "BLOCK");
+        OrgPreview.Classes.Set("accent", !needsCorrection);
+        OrgLocateError.Classes.Set("accent", needsCorrection);
+        OrgLocateError.Content = needsCorrection && OrgDifferences.SelectedItem is OrganizationDifference { Action: "BLOCK" }
+            ? "去修正这项" : "定位所选行";
+    }
+
+    private void Status(string value)
+    {
+        OrgStatus.Text = value;
+        OrgStatus.IsVisible = !string.IsNullOrWhiteSpace(value);
+    }
     private void ApprovalChanged(object? sender, RoutedEventArgs args) { if (_client is not null) Render(); }
     private void DifferenceFilterChanged(object? sender, SelectionChangedEventArgs args) { if (_client is not null) ShowDifferences(); }
-    private void ReceiptClassSelected(object? sender, SelectionChangedEventArgs args) { if (_client is not null) Render(); }
+    private void ReceiptClassSelected(object? sender, SelectionChangedEventArgs args)
+    {
+        if (_client is null || _closed) return;
+        SelectedReceiptWorkspace = (OrgReceiptClasses.SelectedItem as ReceiptChoice)?.Id;
+        Render();
+    }
     private void SectionChanged(object? sender, SelectionChangedEventArgs args)
     {
         if (_client is null || !ReferenceEquals(args.Source, OrgSections)) return;
         if (OrgSections.SelectedIndex == 1) RebuildGroupEditor();
         Render();
     }
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
-    internal void CloseForScopeChange() { _allowClose = true; Close(); }
+    private void CloseClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
+
+    private void KeepEditingClicked(object? sender, RoutedEventArgs args)
+    {
+        _discard = false;
+        Render();
+        FocusLater(_stage == WorkStage.Difference ? OrgDifferences : OrgSections);
+    }
+
+    private void DiscardClicked(object? sender, RoutedEventArgs args)
+    {
+        _allowClose = true;
+        CloseRequested?.Invoke();
+    }
 }

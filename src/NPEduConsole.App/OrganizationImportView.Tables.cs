@@ -10,7 +10,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class OrganizationImportWindow
+public sealed partial class OrganizationImportView
 {
     private sealed class ClassRow(OrganizationClass value)
     {
@@ -317,16 +317,18 @@ public sealed partial class OrganizationImportWindow
     private void SourceCodesChanged(object? sender, TextChangedEventArgs args)
     {
         if (_bindingDetails || SelectedGroup is not { } row) return;
+        var sources = (OrgSourceCodes.Text ?? "").Split([',', '，', ';', '；', '、'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (row.Sources.SequenceEqual(sources)) return;
         row.Sources.Clear();
-        row.Sources.AddRange((OrgSourceCodes.Text ?? "").Split([',', '，', ';', '；', '、'],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        row.Sources.AddRange(sources);
         FillSourceChoices(row);
         Edited();
     }
 
     private void LocateErrorClicked(object? sender, RoutedEventArgs args)
     {
-        if (OrgDifferences.SelectedItem is OrganizationDifference difference) FocusIssue(difference);
+        if (OrgDifferences.SelectedItem is OrganizationDifference difference) LocateDifference(difference);
     }
 
     private void FocusIssue(OrganizationDifference difference)
@@ -336,15 +338,15 @@ public sealed partial class OrganizationImportWindow
         if (FocusArchivedGrade(difference)) return;
         if (path.StartsWith("declaration.", StringComparison.Ordinal))
         {
-            if (path.StartsWith("declaration.school", StringComparison.Ordinal)) OrgOpenFile.Focus();
-            else if (path.StartsWith("declaration.grade", StringComparison.Ordinal)) OrgGrade.Focus();
-            else OrgTerm.Focus();
+            SetStage(WorkStage.Table);
+            FocusLater(path.StartsWith("declaration.grade", StringComparison.Ordinal) ? OrgGrade : OrgOpenFile);
             Status(difference.Message ?? "请核对文件声明和目标。");
             return;
         }
         if (path.StartsWith("grade", StringComparison.Ordinal))
         {
-            (path.EndsWith(".code", StringComparison.Ordinal) ? OrgGradeCode : OrgGradeName).Focus();
+            SetStage(WorkStage.Table);
+            FocusLater(path.EndsWith(".code", StringComparison.Ordinal) ? OrgGradeCode : OrgGradeName);
             return;
         }
         var match = Regex.Match(path, @"^(administrativeClasses|courseGroups|subjects)\[(\d+)\]");
@@ -355,8 +357,10 @@ public sealed partial class OrganizationImportWindow
         }
         var section = match.Groups[1].Value;
         var list = section == "administrativeClasses" ? OrgClasses : section == "courseGroups" ? OrgGroups : OrgSubjects;
+        SetStage(WorkStage.Table);
         OrgSections.SelectedIndex = section == "administrativeClasses" ? 0 : section == "courseGroups" ? 1 : 2;
         list.SelectedIndex = index < list.ItemCount ? index : -1;
+        if (list.SelectedItem is { } item) list.ScrollIntoView(item);
         if (section == "administrativeClasses" && (path.Contains(".subjectRules", StringComparison.Ordinal) || path.EndsWith(".replaceSubjectRules", StringComparison.Ordinal)))
             RevealOrganizationEditor(false);
         if (section == "courseGroups" && (path.Contains(".sourceClassCodes", StringComparison.Ordinal) || path.EndsWith(".replaceSources", StringComparison.Ordinal)))
@@ -376,63 +380,88 @@ public sealed partial class OrganizationImportWindow
         }, DispatcherPriority.Loaded);
     }
 
-    private async void PasteClicked(object? sender, RoutedEventArgs args)
+    private void PasteClicked(object? sender, RoutedEventArgs args)
     {
-        if (!CanEdit) return;
-        var groups = new ComboBox { ItemsSource = new[] { "行政班与学科", "走班与来源" }, SelectedIndex = OrgSections.SelectedIndex == 1 ? 1 : 0 };
-        var hint = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-        var error = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-        var text = new TextBox { MinHeight = 110, AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.NoWrap };
-        Avalonia.Automation.AutomationProperties.SetName(text, "粘贴 Excel 列");
-        var load = new Button { Content = "替换本表草稿", Classes = { "action", "accent" } };
-        var cancel = new Button { Content = "返回", Classes = { "action" } };
-        var clipboard = new Button { Content = "读取剪贴板", Classes = { "action" } };
-        var dialog = new Window { Title = "从 Excel 粘贴", Width = 670, Height = 380, MinWidth = 530, MinHeight = 325,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 6,
-            Children = { clipboard, cancel, load }};
-        var content = new Grid { RowDefinitions = new("Auto,Auto,*,Auto,Auto"), RowSpacing = 7, Margin = new(12) };
-        var widgets = new Control[] {groups, hint, text, error, buttons};
-        for (var i = 0; i < widgets.Length; i++) { Grid.SetRow(widgets[i], i); content.Children.Add(widgets[i]); }
-        dialog.Content = content;
-        void ShowColumns() => hint.Text = groups.SelectedIndex == 1 ?
-            "依次粘贴：教学班代码、名称、学科代码、来源班代码（逗号分隔）、学生自选（是/否）。前三列必填。" :
-            "依次粘贴：班级代码、班名、学科代码、学科名称、授课方式（随班/走班）、必修、学生自选。一个班有多个学科时，复制多行。前两列必填。";
-        ShowColumns();
-        groups.SelectionChanged += (_, _) => ShowColumns();
-        cancel.Click += (_, _) => dialog.Close();
-        clipboard.Click += async (_, _) => { if (dialog.Clipboard is { } source) text.Text = await source.TryGetTextAsync(); };
-        load.Click += (_, _) =>
+        if (!CanEdit || _replacement is not null || _stage != WorkStage.Table) return;
+        _showExcel = true;
+        OrgExcelTable.SelectedIndex = OrgSections.SelectedIndex == 1 ? 1 : 0;
+        UpdateExcelHint();
+        Render();
+        FocusLater(OrgExcelText);
+    }
+
+    private void ExcelTableChanged(object? sender, SelectionChangedEventArgs args) => UpdateExcelHint();
+
+    private void UpdateExcelHint()
+    {
+        if (OrgExcelHint is null) return;
+        OrgExcelHint.Text = OrgExcelTable.SelectedIndex == 1
+            ? "教学班代码、名称、学科代码、来源班代码（逗号分隔）、学生自选（是／否）。前三列必填。"
+            : "班级代码、班名、学科代码、学科名称、授课方式（随班／走班）、必修、学生自选。前两列必填，一个班有多科时可粘贴多行。";
+        OrgExcelError.IsVisible = false;
+    }
+
+    private async void ReadExcelClipboardClicked(object? sender, RoutedEventArgs args)
+    {
+        if (!_showExcel || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
+        try
         {
-            try
+            var text = await clipboard.TryGetTextAsync();
+            if (!_closed && _showExcel && text is not null) OrgExcelText.Text = text;
+        }
+        catch (Exception error) when (error is InvalidOperationException or PlatformNotSupportedException)
+        {
+            if (!_closed && _showExcel) ShowExcelError("暂时无法读取剪贴板。可以在输入框按 Ctrl+V 粘贴。");
+        }
+    }
+
+    private void ApplyExcelClicked(object? sender, RoutedEventArgs args)
+    {
+        if (!_showExcel || !CanEdit) return;
+        try
+        {
+            if (OrgExcelTable.SelectedIndex == 1)
             {
-                if (groups.SelectedIndex == 1)
-                {
-                    var imported = OrganizationImportDocumentReader.ReadGroupColumns(text.Text ?? "");
-                    if (imported.Length == 0) throw new ArgumentException("没有可载入的教学班。");
-                    _groups.Clear();
-                    _groups.AddRange(imported.Select(row => new GroupRow(row)));
-                    OrgSections.SelectedIndex = 1;
-                }
-                else
-                {
-                    var imported = OrganizationImportDocumentReader.ReadClassColumns(text.Text ?? "");
-                    if (imported.Classes.Length == 0) throw new ArgumentException("没有可载入的行政班。");
-                    var incoming = imported.Subjects.ToDictionary(row => row.Code, StringComparer.OrdinalIgnoreCase);
-                    _classes.Clear();
-                    _classes.AddRange(imported.Classes.Select(row => new ClassRow(row)));
-                    _subjects.RemoveAll(row => incoming.ContainsKey(row.Code));
-                    _subjects.AddRange(imported.Subjects.Select(row => new SubjectRow(row)));
-                    OrgSections.SelectedIndex = 0;
-                }
-                RebuildTables();
-                Edited();
-                Status("已载入 Excel 列。请预览和核对导入差异。");
-                dialog.Close();
+                var imported = OrganizationImportDocumentReader.ReadGroupColumns(OrgExcelText.Text ?? "");
+                if (imported.Length == 0) throw new ArgumentException("没有可载入的教学班。");
+                _groups.Clear();
+                _groups.AddRange(imported.Select(row => new GroupRow(row)));
+                OrgSections.SelectedIndex = 1;
             }
-            catch (ArgumentException message) { error.Text = message.Message; }
-        };
-        try { await dialog.ShowDialog(this); }
-        finally { if (!_closed) OrgExcel.Focus(NavigationMethod.Tab); }
+            else
+            {
+                var imported = OrganizationImportDocumentReader.ReadClassColumns(OrgExcelText.Text ?? "");
+                if (imported.Classes.Length == 0) throw new ArgumentException("没有可载入的行政班。");
+                var incoming = imported.Subjects.ToDictionary(row => row.Code, StringComparer.OrdinalIgnoreCase);
+                _classes.Clear();
+                _classes.AddRange(imported.Classes.Select(row => new ClassRow(row)));
+                _subjects.RemoveAll(row => incoming.ContainsKey(row.Code));
+                _subjects.AddRange(imported.Subjects.Select(row => new SubjectRow(row)));
+                OrgSections.SelectedIndex = 0;
+            }
+            RebuildTables();
+            EndExcel();
+            Edited();
+            Status("已将 Excel 列载入草稿。请预览并核对导入差异。");
+        }
+        catch (ArgumentException error) { ShowExcelError(error.Message); }
+    }
+
+    private void ShowExcelError(string message)
+    {
+        OrgExcelError.Text = message;
+        OrgExcelError.IsVisible = true;
+        FocusLater(OrgExcelText);
+    }
+
+    private void CancelExcelClicked(object? sender, RoutedEventArgs args) => EndExcel();
+
+    private void EndExcel()
+    {
+        _showExcel = false;
+        OrgExcelText.Clear();
+        OrgExcelError.IsVisible = false;
+        Render();
+        FocusLater(OrgExcel);
     }
 }

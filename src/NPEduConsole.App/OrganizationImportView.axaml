@@ -1,16 +1,63 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.OrganizationImportWindow"
-        Title="开学组织导入" Width="1160" Height="780" MinWidth="720" MinHeight="450"
-        WindowStartupLocation="CenterOwner">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.OrganizationImportView">
+  <UserControl.Styles>
+    <Style Selector="ListBox.org-differences ListBoxItem">
+      <Setter Property="FocusAdorner" Value="{x:Null}"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Padding" Value="0"/>
+    </Style>
+    <Style Selector="StackPanel.org-comparison-values">
+      <Setter Property="IsVisible" Value="False"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected StackPanel.org-comparison-values">
+      <Setter Property="IsVisible" Value="True"/>
+    </Style>
+    <Style Selector="ListBox.org-differences > ListBoxItem /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource InkBrush}"/>
+      <Setter Property="CornerRadius" Value="7"/>
+    </Style>
+    <Style Selector="ListBox.org-differences > ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+    </Style>
+    <Style Selector="ListBox.org-differences > ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
+      <Setter Property="TextElement.Foreground" Value="{DynamicResource InkBrush}"/>
+    </Style>
+    <Style Selector="ListBox.org-differences > ListBoxItem:focus-visible /template/ ContentPresenter">
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+    </Style>
+    <Style Selector="Border.org-difference-row">
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+      <Setter Property="BorderThickness" Value="0,0,0,1"/>
+    </Style>
+    <Style Selector="Border.org-issue-label">
+      <Setter Property="CornerRadius" Value="5"/>
+      <Setter Property="Padding" Value="7,2"/>
+      <Setter Property="Background" Value="{DynamicResource WarningTintBrush}"/>
+    </Style>
+    <Style Selector="Border.org-issue-label > TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource WarningBrush}"/>
+    </Style>
+    <Style Selector="TabControl#OrgSections > TabItem">
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="Padding" Value="10,5"/>
+    </Style>
+  </UserControl.Styles>
   <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,8">
       <StackPanel Spacing="3">
-        <TextBlock x:Name="OrgHeading" Text="开学组织导入" FontSize="24" FontWeight="SemiBold"/>
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <TextBlock x:Name="OrgHeading" Text="开学组织导入" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap"/>
+          <TextBlock Grid.Column="1" x:Name="OrgStageLabel" Classes="label" VerticalAlignment="Center"/>
+        </Grid>
         <TextBlock x:Name="OrgScope" AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap" Classes="muted"/>
       </StackPanel>
     </Border>
-    <Grid Grid.Row="1" Margin="14,6,14,2" RowDefinitions="Auto,Auto,Auto" RowSpacing="5">
-      <Grid ColumnDefinitions="1.4*,1.15*,0.65*,1*,Auto" ColumnSpacing="7">
+    <Grid Grid.Row="1" Margin="14,6,14,2" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="5">
+      <Grid x:Name="OrgTargetFields" ColumnDefinitions="1.4*,1.15*,0.65*,1*,Auto" ColumnSpacing="7">
         <ComboBox x:Name="OrgTerm" SelectionChanged="TermSelectionChanged" HorizontalAlignment="Stretch"
                   AutomationProperties.Name="目标学期" PlaceholderText="目标学期"/>
         <ComboBox Grid.Column="1" x:Name="OrgGrade" SelectionChanged="GradeSelectionChanged" HorizontalAlignment="Stretch"
@@ -25,24 +72,28 @@
                          FormatString="0" ShowButtonSpinner="False" AutomationProperties.Name="年级显示顺序"/>
         </StackPanel>
       </Grid>
-      <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="6">
+      <WrapPanel x:Name="OrgDocumentActions" Grid.Row="1" ItemSpacing="6" LineSpacing="4">
         <Button x:Name="OrgOpenFile" Classes="action" Content="打开旧 JSON" Click="OpenFileClicked"/>
-        <Button Grid.Column="1" x:Name="OrgExample" Classes="action" Content="七班制示例" Click="LoadExampleClicked"/>
-        <Button Grid.Column="2" x:Name="OrgExcel" Classes="action" Content="从 Excel 粘贴" Click="PasteClicked"/>
-        <Button Grid.Column="3" x:Name="OrgSchoolSubjects" Classes="action" Content="学科目录" Click="SchoolSubjectsClicked" IsVisible="False"/>
-        <TextBlock Grid.Column="4" x:Name="OrgStatus" TextWrapping="Wrap" VerticalAlignment="Center" MaxLines="2"
-                   TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
-      </Grid>
-      <Border Grid.Row="2" x:Name="OrgFileMismatch" Background="{DynamicResource WarningTintBrush}"
+        <Button x:Name="OrgExample" Classes="action" Content="七班制示例" Click="LoadExampleClicked"/>
+        <Button x:Name="OrgExcel" Classes="action" Content="从 Excel 粘贴" Click="PasteClicked"/>
+        <Button x:Name="OrgSchoolSubjects" Classes="action" Content="学科目录" Click="SchoolSubjectsClicked" IsVisible="False"/>
+      </WrapPanel>
+      <TextBlock Grid.Row="2" x:Name="OrgStatus" TextWrapping="Wrap" VerticalAlignment="Center" IsVisible="False"
+                 AutomationProperties.LiveSetting="Polite"/>
+      <ScrollViewer Grid.Row="3" MaxHeight="80" IsVisible="{Binding #OrgPendingActions.IsVisible}"
+                    HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <WrapPanel x:Name="OrgPendingActions" IsVisible="False" ItemSpacing="6" LineSpacing="4"/>
+      </ScrollViewer>
+      <Border Grid.Row="4" x:Name="OrgFileMismatch" Background="{DynamicResource WarningTintBrush}"
               CornerRadius="7" Padding="8,4" IsVisible="False">
         <DockPanel LastChildFill="True">
-          <Button DockPanel.Dock="Right" Classes="action" Content="保留原表" Click="KeepOrganizationDraftClicked" Margin="6,0,0,0"/>
-          <TextBlock x:Name="OrgFileMismatchText" TextWrapping="Wrap" MaxLines="3"
-                     TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
+          <Button x:Name="OrgKeepOriginal" DockPanel.Dock="Right" Classes="action" Content="保留原表" Click="KeepOrganizationDraftClicked" Margin="6,0,0,0"/>
+          <TextBlock x:Name="OrgFileMismatchText" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
         </DockPanel>
       </Border>
     </Grid>
-    <TabControl Grid.Row="2" Margin="12,0,12,3" x:Name="OrgSections" SelectionChanged="SectionChanged">
+    <Grid x:Name="OrgBody" Grid.Row="2" Margin="14,2,14,7">
+    <TabControl x:Name="OrgSections" SelectionChanged="SectionChanged">
       <TabItem Header="行政班与学科">
         <Grid x:Name="OrgClassLayout" RowDefinitions="*,Auto" ColumnDefinitions="3*,2*" ColumnSpacing="8">
           <Grid x:Name="OrgClassTable" RowDefinitions="Auto,*,Auto" RowSpacing="4">
@@ -129,59 +180,81 @@
           </Grid>
         </Grid>
       </TabItem>
-      <TabItem Header="导入差异">
-        <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="5">
+    </TabControl>
+      <Grid x:Name="OrgDifferencePane" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="5" IsVisible="False">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="5" Grid.RowSpan="4">
           <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
             <ComboBox x:Name="OrgDifferenceFilter" SelectionChanged="DifferenceFilterChanged" AutomationProperties.Name="筛选差异类别"/>
             <TextBlock Grid.Column="1" x:Name="OrgDifferenceCount" VerticalAlignment="Center" TextWrapping="Wrap"/>
             <Button Grid.Column="2" x:Name="OrgLocateError" Classes="action" Content="定位所选行" Click="LocateErrorClicked"/>
           </Grid>
-          <Grid Grid.Row="1" ColumnDefinitions="1*,2*,2*,2*" ColumnSpacing="6" Margin="8,0">
+          <Grid x:Name="OrgDifferenceHeaders" Grid.Row="1" ColumnDefinitions="76,1.35*,*,*" ColumnSpacing="9" Margin="12,4,24,4">
             <TextBlock Text="状态" Classes="label"/><TextBlock Grid.Column="1" Text="对象" Classes="label"/>
             <TextBlock Grid.Column="2" x:Name="OrgBeforeHeader" Text="现在" Classes="label"/>
             <TextBlock Grid.Column="3" x:Name="OrgAfterHeader" Text="导入后" Classes="label"/>
           </Grid>
-          <ListBox Grid.Row="2" x:Name="OrgDifferences" SelectionChanged="DifferenceSelected" KeyDown="DifferenceKeyDown"
-                   Background="Transparent" BorderThickness="0"
+          <ListBox Grid.Row="2" x:Name="OrgDifferences" Classes="org-differences" SelectionChanged="DifferenceRowChanged"
+                   Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="7"
                    ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="导入差异">
-            <ListBox.ItemTemplate>
-              <DataTemplate x:DataType="core:OrganizationDifference">
-                <Grid ColumnDefinitions="1*,2*,2*,2*" ColumnSpacing="6" RowDefinitions="Auto,Auto" Margin="2,2">
-                  <TextBlock Text="{Binding ActionLabel}" Classes="label"/>
-                  <TextBlock Grid.Column="1" Text="{Binding Object}" TextWrapping="Wrap"/>
-                  <TextBlock Grid.Column="2" Classes="muted org-wide" Text="{Binding BeforeText}" TextWrapping="Wrap"/>
-                  <TextBlock Grid.Column="3" Classes="org-wide" Text="{Binding AfterText}" TextWrapping="Wrap"/>
-                  <TextBlock Grid.Row="1" Grid.ColumnSpan="4" Text="{Binding Message}" IsVisible="{Binding HasMessage}" Classes="muted" TextWrapping="Wrap"/>
-                </Grid>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
           </ListBox>
-          <TextBlock Grid.Row="3" x:Name="OrgCompactDifference" Classes="muted" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/>
-          <CheckBox Grid.Row="4" x:Name="OrgApprove" IsCheckedChanged="ApprovalChanged"
+          <CheckBox Grid.Row="3" x:Name="OrgApprove" IsCheckedChanged="ApprovalChanged"
                     Content="我已核对整个年级的导入差异"/>
         </Grid>
-      </TabItem>
-      <TabItem x:Name="OrgResultTab" Header="导入结果" IsVisible="False">
-        <Grid RowDefinitions="Auto,*" RowSpacing="6">
+      </Grid>
+        <Grid x:Name="OrgResultPane" RowDefinitions="Auto,*" RowSpacing="6" IsVisible="False">
           <TextBlock x:Name="OrgReceiptCaption" Classes="label" TextWrapping="Wrap"/>
           <ListBox Grid.Row="1" x:Name="OrgReceiptClasses" Classes="object-list" Background="Transparent" BorderThickness="0"
                    AutomationProperties.Name="导入回执中的班级"
                    SelectionChanged="ReceiptClassSelected"/>
         </Grid>
-      </TabItem>
-    </TabControl>
+      <Border x:Name="OrgExcelPane" Classes="card" Padding="14" IsVisible="False">
+        <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" RowSpacing="7">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock Text="从 Excel 粘贴" Classes="label" FontSize="17" VerticalAlignment="Center"/>
+            <ComboBox x:Name="OrgExcelTable" Grid.Column="1" SelectionChanged="ExcelTableChanged" AutomationProperties.Name="粘贴到哪张表">
+              <ComboBoxItem Content="行政班与学科"/>
+              <ComboBoxItem Content="走班与来源"/>
+            </ComboBox>
+          </Grid>
+          <TextBlock x:Name="OrgExcelHint" Grid.Row="1" Classes="muted" TextWrapping="Wrap"/>
+          <TextBox x:Name="OrgExcelText" Grid.Row="2" AcceptsReturn="True" TextWrapping="NoWrap"
+                   PlaceholderText="将复制的表格粘贴到这里" AutomationProperties.Name="粘贴 Excel 列"/>
+          <TextBlock x:Name="OrgExcelError" Grid.Row="3" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap"
+                     IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
+          <WrapPanel Grid.Row="4" HorizontalAlignment="Right" ItemSpacing="6" LineSpacing="4">
+            <Button x:Name="OrgReadExcelClipboard" Classes="action" Content="读取剪贴板" Click="ReadExcelClipboardClicked"/>
+            <Button x:Name="OrgCancelExcel" Classes="action" Content="取消" Click="CancelExcelClicked"/>
+            <Button x:Name="OrgApplyExcel" Classes="action accent" Content="替换此表草稿" Click="ApplyExcelClicked"/>
+          </WrapPanel>
+        </Grid>
+      </Border>
+    </Grid>
     <Border Grid.Row="3" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
             BorderThickness="0,1,0,0" Padding="13,6">
-      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="7">
+      <Grid>
+      <Grid x:Name="OrgStandardActions" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="7">
         <Button x:Name="OrgClose" Classes="action" Content="返回" Click="CloseClicked"/>
         <TextBlock Grid.Column="1" x:Name="OrgFooter" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
         <Button Grid.Column="2" x:Name="OrgTeacherAllocation" Classes="action" Content="继续分配教师" Click="AllocateTeachersClicked" IsVisible="False"/>
         <Button Grid.Column="3" x:Name="OrgHistoryClass" Classes="action" Content="查看历史班级" Click="HistoryClassClicked" IsVisible="False"/>
-        <Button Grid.Column="3" x:Name="OrgVerify" Classes="action" Content="只读核对原回执" Click="VerifyClicked" IsVisible="False"/>
-        <Button Grid.Column="3" x:Name="OrgPreview" Classes="action" Content="预览导入差异" Click="PreviewClicked"/>
-        <Button Grid.Column="4" x:Name="OrgSave" Classes="action accent" Content="确认导入" Click="SaveClicked"/>
-        <Button Grid.Column="4" x:Name="OrgContinue" Classes="action accent" Content="进入启用前检查" Click="ContinueClicked" IsVisible="False"/>
+        <Button Grid.Column="5" x:Name="OrgVerify" Classes="action" Content="只读核对原回执" Click="VerifyClicked" IsVisible="False"/>
+        <Button Grid.Column="5" x:Name="OrgPreview" Classes="action" Content="预览导入差异" Click="PreviewClicked"/>
+        <Button Grid.Column="5" x:Name="OrgSave" Classes="action accent" Content="确认导入" Click="SaveClicked"/>
+        <Button Grid.Column="4" x:Name="OrgBackToReview" Classes="action" Content="回到差异" Click="BackToReviewClicked" IsVisible="False"/>
+        <Button Grid.Column="4" x:Name="OrgBackToTable" Classes="action" Content="返回表格" Click="BackToTableClicked" IsVisible="False"/>
+        <Button Grid.Column="5" x:Name="OrgContinue" Classes="action accent" Content="进入启用前检查" Click="ContinueClicked" IsVisible="False"/>
+      </Grid>
+      <Grid Grid.Row="0" x:Name="OrgReplaceActions" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7" IsVisible="False">
+        <TextBlock x:Name="OrgReplacementMessage" Classes="label" TextWrapping="Wrap" VerticalAlignment="Center"/>
+        <Button x:Name="OrgCancelReplacement" Grid.Column="1" Classes="action" Content="取消" Click="CancelReplacementClicked"/>
+        <Button x:Name="OrgConfirmReplacement" Grid.Column="2" Classes="action accent" Content="替换原表" Click="ConfirmReplacementClicked"/>
+      </Grid>
+      <Grid x:Name="OrgDiscardActions" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7" IsVisible="False">
+        <TextBlock Text="原表还有未导入的修改。" Classes="label" VerticalAlignment="Center" TextWrapping="Wrap"/>
+        <Button x:Name="OrgKeepEditing" Grid.Column="1" Classes="action" Content="继续编辑" Click="KeepEditingClicked"/>
+        <Button x:Name="OrgDiscard" Grid.Column="2" Classes="action" Content="放弃并返回" Click="DiscardClicked"/>
+      </Grid>
       </Grid>
     </Border>
   </Grid>
-</Window>
+</UserControl>

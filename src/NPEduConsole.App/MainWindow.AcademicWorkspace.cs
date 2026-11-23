@@ -34,7 +34,19 @@ public sealed partial class MainWindow
         UpdateShellPage();
     }
 
-    private bool CanLeaveAcademicWorkspace() => !_academicPages.TryPeek(out var page) || page.CanClose();
+    private bool CanLeaveAcademicWorkspace()
+    {
+        if (!_academicPages.TryPeek(out var top)) return true;
+        if (!top.CanClose()) return false;
+        // A receipt lookup can sit above a different term's unsubmitted import table.
+        var owner = _academicPages.Skip(1).FirstOrDefault(page => page.Content is OrganizationImportView { ReturningWithDraft: true });
+        if (owner is null) return true;
+        while (_academicPages.Peek() != owner)
+            RemoveAcademicPage(_academicPages.Pop(), returned: false);
+        owner.Content.IsVisible = true;
+        UpdateShellPage();
+        return owner.CanClose();
+    }
 
     private bool LeaveAcademicWorkspace()
     {
@@ -62,6 +74,7 @@ public sealed partial class MainWindow
     {
         if (_client != client || _school != school || ReturnToLoginIfExpired(error) || error.StatusCode != 403) return;
         TeachingView.ForgetPausedDrafts(client, school);
+        OrganizationImportView.ForgetPending(client, school.Id);
         CloseTermPreparation();
         _settingSelection = true;
         SchoolPicker.ItemsSource = SchoolPicker.Items.OfType<School>().Where(row => row.Id != school.Id).ToArray();

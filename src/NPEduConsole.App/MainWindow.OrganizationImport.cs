@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using NPEduConsole.Core;
 
@@ -6,45 +7,104 @@ namespace NPEduConsole.App;
 
 public sealed partial class MainWindow
 {
-    private OrganizationImportWindow? _organizationImportWindow;
-
     private async void OpenOrganizationImportClicked(object? sender, RoutedEventArgs args)
     {
-        if (_client is not { } client || _school is not { } school || _page != ShellPage.Classes) return;
-        var draftId = await ShowOrganizationImportAsync(this, client, school, null);
-        if (_client != client || _school != school) return;
-        if (draftId is not null) await ShowTermPreparationAsync(client, school, initialDraftCheck: draftId);
-        else if (_page == ShellPage.Classes) OpenOrganizationImportButton.Focus();
+        if (_client is not { } client || _school is not { } school || _page != ShellPage.Classes || _academicPages.Count != 0) return;
+        if (!await ShowOrganizationImportAsync(client, school, null)) return;
+        if (_client == client && _school == school && _page == ShellPage.Classes && _academicPages.Count == 0)
+        {
+            OpenOrganizationImportButton.BringIntoView();
+            OpenOrganizationImportButton.Focus(NavigationMethod.Tab);
+        }
     }
 
-    private async Task<string?> ShowOrganizationImportAsync(Window owner, ConsoleClient client, School school, string? termId,
-        ManagedAcademicTerm? archivedTerm = null)
+    private async Task<bool> ShowOrganizationImportAsync(ConsoleClient client, School school, string? termId,
+        bool archived = false, Guid? requestId = null)
     {
-        if (_organizationImportWindow is not null || _client != client || _school != school) return null;
-        var window = new OrganizationImportWindow(client, school, termId, archivedTerm is not null)
+        if (_client != client || _school != school) return false;
+        var caller = _academicPages.TryPeek(out var parent) ? parent.Content : null;
+        var view = new OrganizationImportView(client, school, termId, archived)
         {
-            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
-            OpenSubjects = archivedTerm is null ? null : popup => OpenCorrectionSubjectsAsync(popup, client, school)
+            RecoveryRequestId = requestId,
+            SessionExpired = error => AcademicScopeUnavailable(error, client, school),
+            OpenSubjects = archived ? popup => OpenCorrectionSubjectsAsync(popup, client, school) : null
         };
-        _organizationImportWindow = window;
-        try { await window.ShowDialog(owner); }
-        finally { if (_organizationImportWindow == window) _organizationImportWindow = null; }
-        if (_client != client || _school != school) return null;
-        if (window.ActiveTermChanged)
+        view.OpenTeacherAllocation = OpenTeachersAsync;
+        GradeTeachingPlanWindow? historyTeaching = null;
+        view.OpenReceiptTarget = async current =>
+        {
+            if (!ShowsAcademicPage(current) || current.ConfirmedReceipt is not { } receipt ||
+                !await current.HasCurrentTargetAsync(receipt.TermId, receipt.GradeId) || !ShowsAcademicPage(current)) return;
+            if (current.GoToDraftId == receipt.TermId)
+            {
+                if (TermPreparationView.HasPendingSchoolRequest(client, school.Id))
+                {
+                    current.NavigationNotice("学期管理中有操作待核对。请先核对原请求，再打开这份草稿的启用前检查。");
+                    return;
+                }
+                await ShowTermPreparationAsync(client, school, initialDraftCheck: receipt.TermId);
+            }
+            else if (current.GoToHistoryClass is { } history && history.TermId == receipt.TermId && history.GradeId == receipt.GradeId &&
+                current.ReceiptTerm is { } original && receipt.AdministrativeClasses.Any(row => row.Id == history.WorkspaceId))
+            {
+                await ShowTermClassDirectoryAsync(client, school, original, history.WorkspaceId, receipt.GradeId);
+            }
+            else if (current.GoToTeaching is { } target && target.TermId == receipt.TermId &&
+                (target.IsGroup ? receipt.CourseGroups : receipt.AdministrativeClasses).Any(row => row.Id == target.WorkspaceId))
+            {
+                if (receipt.TermStatus == "ARCHIVED")
+                {
+                    var subject = target.IsGroup ? current.ReceiptSubjectForGroup(target.WorkspaceId) : null;
+                    if (target.IsGroup && subject is null)
+                    {
+                        current.NavigationNotice("这份回执中找不到所选教学班的学科。请从该学期的教学安排核对。");
+                        return;
+                    }
+                    var plan = new GradeTeachingPlanWindow(client, school, receipt.GradeId, subject, target.IsGroup ? target.WorkspaceId : null,
+                        receipt.TermId, target.IsGroup ? null : target.WorkspaceId, requireInitialTarget: true)
+                    { SessionExpired = error => AcademicScopeUnavailable(error, client, school) };
+                    historyTeaching = plan;
+                    try { await plan.ShowDialog(this); }
+                    finally { if (historyTeaching == plan) historyTeaching = null; }
+                }
+                else await ShowTeachingPageAsync(client, school, receipt.TermId, target.WorkspaceId, null,
+                    courseGroup: target.IsGroup, termName: current.ReceiptTerm?.Name);
+            }
+        };
+        view.OpenPendingRequest = async (id, term, correction) =>
+        {
+            if (ShowsAcademicPage(view)) await ShowOrganizationImportAsync(client, school, term, correction, id);
+        };
+        view.CloseRequested = () => ReturnFromAcademicPage(view);
+        var exit = PushAcademicPage(view, view.CanClose, () =>
+        {
+            historyTeaching?.CloseForScopeChange();
+            view.End();
+        });
+        await view.StartAsync();
+        var returned = await exit;
+        if (!returned || _client != client || _school != school) return false;
+        if (view.ActiveTermChanged && caller is OrganizationImportView importParent)
+            importParent.ObserveActiveImport();
+        else if (view.ActiveTermChanged && (caller is null ? _academicPages.Count == 0 : ShowsAcademicPage(caller)))
         {
             await LoadSchoolAsync(school, _classroom?.Id, _device);
-            if (_client != client || _school != school) return null;
+            if (_client != client || _school != school) return false;
             await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
         }
-        if (_client != client || _school != school) return null;
-        if (window.GoToTeacherAllocation is { } allocation)
-            await ShowTeacherAllocationAsync(owner, client, school, allocation.TermId, allocation.GradeId,
-                archivedTerm is not null, window.SelectedReceiptWorkspace);
-        if (archivedTerm is not null && window.GoToHistoryClass is { } history && history.TermId == archivedTerm.Id)
-            await ShowTermClassDirectoryAsync(client, school, archivedTerm, history.WorkspaceId, history.GradeId);
-        if (window.GoToTeaching is { } target)
-            await ShowTeachingAsync(client, school, target.TermId, target.WorkspaceId, null, courseGroup: target.IsGroup, owner: owner);
-        return window.GoToDraftId;
+        return _client == client && _school == school && (caller is null ? _academicPages.Count == 0 : ShowsAcademicPage(caller));
+
+        async Task OpenTeachersAsync(string term, string grade, string? workspace)
+        {
+            if (!ShowsAcademicPage(view) || !await view.HasCurrentTargetAsync(term, grade) || !ShowsAcademicPage(view)) return;
+            if (!archived && TeacherAllocationWindow.HasOtherPendingTarget(client, school.Id, term, grade))
+            {
+                view.NavigationNotice("另一个学期或年级的教师分配仍待核对。请从教师账号的「批量导入与分配」核对那笔请求。");
+                return;
+            }
+            await ShowTeacherAllocationAsync(this, client, school, term, grade, archived, workspace,
+                error => AcademicScopeUnavailable(error, client, school));
+        }
     }
 
     private async Task<SchoolSubject?> OpenCorrectionSubjectsAsync(Window owner, ConsoleClient client, School school)
@@ -60,10 +120,4 @@ public sealed partial class MainWindow
         return _client == client && _school == school ? catalog.CreatedSubject : null;
     }
 
-    private void CloseOrganizationImport()
-    {
-        var window = _organizationImportWindow;
-        _organizationImportWindow = null;
-        window?.CloseForScopeChange();
-    }
 }

@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation;
@@ -13,7 +12,7 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record ArchivedCorrectionAccess(string Origin, string SchoolId, string SchoolCode, string Password,
-        string ArchivedTermId, string ActiveName, string ArchiveName, string File, string GroupId, string TeacherId);
+        string ArchivedTermId, string ActiveName, string ArchiveName, string File, string ClassId, string GroupId, string TeacherId);
 
     private static int StartArchivedBatchCorrection(string fixture, string output)
     {
@@ -54,31 +53,28 @@ internal static partial class Program
             var entry = Find<Button>(terms, "TermOrganizationImport");
             await Until(() => entry.IsEffectivelyEnabled && Equals(entry.Content, "批量更正"), "explicit archive entry");
             Click(entry);
-            var org = await WindowOf<OrganizationImportWindow>();
+            var org = await AcademicPageAsync<OrganizationImportView>(main);
             var grade = Find<ComboBox>(org, "OrgGrade");
             await Until(() => grade.Items.Count > 1, "archive catalog");
             Check(!Find<ComboBox>(org, "OrgTerm").IsEnabled &&
                 Find<TextBlock>(org, "OrgScope").Text!.Contains(access.ActiveName), "archive and active terms are distinct");
             grade.SelectedItem = grade.Items.Cast<object>().Single(item => item.ToString()!.Contains("高二（G2）"));
-            var load = typeof(OrganizationImportWindow).GetMethod("LoadOrganizationText", BindingFlags.Instance | BindingFlags.NonPublic)!;
             var original = await File.ReadAllTextAsync(access.File);
-            load.Invoke(org, [original]);
-            load.Invoke(org, [original.Replace("\"code\":\"G2\",\"name\":\"高二\"", "\"code\":\"G1\",\"name\":\"高一\"", StringComparison.Ordinal)]);
+            org.LoadOrganizationText(original);
+            org.LoadOrganizationText(original.Replace("\"code\":\"G2\",\"name\":\"高二\"", "\"code\":\"G1\",\"name\":\"高一\"", StringComparison.Ordinal));
             var misfile = Find<TextBlock>(org, "OrgFileMismatchText");
             Check(misfile.IsEffectivelyVisible && misfile.Text!.Contains("高一（G1）") && misfile.Text.Contains("高二（G2）") &&
                 !Find<Button>(org, "OrgPreview").IsEnabled && Find<ListBox>(org, "OrgGroups").ItemCount == 1,
                 "wrong file target provides both sides and keeps original draft");
-            org.Width = 840;
-            org.Height = 480;
-            await Capture(org, output, "00-narrow-wrong-file-keeps-draft");
-            Click(Find<Border>(org, "OrgFileMismatch").GetVisualDescendants().OfType<Button>().Single());
-            Click(Find<Button>(org, "OrgExcel"));
-            await Until(() => desktop.Windows.Any(row => row.IsVisible && row.Title == "从 Excel 粘贴"), "archive Excel editor opens");
-            var paste = desktop.Windows.Single(row => row.IsVisible && row.Title == "从 Excel 粘贴");
-            var cells = paste.GetVisualDescendants().OfType<TextBox>().Single(row => AutomationProperties.GetName(row) == "粘贴 Excel 列");
+            main.Width = 840;
+            main.Height = 480;
+            await CaptureWithFrame(main, output, "00-narrow-wrong-file-keeps-draft");
+            await PressScoped(org, "OrgKeepOriginal");
+            await PressScoped(org, "OrgExcel");
+            var cells = Find<TextBox>(org, "OrgExcelText");
             cells.Text = "班级代码\t班名\t学科代码\t学科名称\t授课方式\t必修\nG2-C08\t高二（8）班\tPHY\t物理\t走班\t是";
-            Click(paste.GetVisualDescendants().OfType<Button>().Single(row => Equals(row.Content, "替换本表草稿")));
-            await Until(() => !paste.IsVisible && Find<ListBox>(org, "OrgClasses").ItemCount == 1, "Excel updates only the target archive table");
+            await PressScoped(org, "OrgApplyExcel");
+            await Until(() => !cells.IsEffectivelyVisible && Find<ListBox>(org, "OrgClasses").ItemCount == 1, "Excel updates only the target archive table");
             var order = Find<NumericUpDown>(org, "OrgGradeOrder");
             order.Value = 2;
             var sections = Find<TabControl>(org, "OrgSections");
@@ -91,22 +87,28 @@ internal static partial class Program
             Click(Find<Button>(org, "OrgPreview"));
             await Until(() => approval.IsEffectivelyEnabled &&
                 differences.Items.OfType<OrganizationDifference>().Any(row => row.Action == "REMOVE"), "review explicit sources");
-            differences.SelectedItem = differences.Items.OfType<OrganizationDifference>().Single(row => row.Key == "grade");
-            differences.RaiseEvent(new KeyEventArgs {RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter});
+            var gradeDifference = differences.Items.OfType<OrganizationDifference>().Single(row => row.Key == "grade");
+            differences.SelectedItem = gradeDifference;
+            differences.ScrollIntoView(gradeDifference);
+            await Until(() => differences.ContainerFromItem(gradeDifference) is Control, "grade difference row is realized");
+            var gradeRow = (Control)differences.ContainerFromItem(gradeDifference)!;
+            gradeRow.Focus();
+            gradeRow.RaiseEvent(new KeyEventArgs {RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter});
             await Until(() => order.IsKeyboardFocusWithin, "narrow grade difference focuses the actual order input");
-            org.Width = 1160;
-            org.Height = 780;
-            await Capture(org, output, "01-wide-archive-removals");
+            await PressScoped(org, "OrgBackToReview");
+            main.Width = 1160;
+            main.Height = 780;
+            await CaptureWithFrame(main, output, "01-wide-archive-removals");
             await Signal("web-change");
 
-            org.Width = 840;
-            org.Height = 480;
+            main.Width = 840;
+            main.Height = 480;
             approval.IsChecked = true;
             Click(Find<Button>(org, "OrgSave"));
-            await Until(() => Find<TextBlock>(org, "OrgStatus").Text!.Contains("零写入") &&
+            await Until(() => Find<TextBlock>(org, "OrgStatus").Text!.Contains("本次没有保存任何更改") &&
                 differences.Items.OfType<OrganizationDifference>().Any(row => row.NeedsReview), "stale organization draft retains choices");
             await Signal("zero");
-            await Capture(org, output, "02-narrow-source-conflict");
+            await CaptureWithFrame(main, output, "02-narrow-source-conflict");
             differences.SelectedItem = differences.Items.OfType<OrganizationDifference>().First(row => row.NeedsReview);
             differences.RaiseEvent(new KeyEventArgs {RoutedEvent = InputElement.KeyDownEvent, Key = Key.F8});
             await Until(() => Find<TextBox>(org, "OrgSourceCodes").IsFocused, "F8 focuses the narrow source editor");
@@ -118,8 +120,17 @@ internal static partial class Program
             Click(Find<Button>(org, "OrgSave"));
             await Until(() => Find<TextBlock>(org, "OrgStatus").Text!.Contains("找回本次"), "lost response resolves exact organization receipt");
             await Signal("organization-only");
-            await Capture(org, output, "03-narrow-organization-receipt");
+            await CaptureWithFrame(main, output, "03-narrow-organization-receipt");
             var results = Find<ListBox>(org, "OrgReceiptClasses");
+            results.SelectedItem = results.Items.Cast<object>().Single(item => item.ToString()!.Contains("G2-C08"));
+            await PressScoped(org, "OrgHistoryClass");
+            var history = await AcademicPageAsync<TermClassManagementView>(main);
+            await Until(() => Find<TermClassDirectoryView>(history, "StructureDirectory").Selected?.Id == access.ClassId &&
+                Find<TextBlock>(history, "StructureTarget").Text?.Contains(access.ArchiveName) == true,
+                "receipt takes the administrator to the historical class ID in the same HWND");
+            await PressScoped(history, "StructureClose");
+            await Until(() => Find<Button>(org, "OrgHistoryClass").IsFocused &&
+                results.SelectedItem?.ToString()?.Contains("G2-C08") == true, "return restores the exact historical class receipt");
             results.SelectedItem = results.Items.Cast<object>().Single(item => item.ToString()!.Contains("A1"));
             Click(Find<Button>(org, "OrgTeacherAllocation"));
 
@@ -162,6 +173,9 @@ internal static partial class Program
             teacher.Width = 1160;
             teacher.Height = 780;
             await Capture(teacher, output, "05-wide-teacher-receipt");
+            await PressScoped(teacher, "AllocationClose");
+            await Until(() => Find<Button>(org, "OrgTeacherAllocation").IsFocused &&
+                results.SelectedItem?.ToString()?.Contains("A1") == true, "return to the exact historical receipt and row");
             Console.WriteLine("PASS: Windows archive scope, stale source changes, F8 return, two independent recovered receipts.");
             desktop.Shutdown(0);
         }

@@ -50,12 +50,22 @@ public sealed partial class MainWindow
     }
 
     private async Task<bool> ShowTeacherAllocationAsync(Window owner, ConsoleClient client, School school,
-        string? termId = null, string? gradeId = null, bool archivedCorrection = false, string? workspaceId = null)
+        string? termId = null, string? gradeId = null, bool archivedCorrection = false, string? workspaceId = null,
+        Action<ConsoleApiException>? scopeUnavailable = null)
     {
         if (_teacherAllocationWindow is not null || _client != client || _school != school) return false;
         var window = new TeacherAllocationWindow(client, school, termId, gradeId, archivedCorrection, workspaceId)
         {
-            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
+            SessionExpired = error =>
+            {
+                if (_client != client || _school != school) return;
+                if (scopeUnavailable is not null && error.StatusCode == 403)
+                {
+                    CloseTeacherAccounts();
+                    scopeUnavailable(error);
+                }
+                else ReturnToLoginIfExpired(error);
+            },
             OpenSchoolProfile = archivedCorrection ? null : popup => ShowSchoolProfileAsync(popup, client, school),
             LegacyWebLink = (owner as TeacherAccountsWindow)?.AllocationLegacyWebLink
         };

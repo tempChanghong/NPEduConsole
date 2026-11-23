@@ -44,15 +44,14 @@ internal static partial class Program
             await SelectSchool(access.SchoolId);
 
             Click(Find<Button>(main, "OpenOrganizationImportButton"));
-            var organization = await WindowOf<OrganizationImportWindow>();
+            var organization = await AcademicPageAsync<OrganizationImportView>(main);
             var organizationTerms = Find<ComboBox>(organization, "OrgTerm");
             await Until(() => organizationTerms.Items.OfType<OrganizationTerm>().Any(row => row.Id == access.DraftId),
                 "both terms visible in organization import");
             organizationTerms.SelectedItem = organizationTerms.Items.OfType<OrganizationTerm>().Single(row => row.Id == access.DraftId);
             await Until(() => Find<Button>(organization, "OrgOpenFile").IsEnabled && Find<TextBlock>(organization, "OrgScope").Text!.Contains("开学准备草稿"),
                 "draft term selected in organization import");
-            typeof(OrganizationImportWindow).GetMethod("LoadOrganizationText", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(organization, ["""{"grade":{"code":"G2","name":"高二"},"subjects":[],"administrativeClasses":[{"code":"G2-C10","name":"高二（10）班草稿","subjectRules":{}}]}"""]);
+            organization.LoadOrganizationText("""{"grade":{"code":"G2","name":"高二"},"subjects":[],"administrativeClasses":[{"code":"G2-C10","name":"高二（10）班草稿","subjectRules":{}}]}""");
             Click(Find<Button>(organization, "OrgPreview"));
             await Until(() => Find<CheckBox>(organization, "OrgApprove").IsEnabled, "a real organization write is ready");
             Find<CheckBox>(organization, "OrgApprove").IsChecked = true;
@@ -72,7 +71,9 @@ internal static partial class Program
             await Signal("draft-access");
             await Capture(window, output, "01-draft-handoff-and-access");
             Click(Find<Button>(window, "AllocationClose"));
-            await Until(() => !window.IsVisible && main.IsEnabled, "returned from draft allocation");
+            await Until(() => !window.IsVisible && main.IsEnabled && Find<Button>(organization, "OrgTeacherAllocation").IsFocused,
+                "returned to original draft organization result");
+            await PressScoped(organization, "OrgClose");
 
             var (accountWindow, active) = await OpenTeacherBulk();
             window = active;
