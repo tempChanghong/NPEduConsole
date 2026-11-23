@@ -111,7 +111,7 @@ public sealed partial class TermPreparationView : UserControl
         bool narrow = Bounds.Width < 850;
         Arrange(TermDirectory, DraftTermsCard, narrow);
         Arrange(TermCreateView, TermReviewCard, narrow);
-        Arrange(TermCheckIssues, TermRemindersCard, narrow);
+        TermCheckView.Classes.Set("compact-check", narrow);
         static void Arrange(Grid panel, Border second, bool stacked)
         {
             int count = stacked ? 1 : 2;
@@ -417,6 +417,8 @@ public sealed partial class TermPreparationView : UserControl
         _selectedTermId = termId;
         _check = null;
         _screenId = null;
+        TermScreenRows.SelectedItem = null;
+        TermReminderExpander.IsExpanded = false;
         TermScreenSearch.Clear();
         SetPage(Page.Check);
         await ReadCheckAsync(termId, reveal: true);
@@ -426,6 +428,7 @@ public sealed partial class TermPreparationView : UserControl
     {
         _confirmation = null;
         TermActivationChanges.IsVisible = false;
+        TermChangedScreenLinks.Children.Clear();
         if (TermScreenRows.SelectedItem is TermDraftScreenImpact selection) _screenId = selection.BindingId;
         bool listFocused = TermScreenRows.IsKeyboardFocusWithin;
         _check = null;
@@ -457,16 +460,18 @@ public sealed partial class TermPreparationView : UserControl
         if (_closed) return;
         if (TermBlockerItems.Children.OfType<Control>().FirstOrDefault() is { } blocker)
         {
-            TermBlockersCard.BringIntoView();
+            TermRisksTab.IsSelected = true;
             Focus(blocker);
             return;
         }
         if (TermScreenRows.ItemCount > 0)
         {
-            TermScreenRows.BringIntoView();
+            TermScreensTab.IsSelected = true;
+            if (TermScreenRows.SelectedIndex < 0) TermScreenRows.SelectedIndex = 0;
             Focus(TermScreenRows);
             return;
         }
+        TermRisksTab.IsSelected = true;
         Focus(CanConfirmActivation ? TermPrimary : TermRefresh);
     }
 
@@ -483,10 +488,13 @@ public sealed partial class TermPreparationView : UserControl
         TermCheckReceiptCounts.Text = _receipt is { } received ? "本次继承：" + Counts(received.Counts) : null;
         TermBlockerItems.Children.Clear();
         TermReminderItems.Children.Clear();
+        TermScreensTabLabel.Text = _check is { } screenCheck ? $"大屏影响 · {screenCheck.Screens.Length}" : "大屏影响";
+        TermRisksTabLabel.Text = _check is { EvidenceComplete: true } teachingCheck ? $"教务检查 · {teachingCheck.BlockingDiagnostics.Length} 项阻断" : "教务检查";
         if (_check is { } observed)
         {
-            TermBlockersSummary.Text = observed.BlockingDiagnostics.Length == 0 ? "本次检查未发现启用阻断。" : $"有 {observed.BlockingDiagnostics.Length} 项需要先处理。";
-            TermRemindersSummary.Text = observed.Reminders.Length == 0 ? "本次检查未发现一般提醒。" : $"有 {observed.Reminders.Length} 项需核对。";
+            TermBlockersSummary.Text = observed.BlockingDiagnostics.Length > 0 ? $"启用阻断 · {observed.BlockingDiagnostics.Length} 项需要先处理" :
+                observed.EvidenceComplete ? "本次检查未发现启用阻断。" : "检查数据不完整，启用条件待核对。";
+            TermRemindersSummary.Text = $"一般提醒 · {observed.Reminders.Length} 项";
             AddDiagnostics(TermBlockerItems, observed.BlockingDiagnostics, false);
             AddDiagnostics(TermReminderItems, observed.Reminders, true);
             TermScreenSummary.Text = observed.Screens.Length == 0 ? "当前没有需核对的启用大屏绑定。" :
@@ -525,8 +533,22 @@ public sealed partial class TermPreparationView : UserControl
         if (args.Key != Key.Enter || TermScreenRows.ItemCount == 0) return;
         args.Handled = true;
         TermScreenRows.SelectedIndex = 0;
-        Focus(TermScreenRows);
-        if (TermScreenRows.SelectedItem is { } row) TermScreenRows.ScrollIntoView(row);
+        FocusSelectedScreen();
+    }
+    private void FocusSelectedScreen()
+    {
+        if (TermScreenRows.SelectedItem is not { } row) return;
+        TermScreenRows.ScrollIntoView(row);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed || !TermScreenRows.IsEffectivelyVisible || !Equals(TermScreenRows.SelectedItem, row)) return;
+            TermScreenRows.UpdateLayout();
+            if (TermScreenRows.ContainerFromItem(row) is ListBoxItem item)
+            {
+                item.BringIntoView();
+                item.Focus(NavigationMethod.Tab);
+            }
+        }, DispatcherPriority.Loaded);
     }
     private void FilterScreens()
     {
@@ -534,8 +556,11 @@ public sealed partial class TermPreparationView : UserControl
         string query = (TermScreenSearch.Text ?? "").Trim();
         var rows = _check?.Screens.Where(row => new[] {row.BindingId, row.Name, row.Original, row.Target}
             .Any(text => text.Contains(query, StringComparison.OrdinalIgnoreCase))).ToArray() ?? [];
-        TermScreenRows.ItemsSource = rows;
-        TermScreenRows.SelectedItem = rows.FirstOrDefault(row => row.BindingId == _screenId);
+        string? selectedId = (TermScreenRows.SelectedItem as TermDraftScreenImpact)?.BindingId ?? _screenId;
+        if (!TermScreenRows.Items.Cast<TermDraftScreenImpact>().SequenceEqual(rows))
+            TermScreenRows.ItemsSource = rows;
+        TermScreenRows.SelectedItem = rows.FirstOrDefault(row => row.BindingId == selectedId) ?? rows.FirstOrDefault();
+        TermNoScreenMatches.IsVisible = _check is not null && query.Length > 0 && rows.Length == 0;
         if (TermScreenRows.SelectedItem is { } selected) TermScreenRows.ScrollIntoView(selected);
     }
 
@@ -707,8 +732,10 @@ public sealed partial class TermPreparationView : UserControl
         };
         ToolTip.SetTip(TermHeading, TermHeading.Text);
         TermDirectory.IsVisible = _page == Page.Directory;
+        TermScope.IsVisible = _page != Page.Check || _check is null;
         TermCreateView.IsVisible = _page == Page.Create;
         TermCheckView.IsVisible = _page == Page.Check;
+        TermScroll.IsVisible = _page is Page.Directory or Page.Create;
         var source = CatalogTerms.FirstOrDefault(term => term.Id == _sourceId);
         TermDraftSource.Text = source is null ? "来源需重新核对。学生名单需另行准备。" :
             $"从 {source.Name}（{source.Period} · {source.StatusText}）继承。学生名单需另行准备。";
@@ -725,7 +752,7 @@ public sealed partial class TermPreparationView : UserControl
         TermPreviewButton.IsEnabled = editable && (!_sourceUnavailable || _activeTerm is not null);
         TermExistingButton.IsVisible = !pending && (_page == Page.Directory && PreparedTerms.ItemCount > 0 || _page == Page.Create && _existingId is not null);
         TermExistingButton.IsEnabled = editable && (_page == Page.Directory ? SelectedDraft is not null : _existingId is not null);
-        TermOrganizationImport.IsVisible = !pending && OpenOrganizationImport is not null &&
+        TermOrganizationImport.IsVisible = !pending && _confirmation is null && OpenOrganizationImport is not null &&
             (_page == Page.Directory && PreparedTerms.ItemCount > 0 || _page == Page.Check && _check is not null);
         TermOrganizationImport.Content = _page == Page.Directory && SelectedTerm?.Status == "ARCHIVED" ? "批量更正" : "导入草稿组织";
         TermOrganizationImport.IsEnabled = editable && (_page == Page.Check ? _check is not null : SelectedTerm?.Status is "DRAFT" or "ARCHIVED");

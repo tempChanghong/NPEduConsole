@@ -95,9 +95,29 @@ public sealed partial class TermPreparationView
         Notice("本次未启用。请核对已变化的项目，再确认。", true);
         TermActivationChanges.ItemsSource = changes;
         TermActivationChanges.IsVisible = true;
+        TermRisksTab.IsSelected = true;
+        TermRisksTabLabel.Text = "变更待核对";
+        TermRiskScroll.Offset = default;
+        TermChangedScreenLinks.Children.Clear();
+        var originalScreens = pending.Check.Screens.ToDictionary(row => row.BindingId);
+        foreach (var row in _check?.Screens ?? [])
+        {
+            if (originalScreens.TryGetValue(row.BindingId, out var original) && original == row) continue;
+            var button = new Button { Content = new TextBlock { Text = $"查看变化的大屏 · {row.Name}（{row.BindingId}）",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left, Classes = { "action" } };
+            button.Click += (_, _) =>
+            {
+                TermScreensTab.IsSelected = true;
+                TermScreenSearch.Clear();
+                FilterScreens();
+                TermScreenRows.SelectedItem = row;
+                FocusSelectedScreen();
+            };
+            TermChangedScreenLinks.Children.Add(button);
+        }
         ActivationObserved = true;
-        TermScroll.Offset = default;
-        Focus(TermRefresh);
+        Focus(TermChangedScreenLinks.Children.FirstOrDefault() ?? (Control)TermRefresh);
     }
 
     private async Task VerifyActivationAsync(ActivationRequest pending)
@@ -228,9 +248,9 @@ public sealed partial class TermPreparationView
         if (_page == Page.Check && _check is { } check)
         {
             var count = check.Screens.Count(row => row.NativeImpact != "NO_REBIND" || row.TargetClass is null);
-            TermActivationHeadline.Text = $"{(_confirmation is not null ? "确认启用 " : "将启用 ")}{check.Term.Name}" +
+            TermActivationHeadline.Text = $"{_school.Name} · {(_confirmation is not null ? "确认启用 " : "将启用 ")}{check.Term.Name}" +
                 (check.ActiveTerm is { } current ? $"，并归档 {current.Name}" : "（当前无启用学期）") +
-                $"。启用后有 {count} 台大屏需处理或核对。";
+                (check.EvidenceComplete ? $"。{check.BlockingDiagnostics.Length} 项阻断 · {count} 台大屏需处理或核对。" : "。检查数据不完整，请刷新核对。");
         }
         if (_page == Page.Check && _check?.ActivationProof is not null && !pending)
         {

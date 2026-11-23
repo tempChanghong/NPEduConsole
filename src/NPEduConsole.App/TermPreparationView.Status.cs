@@ -57,7 +57,7 @@ public sealed partial class TermPreparationView
         TermStatusDraft.IsVisible = term?.Status is "ACTIVE" or "ARCHIVED";
         TermStatusArchive.IsVisible = term?.Status is "ACTIVE" or "DRAFT";
         TermStatusActivate.IsEnabled = TermMoreActions.IsEnabled = editable && !pendingStatus;
-        TermActivationOptions.IsVisible = supportsStatus && _page == Page.Check && _check is not null && PendingActivation is null;
+        TermActivationOptions.IsVisible = supportsStatus && _page == Page.Check && _check is not null && PendingActivation is null && _confirmation is null;
         TermActivationOptions.IsEnabled = editable && !pendingStatus;
         TermStatusReceiptButton.IsVisible = supportsStatus && (pendingStatus || _catalog?.LatestStatusRequestId is not null);
         TermStatusReceiptButton.Content = pendingStatus ? "核对未确认操作" : "最近一次学期操作";

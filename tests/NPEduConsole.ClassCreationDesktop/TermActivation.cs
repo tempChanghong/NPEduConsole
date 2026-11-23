@@ -2,6 +2,7 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.VisualTree;
 using Avalonia.Threading;
 using NPEduConsole.App;
 using NPEduConsole.Core;
@@ -75,6 +76,18 @@ internal static partial class Program
             main.Width = 840;
             main.Height = 480;
             await Until(() => main.ClientSize is {Width: <= 845, Height: <= 485}, "compact live Windows window");
+            var changeLink = Find<StackPanel>(page, "TermChangedScreenLinks").Children.OfType<Button>().Single();
+            Check(changeLink.IsFocused, "stale confirmation focuses the exact changed screen link");
+            Click(changeLink);
+            await Until(() => checkRows.IsEffectivelyVisible && checkRows.SelectedItem is TermDraftScreenImpact changed &&
+                changed.BindingId == access.SecondId && checkRows.IsKeyboardFocusWithin, "changed rear screen opens from risk summary");
+            var selectedRow = (ListBoxItem)checkRows.ContainerFromItem(checkRows.SelectedItem!)!;
+            var visibleDetails = selectedRow.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).ToArray();
+            Check(visibleDetails.Any(t => t.Text?.Contains(access.SecondId) == true) &&
+                visibleDetails.Any(t => t.Text?.Contains("原班级") == true) && visibleDetails.Any(t => t.Text?.Contains("拟迁入") == true) &&
+                visibleDetails.Any(t => t.Text?.Contains("重新配对") == true), "compact selected screen exposes its full identity and effect");
+            Check(!checkRows.GetVisualAncestors().OfType<ScrollViewer>().Any(), "screen list owns the only content scroll viewport");
+            await Capture(main, output, "03b-compact-changed-screen");
             Click(primary);
             await Until(() => cancel.IsFocused, "compact default focus stays on cancel");
             Check(primary.TranslatePoint(new Point(0, primary.Bounds.Height), page) is { } bottom &&
@@ -133,6 +146,9 @@ internal static partial class Program
                 "the confirmed native screen has no native task; its unrelated missing web account may still be reported");
             await Capture(main, output, "10-school-overview");
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            var schoolAffairs = Find<Button>(main, "OpenSchoolAffairsButton");
+            await Until(() => entry.IsEffectivelyVisible || schoolAffairs.IsEffectivelyVisible, "class or school affairs home");
+            if (!entry.IsEffectivelyVisible) Click(schoolAffairs);
             await Until(() => entry.IsEffectivelyVisible && entry.IsEffectivelyEnabled, "return to term management");
             Click(entry);
             page = await WindowAsync();

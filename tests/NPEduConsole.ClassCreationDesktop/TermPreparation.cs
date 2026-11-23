@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Threading;
@@ -141,8 +142,15 @@ internal static partial class Program
             await Until(() => screenRows.Items.Cast<TermDraftScreenImpact>().Any(row =>
                 row.BindingId == access.UnmatchedId && row.NativeImpact == "NO_REBIND" && row.TargetClass is null),
                 "refresh reflects the old web edit and the unmatched target");
+            Check(screenRows.ItemCount == 13, "large screen directory includes all ten extra long-name screens");
             Check(Find<StackPanel>(page, "TermBlockerItems").GetVisualDescendants().OfType<TextBlock>()
                 .Any(label => label.Text?.Contains("没有走班教学班覆盖") == true), "a new real teaching issue appears as an activation blocker");
+            Find<TabStripItem>(page, "TermScreensTab").IsSelected = true;
+            var longName = screenRows.Items.Cast<TermDraftScreenImpact>().First(row => row.Name.EndsWith(" 10"));
+            screenRows.SelectedItem = longName;
+            screenRows.ScrollIntoView(longName);
+            await Until(() => screenRows.ContainerFromItem(longName) is ListBoxItem {IsEffectivelyVisible: true}, "long-name screen reachable in compact directory");
+            await Capture(page, output, "05b-compact-large-screen-directory");
             search.Text = access.SecondId;
             await Until(() => screenRows.ItemCount == 1 && screenRows.Items.Cast<TermDraftScreenImpact>().Single().BindingId == access.SecondId,
                 "the exact second binding is searchable, even with duplicate screen names");

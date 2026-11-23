@@ -122,6 +122,10 @@ async function verify({prisma, origin, fixture, directory, evidence, web, native
       break;
     }
     case 'change-draft': {
+      await prisma.classroomScreenBinding.createMany({data: Array.from({length: 10}, (_, i) => ({
+        schoolId: school.id, administrativeClassId: seven.id, name: '七班分区教学与作业展示长名称大屏 ' + (i + 1),
+        npepPrepared: true, createdByAccountId: managerId, tokenHash: randomBytes(32).toString('hex'),
+      }))});
       const room = await prisma.workspace.findUniqueOrThrow({where: {termId_code: {termId: createdTerm.id, code: eight.code}}});
       await api(schoolPath + '/administrative-classes/' + room.id, {method: 'PATCH', token,
         body: {name: '高二（8）班新版', code: 'G2-8-NEW', expectedUpdatedAt: room.updatedAt}});

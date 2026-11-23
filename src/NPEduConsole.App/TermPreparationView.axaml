@@ -15,6 +15,12 @@
       <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
       <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
     </Style>
+    <Style Selector="StackPanel.screen-compact, StackPanel.screen-details, Grid.compact-check Grid.screen-columns">
+      <Setter Property="IsVisible" Value="False"/>
+    </Style>
+    <Style Selector="Grid.compact-check StackPanel.screen-compact, ListBoxItem:selected StackPanel.screen-details">
+      <Setter Property="IsVisible" Value="True"/>
+    </Style>
   </UserControl.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,10">
@@ -135,65 +141,82 @@
                 </StackPanel>
               </Border>
             </Grid>
-            <StackPanel x:Name="TermCheckView" Spacing="8" IsVisible="False">
-              <Border Classes="card" Padding="12">
-                <StackPanel Spacing="5">
-                  <TextBlock x:Name="TermCheckTarget" FontSize="19" Classes="label" TextWrapping="Wrap"/>
-                  <TextBlock x:Name="TermCheckDates" Classes="muted" TextWrapping="Wrap"/>
-                  <TextBlock x:Name="TermCheckStatus" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
-                  <Button x:Name="TermPrepareClasses" Classes="action" Content="准备班级与名单" Click="TermPrepareClassesClicked"
-                          HorizontalAlignment="Left" IsVisible="False"/>
-                  <Button x:Name="TermPrepareTeaching" Classes="action" Content="准备教学安排与师资" Click="TermPrepareTeachingClicked"
-                          HorizontalAlignment="Left" IsVisible="False"/>
-                  <ItemsControl x:Name="TermActivationChanges" IsVisible="False">
-                    <ItemsControl.ItemTemplate>
-                      <DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Classes="term-notice error" Margin="0,2"/></DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                  </ItemsControl>
-                  <TextBlock x:Name="TermCheckReceiptCounts" TextWrapping="Wrap" IsVisible="False"/>
-                </StackPanel>
-              </Border>
-              <Grid x:Name="TermCheckIssues">
-                <Border x:Name="TermBlockersCard" Classes="card" Padding="12">
-                  <StackPanel Spacing="5">
-                    <TextBlock Text="启用阻断" FontSize="17" Classes="label"/>
-                    <TextBlock x:Name="TermBlockersSummary" TextWrapping="Wrap"/>
-                    <StackPanel x:Name="TermBlockerItems" Spacing="4"/>
-                  </StackPanel>
-                </Border>
-                <Border x:Name="TermRemindersCard" Classes="card" Padding="12">
-                  <StackPanel Spacing="5">
-                    <TextBlock Text="一般提醒" FontSize="17" Classes="label"/>
-                    <TextBlock x:Name="TermRemindersSummary" TextWrapping="Wrap"/>
-                    <StackPanel x:Name="TermReminderItems" Spacing="4"/>
-                  </StackPanel>
-                </Border>
-              </Grid>
-              <Border Classes="card" Padding="12">
-                <StackPanel Spacing="7">
-                  <TextBlock Text="大屏影响" FontSize="17" Classes="label"/>
-                  <TextBlock Text="以下是全校启用中的绑定，也包括历史学期遗留的大屏。KV 按行政班代码匹配新班；已配对的屏改绑后需现场重新配对。无匹配的屏仍绑定原班。" TextWrapping="Wrap" Classes="muted"/>
-                  <TextBlock x:Name="TermScreenSummary" TextWrapping="Wrap"/>
-                  <TextBox x:Name="TermScreenSearch" PlaceholderText="按大屏名、班级或绑定编号查找" TextChanged="ScreenSearchChanged" KeyDown="ScreenSearchKeyDown" AutomationProperties.Name="查找拟迁移大屏"/>
-                  <ListBox x:Name="TermScreenRows" Classes="object-list" Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                           ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.AllowAutoHide="False" MaxHeight="260" AutomationProperties.Name="逐台大屏影响">
-                    <ListBox.ItemTemplate>
-                      <DataTemplate x:DataType="core:TermDraftScreenImpact">
-                        <StackPanel Spacing="3" AutomationProperties.AutomationId="{Binding BindingId}">
-                          <TextBlock Text="{Binding Name}" Classes="label" TextWrapping="Wrap"/>
-                          <TextBlock Text="{Binding BindingId, StringFormat='绑定编号 {0}'}" Classes="muted" TextWrapping="Wrap"/>
-                          <TextBlock Text="{Binding Original, StringFormat='原班级　{0}'}" TextWrapping="Wrap"/>
-                          <TextBlock Text="{Binding Target, StringFormat='拟迁入　{0}'}" TextWrapping="Wrap"/>
-                          <TextBlock Text="{Binding Impact}" TextWrapping="Wrap"/>
-                        </StackPanel>
-                      </DataTemplate>
-                    </ListBox.ItemTemplate>
-                  </ListBox>
-                </StackPanel>
-              </Border>
-            </StackPanel>
           </Grid>
         </ScrollViewer>
+        <Grid x:Name="TermCheckView" IsVisible="False" RowDefinitions="Auto,*" RowSpacing="6">
+          <TabStrip SelectedIndex="0" AutomationProperties.Name="检查内容">
+            <TabStripItem x:Name="TermScreensTab" FontSize="15"><TextBlock x:Name="TermScreensTabLabel" Text="大屏影响"/></TabStripItem>
+            <TabStripItem x:Name="TermRisksTab" FontSize="15"><TextBlock x:Name="TermRisksTabLabel" Text="教务与变更"/></TabStripItem>
+          </TabStrip>
+          <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" RowSpacing="5" IsVisible="{Binding #TermScreensTab.IsSelected}">
+            <Grid ColumnDefinitions="1.25*,*" ColumnSpacing="12">
+              <TextBox x:Name="TermScreenSearch" Classes="search-field" HorizontalAlignment="Stretch"
+                       PlaceholderText="查找屏名、班级或绑定编号" TextChanged="ScreenSearchChanged" KeyDown="ScreenSearchKeyDown"
+                       AutomationProperties.Name="查找拟迁移大屏"/>
+              <TextBlock Grid.Column="1" x:Name="TermScreenSummary" Classes="muted" HorizontalAlignment="Right" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </Grid>
+            <Grid Grid.Row="1" Classes="screen-columns" ColumnDefinitions="1.05*,1.2*,1*,1.5*" ColumnSpacing="12" Margin="13,1">
+              <TextBlock Text="大屏" Classes="label"/><TextBlock Grid.Column="1" Text="原班级" Classes="label"/>
+              <TextBlock Grid.Column="2" Text="拟迁入" Classes="label"/><TextBlock Grid.Column="3" Text="启用后" Classes="label"/>
+            </Grid>
+            <ListBox Grid.Row="2" x:Name="TermScreenRows" Classes="object-list" Background="{DynamicResource SurfaceBrush}"
+                     CornerRadius="8" BorderThickness="1" BorderBrush="{DynamicResource LineBrush}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     AutomationProperties.Name="逐台大屏影响">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="core:TermDraftScreenImpact">
+                  <Grid AutomationProperties.AutomationId="{Binding BindingId}">
+                    <Grid Classes="screen-columns" ColumnDefinitions="1.05*,1.2*,1*,1.5*" ColumnSpacing="12" Margin="0,3">
+                      <StackPanel Spacing="2"><TextBlock Text="{Binding Name}" Classes="label" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding BindingId}" Classes="muted" FontSize="12" TextWrapping="Wrap"/></StackPanel>
+                      <TextBlock Grid.Column="1" Text="{Binding Original}" TextWrapping="Wrap"/>
+                      <TextBlock Grid.Column="2" Text="{Binding Target}" TextWrapping="Wrap"/>
+                      <TextBlock Grid.Column="3" Text="{Binding Impact}" TextWrapping="Wrap"/>
+                    </Grid>
+                    <StackPanel Classes="screen-compact" Spacing="3">
+                      <TextBlock Text="{Binding Name}" Classes="label" TextWrapping="Wrap"/>
+                      <TextBlock Text="{Binding BindingId, StringFormat='绑定编号 {0}'}" Classes="muted" FontSize="12" TextWrapping="Wrap"/>
+                      <StackPanel Classes="screen-details" Spacing="2">
+                        <TextBlock Text="{Binding Original, StringFormat='原班级　{0}'}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Target, StringFormat='拟迁入　{0}'}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Impact}" Classes="label" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </StackPanel>
+                  </Grid>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Grid.Row="2" x:Name="TermNoScreenMatches" Classes="muted" Margin="14" IsVisible="False" Text="没有符合搜索条件的大屏。"/>
+          </Grid>
+          <ScrollViewer x:Name="TermRiskScroll" Grid.Row="1" IsVisible="{Binding #TermRisksTab.IsSelected}" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="10" Margin="0,0,6,0">
+              <ItemsControl x:Name="TermActivationChanges" IsVisible="False">
+                <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" TextWrapping="Wrap" Classes="term-notice error"/></DataTemplate></ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <StackPanel x:Name="TermChangedScreenLinks" Spacing="4"/>
+              <Border x:Name="TermBlockersCard" Classes="card" Padding="12">
+                <StackPanel Spacing="3">
+                  <TextBlock x:Name="TermBlockersSummary" Classes="label" TextWrapping="Wrap"/>
+                  <StackPanel x:Name="TermBlockerItems" Spacing="3"/>
+                </StackPanel>
+              </Border>
+              <Expander x:Name="TermReminderExpander" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <Expander.Header><TextBlock x:Name="TermRemindersSummary" TextWrapping="Wrap"/></Expander.Header>
+                <StackPanel x:Name="TermReminderItems" Spacing="3"/>
+              </Expander>
+              <StackPanel Spacing="4">
+                <TextBlock x:Name="TermCheckTarget" FontSize="16" Classes="label"/>
+                <TextBlock x:Name="TermCheckDates" Classes="muted"/>
+                <TextBlock x:Name="TermCheckStatus" TextWrapping="Wrap"/>
+                <TextBlock x:Name="TermCheckReceiptCounts" TextWrapping="Wrap" IsVisible="False"/>
+                <WrapPanel ItemSpacing="6" LineSpacing="4">
+                  <Button x:Name="TermPrepareClasses" Classes="action" Content="准备班级与名单" Click="TermPrepareClassesClicked" IsVisible="False"/>
+                  <Button x:Name="TermPrepareTeaching" Classes="action" Content="准备教学安排与师资" Click="TermPrepareTeachingClicked" IsVisible="False"/>
+                </WrapPanel>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
         <!-- 结果页不进滚动区：启用后的学期名与待处理台数固定在顶上，下面只有逐台列表在滚动。 -->
         <Grid x:Name="TermActivationResultView" IsVisible="False" RowDefinitions="Auto,*" RowSpacing="8">
           <Border Classes="card" Padding="12">
