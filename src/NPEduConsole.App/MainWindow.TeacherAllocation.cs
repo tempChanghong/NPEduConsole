@@ -16,6 +16,9 @@ public sealed partial class MainWindow
             OpenSchoolProfile = archived ? null : owner => ShowSchoolProfileAsync(owner, client, school)
         };
         view.CloseRequested = () => ReturnFromAcademicPage(view);
+        if (!archived)
+            view.OpenStaffConfiguration = (file, term) => ShowsAcademicPage(view)
+                ? ShowStaffConfigurationAsync(client, school, term, file) : Task.FromResult(false);
         view.OpenPendingRequest = async (request, term, grade, correction) =>
         {
             if (ShowsAcademicPage(view))

@@ -1,0 +1,78 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.StaffConfigurationView">
+  <UserControl.Styles>
+    <Style Selector="Button.action">
+      <Setter Property="FocusAdorner">
+        <Template><Border CornerRadius="8" BorderThickness="2" BorderBrush="{DynamicResource FocusBrush}" IsHitTestVisible="False"/></Template>
+      </Setter>
+    </Style>
+  </UserControl.Styles>
+  <Grid Margin="16,10" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+      <StackPanel Spacing="2">
+        <TextBlock Text="导入完整师资方案" Classes="heading" FontSize="23" TextWrapping="Wrap"/>
+        <TextBlock x:Name="StaffPlanScope" Classes="label" TextWrapping="Wrap"/>
+        <TextBlock x:Name="StaffPlanDates" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+      <Button Grid.Column="1" x:Name="StaffPlanClose" Classes="action" Content="返回" Click="CloseClicked"/>
+    </Grid>
+    <StackPanel Grid.Row="1" Spacing="4">
+      <TextBlock x:Name="StaffPlanFile" Classes="muted" TextWrapping="Wrap"/>
+      <TextBlock x:Name="StaffPlanStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" IsVisible="False"/>
+      <WrapPanel x:Name="StaffPlanPendingBar" ItemSpacing="6" IsVisible="False">
+        <ComboBox x:Name="StaffPlanPendingChoices" MinWidth="200" MaxWidth="320" AutomationProperties.Name="本人的待核对申请"/>
+        <Button x:Name="StaffPlanPendingOpen" Content="核对原申请" Classes="action" Click="PendingClicked"/>
+      </WrapPanel>
+    </StackPanel>
+    <Grid x:Name="StaffPlanPanes" Grid.Row="2" ColumnDefinitions="2*,3*" ColumnSpacing="8">
+      <Border x:Name="StaffPlanListPane" Classes="card" Padding="8">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6">
+          <TextBox x:Name="StaffPlanSearch" Classes="search-field" PlaceholderText="查找姓名或短账号" AutomationProperties.Name="查找教师" TextChanged="SearchChanged"/>
+          <ListBox Grid.Row="1" x:Name="StaffPlanRows" Classes="object-list" Background="Transparent" BorderThickness="0"
+                   SelectionChanged="RowChanged" Tapped="RowTapped" KeyDown="RowKeyDown"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="完整师资教师与问题">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:StaffPlanRow">
+                <StackPanel Spacing="2">
+                  <TextBlock Classes="label" Text="{Binding Title}" TextWrapping="Wrap"/>
+                  <TextBlock Classes="muted" Text="{Binding Subtitle}" TextWrapping="Wrap"/>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <Button Grid.Row="2" x:Name="StaffPlanDetails" Content="查看所选教师" Classes="action" Click="DetailsClicked"/>
+        </Grid>
+      </Border>
+      <Border x:Name="StaffPlanDetailPane" Grid.Column="1" Classes="card" Padding="10">
+        <Grid RowDefinitions="Auto,*" RowSpacing="6">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+            <TextBlock x:Name="StaffPlanDetailTitle" Classes="label" FontSize="15" TextWrapping="Wrap"/>
+            <Button Grid.Column="1" x:Name="StaffPlanBackList" Content="返回教师列表" Classes="action" Click="BackListClicked"/>
+          </Grid>
+          <ScrollViewer x:Name="StaffPlanDetailScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="StaffPlanDetail" Spacing="7"/>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
+    <Border Grid.Row="2" x:Name="StaffPlanEmpty" Classes="card" Padding="12">
+      <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <TextBlock x:Name="StaffPlanEmptyText" TextWrapping="Wrap" LineHeight="23"/>
+      </ScrollViewer>
+    </Border>
+    <Grid Grid.Row="3" RowDefinitions="Auto,Auto" RowSpacing="4">
+      <TextBlock x:Name="StaffPlanSummary" Classes="muted" TextWrapping="Wrap"/>
+      <WrapPanel Grid.Row="1" ItemSpacing="7" LineSpacing="4">
+        <Button x:Name="StaffPlanOpen" Classes="action" Content="选择完整师资 JSON" Click="OpenClicked"/>
+        <Button x:Name="StaffPlanPreview" Classes="action accent" Content="预览方案" Click="PreviewClicked"/>
+        <CheckBox x:Name="StaffPlanApprove" Content="确认所列变更" IsCheckedChanged="ApprovalChanged"/>
+        <Button x:Name="StaffPlanSave" Classes="action accent" Content="确认并导入" Click="SaveClicked"/>
+        <Button x:Name="StaffPlanCheck" Classes="action accent" Content="只读核对本次结果" Click="CheckClicked"/>
+        <Button x:Name="StaffPlanCancelRequest" Classes="action" Content="结束原申请" Click="AskCancelRequestClicked"/>
+        <Button x:Name="StaffPlanKeepRequest" Classes="action" Content="返回，保留原申请" Click="KeepRequestClicked"/>
+        <Button x:Name="StaffPlanConfirmCancel" Classes="action accent" Content="结束原申请，重新预览" Click="CancelRequestClicked"/>
+        <Button x:Name="StaffPlanNew" Classes="action" Content="导入另一份方案" Click="NewClicked"/>
+      </WrapPanel>
+    </Grid>
+  </Grid>
+</UserControl>

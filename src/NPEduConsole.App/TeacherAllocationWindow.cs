@@ -8,6 +8,9 @@ internal sealed class TeacherAllocationWindow : Window
 {
     private bool _forceClose;
     private TeacherAllocationWindow? _recovery;
+    private readonly Grid _content = new();
+    private StaffConfigurationView? _staffConfiguration;
+    private TaskCompletionSource? _staffReturned;
     internal TeacherAllocationView View { get; }
     internal bool AccessChanged => View.AccessChanged;
     internal string? AllocatedAccountId => View.AllocatedAccountId;
@@ -28,7 +31,8 @@ internal sealed class TeacherAllocationWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         View = new TeacherAllocationView(client, school, termId, gradeId, archivedCorrection, initialWorkspaceId,
             fixedScope: recoveryId is not null) { RecoveryId = recoveryId };
-        Content = View;
+        _content.Children.Add(View);
+        Content = _content;
         View.CloseRequested = () => Close();
         View.OpenPendingRequest = async (id, term, grade, archived) =>
         {
@@ -47,8 +51,40 @@ internal sealed class TeacherAllocationWindow : Window
             BatchWorkspaceWindow.FitSchoolWindow(this);
             await View.StartAsync();
         };
-        Closing += (_, args) => args.Cancel = !_forceClose && !View.CanClose();
-        Closed += (_, _) => View.End();
+        Closing += (_, args) =>
+        {
+            if (!_forceClose && _staffConfiguration is { } staff)
+            {
+                args.Cancel = true;
+                if (staff.CanClose()) ReturnFromStaffConfiguration();
+            }
+            else args.Cancel = !_forceClose && !View.CanClose();
+        };
+        Closed += (_, _) => { ReturnFromStaffConfiguration(); View.End(); };
+    }
+
+    internal async Task<bool> ShowStaffConfigurationAsync(StaffConfigurationView staff)
+    {
+        if (_forceClose || _staffConfiguration is not null) return false;
+        _staffConfiguration = staff;
+        var returned = _staffReturned = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        View.IsVisible = false;
+        _content.Children.Add(staff);
+        staff.ReturnRequested = ReturnFromStaffConfiguration;
+        await staff.StartAsync();
+        await returned.Task;
+        return !_forceClose && staff.Applied;
+    }
+
+    private void ReturnFromStaffConfiguration()
+    {
+        if (_staffConfiguration is not { } staff || !staff.CanClose() && !_forceClose) return;
+        _staffConfiguration = null;
+        staff.End();
+        _content.Children.Remove(staff);
+        View.IsVisible = true;
+        _staffReturned?.TrySetResult();
+        _staffReturned = null;
     }
 
     internal void CloseForScopeChange()

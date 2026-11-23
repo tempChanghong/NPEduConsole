@@ -56,12 +56,16 @@
                  TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"/>
       <Border Grid.Row="2" x:Name="AllocationTargetNotice" IsVisible="False" Background="{DynamicResource WarningTintBrush}"
               CornerRadius="7" Padding="8,4">
-        <DockPanel LastChildFill="True">
-          <Button DockPanel.Dock="Right" x:Name="AllocationKeepTable" Content="保留原草稿" Classes="action"
-                  Margin="6,0,0,0" IsVisible="False" Click="KeepAllocationTableClicked"/>
+        <StackPanel Spacing="4">
           <TextBlock x:Name="AllocationTargetDetails" TextWrapping="Wrap" VerticalAlignment="Center"
                      AutomationProperties.LiveSetting="Polite"/>
-        </DockPanel>
+          <WrapPanel ItemSpacing="6" LineSpacing="4">
+            <Button x:Name="AllocationKeepTable" Content="留在原教师表" Classes="action"
+                    IsVisible="False" Click="KeepAllocationTableClicked"/>
+            <Button x:Name="AllocationOpenStaffConfiguration" Content="到完整师资方案核对" Classes="action accent"
+                    IsVisible="False" Click="OpenStaffConfigurationClicked"/>
+          </WrapPanel>
+        </StackPanel>
       </Border>
       <WrapPanel Grid.Row="3" x:Name="AllocationPendingActions" ItemSpacing="6" LineSpacing="4" IsVisible="False"/>
     </Grid>

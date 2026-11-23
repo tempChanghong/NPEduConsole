@@ -338,7 +338,7 @@ public sealed partial class ConsoleClient : IDisposable
     }
 
     private async Task<Envelope> SendAsync(HttpMethod method, string path, string? token, CancellationToken ct,
-        string? version = null, object? body = null, Guid? operationId = null)
+        string? version = null, object? body = null, Guid? operationId = null, HttpClient? transport = null)
     {
         ct.ThrowIfCancellationRequested();
         using var request = new HttpRequestMessage(method, path);
@@ -352,7 +352,7 @@ public sealed partial class ConsoleClient : IDisposable
         }
         try
         {
-            using var response = await _http.SendAsync(request, ct);
+            using var response = await (transport ?? _http).SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
             {
                 int status = (int)response.StatusCode;
@@ -377,6 +377,8 @@ public sealed partial class ConsoleClient : IDisposable
                     throw CurrentTeachingError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsCurrentStaffPath(path))
                     throw CurrentStaffError(status, await AcademicErrorCodeAsync(response, ct));
+                if (IsStaffConfigurationPath(path))
+                    throw StaffConfigurationError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsStaffPolicyPath(path))
                     throw StaffPolicyError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsClassRulePath(path))

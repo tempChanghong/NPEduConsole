@@ -22,6 +22,7 @@ import { prepareClassBatch } from './class-batch-fixture.mjs';
 import { verifyClassMaintenance } from './class-maintenance-fixture.mjs';
 import { verifySchoolOverview } from './school-overview-fixture.mjs';
 import { verifySchoolOpening } from './school-opening-fixture.mjs';
+import { verifyStaffConfiguration } from './staff-configuration-fixture.mjs';
 import { verifyCurrentTeaching } from './teaching-fixture.mjs';
 import { verifySubjectSetup } from './subject-setup-fixture.mjs';
 import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
@@ -56,7 +57,7 @@ const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
-  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview', '--school-opening',
+  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview', '--school-opening', '--staff-configuration',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-status', '--term-status-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
@@ -245,10 +246,10 @@ async function seed() {
     await prisma.schoolMember.create({ data: { schoolId: school.id, accountId: entry.id, role } });
     return entry;
   }
-  const manager = await account('admin', managementAccounts || termStatus || mode === '--desktop-oauth' ? 'OWNER' : 'ADMIN');
+  const manager = await account('admin', managementAccounts || termStatus || ['--desktop-oauth', '--staff-configuration'].includes(mode) ? 'OWNER' : 'ADMIN');
   await account('viewer', 'VIEWER');
   if (studyMonitoring) await account('owner', 'OWNER');
-  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || managementAccounts || schoolOpening || ['--screen-duty', '--exam-workbench', '--homework-settings'].includes(mode))
+  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || managementAccounts || schoolOpening || ['--screen-duty', '--exam-workbench', '--homework-settings', '--staff-configuration'].includes(mode))
     await account('admin2', 'ADMIN');
   const term = await prisma.academicTerm.create({ data: {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
@@ -1079,6 +1080,12 @@ async function runFixture() {
       createTeacher, runDesktop: args => runDesktop(project, args), runDatabase});
     return verifyCurrentTeaching({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
       createTeacher, runDesktop: args => runDesktop(project, args), runDatabase});
+  }
+  if (mode === '--staff-configuration') {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_STAFF_CONFIGURATION_EVIDENCE || '.artifacts/staff-configuration');
+    return verifyStaffConfiguration({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'), bcrypt,
+      runDesktop: args => runDesktop(project, args)});
   }
   if (schoolOpening) {
     const {initSocket} = await fromKv('utils/socket.js');

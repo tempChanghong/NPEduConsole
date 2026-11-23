@@ -30,6 +30,7 @@ public sealed partial class TeacherAllocationView : UserControl
     private TeacherAllocationCatalog? _catalog;
     private TeacherAllocationDocumentTarget? _fileTarget, _rejectedTarget;
     private string? _unsupportedFile;
+    private StaffConfigurationDocument? _staffConfigurationFile;
     private readonly Dictionary<string, InitialPinDelivery<int>> _deliveries = new(StringComparer.Ordinal);
     private TeacherAllocationPreview? _preview;
     private AllocationDifference[] _reviewRows = [];
@@ -49,6 +50,7 @@ public sealed partial class TeacherAllocationView : UserControl
     internal Guid? RecoveryId { get; init; }
     internal Func<Guid, string?, string?, bool, Task>? OpenPendingRequest { get; set; }
     internal Func<Task>? OpenTeaching { get; set; }
+    internal Func<StaffConfigurationDocument, string, Task<bool>>? OpenStaffConfiguration { get; set; }
     internal Action? CloseRequested { get; set; }
     private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
 
@@ -152,6 +154,7 @@ public sealed partial class TeacherAllocationView : UserControl
     {
         if (_closed) return;
         _closed = true;
+        _staffConfigurationFile = null;
         _deliveries.Clear();
         _archiveInvitationConfirmation?.Close();
         _pasteDialog?.Close();
@@ -282,12 +285,14 @@ public sealed partial class TeacherAllocationView : UserControl
 
     internal void LoadAllocationText(string text, bool legacy)
     {
+        _staffConfigurationFile = null;
         TeacherAllocationDocument? file;
         try { file = legacy ? TeacherAllocationDocumentReader.ReadLegacy(text, Mode) : null; }
         catch (StaffConfigurationFileException error)
         {
             _unsupportedFile = error.Message;
             _rejectedTarget = null;
+            OfferStaffConfiguration(text);
             ClearReview();
             Status("未导入此文件，原教师表已保留。");
             Render();
@@ -335,6 +340,7 @@ public sealed partial class TeacherAllocationView : UserControl
     private void KeepAllocationTableClicked(object? sender, RoutedEventArgs args)
     {
         _unsupportedFile = null;
+        _staffConfigurationFile = null;
         _rejectedTarget = null;
         Status("已保留打开文件前的教师表，请按当前目标重新预览。");
         Render();
@@ -351,8 +357,12 @@ public sealed partial class TeacherAllocationView : UserControl
             await using var stream = await files[0].OpenReadAsync();
             using var reader = new StreamReader(stream);
             var buffer = new char[OrganizationImportDocumentReader.MaximumCharacters + 1];
-            var count = await reader.ReadBlockAsync(buffer, _lifetime.Token);
-            if (!_closed) LoadAllocationText(new(buffer, 0, count), legacy: true);
+            try
+            {
+                var count = await reader.ReadBlockAsync(buffer, _lifetime.Token);
+                if (!_closed) LoadAllocationText(new(buffer, 0, count), legacy: true);
+            }
+            finally { Array.Clear(buffer); }
         });
     }
 
@@ -659,6 +669,8 @@ public sealed partial class TeacherAllocationView : UserControl
             "目标已匹配。请重新打开刚才的文件，或保留原草稿。");
         AllocationKeepTable.IsVisible = _rejectedTarget is not null || _unsupportedFile is not null;
         AllocationKeepTable.IsEnabled = edit;
+        AllocationOpenStaffConfiguration.IsVisible = _staffConfigurationFile is not null && OpenStaffConfiguration is not null;
+        AllocationOpenStaffConfiguration.IsEnabled = edit && CanOpenStaffConfiguration(_staffConfigurationFile);
         AllocationPreviewButton.IsVisible = !pending && !_discard && !AllocationLegacyWeb.IsVisible && (editing || reviewing && !_reviewed);
         AllocationPreviewButton.Content = editing ? "预览分配" : "重新预览";
         AllocationPreviewButton.IsEnabled = edit && !conflict && _teachers.Count > 0;

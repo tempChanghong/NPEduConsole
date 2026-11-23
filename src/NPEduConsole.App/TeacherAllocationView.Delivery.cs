@@ -8,7 +8,7 @@ public sealed partial class TeacherAllocationView
 {
     internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectPinFile { private get; set; }
 
-    private static bool TeacherPinMatches(TeacherAllocationCatalog? catalog, InitialPinDelivery<int> delivery) =>
+    internal static bool TeacherPinMatches(TeacherAllocationCatalog? catalog, InitialPinDelivery<int> delivery) =>
         catalog is {Mode: "LOCAL_PIN", SchoolCode.Length: > 0} &&
         catalog.Accounts.Any(row => row.Id == delivery.Id && row.Manageable && !row.Disabled &&
             row.CredentialVersion == delivery.Version && string.Equals(row.Username, delivery.Username, StringComparison.OrdinalIgnoreCase));

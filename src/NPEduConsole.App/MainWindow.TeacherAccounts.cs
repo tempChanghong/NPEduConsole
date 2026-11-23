@@ -69,6 +69,19 @@ public sealed partial class MainWindow
             OpenSchoolProfile = archivedCorrection ? null : popup => ShowSchoolProfileAsync(popup, client, school),
             LegacyWebLink = (owner as TeacherAccountsWindow)?.AllocationLegacyWebLink
         };
+        if (!archivedCorrection)
+            window.View.OpenStaffConfiguration = (file, term) =>
+            {
+                if (_teacherAllocationWindow != window || _client != client || _school != school) return Task.FromResult(false);
+                var staff = CreateStaffConfigurationView(client, school, term, file,
+                    () => _teacherAllocationWindow == window && window.IsVisible, window);
+                staff.AccessLost = error =>
+                {
+                    CloseTeacherAccounts();
+                    AcademicScopeUnavailable(error, client, school);
+                };
+                return window.ShowStaffConfigurationAsync(staff);
+            };
         _teacherAllocationWindow = window;
         try { await window.ShowDialog(owner); }
         finally { if (_teacherAllocationWindow == window) _teacherAllocationWindow = null; }

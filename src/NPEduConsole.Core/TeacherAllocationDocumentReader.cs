@@ -6,7 +6,7 @@ namespace NPEduConsole.Core;
 public sealed record TeacherAllocationDocumentTarget(string? SchoolId, string? TermId, string? GradeId);
 public sealed record TeacherAllocationDocument(TeacherAllocationDocumentTarget Target, AllocationTeacher[] Teachers);
 
-public sealed class StaffConfigurationFileException() : ArgumentException("这是完整师资配置，包含任课、岗位或凭据设置。网页首次初始化期间可整包导入。已开通的学校可从总览「开学配置」分别办理账号、任课与岗位。");
+public sealed class StaffConfigurationFileException() : ArgumentException("这是完整师资配置，包含任课、岗位或凭据设置。已开通的学校可在桌面「开学配置 → 教师与岗位」核对完整师资文件。首次初始化仍可使用原网页入口。");
 
 public static class TeacherAllocationDocumentReader
 {

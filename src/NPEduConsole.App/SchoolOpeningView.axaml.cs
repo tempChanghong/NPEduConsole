@@ -182,6 +182,8 @@ public sealed partial class SchoolOpeningView : UserControl
         OpeningSecondary.IsVisible = hasTerm && _stage != OpeningStage.Classrooms;
         OpeningSecondary.Content = _stage == OpeningStage.Organization ? "开班" : "批量分配教师访问";
         OpeningSecondary.IsEnabled = available;
+        OpeningStaffConfiguration.IsVisible = _stage == OpeningStage.Teachers;
+        OpeningStaffConfiguration.IsEnabled = available;
         OpeningRows.IsEnabled = !_loading && !_navigating;
         OpeningHandleRow.IsEnabled = available && Selected?.Target is not null;
     }
@@ -323,6 +325,7 @@ public sealed partial class SchoolOpeningView : UserControl
     private async void SecondaryClicked(object? sender, RoutedEventArgs args) =>
         await FollowAsync(_stage == OpeningStage.Teachers ? new(OpeningAction.Access) : new(OpeningAction.Class,
             CreateGrade: _snapshot?.Overview.Counts.Grades == 0));
+    private async void StaffConfigurationClicked(object? sender, RoutedEventArgs args) => await FollowAsync(new(OpeningAction.StaffConfiguration));
 
     private void SearchChanged(object? sender, TextChangedEventArgs args)
     {

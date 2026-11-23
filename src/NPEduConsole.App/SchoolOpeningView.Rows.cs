@@ -3,7 +3,7 @@ using NPEduConsole.Core;
 namespace NPEduConsole.App;
 
 internal enum OpeningStage { Organization, Teachers, Classrooms }
-internal enum OpeningAction { Terms, Import, Class, ClassDirectory, Accounts, Access, Teaching, Duty, StaffReview, CourseGroups, Screen, Placement }
+internal enum OpeningAction { Terms, Import, Class, ClassDirectory, Accounts, Access, StaffConfiguration, Teaching, Duty, StaffReview, CourseGroups, Screen, Placement }
 internal sealed record OpeningTarget(OpeningAction Action, string? ClassId = null, string? GradeId = null,
     string? SubjectId = null, string? AccountId = null, string? GroupId = null, string? BindingId = null,
     string? IssueKey = null, bool CreateGrade = false);

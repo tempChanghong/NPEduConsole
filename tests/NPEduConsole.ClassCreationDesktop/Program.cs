@@ -24,6 +24,8 @@ internal static partial class Program
             return StartSchoolOverview(overviewFixture, overviewOutput);
         if (args is ["--live-school-opening", var openingFixture, var openingOutput])
             return StartSchoolOpening(openingFixture, openingOutput);
+        if (args is ["--live-staff-configuration" or "--live-staff-configuration-reopen", var staffPlanFixture, var staffPlanOutput])
+            return StartStaffConfiguration(staffPlanFixture, staffPlanOutput, args[0].EndsWith("-reopen", StringComparison.Ordinal));
         if (args is ["--live-teaching", var teachingFixture, var teachingOutput])
             return StartTeaching(teachingFixture, teachingOutput);
         if (args is ["--live-subject-setup", var subjectFixture, var subjectOutput])

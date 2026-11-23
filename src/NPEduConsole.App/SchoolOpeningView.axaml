@@ -78,6 +78,7 @@
       <Button x:Name="OpeningRefresh" Classes="action" Content="重新核对" Click="RefreshClicked"/>
       <Button x:Name="OpeningPrimary" Classes="action" Click="PrimaryClicked"/>
       <Button x:Name="OpeningSecondary" Classes="action" Click="SecondaryClicked"/>
+      <Button x:Name="OpeningStaffConfiguration" Classes="action" Content="导入完整师资方案" Click="StaffConfigurationClicked" IsVisible="False"/>
       <Button x:Name="OpeningCheckAddresses" Classes="action" Content="核对访问地址" Click="AddressesClicked"/>
     </WrapPanel>
   </Grid>

@@ -4,7 +4,7 @@ using Avalonia.Controls;
 
 internal static partial class Program
 {
-    private static async Task CancelOrganizationPickerAsync(Window owner, Button opener)
+    private static async Task CancelOrganizationPickerAsync(Window owner, Button opener, string title = "打开旧组织 JSON")
     {
         var handle = owner.TryGetPlatformHandle()?.Handle ?? throw new InvalidDataException("Expected the Windows main window.");
         // The native dialog may run its own modal message loop; observe and cancel it off the UI thread.
@@ -14,7 +14,7 @@ internal static partial class Program
             while (timer.Elapsed < TimeSpan.FromSeconds(15))
             {
                 nint dialog = 0;
-                while ((dialog = OrganizationPickerNative.FindWindowEx(0, dialog, "#32770", "打开旧组织 JSON")) != 0)
+                while ((dialog = OrganizationPickerNative.FindWindowEx(0, dialog, "#32770", title)) != 0)
                 {
                     OrganizationPickerNative.GetWindowThreadProcessId(dialog, out var processId);
                     if (processId != Environment.ProcessId || OrganizationPickerNative.GetWindow(dialog, 4) != handle) continue;
