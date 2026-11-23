@@ -49,42 +49,50 @@
               <StackPanel Spacing="4">
                 <TextBlock Text="任教学科" Classes="label"/>
                 <ComboBox x:Name="TeachingSubjectPicker" SelectionChanged="SubjectChanged" HorizontalAlignment="Stretch"
-                          AutomationProperties.Name="任教学科"/>
+                          PlaceholderText="选择本班科目" AutomationProperties.Name="任教学科"/>
+                <TextBlock x:Name="TeachingPinnedSubject" IsVisible="False" Classes="label" />
               </StackPanel>
-              <StackPanel Spacing="5">
-                <TextBlock Text="本班已有任课" Classes="label"/>
-                <TextBlock x:Name="TeachingExistingEmpty" Text="此科目暂无任课关系。" Classes="muted"/>
-                <ComboBox x:Name="TeachingExistingPicker" SelectionChanged="ExistingChanged" IsVisible="False"
-                          HorizontalAlignment="Stretch" AutomationProperties.Name="选择已有任课关系"/>
-                <WrapPanel ItemSpacing="5" LineSpacing="4">
-                  <Button x:Name="TeachingAddButton" Classes="action teaching-action" Content="新增任课" Click="AddClicked"/>
-                  <Button x:Name="TeachingChangeButton" Classes="action teaching-action" Content="修改所选" IsEnabled="False" Click="ChangeClicked"/>
-                  <Button x:Name="TeachingRemoveButton" Classes="action teaching-action" Content="移除所选" IsEnabled="False" Click="RemoveClicked"/>
-                </WrapPanel>
-              </StackPanel>
-              <Border Height="1" Background="{DynamicResource LineBrush}"/>
-              <TextBlock x:Name="TeachingOperation" FontSize="16" Classes="label"/>
-              <Grid x:Name="TeachingAssignmentFields" ColumnDefinitions="*,98" ColumnSpacing="8">
-                <StackPanel Spacing="4">
-                  <TextBlock Text="本校教师" Classes="label"/>
-                  <ComboBox x:Name="TeachingTeacherPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
-                            AutomationProperties.Name="本校教师"/>
-                  <Button x:Name="OpenTeachingTeacherChoice" Classes="action" Content="选择教师" IsVisible="False"
-                          HorizontalAlignment="Stretch" AutomationProperties.Name="选择本校教师" Click="OpenTeacherChoiceClicked"/>
+              <StackPanel x:Name="TeachingSubjectDetails" Spacing="10" IsVisible="False">
+                <StackPanel Spacing="5">
+                  <TextBlock Text="本班已有任课" Classes="label"/>
+                  <TextBlock x:Name="TeachingExistingEmpty" Text="此科目暂无任课关系。" Classes="muted"/>
+                  <ComboBox x:Name="TeachingExistingPicker" SelectionChanged="ExistingChanged" IsVisible="False"
+                            HorizontalAlignment="Stretch" AutomationProperties.Name="选择已有任课关系"/>
+                  <WrapPanel ItemSpacing="5" LineSpacing="4">
+                    <Button x:Name="TeachingAddButton" Classes="action teaching-action" Content="新增任课" Click="AddClicked"/>
+                    <Button x:Name="TeachingChangeButton" Classes="action teaching-action" Content="修改所选" IsEnabled="False" Click="ChangeClicked"/>
+                    <Button x:Name="TeachingRemoveButton" Classes="action teaching-action" Content="移除所选" IsEnabled="False" Click="RemoveClicked"/>
+                  </WrapPanel>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Spacing="4">
-                  <TextBlock Text="任课身份" Classes="label"/>
-                  <ComboBox x:Name="TeachingPositionPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
-                            AutomationProperties.Name="任课身份" SelectedIndex="0">
-                    <ComboBoxItem Content="主讲"/>
-                    <ComboBoxItem Content="协同"/>
-                  </ComboBox>
+                <Border Height="1" Background="{DynamicResource LineBrush}"/>
+                <TextBlock x:Name="TeachingOperation" FontSize="16" Classes="label"/>
+                <Grid x:Name="TeachingAssignmentFields" ColumnDefinitions="*,98" ColumnSpacing="8">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="本校教师" Classes="label"/>
+                    <ComboBox x:Name="TeachingTeacherPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
+                              AutomationProperties.Name="本校教师"/>
+                    <Button x:Name="OpenTeachingTeacherChoice" Classes="action" IsVisible="False" HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Left" AutomationProperties.Name="选择本校教师" Click="OpenTeacherChoiceClicked">
+                      <StackPanel Spacing="2">
+                        <TextBlock x:Name="TeachingChosenTeacherName" Text="选择教师" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="TeachingChosenTeacherAccount" Classes="muted" FontSize="12" IsVisible="False"/>
+                      </StackPanel>
+                    </Button>
+                  </StackPanel>
+                  <StackPanel Grid.Column="1" Spacing="4">
+                    <TextBlock Text="任课身份" Classes="label"/>
+                    <ComboBox x:Name="TeachingPositionPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
+                              AutomationProperties.Name="任课身份" SelectedIndex="0">
+                      <ComboBoxItem Content="主讲"/>
+                      <ComboBoxItem Content="协同"/>
+                    </ComboBox>
+                  </StackPanel>
+                </Grid>
+                <Button x:Name="TeachingNewTeacher" Classes="action" Content="新建教师" Click="NewTeacherClicked"/>
+                <StackPanel x:Name="TeachingPeers" Spacing="5">
+                  <TextBlock Text="同时办理同年级其他班" Classes="label"/>
+                  <StackPanel x:Name="TeachingClassChoices" Spacing="2"/>
                 </StackPanel>
-              </Grid>
-              <Button x:Name="TeachingNewTeacher" Classes="action" Content="新建教师" Click="NewTeacherClicked"/>
-              <StackPanel x:Name="TeachingPeers" Spacing="5">
-                <TextBlock Text="同时办理同年级其他班" Classes="label"/>
-                <StackPanel x:Name="TeachingClassChoices" Spacing="2"/>
               </StackPanel>
             </StackPanel>
             <Button x:Name="TeachingSubjectSetupButton" Classes="action" Content="配置授课科目" IsVisible="False" Click="SubjectSetupClicked"/>
@@ -113,7 +121,7 @@
                 <DataTemplate x:DataType="local:TeachingPreviewRow">
                   <Border Classes="teaching-row" Classes.issue="{Binding NeedsAttention}" Padding="10,7" Focusable="True"
                           AutomationProperties.AutomationId="{Binding AutomationId}">
-                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="125,*,*" ColumnSpacing="10">
+                    <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="125,*,*" ColumnSpacing="10">
                       <StackPanel Spacing="3">
                         <TextBlock Text="{Binding ClassName}" Classes="label"/>
                         <TextBlock Text="{Binding Status}" Classes="teaching-status muted" Classes.issue="{Binding NeedsAttention}" />
@@ -122,6 +130,9 @@
                       <TextBlock Grid.Column="2" Text="{Binding After}" TextWrapping="Wrap"/>
                       <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,4,0,0"
                                  Text="{Binding Reason}" Classes="muted" IsVisible="{Binding HasReason}"/>
+                      <Button Grid.Row="2" Grid.ColumnSpan="3" Content="定位此班选择" Classes="action teaching-action" Margin="0,4,0,0"
+                              IsVisible="{Binding CanLocatePeer}" Tag="{Binding Row.ClassId}" Click="LocateTeachingPeerClicked"
+                              AutomationProperties.AutomationId="{Binding LocateAutomationId}"/>
                     </Grid>
                   </Border>
                 </DataTemplate>

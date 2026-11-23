@@ -35,13 +35,14 @@ internal static partial class Program
     /// <c>TeachingPreviewClass-{classId}</c> 在列表里实现出来，并完整落在列表视口内。
     /// 列表必须真的溢出（长表）。840×480 与长表共用同一套断言。
     /// </summary>
-    internal static async Task AssertTeachingPreviewAsync(TeachingWindow window, IReadOnlyList<object> rows)
+    internal static async Task AssertTeachingPreviewAsync(TeachingView view, IReadOnlyList<object> rows)
     {
         if (rows.Count == 0) throw new InvalidDataException("需要至少一个预览行。");
 
-        var header = Find<Control>(window, "TeachingPreviewHeader");
-        var actions = Find<Control>(window, "TeachingWorkspaceActions");
-        var list = Find<ItemsControl>(window, "TeachingPreviewList");
+        var window = (Window)TopLevel.GetTopLevel(view)!;
+        var header = Find<Control>(view, "TeachingPreviewHeader");
+        var actions = Find<Control>(view, "TeachingWorkspaceActions");
+        var list = Find<ItemsControl>(view, "TeachingPreviewList");
 
         await Until(() => Rendered(header) && Rendered(actions) && Rendered(list),
             "预览表头、操作栏与预览列表渲染出来");
@@ -93,11 +94,12 @@ internal static partial class Program
     /// 严格断言落在行元素本身（<c>TeachingPreviewClass-{classId}</c>）上：产品应聚焦模板根 Border，
     /// 而不是外层 ListBoxItem——焦点在容器上时这里会明确失败，方便定位。
     /// </summary>
-    internal static async Task AssertTeachingClassFocusAsync(TeachingWindow window, object row, string classId)
+    internal static async Task AssertTeachingClassFocusAsync(TeachingView view, object row, string classId)
     {
         if (string.IsNullOrWhiteSpace(classId)) throw new InvalidDataException("需要班级 ID。");
 
-        var list = Find<ItemsControl>(window, "TeachingPreviewList");
+        var window = (Window)TopLevel.GetTopLevel(view)!;
+        var list = Find<ItemsControl>(view, "TeachingPreviewList");
         string expected = TeachingRowPrefix + classId;
         var container = await TeachingRevealContainerAsync(list, row, expected);
 

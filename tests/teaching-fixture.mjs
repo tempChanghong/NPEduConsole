@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url';
 
 export async function verifyCurrentTeaching({prisma, origin, fixture, directory, evidence, web, createTeacher, runDesktop, runDatabase}) {
   await mkdir(evidence, {recursive: true});
-  const {school, other, term, pin} = fixture;
+  const {school, other, term, pin, managerId} = fixture;
   const grade = await prisma.grade.create({data: {termId: term.id, name: '高一', code: 'G1'}});
   const makeClass = number => prisma.workspace.create({data: {termId: term.id, gradeId: grade.id, type: 'ADMIN_CLASS',
     name: '高一（' + number + '）班', code: 'G1-' + number}});
@@ -21,8 +21,10 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
   await prisma.administrativeClassSubject.createMany({data: [seven, ...historyRooms].map(room =>
     ({administrativeClassId: room.id, subjectId: historySubject.id, deliveryMode: 'ADMIN_CLASS'}))});
   const candidate = await createTeacher('mathteacher', '陈老师');
+  await createTeacher('duplicateteacher', '陈老师');
   const primary = await createTeacher('originalteacher', '王老师');
   const admin2 = await createTeacher('teachingadmin2', '第二管理员', 'ADMIN');
+  const otherManageable = await prisma.school.create({data: {name: '另一个可管理学校', code: 'OTHER-MANAGED'}});
 
   async function api(path, {method = 'GET', token, body, status = 200} = {}) {
     const headers = {'Content-Type': 'application/json'};
@@ -34,6 +36,7 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
   }
   const login = username => api('/accounts/local/login', {method: 'POST', body: {schoolCode: school.code, username, password: pin}});
   const admin = await login('admin');
+  await prisma.schoolMember.create({data: {schoolId: otherManageable.id, accountId: managerId, role: 'ADMIN'}});
   const token = admin.access_token;
   const teacherToken = (await login('mathteacher')).access_token;
   const secondToken = (await login(admin2.localUsername)).access_token;
@@ -53,7 +56,25 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
   let commits = 0;
   let readbackFailed = false;
   let changedByOtherAdmin = false;
+  let holdClassRead = false;
+  let releaseClassRead;
   const relay = createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/__teaching/') && req.url.endsWith('-class-read')) {
+      try {
+        if (req.url === '/__teaching/hold-class-read') holdClassRead = true;
+        else if (req.url === '/__teaching/await-class-read') {
+          const until = Date.now() + 4000;
+          while (!releaseClassRead && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 30));
+          assert.ok(releaseClassRead);
+        } else if (req.url === '/__teaching/release-class-read') {
+          assert.ok(releaseClassRead);
+          releaseClassRead();
+          releaseClassRead = null;
+        }
+        res.writeHead(204).end();
+      } catch { res.writeHead(500).end(); }
+      return;
+    }
     if (req.method === 'POST' && req.url === '/__teaching/change-history') {
       try {
         await api(path + '/teaching-assignments', {method: 'PUT', token: secondToken,
@@ -70,7 +91,12 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
       return;
     }
     const upstream = request(new URL(req.url, dest), {method: req.method, headers: {...req.headers, host: dest.host}}, reply => {
-      if (req.method === 'POST' && req.url.startsWith(assignmentPath(seven.id)) && reply.statusCode === 200) {
+      if (holdClassRead && req.method === 'GET' && req.url.startsWith(assignmentPath(seven.id) + '?') && reply.statusCode === 200) {
+        holdClassRead = false;
+        const chunks = [];
+        reply.on('data', chunk => chunks.push(chunk));
+        reply.on('end', () => { releaseClassRead = () => { res.writeHead(reply.statusCode, reply.headers); res.end(Buffer.concat(chunks)); }; });
+      } else if (req.method === 'POST' && req.url.startsWith(assignmentPath(seven.id)) && reply.statusCode === 200) {
         const data = [];
         reply.on('data', chunk => data.push(chunk));
         reply.on('end', () => {
@@ -94,7 +120,8 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
     const access = join(directory, 'desktop.json');
     await writeFile(access, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port,
       schoolId: school.id, schoolCode: school.code, password: pin, sevenId: seven.id, eightId: eight.id, nineId: nine.id,
-      subjectId: subject.id, teacherId: candidate.id, historySubjectId: historySubject.id, historyPeerIds: historyRooms.map(room => room.id), allowTeachingTestWrites: true}), {mode: 0o600});
+      subjectId: subject.id, teacherId: candidate.id, historySubjectId: historySubject.id, historyPeerIds: historyRooms.map(room => room.id),
+      otherManageableSchoolId: otherManageable.id, allowTeachingTestWrites: true}), {mode: 0o600});
     await runDesktop(['--live-teaching', access, evidence]);
     assert.equal(commits, 1);
     assert.ok(swallowed && readbackFailed && changedByOtherAdmin);

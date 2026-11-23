@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -16,6 +17,20 @@ internal sealed record TeachingTeacherCandidate(TeachingTeacher Teacher, string 
 public sealed partial class TeachingView
 {
     private Control TeacherChoiceAnchor => InWorkspace ? OpenTeachingTeacherChoice : TeachingTeacherPicker;
+
+    private static string TeacherIdentity(TeachingTeacher teacher) => teacher.Username is { Length: > 0 } username
+        ? "@" + username : "账号编号 " + teacher.Id;
+
+    private void UpdateTeacherChoiceLabel()
+    {
+        var teacher = Teacher;
+        TeachingChosenTeacherName.Text = teacher?.Name ?? "选择教师";
+        TeachingChosenTeacherAccount.Text = teacher is not null ? TeacherIdentity(teacher) : null;
+        TeachingChosenTeacherAccount.IsVisible = teacher is not null;
+        var label = teacher is not null ? $"更换本校教师，{teacher.Name}，{TeacherIdentity(teacher)}" : "选择本校教师";
+        AutomationProperties.SetName(OpenTeachingTeacherChoice, label);
+        ToolTip.SetTip(OpenTeachingTeacherChoice, teacher is not null ? label : null);
+    }
 
     private void MarkDraftChanged()
     {
@@ -63,7 +78,7 @@ public sealed partial class TeachingView
     {
         string query = TeachingTeacherSearch.Text?.Trim() ?? "";
         var candidates = TeachingTeacherPicker.Items.OfType<TeachingTeacher>()
-            .Select(teacher => new TeachingTeacherCandidate(teacher, teacher.Username is { Length: > 0 } username ? "@" + username : "账号编号 " + teacher.Id))
+            .Select(teacher => new TeachingTeacherCandidate(teacher, TeacherIdentity(teacher)))
             .Where(row => row.AccessibleName.Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
         TeachingTeacherCandidates.ItemsSource = candidates;
         TeachingTeacherCandidates.SelectedItem = candidates.FirstOrDefault(row => row.Teacher.Id == selectedId);

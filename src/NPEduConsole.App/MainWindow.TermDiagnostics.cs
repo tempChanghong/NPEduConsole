@@ -51,9 +51,9 @@ public sealed partial class MainWindow
                     await ShowLegacyAsync(structure, structure.CloseForScopeChange);
                     return true;
                 case "OPEN_TEACHING" when selected.Status == "ACTIVE" && task.ClassId is { } classroom && task.SubjectId is { } subject:
-                    return await ShowTeachingPageAsync(client, school, selected, classroom, subject, task.AccountId);
+                    return await ShowTeachingPageAsync(client, school, selected.Id, classroom, subject, task.AccountId, termName: selected.Name);
                 case "OPEN_COURSE_GROUP_TEACHING" when selected.Status == "ACTIVE" && task.CourseGroupId is { } group && task.SubjectId is { } groupSubject:
-                    return await ShowTeachingPageAsync(client, school, selected, group, groupSubject, task.AccountId, courseGroup: true);
+                    return await ShowTeachingPageAsync(client, school, selected.Id, group, groupSubject, task.AccountId, courseGroup: true, termName: selected.Name);
                 case "OPEN_TEACHING" when task.GradeId is not null:
                 case "OPEN_COURSE_GROUP_TEACHING" when task.GradeId is not null:
                 case "OPEN_COURSE_GROUP_SOURCE":
@@ -88,15 +88,4 @@ public sealed partial class MainWindow
         }
     }
 
-    private async Task<bool> ShowTeachingPageAsync(ConsoleClient client, School school, SchoolOverviewTerm term, string workspace,
-        string subject, string? account, bool courseGroup = false)
-    {
-        var view = new TeachingView(client, school, term.Id, workspace, subject, account, courseGroup, inWorkspace: true, termName: term.Name);
-        view.SessionExpired += error => AcademicScopeUnavailable(error, client, school);
-        view.AuthorizationLost += error => AcademicScopeUnavailable(error, client, school);
-        view.CloseRequested = () => ReturnFromAcademicPage(view);
-        var exit = PushAcademicPage(view, view.CanClose, view.End);
-        await view.StartAsync();
-        return await exit;
-    }
 }

@@ -19,15 +19,22 @@ internal static partial class Program
         }
     }
 
-    private static void CheckBatchWindowOnScreen(Window window)
+    private static async Task AssertBatchWindowOnScreenAsync(Window window)
     {
-        if (window.Screens.ScreenFromWindow(window) is not { } screen || window.FrameSize is not { } frame)
-            throw new InvalidDataException("No real Windows display geometry.");
-        var position = window.Position;
-        Check(position.X >= screen.WorkingArea.X - 2 && position.Y >= screen.WorkingArea.Y - 2 &&
-            position.X + frame.Width * screen.Scaling <= screen.WorkingArea.Right + 2 &&
-            position.Y + frame.Height * screen.Scaling <= screen.WorkingArea.Bottom + 2,
-            "the editor from a lower-right owner fits the Windows display work area");
+        try
+        {
+            await Until(() => window.Screens.ScreenFromWindow(window) is { } screen && window.FrameSize is { } frame &&
+                window.Position.X >= screen.WorkingArea.X - 2 && window.Position.Y >= screen.WorkingArea.Y - 2 &&
+                window.Position.X + frame.Width * screen.Scaling <= screen.WorkingArea.Right + 2 &&
+                window.Position.Y + frame.Height * screen.Scaling <= screen.WorkingArea.Bottom + 2,
+                "the editor from a lower-right owner fits the Windows display work area");
+        }
+        catch (Exception error) when (error is TimeoutException or InvalidOperationException)
+        {
+            var screen = window.Screens.ScreenFromWindow(window);
+            throw new InvalidDataException($"Batch editor position {window.Position}; client {window.ClientSize}; frame {window.FrameSize}; " +
+                $"Windows work area {screen?.WorkingArea}; scale {screen?.Scaling}.", error);
+        }
     }
 
     private static bool FitsBatchWindow(Window window, Control control)

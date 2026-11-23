@@ -56,7 +56,7 @@ internal static partial class Program
             await Until(() => main.ClientSize.Width <= 850 && main.ClientSize.Height <= 490, "short school window");
             Click(Find<Button>(main, "OpenSubjectSetupButton"));
             var setup = await FindSetup();
-            CheckBatchWindowOnScreen(setup);
+            await AssertBatchWindowOnScreenAsync(setup);
             Check(Choice(setup, "Class", access.SevenId).IsChecked == true &&
                 Choice(setup, "Class", access.EightId).IsChecked == false, "class details defaults to the selected class");
             Choice(setup, "Subject", access.MathId).IsChecked = true;
@@ -112,7 +112,7 @@ internal static partial class Program
             main.Height = 780;
 
             Click(Find<Button>(main, "OpenTeachingButton"));
-            var empty = await FindTeaching();
+            var empty = await AcademicPageAsync<TeachingView>(main);
             var emptyEntry = Find<Button>(empty, "TeachingSubjectSetupButton");
             await Until(() => emptyEntry.IsEffectivelyVisible, "empty teaching form offers subject setup");
             Click(emptyEntry);
@@ -168,8 +168,8 @@ internal static partial class Program
                 "pending pairs remain readable and cannot be changed");
             await Capture(setup, output, "02-pending-readback");
             setup.Close();
-            await Until(() => !setup.IsVisible && empty.IsEnabled, "close the unconfirmed setup without clearing the request");
-            empty.Close();
+            await Until(() => !setup.IsVisible && empty.IsEffectivelyEnabled, "close the unconfirmed setup without clearing the request");
+            Click(Find<Button>(empty, "CloseTeachingButton"));
             await Until(() => !empty.IsVisible && main.IsEnabled, "return to the classroom entry");
             await CheckOtherSessionDoesNotSeePending();
             await ChooseClass(main, access.EmptySchoolId, access.EmptyClassId);
@@ -196,7 +196,7 @@ internal static partial class Program
             using (var receipt = await fixture.PostAsync("/__subject-setup/check-pending", null))
                 Check(receipt.IsSuccessStatusCode, "only class 7 is missing a math teacher after adding rules");
             Click(Find<Button>(setup, "SubjectSetupTeachingButton"));
-            var teaching = await FindTeaching(empty);
+            var teaching = await FindTeaching();
             var subject = Find<ComboBox>(teaching, "TeachingSubjectPicker");
             await Until(() => subject.SelectedItem is TeachingSubject item && item.Id == access.MathId, "continue directly to exact class and subject");
             Check(Find<TextBlock>(teaching, "TeachingContext").Text?.Contains("（7）") == true, "the teaching anchor remains class 7");
@@ -322,10 +322,10 @@ internal static partial class Program
                 Find<StackPanel>(window, "SubjectSetupClasses").Children.Count > 0), "valid subject setup directory");
             return desktop.Windows.OfType<SubjectSetupWindow>().Single(window => window.IsVisible);
         }
-        async Task<TeachingWindow> FindTeaching(TeachingWindow? excluding = null)
+        async Task<TeachingWindow> FindTeaching()
         {
-            await Until(() => desktop.Windows.OfType<TeachingWindow>().Any(window => window != excluding && window.IsVisible), "teaching window");
-            return desktop.Windows.OfType<TeachingWindow>().Single(window => window != excluding && window.IsVisible);
+            await Until(() => desktop.Windows.OfType<TeachingWindow>().Any(window => window.IsVisible), "teaching window");
+            return desktop.Windows.OfType<TeachingWindow>().Single(window => window.IsVisible);
         }
         void Finish(string message, int code)
         {

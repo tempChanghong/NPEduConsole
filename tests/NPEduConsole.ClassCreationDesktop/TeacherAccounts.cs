@@ -66,7 +66,7 @@ internal static partial class Program
             await Until(() => Find<Button>(main, "OpenTeachingButton").IsEffectivelyEnabled &&
                 Find<Button>(main, "OpenTeachingButton").IsEffectivelyVisible, "class teaching entry available");
             Click(Find<Button>(main, "OpenTeachingButton"));
-            var teaching = await WindowOf<TeachingWindow>();
+            var teaching = await AcademicPageAsync<TeachingView>(main);
             var subject = Find<ComboBox>(teaching, "TeachingSubjectPicker");
             await Until(() => subject.SelectedItem is TeachingSubject current && current.Id == access.PhysicsId, "class 8 physics selected");
             var peer = Find<StackPanel>(teaching, "TeachingClassChoices").Children.OfType<CheckBox>()
@@ -98,7 +98,7 @@ internal static partial class Program
             var apply = Find<Button>(teaching, "TeachingApplyButton");
             await Until(() => apply.IsEffectivelyEnabled, "single class assignment previewed");
             Click(apply);
-            await Until(() => StaffText(teaching, "TeachingFeedback").Contains("已保存 1 个班"), "physics assignment saved separately");
+            await Until(() => Find<TextBlock>(teaching, "TeachingFeedback").Text?.Contains("已保存 1 个班") == true, "physics assignment saved separately");
             Click(Find<Button>(teaching, "CloseTeachingButton"));
             await Until(() => !teaching.IsVisible, "returned to shell from teaching");
 

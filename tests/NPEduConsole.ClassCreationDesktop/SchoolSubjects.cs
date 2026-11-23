@@ -201,14 +201,14 @@ internal static partial class Program
             await Until(() => !catalog.IsVisible, "close read-back catalog");
             await SelectClass(access.SevenId);
             Press(main, "OpenTeachingButton");
-            var teaching = await WindowOf<TeachingWindow>();
+            var teaching = await AcademicPageAsync<TeachingView>(main);
             var subjects = Find<ComboBox>(teaching, "TeachingSubjectPicker");
             await Until(() => subjects.Items.Cast<TeachingSubject>().Any(item => item.Id == id), "class 7 still has physics");
             subjects.SelectedItem = subjects.Items.Cast<TeachingSubject>().Single(item => item.Id == id);
             var existing = Find<ComboBox>(teaching, "TeachingExistingPicker");
             await Until(() => existing.IsEffectivelyVisible && existing.ItemCount == 1, "reopened assignment is present on class 7");
             await Capture(teaching, output, "10-reopened-physics-teaching");
-            teaching.Close();
+            Press(teaching, "CloseTeachingButton");
             await SelectClass(access.EightId);
             var setup = await OpenSetup();
             Check(Choice(setup, "Subject", id).IsEnabled, "class 8 setup uses the same subject ID");
@@ -296,7 +296,7 @@ internal static partial class Program
         Find<TextBox>(window, "SubjectOrder").Text = order;
     }
 
-    private static void Press(Window window, string name)
+    private static void Press(Control window, string name)
     {
         var button = Find<Button>(window, name);
         Check(button.IsEffectivelyEnabled && button.IsEffectivelyVisible, $"{name} is available through the real window.");

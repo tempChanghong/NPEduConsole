@@ -27,7 +27,7 @@ public sealed partial class TeachingView : UserControl
     private TeacherAccountForm? _teacherForm;
     private (TeachingDraft Draft, TeachingPreview Preview)? _preview;
     private static readonly ConditionalWeakTable<ConsoleClient,
-        Dictionary<(string School, string Term, string Class), TeachingPending>> PendingBySession = new();
+        Dictionary<(string School, string Term, string Class, string Subject), TeachingPending>> PendingBySession = new();
     private TeachingPending? _unconfirmed;
     private bool _busy, _closed, _submitting, _scopeUnavailable;
     private bool _binding = true;
@@ -61,10 +61,16 @@ public sealed partial class TeachingView : UserControl
         InWorkspace = inWorkspace;
         TeachingTeacherPicker.IsVisible = !inWorkspace;
         OpenTeachingTeacherChoice.IsVisible = inWorkspace;
+        TeachingPinnedSubject.IsVisible = inWorkspace && subjectId is not null;
+        TeachingSubjectPicker.IsVisible = !TeachingPinnedSubject.IsVisible;
         if (inWorkspace) TeachingTeacherCandidates.AddHandler(KeyDownEvent, CandidateKeyDown, RoutingStrategies.Tunnel);
         TeachingContext.Text = school.Name;
         if (PendingBySession.TryGetValue(client, out var saved))
-            _unconfirmed = saved.GetValueOrDefault((_schoolId, _termId, _classId));
+        {
+            if (subjectId is not null) _unconfirmed = saved.GetValueOrDefault((_schoolId, _termId, _classId, subjectId));
+            else if (saved.Where(row => (row.Key.School, row.Key.Term, row.Key.Class) == (_schoolId, _termId, _classId))
+                .Take(2).Select(row => row.Value).ToArray() is [var only]) _unconfirmed = only;
+        }
         SizeChanged += (_, _) => ArrangeTeacherChoice();
         UpdateControls();
     }
@@ -96,7 +102,7 @@ public sealed partial class TeachingView : UserControl
         if (_closed) return;
         if (_unconfirmed is null && InWorkspace) RestorePausedDraft();
         if (_unconfirmed is not null) TeachingReadButton.Focus(NavigationMethod.Tab);
-        else (entryFocus ?? (InWorkspace ? TeacherChoiceAnchor : null))?.Focus(NavigationMethod.Tab);
+        else (entryFocus ?? (InWorkspace ? Subject is null ? TeachingSubjectPicker : TeacherChoiceAnchor : null))?.Focus(NavigationMethod.Tab);
     }
 
     private TeachingSubject? Subject => TeachingSubjectPicker.SelectedItem as TeachingSubject;
@@ -121,8 +127,8 @@ public sealed partial class TeachingView : UserControl
         TeachingTeacherPicker.ItemsSource = catalog.Teachers;
         TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(row => row.Id == teacherId);
         TeachingSubjectPicker.ItemsSource = catalog.Subjects;
-        TeachingSubjectPicker.SelectedItem = subjectId is null ? catalog.Subjects.FirstOrDefault()
-            : catalog.Subjects.FirstOrDefault(row => row.Id == subjectId);
+        TeachingSubjectPicker.SelectedItem = subjectId is not null ? catalog.Subjects.FirstOrDefault(row => row.Id == subjectId)
+            : !InWorkspace || catalog.Subjects.Length == 1 ? catalog.Subjects.FirstOrDefault() : null;
         BindSubject();
         if (preserveDraft && priorSubject is not null && Subject?.Id == priorSubject)
         {
@@ -147,19 +153,47 @@ public sealed partial class TeachingView : UserControl
         TeachingSubjectPicker.IsEnabled = !_courseGroup && (!InWorkspace || _entrySubjectId is null);
         if (announce) TeachingFeedback.Text = assignmentChanged ? "原草稿对应的任课关系已变化。请核对当前任课，再选择要办理的操作。"
             : catalog.Subjects.Length == 0 ? (_courseGroup ? "原教学班学科已变化，请返回核对。" : "该班暂无随行政班授课的科目。")
-            : Subject is null ? "原待办的科目已变化，请核对当前班级的科目。"
+            : Subject is null ? _entrySubjectId is null ? "请选择本班科目。各科的暂存草稿和待核对提交会在选中后显示。"
+                : "原待办的科目已变化。请返回待办核对当前安排。"
             : catalog.Teachers.Length == 0 ? "暂无可分配的本校教师。" : "请选择教师和任课身份，先预览再提交。";
     }
 
     private void SubjectChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (!_binding) { MarkDraftChanged(); BindSubject(); }
+        if (_binding) return;
+        if (!InWorkspace) { BindSubject(); return; }
+        if (_draftChanged && args.RemovedItems.OfType<TeachingSubject>().FirstOrDefault() is { } previous)
+            SavePausedDraft(previous.Id);
+        _binding = true;
+        _draftChanged = false;
+        TeachingKeepDraft.IsVisible = TeachingDiscard.IsVisible = false;
+        TeachingTeacherPicker.SelectedItem = null;
+        TeachingPositionPicker.SelectedIndex = 0;
+        BindSubject();
+        _binding = false;
+        _unconfirmed = Subject is { } subject && PendingBySession.TryGetValue(_client, out var saved) ?
+            saved.GetValueOrDefault((_schoolId, _termId, _classId, subject.Id)) : null;
+        if (_unconfirmed is { } pending)
+        {
+            TeachingFeedback.Text = "此科有待核对的提交。请先读取服务器当前任课安排。";
+            ShowBeforeReadback(pending);
+        }
+        else
+        {
+            TeachingFeedback.Text = Subject is null ? "请选择本班科目。" : "请选择教师和任课身份，先预览再提交。";
+            RestorePausedDraft();
+        }
+        UpdateControls();
     }
 
     private void BindSubject()
     {
         var subject = Subject;
+        TeachingPinnedSubject.Text = subject?.Name ?? "原科目待核对";
+        TeachingSubjectDetails.IsVisible = subject is not null;
         TeachingChoiceContext.Text = $"{_className} · {subject?.Name}";
+        if (InWorkspace && _className.Length > 0)
+            TeachingContext.Text = $"{_schoolName} · {_termName ?? "当前学期"} · {_className}" + (subject is null ? "" : $" · {subject.Name}");
         var rows = subject?.Classes.First(row => row.Id == _classId).Assignments ?? [];
         TeachingExistingPicker.ItemsSource = rows;
         TeachingExistingPicker.IsVisible = rows.Length > 0;
@@ -227,8 +261,13 @@ public sealed partial class TeachingView : UserControl
     private TeachingDraft? Draft()
     {
         if (Subject is not { } subject || _action != "REMOVE" && Teacher is null) return null;
+        return CaptureDraft(subject.Id);
+    }
+
+    private TeachingDraft CaptureDraft(string subjectId)
+    {
         string[] ids = _action == "ASSIGN" ? [_classId, .. _choices.Where(row => row.Value.IsChecked == true).Select(row => row.Key)] : [_classId];
-        return new(_termId, subject.Id, _action, ids, _action == "REMOVE" ? null : Teacher?.Id,
+        return new(_termId, subjectId, _action, ids, _action == "REMOVE" ? null : Teacher?.Id,
             _action == "REMOVE" ? null : AssignmentPosition, _original?.Id);
     }
 
@@ -241,8 +280,8 @@ public sealed partial class TeachingView : UserControl
         TeachingPreviewButton.IsEnabled = editable && Draft() is not null;
         TeachingApplyButton.IsEnabled = editable && _preview is { Preview: { CanApply: true, HasChanges: true } };
         TeachingReadButton.IsEnabled = !_busy && !_closed;
-        OpenTeachingTeacherChoice.Content = Teacher?.ToString() ?? "选择教师";
-        OpenTeachingTeacherChoice.IsEnabled = editable && TeachingTeacherPicker.ItemCount > 0;
+        UpdateTeacherChoiceLabel();
+        OpenTeachingTeacherChoice.IsEnabled = editable && Subject is not null && TeachingTeacherPicker.ItemCount > 0;
         TeachingSubjectSetupButton.IsEnabled = editable;
         TeachingNewTeacher.IsVisible = _action != "REMOVE";
         TeachingNewTeacher.IsEnabled = editable && Subject is not null;
@@ -328,6 +367,7 @@ public sealed partial class TeachingView : UserControl
         TeachingFeedback.Text = confirmed ? "已核对，服务器当前安排与本次提交一致。"
             : "已核对，服务器当前安排与本次提交有差异。请检查下列实际安排。";
         if (confirmed) await RefreshAfterResultAsync(draft.SubjectId);
+        else if (InWorkspace && Subject?.Id == draft.SubjectId) RestoreDraft(draft);
         if (confirmed) _draftChanged = false;
         if (!_closed) ShowRows(observed, observed: true);
     }
@@ -343,8 +383,10 @@ public sealed partial class TeachingView : UserControl
 
     private void SetUnconfirmed(TeachingPending? pending)
     {
+        string? subjectId = pending?.Draft.SubjectId ?? _unconfirmed?.Draft.SubjectId;
         _unconfirmed = pending;
-        var key = (_schoolId, _termId, _classId);
+        if (subjectId is null) return;
+        var key = (_schoolId, _termId, _classId, subjectId);
         var byScope = PendingBySession.GetOrCreateValue(_client);
         if (pending is null) byScope.Remove(key);
         else byScope[key] = pending;
@@ -368,7 +410,10 @@ public sealed partial class TeachingView : UserControl
             TeachingBeforeHeading.Text = "预览时";
             TeachingAfterHeading.Text = "服务器当前";
         }
-        var items = rows.ToArray();
+        var items = rows.Select(row => row with
+        {
+            CanLocatePeer = InWorkspace && row.NeedsAttention && _action == "ASSIGN" && _choices.ContainsKey(row.Row.ClassId)
+        }).ToArray();
         TeachingPreviewList.ItemsSource = items;
         TeachingPreviewEmpty.IsVisible = items.Length == 0;
         if (items.FirstOrDefault(row => row.NeedsAttention) is not { } target) return;
@@ -387,13 +432,20 @@ public sealed partial class TeachingView : UserControl
         }, DispatcherPriority.Loaded);
     }
 
+    private void LocateTeachingPeerClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || sender is not Button { Tag: string classId } || !_choices.TryGetValue(classId, out var choice)) return;
+        choice.BringIntoView();
+        choice.Focus(NavigationMethod.Tab);
+    }
+
     private async void ReadClicked(object? sender, RoutedEventArgs args) =>
-        await RunAsync(() => _unconfirmed is not null ? VerifyAsync() : ReadAsync(Subject?.Id, preserveDraft: InWorkspace));
+        await RunAsync(() => _unconfirmed is not null ? VerifyAsync() : ReadAsync(_entrySubjectId ?? Subject?.Id, preserveDraft: InWorkspace));
 
     private async void SubjectSetupClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
     {
         await _subjectSetup.OpenAsync(HostWindow, _client, _school, _termId, _classId, [_classId], error => SessionExpired?.Invoke(error));
-        if (!_closed) await ReadAsync(null);
+        if (!_closed) await ReadAsync(_entrySubjectId);
     });
 
     private async void NewTeacherClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
@@ -424,6 +476,7 @@ public sealed partial class TeachingView : UserControl
         TeachingTeacherPicker.ItemsSource = catalog.Teachers;
         TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(teacher => teacher.Id == teacherId);
         _binding = false;
+        if (Teacher is not null) MarkDraftChanged();
         ResetPreview();
         TeachingFeedback.Text = Teacher is null ? completed + "。待认领邀请需等教师本人完成登录后才能选用。" :
             completed + "。原班级、科目及任课身份仍在，请预览并确认任课。";
@@ -475,8 +528,9 @@ public sealed partial class TeachingView : UserControl
     internal bool CanClose()
     {
         if (_submitting) return false;
+        if (TeachingTeacherChoiceLayer.IsVisible) CloseTeacherChoice();
         if (!InWorkspace || !_draftChanged || _unconfirmed is not null) return true;
-        TeachingKeepDraft.IsVisible = Draft() is not null;
+        TeachingKeepDraft.IsVisible = Subject is not null;
         TeachingDiscard.IsVisible = true;
         TeachingFeedback.Text = TeachingKeepDraft.IsVisible ? "任课草稿尚未保存。可在本次登录中保留原草稿，也可放弃返回。"
             : "任课草稿尚未保存。可以继续办理，或放弃草稿后返回。";

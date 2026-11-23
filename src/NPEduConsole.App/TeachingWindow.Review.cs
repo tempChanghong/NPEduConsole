@@ -9,8 +9,10 @@ internal enum TeachingObservation { Applied, Stale, Blocked, Readback }
 internal sealed record TeachingPreviewRow(TeachingRow Row, string Before, string After, string Status,
     string? Reason, bool NeedsAttention)
 {
+    public bool CanLocatePeer { get; init; }
     public string ClassName => Row.ClassName;
     public string AutomationId => "TeachingPreviewClass-" + Row.ClassId;
+    public string LocateAutomationId => "LocateTeachingPeer-" + Row.ClassId;
     public bool HasReason => !string.IsNullOrWhiteSpace(Reason);
 
     internal static TeachingPreviewRow Planned(TeachingRow row, string? teacher, TeachingDraft draft)

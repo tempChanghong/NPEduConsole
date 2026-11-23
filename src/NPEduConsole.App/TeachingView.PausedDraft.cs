@@ -11,22 +11,33 @@ public sealed partial class TeachingView
 
     private void PauseTeachingClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy || Draft() is not { } draft) return;
-        PausedDrafts.GetOrCreateValue(_client)[(_schoolId, _termId, _classId, draft.SubjectId)] = draft;
+        if (_busy || Subject is not { } subject) return;
+        SavePausedDraft(subject.Id);
         _draftChanged = false;
         CloseRequested?.Invoke();
     }
+
+    private void SavePausedDraft(string subjectId) =>
+        PausedDrafts.GetOrCreateValue(_client)[(_schoolId, _termId, _classId, subjectId)] = CaptureDraft(subjectId);
 
     private void RestorePausedDraft()
     {
         if (Subject is not { } subject || !PausedDrafts.TryGetValue(_client, out var drafts) ||
             !drafts.Remove((_schoolId, _termId, _classId, subject.Id), out var draft)) return;
-        var original = TeachingExistingPicker.Items.OfType<TeachingAssignment>().FirstOrDefault(row => row.Id == draft.AssignmentId);
-        if (draft.AssignmentId is not null && original is null)
+        if (!RestoreDraft(draft))
         {
             TeachingFeedback.Text = "原草稿对应的任课关系已变化。请选择当前关系后重新办理。";
             return;
         }
+        TeachingFeedback.Text = (draft.AccountId is not null && Teacher is null || draft.ClassIds.Any(id => id != _classId && !_choices.ContainsKey(id)))
+            ? "已恢复仍可用的草稿选择。原教师或部分班级已不可选，请核对后重新预览。"
+            : "已恢复本班本科目的草稿，请重新预览当前安排。";
+    }
+
+    private bool RestoreDraft(TeachingDraft draft)
+    {
+        var original = TeachingExistingPicker.Items.OfType<TeachingAssignment>().FirstOrDefault(row => row.Id == draft.AssignmentId);
+        if (draft.AssignmentId is not null && original is null) return false;
         _binding = true;
         if (original is not null) TeachingExistingPicker.SelectedItem = original;
         SetOperation(draft.Action, original);
@@ -38,9 +49,7 @@ public sealed partial class TeachingView
         _binding = false;
         _draftChanged = true;
         UpdateControls();
-        TeachingFeedback.Text = (draft.AccountId is not null && Teacher is null || draft.ClassIds.Any(id => id != _classId && !_choices.ContainsKey(id)))
-            ? "已恢复仍可用的草稿选择。原教师或部分班级已不可选，请核对后重新预览。"
-            : "已恢复本班本科目的草稿，请重新预览当前安排。";
+        return true;
     }
 
     internal static void ForgetPausedDrafts(ConsoleClient client, School school)

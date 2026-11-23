@@ -76,8 +76,8 @@ public sealed partial class MainWindow
             if (task.Action == "OPEN_TEACHING" && overview.Term is { } teachingTerm &&
                 task.ClassId is { } teachingClass && task.SubjectId is { } subjectId)
             {
-                await ShowTeachingAsync(client, school, teachingTerm.Id, teachingClass, subjectId);
-                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
+                if (await ShowTeachingPageAsync(client, school, teachingTerm.Id, teachingClass, subjectId, termName: teachingTerm.Name) && StillHere())
+                    await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
             if (task.Action is "CREATE_GRADE" or "CREATE_CLASS")

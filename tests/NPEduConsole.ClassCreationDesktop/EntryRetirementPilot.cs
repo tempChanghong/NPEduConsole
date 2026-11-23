@@ -174,7 +174,7 @@ internal static partial class Program
             await CaptureWithFrame(main, output, "08-narrow-teacher-selection");
             candidates.Focus();
             candidates.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
-            await Until(() => openTeacher.IsFocused && openTeacher.Content?.ToString()?.Contains("pilot-teacher-a") == true,
+            await Until(() => openTeacher.IsFocused && ChosenAccount(teaching) == "@pilot-teacher-a",
                 "keyboard confirms the exact teacher, then returns focus");
             var peer = Find<StackPanel>(teaching, "TeachingClassChoices").Children.OfType<CheckBox>()
                 .Single(check => AutomationProperties.GetAutomationId(check) == "TeachingClass-" + access.PeerId);
@@ -191,7 +191,7 @@ internal static partial class Program
             Click(await TaskButton("ADMIN_CLASS_SUBJECT_WITHOUT_TEACHER", access.ActiveClassId));
             teaching = await AcademicPageAsync<TeachingView>(main);
             openTeacher = Find<Button>(teaching, "OpenTeachingTeacherChoice");
-            await Until(() => openTeacher.Content?.ToString()?.Contains("pilot-teacher-a") == true &&
+            await Until(() => ChosenAccount(teaching) == "@pilot-teacher-a" &&
                 Find<TextBlock>(teaching, "TeachingFeedback").Text?.Contains("已恢复") == true, "same-scope draft comes back without reusing its preview");
             peer = Find<StackPanel>(teaching, "TeachingClassChoices").Children.OfType<CheckBox>()
                 .Single(check => AutomationProperties.GetAutomationId(check) == "TeachingClass-" + access.PeerId);
@@ -207,7 +207,7 @@ internal static partial class Program
             var comparison = Find<ListBox>(teaching, "TeachingPreviewList");
             await Until(() => comparison.GetVisualDescendants().OfType<Border>().Any(row => row.IsFocused &&
                 AutomationProperties.GetAutomationId(row) == "TeachingPreviewClass-" + access.PeerId), "stale peer row has focus");
-            Check(peer.IsChecked == true && openTeacher.Content?.ToString()?.Contains("pilot-teacher-a") == true && !apply.IsEnabled,
+            Check(peer.IsChecked == true && ChosenAccount(teaching) == "@pilot-teacher-a" && !apply.IsEnabled,
                 "stale preview preserves teacher and peer, requires a new preview");
             await Signal("stale-no-write");
             await CaptureWithFrame(main, output, "09-narrow-stale-row");
