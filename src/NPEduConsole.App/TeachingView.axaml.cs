@@ -81,22 +81,10 @@ public sealed partial class TeachingView : UserControl
         await RunAsync(async () =>
         {
             await ReadAsync(_unconfirmed?.Draft.SubjectId ?? _entrySubjectId);
-            if (!_closed && _entryAccountId is { } accountId && _unconfirmed is null)
-            {
-                var existing = TeachingExistingPicker.Items.OfType<TeachingAssignment>().FirstOrDefault(row => row.AccountId == accountId);
-                if (existing is not null)
-                {
-                    TeachingExistingPicker.SelectedItem = existing;
-                    entryFocus = TeachingExistingPicker;
-                }
-                else if (TeachingTeacherPicker.Items.OfType<TeachingTeacher>().FirstOrDefault(row => row.Id == accountId) is { } teacher)
-                {
-                    TeachingTeacherPicker.SelectedItem = teacher;
-                    entryFocus = TeacherChoiceAnchor;
-                }
-            }
+            if (!_closed && _unconfirmed is null) entryFocus = SelectEntryAccount();
             if (_closed || _unconfirmed is not { } pending) return;
-            TeachingFeedback.Text = "已恢复待核对的提交。请先读取服务器当前任课安排。";
+            TeachingFeedback.Text = pending.EntryAccountId == _entryAccountId ? "已恢复待核对的提交。请先读取服务器当前任课安排。"
+                : "此班科另有一次提交待核对。请先读取原提交涉及的任课安排，再继续本页办理。";
             ShowBeforeReadback(pending);
         });
         if (_closed) return;
@@ -109,11 +97,20 @@ public sealed partial class TeachingView : UserControl
     private TeachingTeacher? Teacher => TeachingTeacherPicker.SelectedItem as TeachingTeacher;
     private string AssignmentPosition => TeachingPositionPicker.SelectedIndex == 1 ? "CO_TEACHER" : "PRIMARY";
 
+    private Control? SelectEntryAccount()
+    {
+        if (_entryAccountId is not { } accountId) return null;
+        if (TeachingExistingPicker.SelectedItem is TeachingAssignment existing && existing.AccountId == accountId) return TeachingExistingPicker;
+        TeachingTeacherPicker.SelectedItem = TeachingTeacherPicker.Items.OfType<TeachingTeacher>().FirstOrDefault(row => row.Id == accountId);
+        return TeacherChoiceAnchor;
+    }
+
     private async Task ReadAsync(string? subjectId, bool announce = true, bool preserveDraft = false)
     {
         string? priorSubject = Subject?.Id;
         string priorAction = _action;
         string? priorAssignment = _original?.Id;
+        string? priorSelection = (TeachingExistingPicker.SelectedItem as TeachingAssignment)?.Id;
         int position = TeachingPositionPicker.SelectedIndex;
         bool assignmentChanged = false;
         string[] chosenPeers = preserveDraft ? _choices.Where(row => row.Value.IsChecked == true).Select(row => row.Key).ToArray() : [];
@@ -132,6 +129,8 @@ public sealed partial class TeachingView : UserControl
         BindSubject();
         if (preserveDraft && priorSubject is not null && Subject?.Id == priorSubject)
         {
+            TeachingExistingPicker.SelectedItem = TeachingExistingPicker.Items.OfType<TeachingAssignment>()
+                .FirstOrDefault(row => row.Id == priorSelection);
             if (priorAssignment is not null && TeachingExistingPicker.Items.OfType<TeachingAssignment>()
                 .FirstOrDefault(row => row.Id == priorAssignment) is { } assignment)
             {
@@ -198,7 +197,8 @@ public sealed partial class TeachingView : UserControl
         TeachingExistingPicker.ItemsSource = rows;
         TeachingExistingPicker.IsVisible = rows.Length > 0;
         TeachingExistingEmpty.IsVisible = rows.Length == 0;
-        TeachingExistingPicker.SelectedIndex = rows.Length > 0 ? 0 : -1;
+        TeachingExistingPicker.SelectedItem = _entryAccountId is null ? rows.FirstOrDefault() :
+            rows.FirstOrDefault(row => row.AccountId == _entryAccountId);
         _choices.Clear();
         TeachingClassChoices.Children.Clear();
         foreach (var room in subject?.Classes.Where(row => row.Id != _classId) ?? [])
@@ -321,21 +321,26 @@ public sealed partial class TeachingView : UserControl
             _preview = null;
             _submitting = true;
             TeachingFeedback.Text = "正在提交任课安排…";
-            TeachingResult result;
+            TeachingResult? result = null;
             try
             {
                 result = await _client.SaveTeachingAsync(_schoolId, _classId, pending.Draft, pending.Preview, _lifetime.Token, _courseGroup);
             }
             catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
             {
-                SetUnconfirmed(new(pending.Draft, pending.Preview));
+                if (_closed) return;
+                SetUnconfirmed(new(pending.Draft, pending.Preview, _entryAccountId));
                 ShowBeforeReadback(_unconfirmed!);
-                await VerifyAsync();
-                return;
+                UpdateControls();
             }
             finally { _submitting = false; }
 
             if (_closed) return;
+            if (result is null)
+            {
+                await VerifyAsync();
+                return;
+            }
             if (result.State != "APPLIED")
             {
                 ShowRows(TeachingPreviewRow.Compare(result.Rows, new TeachingPending(pending.Draft, pending.Preview),
@@ -366,10 +371,27 @@ public sealed partial class TeachingView : UserControl
         SetUnconfirmed(null);
         TeachingFeedback.Text = confirmed ? "已核对，服务器当前安排与本次提交一致。"
             : "已核对，服务器当前安排与本次提交有差异。请检查下列实际安排。";
-        if (confirmed) await RefreshAfterResultAsync(draft.SubjectId);
-        else if (InWorkspace && Subject?.Id == draft.SubjectId) RestoreDraft(draft);
-        if (confirmed) _draftChanged = false;
-        if (!_closed) ShowRows(observed, observed: true);
+        if (confirmed)
+        {
+            _draftChanged = false;
+            await RefreshAfterResultAsync(draft.SubjectId);
+        }
+        if (_closed) return;
+        if (pending.EntryAccountId != _entryAccountId)
+        {
+            if (!confirmed)
+            {
+                PausedDrafts.GetOrCreateValue(_client)[(_schoolId, _termId, _classId, draft.SubjectId, pending.EntryAccountId)] = draft;
+                TeachingFeedback.Text += " 原草稿已保留，可从原入口重新预览。";
+            }
+            SelectEntryAccount();
+            string observation = TeachingFeedback.Text ?? "";
+            RestorePausedDraft();
+            if (_draftChanged && TeachingFeedback.Text != observation)
+                TeachingFeedback.Text = observation + Environment.NewLine + TeachingFeedback.Text;
+        }
+        else if (!confirmed && InWorkspace && Subject?.Id == draft.SubjectId) RestoreDraft(draft);
+        ShowRows(observed, observed: true);
     }
 
     private async Task RefreshAfterResultAsync(string subjectId)
@@ -532,8 +554,9 @@ public sealed partial class TeachingView : UserControl
         if (!InWorkspace || !_draftChanged || _unconfirmed is not null) return true;
         TeachingKeepDraft.IsVisible = Subject is not null;
         TeachingDiscard.IsVisible = true;
-        TeachingFeedback.Text = TeachingKeepDraft.IsVisible ? "任课草稿尚未保存。可在本次登录中保留原草稿，也可放弃返回。"
-            : "任课草稿尚未保存。可以继续办理，或放弃草稿后返回。";
+        TeachingFeedback.Text = !TeachingKeepDraft.IsVisible ? "任课草稿尚未保存。可以继续办理，或放弃草稿后返回。"
+            : _entryAccountId is null ? "任课草稿尚未保存。保留后，本次登录可回到原学校的同一学期、班级和科目继续。"
+            : "任课草稿尚未保存。保留后，本次登录可从这名教师的原班科入口继续。";
         (TeachingKeepDraft.IsVisible ? TeachingKeepDraft : TeachingDiscard).Focus(NavigationMethod.Tab);
         return false;
     }

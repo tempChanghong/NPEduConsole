@@ -2,7 +2,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-internal sealed record TeachingPending(TeachingDraft Draft, TeachingPreview Preview);
+internal sealed record TeachingPending(TeachingDraft Draft, TeachingPreview Preview, string? EntryAccountId = null);
 
 internal enum TeachingObservation { Applied, Stale, Blocked, Readback }
 

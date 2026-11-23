@@ -68,6 +68,8 @@ export async function verifySchoolOpening({prisma, origin, fixture, directory, e
     expectedBindingRevision: admission.bindingRevision, expectedPairingRevision: admission.pairingRevision, requireUnpaired: true});
   const nativeFixture = join(directory, 'school-opening-native.json');
   const signals = [];
+  let discardedTeachingSave = 0, recoveryReads = 0;
+  const teachingPath = path + '/current-term/administrative-classes/' + eight.id + '/teaching-assignments';
   let browser, site, holdRead = false, releaseRead, browserProof, connectionProof;
   async function browserPage(run) {
     const page = await browser.newPage({viewport: {width: 1300, height: 870}, serviceWorkers: 'block'});
@@ -144,6 +146,17 @@ export async function verifySchoolOpening({prisma, origin, fixture, directory, e
     release() { releaseRead?.(); },
   };
   const relay = createServer(async (req, res) => {
+    if (req.method === 'POST' && req.url === teachingPath) {
+      discardedTeachingSave++;
+      req.resume();
+      res.destroy();
+      return;
+    }
+    if (discardedTeachingSave && req.method === 'POST' && req.url === teachingPath + '/preview' && ++recoveryReads === 1) {
+      req.resume();
+      res.writeHead(503).end();
+      return;
+    }
     const command = /^\/__school-opening\/([a-z]+)$/.exec(req.url)?.[1];
     if (req.method === 'POST' && command && Object.hasOwn(commands, command)) {
       try { await commands[command](); signals.push(command); res.writeHead(204).end(); }
@@ -179,6 +192,10 @@ export async function verifySchoolOpening({prisma, origin, fixture, directory, e
     }});
     assert.deepEqual(signals, ['staffed', 'connected', 'hold', 'held', 'release']);
     assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: formerEight.id}}), 0);
+    assert.equal(discardedTeachingSave, 1);
+    assert.equal(recoveryReads, 2);
+    assert.deepEqual((await prisma.teachingAssignment.findMany({where: {workspaceId: eight.id, subjectId: physics.id},
+      select: {accountId: true, position: true}})), [{accountId: teacher.id, position: 'PRIMARY'}]);
     await writeFile(join(evidence, 'school-opening-cross-end.json'), JSON.stringify({passed: true, signals, browserProof,
       screens: connectionProof, classId: eight.id, oldClassId: formerEight.id, termId: term.id}, null, 2));
   } finally {

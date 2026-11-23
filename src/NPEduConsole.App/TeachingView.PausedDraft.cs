@@ -7,23 +7,23 @@ namespace NPEduConsole.App;
 public sealed partial class TeachingView
 {
     private static readonly ConditionalWeakTable<ConsoleClient,
-        Dictionary<(string School, string Term, string Workspace, string Subject), TeachingDraft>> PausedDrafts = new();
+        Dictionary<(string School, string Term, string Workspace, string Subject, string? EntryAccount), TeachingDraft>> PausedDrafts = new();
 
     private void PauseTeachingClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy || Subject is not { } subject) return;
+        if (_closed || _submitting || _unconfirmed is not null || !_draftChanged || Subject is not { } subject) return;
         SavePausedDraft(subject.Id);
         _draftChanged = false;
         CloseRequested?.Invoke();
     }
 
     private void SavePausedDraft(string subjectId) =>
-        PausedDrafts.GetOrCreateValue(_client)[(_schoolId, _termId, _classId, subjectId)] = CaptureDraft(subjectId);
+        PausedDrafts.GetOrCreateValue(_client)[(_schoolId, _termId, _classId, subjectId, _entryAccountId)] = CaptureDraft(subjectId);
 
     private void RestorePausedDraft()
     {
         if (Subject is not { } subject || !PausedDrafts.TryGetValue(_client, out var drafts) ||
-            !drafts.Remove((_schoolId, _termId, _classId, subject.Id), out var draft)) return;
+            !drafts.Remove((_schoolId, _termId, _classId, subject.Id, _entryAccountId), out var draft)) return;
         if (!RestoreDraft(draft))
         {
             TeachingFeedback.Text = "原草稿对应的任课关系已变化。请选择当前关系后重新办理。";
@@ -52,9 +52,17 @@ public sealed partial class TeachingView
         return true;
     }
 
-    internal static void ForgetPausedDrafts(ConsoleClient client, School school)
+    internal static void ForgetSchool(ConsoleClient client, School school)
     {
-        if (!PausedDrafts.TryGetValue(client, out var drafts)) return;
-        foreach (var key in drafts.Keys.Where(key => key.School == school.Id).ToArray()) drafts.Remove(key);
+        if (PausedDrafts.TryGetValue(client, out var drafts))
+            foreach (var key in drafts.Keys.Where(key => key.School == school.Id).ToArray()) drafts.Remove(key);
+        if (PendingBySession.TryGetValue(client, out var pending))
+            foreach (var key in pending.Keys.Where(key => key.School == school.Id).ToArray()) pending.Remove(key);
+    }
+
+    internal static void EndSession(ConsoleClient client)
+    {
+        PausedDrafts.Remove(client);
+        PendingBySession.Remove(client);
     }
 }

@@ -41,7 +41,7 @@ public sealed partial class TeachingView
 
     private void DiscardTeachingClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy) return;
+        if (_closed || _submitting || _unconfirmed is not null || !_draftChanged) return;
         _draftChanged = false;
         CloseRequested?.Invoke();
     }

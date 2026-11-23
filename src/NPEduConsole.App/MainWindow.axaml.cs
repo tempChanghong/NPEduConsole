@@ -230,7 +230,6 @@ public sealed partial class MainWindow : Window
             _page = ShellPage.Overview;
             var school = SchoolPicker.SelectedItem as School;
             _openingDeviceReturn = null;
-            if (_school is { } previous && previous != school) TeachingView.ForgetPausedDrafts(_client, previous);
             CloseSchoolSubjects();
             CloseStaffResponsibilities();
             CloseStaffReview();
@@ -631,6 +630,7 @@ public sealed partial class MainWindow : Window
     {
         if (_client is { } endingClient)
         {
+            TeachingView.EndSession(endingClient);
             OrganizationImportView.EndSession(endingClient);
             TeacherAllocationView.EndSession(endingClient);
         }

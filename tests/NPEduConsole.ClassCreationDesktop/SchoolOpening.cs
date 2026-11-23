@@ -37,6 +37,16 @@ internal static partial class Program
             main.Height = 780;
             await Login("admin");
             SelectSchool(data.SchoolId);
+            var generic = await OpenEightPhysics();
+            Click(Find<Button>(generic, "OpenTeachingTeacherChoice"));
+            var candidates = Find<ListBox>(generic, "TeachingTeacherCandidates");
+            candidates.SelectedItem = candidates.Items.OfType<TeachingTeacherCandidate>().Single(row => row.Teacher.Id == data.SameNameId);
+            Click(Find<Button>(generic, "UseTeachingTeacher"));
+            Find<ComboBox>(generic, "TeachingPositionPicker").SelectedIndex = 1;
+            Click(Find<Button>(generic, "CloseTeachingButton"));
+            Click(Find<Button>(generic, "TeachingKeepDraft"));
+            await Until(() => !generic.IsEffectivelyVisible, "八班物理保留另一位同名教师的协同任课草稿");
+            Click(Find<Button>(main, "OpenSchoolOverviewButton"));
             var view = await OpenChecklist("2 个启用行政班");
             Check(TopLevel.GetTopLevel(view) is Window owner && owner.TryGetPlatformHandle()?.Handle == handle,
                 "开学配置与学校总览保持同一 Windows 窗口");
@@ -74,8 +84,55 @@ internal static partial class Program
             await CaptureWithFrame(main, output, "01-wide-physics-teacher");
             var teaching = await OpenTeaching(view, "物理", data.TeacherId);
             Check(Text(teaching, "TeachingContext").Contains("高二（8）班"), "指定八班物理而非同码历史班");
+            Check(Find<ComboBox>(teaching, "TeachingTeacherPicker").SelectedItem is null &&
+                !Find<Button>(teaching, "TeachingPreviewButton").IsEnabled,
+                "明确查看 opening-a 的现有任课时，opening-b 的协同草稿不能成为可提交的对象");
+            await CaptureWithFrame(main, output, "01a-explicit-teacher-with-separate-class-draft");
             Click(Find<Button>(teaching, "CloseTeachingButton"));
             await WaitRow(view, physicsKey);
+            Click(Find<Button>(view, "OpeningBack"));
+            await Until(() => !view.IsEffectivelyVisible, "离开开学清单");
+            generic = await OpenEightPhysics();
+            await Until(() => Find<ComboBox>(generic, "TeachingTeacherPicker").SelectedItem is TeachingTeacher account &&
+                account.Id == data.SameNameId && Find<ComboBox>(generic, "TeachingPositionPicker").SelectedIndex == 1,
+                "按原班科重开后仍是 opening-b 的协同草稿");
+            await CaptureWithFrame(main, output, "01b-original-class-draft-preserved");
+            Click(Find<Button>(generic, "TeachingPreviewButton"));
+            await Until(() => Ready(generic, "TeachingApplyButton"), "opening-b 的协同草稿可单独预览");
+            Click(Find<Button>(generic, "TeachingApplyButton"));
+            await Until(() => Text(generic, "TeachingFeedback").Contains("提交回执仍未确认") && Ready(generic, "TeachingReadButton"),
+                "未送达的写入和首次读取故障留下原操作待核对");
+            Click(Find<Button>(generic, "CloseTeachingButton"));
+            await Until(() => !generic.IsEffectivelyVisible, "可以离开待核对的提交");
+            Click(Find<Button>(main, "OpenSchoolOverviewButton"));
+            view = await OpenChecklist("2 个启用行政班");
+            Click(Find<Button>(view, "OpeningTeachers"));
+            await Until(() => Rows(view).Any(row => row.Key == physicsKey), "重新读取原校师资");
+            Select(view, physicsKey);
+            teaching = await OpenTeaching(view, "物理", data.TeacherId);
+            await Until(() => Ready(teaching, "TeachingReadButton") && !Ready(teaching, "TeachingApplyButton"), "从教师入口只读核对原班科");
+            Click(Find<Button>(teaching, "TeachingReadButton"));
+            await Until(() => Text(teaching, "TeachingFeedback").Contains("有差异") && Ready(teaching, "TeachingReadButton"),
+                "服务器确认 opening-b 的新增任课未出现");
+            Check(Find<ComboBox>(teaching, "TeachingTeacherPicker").SelectedItem is null &&
+                Find<ComboBox>(teaching, "TeachingExistingPicker").SelectedItem is TeachingAssignment saved && saved.AccountId == data.TeacherId &&
+                !Ready(teaching, "TeachingPreviewButton"), "只读核对不会把另一教师变成本页编辑对象");
+            Click(Find<Button>(teaching, "CloseTeachingButton"));
+            await WaitRow(view, physicsKey);
+            Click(Find<Button>(view, "OpeningBack"));
+            await Until(() => !view.IsEffectivelyVisible, "离开核对入口");
+            generic = await OpenEightPhysics();
+            await Until(() => Find<ComboBox>(generic, "TeachingTeacherPicker").SelectedItem is TeachingTeacher account &&
+                account.Id == data.SameNameId && Find<ComboBox>(generic, "TeachingPositionPicker").SelectedIndex == 1,
+                "未送达时保留原班科草稿，必须重新预览");
+            Check(!Ready(generic, "TeachingApplyButton"), "查到差异后不能直接重发");
+            Click(Find<Button>(generic, "CloseTeachingButton"));
+            Click(Find<Button>(generic, "TeachingDiscard"));
+            await Until(() => !generic.IsEffectivelyVisible, "明确放弃未送达的草稿");
+            Click(Find<Button>(main, "OpenSchoolOverviewButton"));
+            view = await OpenChecklist("2 个启用行政班");
+            Click(Find<Button>(view, "OpeningTeachers"));
+            await Until(() => Rows(view).Any(row => row.Key == physicsKey), "清单仍可办理其他原学期事项");
 
             main.Width = 840;
             main.Height = 480;
@@ -212,6 +269,22 @@ internal static partial class Program
             Find<TextBox>(main, "Password").Text = data.Pin;
             Click(Find<Button>(main, "LoginButton"));
             await Until(() => schools.IsEffectivelyVisible && schools.Items.OfType<School>().Any(row => row.Id == data.SchoolId), "管理员登录完成");
+        }
+        async Task<TeachingView> OpenEightPhysics()
+        {
+            await Until(() => Ready(main, "OpenClassWorkspaceButton"), "原学校班级入口");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            var rooms = Find<ListBox>(main, "ClassPicker");
+            await Until(() => rooms.IsEffectivelyVisible && rooms.Items.OfType<Classroom>().Any(row => row.Id == data.EightId), "已启用的八班");
+            rooms.SelectedItem = rooms.Items.OfType<Classroom>().Single(row => row.Id == data.EightId);
+            await Until(() => Ready(main, "OpenTeachingButton"), "八班任课入口");
+            Click(Find<Button>(main, "OpenTeachingButton"));
+            var page = await AcademicPageAsync<TeachingView>(main);
+            var subjects = Find<ComboBox>(page, "TeachingSubjectPicker");
+            await Until(() => subjects.Items.OfType<TeachingSubject>().Any(row => row.Id == data.PhysicsId) &&
+                Find<Button>(page, "TeachingReadButton").IsEnabled, "原班科目录");
+            subjects.SelectedItem = subjects.Items.OfType<TeachingSubject>().Single(row => row.Id == data.PhysicsId);
+            return page;
         }
         void SelectSchool(string id) => schools.SelectedItem = schools.Items.OfType<School>().Single(row => row.Id == id);
 

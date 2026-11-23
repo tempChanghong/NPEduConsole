@@ -25,6 +25,13 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
   const primary = await createTeacher('originalteacher', '王老师');
   const admin2 = await createTeacher('teachingadmin2', '第二管理员', 'ADMIN');
   const otherManageable = await prisma.school.create({data: {name: '另一个可管理学校', code: 'OTHER-MANAGED'}});
+  const next = await prisma.academicTerm.create({data: {schoolId: school.id, academicYear: 2026, semester: 2,
+    name: '下一学期', status: 'DRAFT'}});
+  const nextGrade = await prisma.grade.create({data: {termId: next.id, name: grade.name, code: grade.code}});
+  const nextEight = await prisma.workspace.create({data: {termId: next.id, gradeId: nextGrade.id,
+    name: eight.name, code: eight.code, type: 'ADMIN_CLASS'}});
+  await prisma.administrativeClassSubject.create({data: {administrativeClassId: nextEight.id, subjectId: subject.id,
+    deliveryMode: 'ADMIN_CLASS'}});
 
   async function api(path, {method = 'GET', token, body, status = 200} = {}) {
     const headers = {'Content-Type': 'application/json'};
@@ -56,9 +63,34 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
   let commits = 0;
   let readbackFailed = false;
   let changedByOtherAdmin = false;
+  let releaseSavedReply;
+  let releaseRecovery;
+  let delayedRecovery = false;
   let holdClassRead = false;
   let releaseClassRead;
   const relay = createServer(async (req, res) => {
+    if (req.method === 'POST' && ['/__teaching/next-term', '/__teaching/original-term'].includes(req.url)) {
+      const activatingNext = req.url.endsWith('/next-term');
+      try {
+        await prisma.$transaction([
+          prisma.academicTerm.update({where: {id: activatingNext ? term.id : next.id}, data: {status: 'ARCHIVED'}}),
+          prisma.academicTerm.update({where: {id: activatingNext ? next.id : term.id}, data: {status: 'ACTIVE'}}),
+        ]);
+        res.writeHead(204).end();
+      } catch { res.writeHead(500).end(); }
+      return;
+    }
+    if (req.method === 'POST' && ['/__teaching/drop-saved-reply', '/__teaching/release-recovery'].includes(req.url)) {
+      const release = req.url.endsWith('drop-saved-reply') ? releaseSavedReply : releaseRecovery;
+      if (!release) { res.writeHead(409).end(); return; }
+      release();
+      res.writeHead(204).end();
+      return;
+    }
+    if (req.url === '/__teaching/relay-state') {
+      res.writeHead(200).end(JSON.stringify({saved: !!releaseSavedReply, reading: !!releaseRecovery}));
+      return;
+    }
     if (req.method === 'POST' && req.url.startsWith('/__teaching/') && req.url.endsWith('-class-read')) {
       try {
         if (req.url === '/__teaching/hold-class-read') holdClassRead = true;
@@ -84,14 +116,15 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
       } catch { res.writeHead(500).end(); }
       return;
     }
-    if (swallowed && !readbackFailed && req.method === 'POST' && req.url === assignmentPath(seven.id) + '/preview') {
+    if (delayedRecovery && !readbackFailed && req.method === 'POST' && req.url === assignmentPath(seven.id) + '/preview') {
       readbackFailed = true;
       req.resume();
       res.writeHead(502).end();
       return;
     }
     const upstream = request(new URL(req.url, dest), {method: req.method, headers: {...req.headers, host: dest.host}}, reply => {
-      if (holdClassRead && req.method === 'GET' && req.url.startsWith(assignmentPath(seven.id) + '?') && reply.statusCode === 200) {
+      if (holdClassRead && req.method === 'GET' && [seven, eight].some(room => req.url.startsWith(assignmentPath(room.id) + '?')) &&
+          reply.statusCode === 200) {
         holdClassRead = false;
         const chunks = [];
         reply.on('data', chunk => chunks.push(chunk));
@@ -106,7 +139,14 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
             parsed.rows.map(row => [row.className, row.state, row.version?.length, row.assignments?.length]));
           if (parsed.state === 'APPLIED') {
             commits++;
-            if (!swallowed) { swallowed = true; res.destroy(); return; }
+            if (!swallowed) {
+              releaseSavedReply = () => { swallowed = true; res.destroy(); };
+              return;
+            }
+          } else if (swallowed && !delayedRecovery && req.url === assignmentPath(seven.id) + '/preview') {
+            delayedRecovery = true;
+            releaseRecovery = () => { res.writeHead(reply.statusCode, reply.headers); res.end(body); };
+            return;
           }
           res.writeHead(reply.statusCode, reply.headers); res.end(body);
         });
@@ -121,15 +161,17 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
     await writeFile(access, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port,
       schoolId: school.id, schoolCode: school.code, password: pin, sevenId: seven.id, eightId: eight.id, nineId: nine.id,
       subjectId: subject.id, teacherId: candidate.id, historySubjectId: historySubject.id, historyPeerIds: historyRooms.map(room => room.id),
-      otherManageableSchoolId: otherManageable.id, allowTeachingTestWrites: true}), {mode: 0o600});
+      otherManageableSchoolId: otherManageable.id, nextEightId: nextEight.id, allowTeachingTestWrites: true}), {mode: 0o600});
     await runDesktop(['--live-teaching', access, evidence]);
     assert.equal(commits, 1);
-    assert.ok(swallowed && readbackFailed && changedByOtherAdmin);
+    assert.ok(swallowed && delayedRecovery && readbackFailed && changedByOtherAdmin);
     assert.equal(await prisma.teachingAssignment.count({where: {subjectId: historySubject.id}}), 1,
       "the stale desktop batch wrote no assignments in any history class");
     assert.deepEqual(await missing(), [eight.id]);
     assert.equal((await prisma.teachingAssignment.findUniqueOrThrow({where: {id: original.id}})).position, 'PRIMARY');
     assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: eight.id, subjectId: subject.id}}), 0);
+    assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: nextEight.id}}), 0,
+      'no draft or stale submission changed the identically named class in the other term');
     assert.equal((await teacherAccess()).find(row => row.workspace.id === eight.id)?.role, 'TEACHER');
     console.log('PASS: teacher account still reads class 8 through real HTTP after removal; only class 8 was reopened as a task.');
 
@@ -163,8 +205,6 @@ export async function verifyCurrentTeaching({prisma, origin, fixture, directory,
     await verifyBrowser({web, origin, school, term, admin, evidence});
     const one = {...draft, classIds: [seven.id]};
     const nextBaseline = await preview(seven.id, one);
-    const next = await prisma.academicTerm.create({data: {schoolId: school.id, academicYear: 2026, semester: 2,
-      name: '下一学期', status: 'DRAFT'}});
     await prisma.$transaction([
       prisma.academicTerm.update({where: {id: term.id}, data: {status: 'ARCHIVED'}}),
       prisma.academicTerm.update({where: {id: next.id}, data: {status: 'ACTIVE'}}),

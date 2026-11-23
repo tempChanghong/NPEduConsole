@@ -74,7 +74,7 @@ public sealed partial class MainWindow
     private async void AcademicScopeUnavailable(ConsoleApiException error, ConsoleClient client, School school)
     {
         if (_client != client || _school != school || ReturnToLoginIfExpired(error) || error.StatusCode != 403) return;
-        TeachingView.ForgetPausedDrafts(client, school);
+        TeachingView.ForgetSchool(client, school);
         OrganizationImportView.ForgetPending(client, school.Id);
         TeacherAllocationView.ForgetPending(client, school.Id);
         CloseTermPreparation();

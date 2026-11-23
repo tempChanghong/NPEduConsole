@@ -13,7 +13,7 @@ internal static partial class Program
 {
     private sealed record TeachingAccess(string Origin, string SchoolId, string SchoolCode, string Password,
         string SevenId, string EightId, string NineId, string SubjectId, string TeacherId, bool AllowTeachingTestWrites,
-        string HistorySubjectId, string[] HistoryPeerIds, string OtherManageableSchoolId);
+        string HistorySubjectId, string[] HistoryPeerIds, string OtherManageableSchoolId, string NextEightId);
 
     private static int StartTeaching(string path, string output)
     {
@@ -154,11 +154,16 @@ internal static partial class Program
             Check(list.Items.Cast<TeachingPreviewRow>().Count(row => row.Row.State == "ADD" && row.After.Contains("主讲")) == 2, "preview contains both proposed changes");
             await Capture(dialog, output, "03-batch-preview");
             Click(Find<Button>(dialog, "TeachingApplyButton"));
-            await Until(() => Feedback(dialog).Contains("提交回执仍未确认") && Find<Button>(dialog, "TeachingReadButton").IsEnabled,
-                "save reply and first read fail without resubmitting");
-            Check(!Find<Button>(dialog, "TeachingApplyButton").IsEffectivelyVisible, "only readback is available");
+            await WaitRelay("saved");
+            Click(Find<Button>(dialog, "CloseTeachingButton"));
+            Check(dialog.IsEffectivelyVisible, "cannot leave while the actual save is awaiting its reply");
+            using (var drop = await fixture.PostAsync("/__teaching/drop-saved-reply", null)) drop.EnsureSuccessStatusCode();
+            await WaitRelay("reading");
+            Check(!Ready(dialog, "TeachingApplyButton"), "the pending observation does not offer another write");
             await Capture(dialog, output, "04-waiting-readback");
             Click(Find<Button>(dialog, "CloseTeachingButton"));
+            Check(!dialog.IsEffectivelyVisible, "can leave after the save reply is lost and only a scope-bound observation is pending");
+            using (var release = await fixture.PostAsync("/__teaching/release-recovery", null)) release.EnsureSuccessStatusCode();
             await Until(() => !dialog.IsVisible && filter.IsFocused && !Missing(access.SevenId) && !Missing(access.EightId) &&
                 tasks.Items.OfType<OverviewTaskItem>().Any(item => item.Task.ClassId == access.SevenId && item.Task.SubjectId == access.HistorySubjectId),
                 "return rereads resolved math tasks and restores filter focus while the history task remains");
@@ -180,6 +185,9 @@ internal static partial class Program
                 Find<ListBox>(dialog, "TeachingPreviewList").ItemCount == 2 &&
                 (Find<ComboBox>(dialog, "TeachingSubjectPicker").SelectedItem as TeachingSubject)?.Id == access.SubjectId,
                 "same scope restores the original math pending rows and readback focus");
+            Click(readback);
+            await Until(() => Feedback(dialog).Contains("提交回执仍未确认") && readback.IsEnabled,
+                "a failed read keeps the original operation for another read-only check");
             Click(readback);
             await Until(() => Feedback(dialog).Contains("已核对，服务器当前安排与本次提交一致"), "read-only comparison reconciles the committed assignment");
             await Capture(dialog, output, "04-receipt-reconciled");
@@ -215,7 +223,51 @@ internal static partial class Program
             Check((narrowSubject.SelectedItem as TeachingSubject)?.Id == access.SubjectId && !narrowSubject.IsEnabled &&
                 Find<TextBlock>(dialog, "TeachingContext").Text?.Contains("（8）") == true, "narrow overview opens the original eighth classroom and math");
             await CaptureWithFrame(main, output, "07b-narrow-overview-teaching");
+            await PickTeacher(dialog, "陈老师", checkDuplicate: true);
+            Find<ComboBox>(dialog, "TeachingPositionPicker").SelectedIndex = 1;
+            Click(Find<Button>(dialog, "TeachingPreviewButton"));
+            await Until(() => Find<Button>(dialog, "TeachingApplyButton").IsEnabled, "original term has a reviewed draft");
+            using (var activate = await fixture.PostAsync("/__teaching/next-term", null)) activate.EnsureSuccessStatusCode();
+            Click(Find<Button>(dialog, "TeachingApplyButton"));
+            await Until(() => Feedback(dialog).Contains("学期已切换"), "the original term refuses the stale confirmation");
+            Check(ChosenAccount(dialog) == "@mathteacher" && !Find<Button>(dialog, "TeachingApplyButton").IsEnabled,
+                "term change retains the old teacher identity and disables the obsolete confirmation");
+            await CaptureWithFrame(main, output, "08-term-changed-original-draft");
             Click(Find<Button>(dialog, "CloseTeachingButton"));
+            Click(Find<Button>(dialog, "TeachingKeepDraft"));
+            await Until(() => overview.IsEffectivelyVisible && Missing(access.NextEightId), "new term task uses its own classroom ID");
+            Click(await TaskAction(access.NextEightId, access.SubjectId));
+            dialog = await Editor();
+            Check(ChosenAccount(dialog) == "" && !Find<Button>(dialog, "TeachingApplyButton").IsEnabled,
+                "identically named class in the new term has no old teacher or ready-to-submit preview");
+            using (var restore = await fixture.PostAsync("/__teaching/original-term", null)) restore.EnsureSuccessStatusCode();
+            Click(Find<Button>(dialog, "CloseTeachingButton"));
+            await Until(() => overview.IsEffectivelyVisible && Missing(access.EightId), "original term active again");
+            Click(await TaskAction(access.EightId, access.SubjectId));
+            dialog = await Editor();
+            await Until(() => ChosenAccount(dialog) == "@mathteacher" && Find<ComboBox>(dialog, "TeachingPositionPicker").SelectedIndex == 1,
+                "original term recovers the unsubmitted teacher and co-teacher role, without a reusable preview");
+            Check(!Find<Button>(dialog, "TeachingApplyButton").IsEnabled, "reopened draft still needs explicit review");
+            using (var hold = await fixture.PostAsync("/__teaching/hold-class-read", null)) hold.EnsureSuccessStatusCode();
+            Click(Find<Button>(dialog, "TeachingReadButton"));
+            using (var wait = await fixture.PostAsync("/__teaching/await-class-read", null)) wait.EnsureSuccessStatusCode();
+            schools.SelectedItem = schools.Items.OfType<School>().Single(row => row.Id == access.OtherManageableSchoolId);
+            await Until(() => Find<Button>(dialog, "TeachingKeepDraft").IsEffectivelyVisible &&
+                (schools.SelectedItem as School)?.Id == access.SchoolId, "switching schools prompts before abandoning the original draft");
+            Click(Find<Button>(dialog, "TeachingKeepDraft"));
+            await Until(() => overview.IsEffectivelyVisible && Missing(access.EightId), "paused original-school draft");
+            schools.SelectedItem = schools.Items.OfType<School>().Single(row => row.Id == access.OtherManageableSchoolId);
+            await Until(() => overview.IsEffectivelyVisible && !Missing(access.EightId) &&
+                (schools.SelectedItem as School)?.Id == access.OtherManageableSchoolId, "other school has no original classroom task");
+            using (var release = await fixture.PostAsync("/__teaching/release-class-read", null)) release.EnsureSuccessStatusCode();
+            schools.SelectedItem = schools.Items.OfType<School>().Single(row => row.Id == access.SchoolId);
+            await Until(() => Missing(access.EightId), "returned to the original school");
+            Click(await TaskAction(access.EightId, access.SubjectId));
+            dialog = await Editor();
+            await Until(() => ChosenAccount(dialog) == "@mathteacher" && Find<ComboBox>(dialog, "TeachingPositionPicker").SelectedIndex == 1,
+                "after switching schools, only the original account and class draft return");
+            Click(Find<Button>(dialog, "CloseTeachingButton"));
+            Click(Find<Button>(dialog, "TeachingDiscard"));
             await Until(() => overview.IsEffectivelyVisible && tasks.GetVisualDescendants().OfType<Button>().Any(action =>
                 action.IsFocused && action.Tag is OverviewTaskItem row && IsMathTask(row, access.EightId)), "narrow return focuses the original task");
             using (var hold = await fixture.PostAsync("/__teaching/hold-class-read", null)) Check(hold.IsSuccessStatusCode, "arm delayed original-school read");
@@ -235,6 +287,17 @@ internal static partial class Program
                 var action = Find<Button>(main, "OpenTeachingButton");
                 await Until(() => action.IsEffectivelyVisible && action.IsEffectivelyEnabled, "class detail exposes teaching");
                 Click(action);
+            }
+
+            async Task WaitRelay(string stage)
+            {
+                for (int attempt = 0; attempt < 100; attempt++)
+                {
+                    using var state = JsonDocument.Parse(await fixture.GetStringAsync("/__teaching/relay-state"));
+                    if (state.RootElement.GetProperty(stage).GetBoolean()) return;
+                    await Task.Delay(40);
+                }
+                throw new InvalidOperationException($"隔离网关未收到任课阶段 {stage}");
             }
 
             async Task<TeachingView> Editor()
