@@ -10,7 +10,7 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record ClassMaintenanceAccess(string Origin, string SchoolId, string SchoolCode, string Username,
-        string Password, string ClassId, string ScreenId, bool AllowClassMaintenanceTestWrites);
+        string Password, string ClassId, string ConcurrentClassId, string ScreenId, bool AllowClassMaintenanceTestWrites);
 
     private static int StartClassMaintenance(string fixturePath, string output, bool reopen)
     {
@@ -142,7 +142,8 @@ internal static partial class Program
             await Until(() => inactive.IsChecked == true && classes.SelectedItem is Classroom stopped && stopped.Id == access.ClassId &&
                 !stopped.IsActive, "deactivation selects the same ID in inactive list");
             await Capture(main, output, "06-inactive");
-            Finish("PASS: Windows impact component, draft retention, concurrent edit, scoped rename, impact failure, fresh confirmation, and deactivation.", 0);
+            await VerifyDraftAfterConcurrentDeactivation();
+            Finish("PASS: Windows impact component, draft retention, concurrent edit, scoped rename, impact failure, fresh confirmation, deactivation, and concurrent-deactivation recovery.", 0);
 
             bool SummaryContains(string text) => summary.GetVisualDescendants().OfType<TextBlock>()
                 .Any(item => item.IsEffectivelyVisible && item.Text?.Contains(text) == true);
@@ -151,6 +152,57 @@ internal static partial class Program
             {
                 Click(entry);
                 return await AcademicPageAsync<ClassMaintenanceView>(main);
+            }
+            async Task VerifyDraftAfterConcurrentDeactivation()
+            {
+                inactive.IsChecked = false;
+                await Until(() => classes.Items.Cast<Classroom>().Any(room => room.Id == access.ConcurrentClassId && room.IsActive),
+                    "the separate active class for the deactivation race");
+                classes.SelectedItem = classes.Items.Cast<Classroom>().Single(room => room.Id == access.ConcurrentClassId);
+                var page = await OpenMaintenance();
+                var draftName = Find<TextBox>(page, "MaintenanceName");
+                var draftCode = Find<TextBox>(page, "MaintenanceCode");
+                var selectable = Find<CheckBox>(page, "MaintenanceStudentSelectable");
+                var saveDraft = Find<Button>(page, "SaveMaintenanceButton");
+                var checkServer = Find<Button>(page, "CheckMaintenanceButton");
+                var reactivate = Find<Button>(page, "ReactivateClassButton");
+                await Until(() => saveDraft.IsEffectivelyVisible && saveDraft.IsEffectivelyEnabled && !string.IsNullOrEmpty(draftCode.Text),
+                    "active original form is loaded before editing");
+                draftName.Text = "桌面待保存名称";
+                draftCode.Text = "DESK.RECOVER";
+                selectable.IsChecked = false;
+                Click(saveDraft);
+                await Until(() => checkServer.IsEffectivelyVisible && checkServer.IsEffectivelyEnabled && !saveDraft.IsEnabled,
+                    "the other administrator's stop rejects the stale desktop write");
+                Click(checkServer);
+                await Until(() => Find<TextBlock>(page, "MaintenanceSchool").Text?.Contains("班级停用") == true &&
+                    Find<TextBlock>(page, "MaintenanceServerState").Text?.Contains("网页已停用的原班") == true && reactivate.IsEffectivelyEnabled,
+                    "server review reports the other administrator's inactive class and actual name");
+                Check(draftName.Text == "桌面待保存名称" && draftCode.Text == "DESK.RECOVER" && selectable.IsChecked == false,
+                    "Checking the inactive server class erased the original unsaved draft.");
+                Check(draftName.IsEffectivelyVisible && draftName.IsReadOnly && !saveDraft.IsEffectivelyVisible,
+                    "The draft is visible for reference and cannot be saved while the class is inactive.");
+                var draftSelectable = Find<TextBlock>(page, "MaintenanceInactiveSelectable");
+                await Until(() => draftSelectable is { IsEffectivelyVisible: true, Text: "学生自选：不允许" } &&
+                    draftSelectable.TranslatePoint(new Point(0, draftSelectable.Bounds.Height), page) is { } draftBottom &&
+                    Find<TextBlock>(page, "MaintenanceFeedback").TranslatePoint(default, page) is { } footer && draftBottom.Y < footer.Y - 12,
+                    "all retained fields fit above the fixed footer at 840 by 480");
+                await CaptureWithFrame(main, output, "07-concurrent-stop-draft");
+
+                Click(Find<Button>(page, "CloseMaintenanceButton"));
+                var keepDraft = Find<Button>(page, "KeepMaintenanceDraft");
+                await Until(() => keepDraft.IsEffectivelyVisible && keepDraft.IsFocused, "return protects the inactive draft");
+                Click(keepDraft);
+                Check(draftName.IsFocused && draftName.Text == "桌面待保存名称", "Canceling return restores focus to the retained draft.");
+                Click(reactivate);
+                await Until(() => page.IsEffectivelyVisible && saveDraft.IsEffectivelyVisible && saveDraft.IsEffectivelyEnabled && !draftName.IsReadOnly,
+                    "deliberate reactivation returns to the original editable draft without saving it");
+                Check(draftName.Text == "桌面待保存名称" && draftCode.Text == "DESK.RECOVER" && selectable.IsChecked == false && draftName.IsFocused,
+                    "Reactivation keeps the class draft intact and brings focus back to the editor.");
+                await CaptureWithFrame(main, output, "08-reactivated-needs-save");
+                Click(saveDraft);
+                await Until(() => classes.SelectedItem is Classroom room && room.Id == access.ConcurrentClassId && room.Name == "桌面待保存名称",
+                    "explicit save returns to the recovered class by ID");
             }
             async Task VerifyRoster()
             {

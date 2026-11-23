@@ -27,12 +27,15 @@ public sealed partial class ClassMaintenanceView : UserControl
     private bool _blocked;
     private bool _showImpact;
     private bool _closing;
+    private bool _inactiveDraft;
     private bool _archiveEditing, _allowClose, _confirmDiscard;
 
     private sealed record PendingChange(bool Active, string Name, string Code, bool Selectable)
     {
-        public bool Matches(ClassMaintenanceSnapshot room) => room.IsActive == Active && room.Name == Name &&
-            room.Code == Code && room.IsStudentSelectable == Selectable;
+        public bool Matches(ClassMaintenanceSnapshot room) => room.IsActive == Active && FieldsMatch(room);
+
+        public bool FieldsMatch(ClassMaintenanceSnapshot room) => room.Name == Name && room.Code == Code &&
+            room.IsStudentSelectable == Selectable;
     }
 
     public ClassMaintenanceView() => InitializeComponent();
@@ -110,6 +113,9 @@ public sealed partial class ClassMaintenanceView : UserControl
                 : await _client.GetCurrentClassMaintenanceAsync(_schoolId, _termId, _classId, _lifetime.Token);
             if (_closing) return;
             var previous = _baseline;
+            var draft = Draft();
+            bool preserveDraft = _inactiveDraft || (previous is { IsActive: true } && !draft.Matches(previous));
+            _inactiveDraft = !room.IsActive && preserveDraft && !draft.FieldsMatch(room);
             _baseline = room;
             _preview = null;
             _showImpact = false;
@@ -117,7 +123,7 @@ public sealed partial class ClassMaintenanceView : UserControl
             SetIdentity(room.Name, room.GradeName, room.Code, room.IsActive);
             if (previous is null || previous.IsActive != room.IsActive)
             {
-                FillFields(room);
+                if (!preserveDraft) FillFields(room);
                 ObservedChange = room;
             }
             else if (previous.UpdatedAt != room.UpdatedAt)
@@ -125,8 +131,7 @@ public sealed partial class ClassMaintenanceView : UserControl
                 ObservedChange = room;
             }
             if (previous is null && room.IsActive == _initiallyActive && room.Name == _initialName && room.Code == _initialCode) ObservedChange = null;
-            MaintenanceServerCard.IsVisible = previous is not null;
-            MaintenanceServerState.Text = $"服务器当前班级：{room.Name}\n代码：{room.Code}\n学生自选：{(room.IsStudentSelectable ? "允许" : "不允许")} · {(room.IsActive ? "启用" : "已停用")}";
+            ShowServerState(room, previous is not null);
             if (_unconfirmed is { } pending)
             {
                 Outcome = pending.Matches(room)
@@ -138,7 +143,8 @@ public sealed partial class ClassMaintenanceView : UserControl
             }
             else
             {
-                SetFeedback(previous is null ? null : room.IsActive
+                SetFeedback(_inactiveDraft ? "班级已停用，原草稿仍保留。重新启用后可以继续编辑和保存。" :
+                    previous is null ? null : room.IsActive
                     ? "已读取服务器当前内容。草稿仍保留，请核对后再保存。"
                     : "已读取服务器当前状态。");
             }
@@ -148,7 +154,7 @@ public sealed partial class ClassMaintenanceView : UserControl
         if (!_closing && !_checkingRequired && _baseline is not null)
         {
             if (ArchiveReadOnly) CorrectArchivedClass.Focus();
-            else if (_baseline.IsActive) MaintenanceName.Focus();
+            else if (_baseline.IsActive || _inactiveDraft) MaintenanceName.Focus();
             else ReactivateClassButton.Focus();
         }
     }
@@ -158,6 +164,12 @@ public sealed partial class ClassMaintenanceView : UserControl
         MaintenanceName.Text = room.Name;
         MaintenanceCode.Text = room.Code;
         MaintenanceStudentSelectable.IsChecked = room.IsStudentSelectable;
+    }
+
+    private void ShowServerState(ClassMaintenanceSnapshot room, bool visible)
+    {
+        MaintenanceServerCard.IsVisible = visible;
+        MaintenanceServerState.Text = $"服务器当前班级：{room.Name}\n代码：{room.Code}\n学生自选：{(room.IsStudentSelectable ? "允许" : "不允许")} · {(room.IsActive ? "启用" : "已停用")}";
     }
 
     private PendingChange Draft() => new(true, MaintenanceName.Text?.Trim() ?? "",
@@ -240,6 +252,7 @@ public sealed partial class ClassMaintenanceView : UserControl
         SetFeedback("正在保存…");
         string? impactChanged = null;
         bool codeConflict = false;
+        bool resumedDraft = false;
         try
         {
             var room = await send(_lifetime.Token);
@@ -247,7 +260,16 @@ public sealed partial class ClassMaintenanceView : UserControl
             if (!change.Matches(room)) throw new ConsoleApiException(0, "服务器回执与提交不一致。");
             ObservedChange = room;
             Outcome = success;
-            _allowClose = true;
+            if (_inactiveDraft && room.IsActive)
+            {
+                _baseline = room;
+                _inactiveDraft = false;
+                SetIdentity(room.Name, room.GradeName, room.Code, room.IsActive);
+                ShowServerState(room, true);
+                SetFeedback("已重新启用原班。请核对后保存原草稿。");
+                resumedDraft = true;
+            }
+            else _allowClose = true;
         }
         catch (ConsoleApiException error) when (error.Code == "CLASS_DEACTIVATION_IMPACT_CHANGED")
         {
@@ -270,6 +292,7 @@ public sealed partial class ClassMaintenanceView : UserControl
         }
         finally { SetBusy(false); }
         if (_allowClose) CloseRequested?.Invoke();
+        if (resumedDraft && !_closing) MaintenanceName.Focus();
         if (codeConflict && !_closing) MaintenanceCode.Focus();
         if (impactChanged is not null) await ReadImpactAsync(impactChanged);
     }
@@ -315,15 +338,24 @@ public sealed partial class ClassMaintenanceView : UserControl
     private void Render()
     {
         var room = _baseline;
+        bool active = room?.IsActive == true;
         bool canWrite = !_busy && !_blocked && !_checkingRequired && !_confirmDiscard && !ArchiveReadOnly;
         MaintenanceProgress.IsVisible = _busy;
-        MaintenanceFields.IsVisible = room?.IsActive == true && !_showImpact;
-        MaintenanceActivity.IsVisible = MaintenanceFields.IsVisible && !ArchiveReadOnly;
+        MaintenanceFields.IsVisible = (active || _inactiveDraft) && !_showImpact;
+        MaintenanceInactiveDraftLabel.IsVisible = _inactiveDraft;
+        MaintenanceName.IsReadOnly = _inactiveDraft;
+        MaintenanceCode.IsReadOnly = _inactiveDraft;
+        MaintenanceCodeHint.IsVisible = !_inactiveDraft;
+        MaintenanceStudentSelectable.IsVisible = !_inactiveDraft;
+        MaintenanceInactiveSelectable.IsVisible = _inactiveDraft;
+        if (_inactiveDraft)
+            MaintenanceInactiveSelectable.Text = MaintenanceStudentSelectable.IsChecked == true ? "学生自选：允许" : "学生自选：不允许";
+        MaintenanceActivity.IsVisible = active && !_showImpact && !ArchiveReadOnly;
         MaintenanceFields.IsEnabled = !_busy && !_blocked && !_confirmDiscard && !ArchiveReadOnly;
         CorrectArchivedClass.IsVisible = ArchiveReadOnly && room is not null;
         MaintenanceDiscard.IsVisible = _confirmDiscard;
         MaintenanceActions.IsVisible = !_confirmDiscard;
-        SaveMaintenanceButton.IsVisible = MaintenanceFields.IsVisible && !ArchiveReadOnly;
+        SaveMaintenanceButton.IsVisible = active && !_showImpact && !ArchiveReadOnly;
         SaveMaintenanceButton.IsEnabled = canWrite;
         ReadDeactivationImpactButton.IsEnabled = canWrite;
         MaintenanceInactivePanel.IsVisible = room?.IsActive == false;
@@ -356,7 +388,7 @@ public sealed partial class ClassMaintenanceView : UserControl
     {
         if (_allowClose) return true;
         if (_busy) return false;
-        if (_baseline is not { IsActive: true } room || Draft().Matches(room)) return true;
+        if (!_inactiveDraft && (_baseline is not { IsActive: true } room || Draft().Matches(room))) return true;
         _confirmDiscard = true;
         Render();
         KeepMaintenanceDraft.Focus();

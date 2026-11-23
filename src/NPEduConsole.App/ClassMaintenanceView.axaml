@@ -12,6 +12,7 @@
         <Button x:Name="CorrectArchivedClass" Classes="action accent" Content="更正班级资料" Click="CorrectArchivedClicked" HorizontalAlignment="Left" IsVisible="False" />
         <Border x:Name="MaintenanceFields" Classes="card" Padding="16" IsVisible="False">
           <StackPanel Spacing="12">
+            <TextBlock x:Name="MaintenanceInactiveDraftLabel" Classes="label" Text="未保存的班级资料" IsVisible="False" />
             <StackPanel Spacing="4">
               <TextBlock Classes="label" Text="班级名称" />
               <TextBox x:Name="MaintenanceName" AutomationProperties.Name="班级名称" />
@@ -19,9 +20,10 @@
             <StackPanel Spacing="4">
               <TextBlock Classes="label" Text="班级代码" />
               <TextBox x:Name="MaintenanceCode" AutomationProperties.Name="班级代码" />
-              <TextBlock Classes="muted" TextWrapping="Wrap" Text="2–64 位，以英文字母或数字开头，可使用 . _ -。" />
+              <TextBlock x:Name="MaintenanceCodeHint" Classes="muted" TextWrapping="Wrap" Text="2–64 位，以英文字母或数字开头，可使用 . _ -。" />
             </StackPanel>
             <CheckBox x:Name="MaintenanceStudentSelectable" Content="允许学生自行选择此行政班" />
+            <TextBlock x:Name="MaintenanceInactiveSelectable" TextWrapping="Wrap" IsVisible="False" />
           </StackPanel>
         </Border>
         <Grid x:Name="MaintenanceActivity" ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="False">

@@ -12,6 +12,7 @@ export async function verifyClassMaintenance({prisma, origin, fixture, directory
   const base = '/api/v2/admin/schools/' + school.id;
   const maintenance = base + '/current-term/administrative-classes/maintenance';
   const path = maintenance + '/' + classId;
+  const stalePath = maintenance + '/' + staleId;
   const impactPath = path + '/deactivation-impact?termId=' + term.id;
   const original = await prisma.workspace.findUniqueOrThrow({where: {id: classId}});
   const student = await prisma.administrativeClassStudent.create({data: {
@@ -64,7 +65,7 @@ export async function verifyClassMaintenance({prisma, origin, fixture, directory
   const edit = (row, code, name, selectable = false) => ({
     termId: term.id, action: 'EDIT', expectedUpdatedAt: row.updatedAt, code, name, isStudentSelectable: selectable,
   });
-  let previewReads = 0, deactivationWrites = 0, addedScreen, oldImpact, concurrentEdit = false;
+  let previewReads = 0, deactivationWrites = 0, addedScreen, oldImpact, concurrentEdit = false, concurrentStop = false;
   const target = new URL(origin);
   const relay = createServer(async (req, res) => {
     try {
@@ -72,7 +73,7 @@ export async function verifyClassMaintenance({prisma, origin, fixture, directory
         res.writeHead(503).end();
         return;
       }
-      if (req.method !== 'PATCH' || req.url !== path) {
+      if (req.method !== 'PATCH' || (req.url !== path && req.url !== stalePath)) {
         forward(req, res);
         return;
       }
@@ -80,6 +81,25 @@ export async function verifyClassMaintenance({prisma, origin, fixture, directory
       for await (const chunk of req) chunks.push(chunk);
       const bytes = Buffer.concat(chunks);
       const body = JSON.parse(bytes);
+      if (req.url === stalePath) {
+        if (body.action === 'EDIT') {
+          const latest = (await call(stalePath + '?termId=' + term.id, second)).administrativeClass;
+          if (!concurrentStop) {
+            concurrentStop = true;
+            const stopped = await call(base + '/administrative-classes/' + staleId, second, 'PATCH', {
+              name: '网页已停用的原班', isActive: false, expectedUpdatedAt: latest.updatedAt, confirmImpact: true,
+            });
+            assert.equal(stopped.isActive, false);
+          } else {
+            assert.equal(latest.isActive, true);
+            assert.equal(latest.name, '网页已停用的原班');
+            assert.notEqual(latest.code, body.code);
+            assert.equal(latest.isStudentSelectable, true);
+          }
+        }
+        forward(req, res, bytes);
+        return;
+      }
       if (body.action === 'EDIT' && body.code === 'G2.DESK' && !concurrentEdit) {
         concurrentEdit = true;
         const latest = await call(path + '?termId=' + term.id, second);
@@ -113,14 +133,25 @@ export async function verifyClassMaintenance({prisma, origin, fixture, directory
     const file = join(directory, 'desktop.json');
     const desktopOrigin = 'http://127.0.0.1:' + relay.address().port;
     const access = {origin: desktopOrigin, schoolId: school.id, schoolCode: school.code, username: 'admin', password: pin,
-      classId, screenId: screen.id, allowClassMaintenanceTestWrites: true};
+      classId, concurrentClassId: staleId, screenId: screen.id, allowClassMaintenanceTestWrites: true};
     await writeFile(file, JSON.stringify(access), {mode: 0o600});
     assert.equal((await browser()).status, 200);
     assert.equal((await native()).status, 200);
     await nativeClient('active');
     await runDesktop(['--live-class-maintenance', file, evidence]);
     assert.equal(deactivationWrites, 2);
-    assert.ok(addedScreen.id && previewReads >= 3 && concurrentEdit);
+    assert.ok(addedScreen.id && previewReads >= 3 && concurrentEdit && concurrentStop);
+    const recovered = await prisma.workspace.findUniqueOrThrow({where: {id: staleId}});
+    assert.equal(recovered.name, '桌面待保存名称');
+    assert.equal(recovered.code, 'DESK.RECOVER');
+    assert.equal(recovered.isStudentSelectable, false);
+    assert.equal(recovered.isActive, true);
+    const recoveryWrites = await prisma.auditLog.findMany({where: {
+      entityId: staleId, action: 'ADMIN_CLASS_UPDATED', success: true,
+    }, orderBy: {createdAt: 'asc'}});
+    assert.deepEqual(recoveryWrites.map(log => log.requestPath), [base + '/administrative-classes/' + staleId, stalePath, stalePath]);
+    assert.deepEqual(recoveryWrites.slice(1).map(log => log.metadata.operation), ['REACTIVATE', 'EDIT']);
+    console.log('PASS: a second administrator stopped the class through the legacy route; checking and reactivation kept the draft and only explicit saving wrote it to the original ID.');
     const inactive = await prisma.workspace.findUniqueOrThrow({where: {id: classId}});
     assert.equal(inactive.isActive, false);
     assert.equal(inactive.code, 'G2.DESK');
@@ -163,7 +194,6 @@ export async function verifyClassMaintenance({prisma, origin, fixture, directory
     assert.equal(writes[2].metadata.impact.screenBindings, 2);
     console.log('PASS: reactivation kept the class, roster, screen, device-history and notice IDs; the old web token resumed, and native pairing remained invalidated by the existing trigger.');
 
-    const stalePath = maintenance + '/' + staleId;
     const baseline = (await call(stalePath + '?termId=' + term.id)).administrativeClass;
     const validPreview = await call(stalePath + '/deactivation-impact?termId=' + term.id);
     assert.ok(Object.values(validPreview.counts).every(count => count === 0), 'empty relations are an actual successful preview');
