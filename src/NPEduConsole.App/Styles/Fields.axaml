@@ -41,6 +41,10 @@
   <Style Selector="CheckBox[IsVisible=True] /template/ Grid#RootGrid > Grid, RadioButton[IsVisible=True] /template/ Border#RootBorder > Grid > Grid">
     <Setter Property="VerticalAlignment" Value="Center"/>
   </Style>
+  <!-- The switch and its on/off label share the second template row, below the optional header. -->
+  <Style Selector="ToggleSwitch[IsVisible=True] /template/ Grid[(Grid.Row)=1]">
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
   <Style Selector="TextBox:pointerover:not(:disabled) /template/ Border#PART_BorderElement">
     <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
     <Setter Property="Background" Value="{DynamicResource FieldBrush}"/>

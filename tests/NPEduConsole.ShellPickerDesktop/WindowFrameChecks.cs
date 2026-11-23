@@ -120,11 +120,12 @@ internal static class WindowFrameChecks
         var date = new DatePicker { SelectedDate = new DateTimeOffset(2026, 11, 23, 0, 0, 0, TimeSpan.Zero), Height = 46 };
         var selected = new ComboBox { ItemsSource = new[] { "高二（08）班" }, SelectedIndex = 0, Height = 46 };
         var empty = new ComboBox { PlaceholderText = "选择年级", Height = 46 };
+        var monitor = new ToggleSwitch { OnContent = "启用噪音监测", OffContent = "关闭噪音监测", Height = 46 };
         window.Content = new StackPanel { Margin = new Thickness(26, 48, 26, 0), Width = 380, Spacing = 4,
-            Children = { action, back, check, radio, date, selected, empty } };
+            Children = { action, back, check, radio, date, selected, empty, monitor } };
         window.RequestedThemeVariant = ThemeVariant.Light;
         window.UpdateLayout();
-        foreach (var control in new Control[] { action, back, check, radio, date, selected, empty })
+        foreach (var control in new Control[] { action, back, check, radio, date, selected, empty, monitor })
         {
             var labels = control.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text)).ToArray();
@@ -135,7 +136,7 @@ internal static class WindowFrameChecks
                 AssertCenter(control, label, y);
             }
         }
-        foreach (var (control, name) in new (Control, string)[] { (check, "NormalRectangle"), (radio, "OuterEllipse") })
+        foreach (var (control, name) in new (Control, string)[] { (check, "NormalRectangle"), (radio, "OuterEllipse"), (monitor, "OuterBorder") })
         {
             var glyph = control.GetVisualDescendants().OfType<Control>().Single(c => c.Name == name);
             AssertCenter(control, glyph, glyph.Bounds.Height / 2);
