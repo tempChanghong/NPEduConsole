@@ -27,6 +27,9 @@
     <Setter Property="CaretBrush" Value="{DynamicResource InkBrush}"/>
     <Setter Property="PlaceholderForeground" Value="{DynamicResource MutedBrush}"/>
   </Style>
+  <Style Selector="TextBox[AcceptsReturn=False]">
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+  </Style>
   <Style Selector="TextBox:pointerover:not(:disabled) /template/ Border#PART_BorderElement">
     <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
     <Setter Property="Background" Value="{DynamicResource FieldBrush}"/>

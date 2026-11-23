@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Presenters;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
@@ -37,12 +38,17 @@ internal static class WindowFrameChecks
             Require(SendMessage(handle, 0x0084, 0, ((outer.Left + 1) & 65535) | ((outer.Top + 100) << 16)) == 10,
                 "窗口左边缘保留系统缩放");
             Console.WriteLine($"显示缩放 {main.RenderScaling:P0}；系统 {Environment.OSVersion.Version}");
+            var account = main.FindControl<TextBox>("Username")!;
+            account.Text = "";
+            account.PlaceholderText = "输入短账号";
+            main.UpdateLayout();
+            var placeholder = account.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "PART_Placeholder");
+            RequireCentered(account, placeholder, placeholder.TextLayout.Height, "宽窗占位文字");
             Capture(main, output, "01-login-light");
 
             main.RequestedThemeVariant = ThemeVariant.Dark;
             main.Width = 840;
             main.Height = 480;
-            var account = main.FindControl<TextBox>("Username")!;
             account.Text = "001";
             account.Focus();
             await Task.Delay(180);
@@ -52,6 +58,8 @@ internal static class WindowFrameChecks
             account.Text = "教师001";
             await Task.Delay(70);
             Require(string.IsNullOrEmpty(field.ErrorMessage) && account.Text == "教师001", "更正中文与数字后清除字段错误");
+            var presenter = account.GetVisualDescendants().OfType<TextPresenter>().Single();
+            RequireCentered(account, presenter, presenter.TextLayout.Height, "窄窗聚焦后的中文与数字");
             account.Text = "001";
             Capture(main, output, "02-login-dark-compact");
             var password = main.FindControl<TextBox>("Password")!;
@@ -100,6 +108,14 @@ internal static class WindowFrameChecks
             Console.Error.WriteLine(error);
             desktop.Shutdown(1);
         }
+    }
+
+    private static void RequireCentered(TextBox field, Control content, double lineHeight, string label)
+    {
+        var center = content.TranslatePoint(new Point(0, lineHeight / 2), field);
+        double tolerance = 1 / TopLevel.GetTopLevel(field)!.RenderScaling;
+        Require(content.IsEffectivelyVisible && center is { } point && Math.Abs(point.Y - field.Bounds.Height / 2) <= tolerance,
+            $"{label}的行中心与输入框中线相差不超过一个物理像素");
     }
 
     private static async Task WaitState(Window window, WindowState expected)
