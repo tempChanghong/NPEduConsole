@@ -39,6 +39,7 @@ import { verifyConsoleFirstSchool, verifyConsoleSchoolTransfer } from './school-
 import { verifyOrganizationImport } from './school-organization-import-fixture.mjs';
 import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs';
 import { verifyArchivedBatchCorrection } from './archived-batch-correction-fixture.mjs';
+import { verifyEntryRetirementPilot } from './entry-retirement-pilot-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
 import { verifyScreenDuty } from './screen-duty-fixture.mjs';
 import { verifyExamWorkbench } from './exam-workbench-fixture.mjs';
@@ -57,7 +58,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-status', '--term-status-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
-  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
+  '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console',
@@ -708,6 +709,13 @@ async function runFixture() {
       runDesktop: args => runDesktop(desktop, args), runNative: args => runDesktop(native, args)});
   }
   if (mode === '--server-status') return verifyServerStatus(origin, fixture, databasePort);
+  if (mode === '--entry-retirement-pilot') {
+    const desktop = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_ENTRY_EVIDENCE ||
+      fileURLToPath(new URL('../.artifacts/entry-retirement-pilot', import.meta.url)));
+    return verifyEntryRetirementPilot({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      runDesktop: args => runDesktop(desktop, args)});
+  }
   if (mode === '--archived-batch-correction-db') {
     const evidence = resolve(process.env.NP_CONSOLE_ARCHIVE_EVIDENCE ||
       fileURLToPath(new URL('../.artifacts/archived-batch-correction', import.meta.url)));

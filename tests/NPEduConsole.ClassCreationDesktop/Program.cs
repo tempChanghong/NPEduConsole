@@ -66,6 +66,8 @@ internal static partial class Program
             return StartOrganizationImport(organizationFixture, organizationOutput);
         if (args is ["--live-archived-batch-correction", var archiveFixture, var archiveOutput])
             return StartArchivedBatchCorrection(archiveFixture, archiveOutput);
+        if (args is ["--live-entry-retirement-pilot", var entryFixture, var entryOutput])
+            return StartEntryRetirementPilot(entryFixture, entryOutput);
         if (args is ["--live-teacher-allocation", var allocationFixture, var allocationOutput])
             return StartTeacherAllocation(allocationFixture, allocationOutput);
         if (args is ["--live-screen-duty", var dutyFixture, var dutyOutput])

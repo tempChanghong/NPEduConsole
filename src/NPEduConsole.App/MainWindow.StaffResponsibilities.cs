@@ -61,7 +61,8 @@ public sealed partial class MainWindow
         }
     }
 
-    private async Task ShowStaffResponsibilitiesAsync(ConsoleClient client, School school, string termId, string kind, string targetId, string? accountId)
+    private async Task ShowStaffResponsibilitiesAsync(ConsoleClient client, School school, string termId, string kind, string targetId, string? accountId,
+        Window? owner = null)
     {
         if (_staffWindow is not null || _client != client || _school != school) return;
         var window = new StaffResponsibilitiesWindow(client, school, termId, kind, targetId, accountId)
@@ -70,7 +71,7 @@ public sealed partial class MainWindow
         };
         _staffWindow = window;
         window.Closed += ClearWindow;
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(owner ?? this); }
         finally
         {
             window.Closed -= ClearWindow;

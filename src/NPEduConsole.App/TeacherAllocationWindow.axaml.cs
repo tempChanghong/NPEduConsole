@@ -40,6 +40,8 @@ public sealed partial class TeacherAllocationWindow : Window
     private PendingRequest? Pending => SessionRequests.GetValueOrDefault(PendingKey);
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }
+    internal Uri? LegacyWebLink { get; init; }
+    internal string? AllocatedAccountId => _lastReceipt?.Teachers.Length == 1 ? _lastReceipt.Teachers[0].AccountId : null;
     internal string? InitialInvitationId { get; init; }
     internal bool AccessChanged { get; private set; }
     internal (string TermId, string WorkspaceId, string? SubjectId, string AccountId, bool IsGroup)? TeachingTarget { get; private set; }
@@ -105,6 +107,7 @@ public sealed partial class TeacherAllocationWindow : Window
         Closed += (_, _) =>
         {
             _closed = true;
+            _archiveInvitationConfirmation?.Close();
             _lifetime.Cancel();
             _lifetime.Dispose();
             foreach (var row in _teachers) row.Pin = "";
@@ -119,6 +122,7 @@ public sealed partial class TeacherAllocationWindow : Window
         if (_catalog is not null && data.Mode != _catalog.Mode)
             foreach (var teacher in _teachers) teacher.Pin = "";
         _catalog = data;
+        AllocationLegacyWeb.IsVisible = false;
         _binding = true;
         try
         {
@@ -145,7 +149,7 @@ public sealed partial class TeacherAllocationWindow : Window
 
     private async void TermChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (_archivedCorrection || _binding || _busy || Pending is not null || AllocationTerm.SelectedItem is not TermOption target ||
+        if (_archivedCorrection || _initialWorkspaceId is not null || _binding || _busy || Pending is not null || AllocationTerm.SelectedItem is not TermOption target ||
             !_rescope && target.Term?.Id == _catalog?.TermId) return;
         await ChangeScopeAsync(target.Term?.Id, null, target.Term is null);
     }
@@ -458,7 +462,8 @@ public sealed partial class TeacherAllocationWindow : Window
     }
 
     private static bool IsScopeError(ConsoleApiException error) =>
-        error.Code is "TEACHER_ALLOCATION_TERM_CHANGED" or "TEACHER_ALLOCATION_GRADE_CHANGED" or "TEACHER_ALLOCATION_MODE_CHANGED";
+        error.Code is "TEACHER_ALLOCATION_TERM_CHANGED" or "TEACHER_ALLOCATION_GRADE_CHANGED" or "TEACHER_ALLOCATION_MODE_CHANGED" or
+            "ARCHIVED_INVITATION_TERM_CHANGED";
 
     private async Task RunAsync(Func<Task> action, bool writing = false)
     {
@@ -495,6 +500,12 @@ public sealed partial class TeacherAllocationWindow : Window
                 RebuildDirectories();
             }
             SessionExpired?.Invoke(error);
+            if (!_archivedCorrection && _catalog is null && Pending is null && error.StatusCode is (404 or 426) && LegacyWebLink is not null)
+            {
+                AllocationLegacyWeb.IsVisible = true;
+                Status("当前 KV 版本未提供这项桌面邮箱分配，可从兼容网页继续。");
+                return;
+            }
             if (!_closed) Status(Pending is null ? error.Message : "服务器回执暂不可读。请重试只读核对。");
         }
         catch (ArgumentException error) when (!_closed) { Status(error.Message); }
@@ -512,11 +523,11 @@ public sealed partial class TeacherAllocationWindow : Window
         if (AllocationStatus is null) return;
         var edit = CanEdit;
         var pending = Pending is not null;
-        AllocationTerm.IsEnabled = !_archivedCorrection && !_busy && !pending && _catalog is not null;
+        AllocationTerm.IsEnabled = !_archivedCorrection && _initialWorkspaceId is null && !_busy && !pending && _catalog is not null;
         AllocationGrade.IsEnabled = AllocationTerm.IsEnabled && Term is not null && !_rescope;
         AllocationRefresh.IsEnabled = !_busy && !pending;
         AllocationJson.IsEnabled = AllocationPaste.IsEnabled = AllocationTeacherTable.IsEnabled = AllocationAccessEditor.IsEnabled = edit;
-        AllocationPreviewButton.IsVisible = !pending;
+        AllocationPreviewButton.IsVisible = !pending && !AllocationLegacyWeb.IsVisible;
         var differences = (_rejectedTarget ?? _fileTarget) is { } target ? TargetDifferences(target) : [];
         var conflict = HasDocumentConflict;
         AllocationTargetNotice.IsVisible = conflict;
@@ -549,5 +560,9 @@ public sealed partial class TeacherAllocationWindow : Window
     private void FilterChanged(object? sender, SelectionChangedEventArgs args) { if (_client is not null) ShowFilteredReview(); }
     private void ApprovalChanged(object? sender, RoutedEventArgs args) { if (_client is not null) Render(); }
     private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
+    private void OpenLegacyWebClicked(object? sender, RoutedEventArgs args)
+    {
+        if (LegacyWebLink is { } link && !SchoolAdminBrowser.Open(link)) Status("浏览器未能打开，请从旧网页的「教师分配」继续。");
+    }
     internal void CloseForScopeChange() { _allowClose = true; Close(); }
 }

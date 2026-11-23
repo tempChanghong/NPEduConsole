@@ -7,7 +7,7 @@
         <TextBlock Text="{Binding Evidence}" Classes="muted" FontSize="12" />
         <TextBlock Text="{Binding Message}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" />
         <Button Classes="spotlight-link" Tag="{Binding}" Margin="0,3,0,0"
-                AutomationProperties.Name="{Binding ActionLabel}" AutomationProperties.AutomationId="{Binding AutomationId}"
+                AutomationProperties.Name="{Binding ActionLabel}" AutomationProperties.AutomationId="{Binding AutomationId}" IsVisible="{Binding CanOpen}"
                 Click="TaskClicked">
           <StackPanel Orientation="Horizontal" Spacing="7">
             <TextBlock Text="{Binding ActionLabel}" VerticalAlignment="Center" />
@@ -25,7 +25,7 @@
           <TextBlock Text="{Binding Evidence}" Classes="muted" FontSize="12" />
         </StackPanel>
         <Button Grid.Column="1" Tag="{Binding}" Content="{Binding ActionLabel}" Classes="action"
-                AutomationProperties.AutomationId="{Binding AutomationId}" Click="TaskClicked" VerticalAlignment="Center" />
+                AutomationProperties.AutomationId="{Binding AutomationId}" IsVisible="{Binding CanOpen}" Click="TaskClicked" VerticalAlignment="Center" />
       </Grid>
     </DataTemplate>
   </UserControl.Resources>
@@ -52,16 +52,16 @@
     </Style>
   </UserControl.Styles>
   <ScrollViewer x:Name="OverviewScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <StackPanel Margin="25,20,25,24" Spacing="13">
+    <StackPanel x:Name="OverviewContent" Margin="25,20,25,24" Spacing="13">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-        <TextBlock Text="学校总览" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center" />
+        <TextBlock x:Name="OverviewTitle" Text="学校总览" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center" />
         <Button x:Name="RefreshSchoolOverviewButton" Grid.Column="1" Content="刷新总览" Classes="action"
                 Click="RefreshClicked" VerticalAlignment="Center" />
       </Grid>
       <Border Background="{DynamicResource OverviewBannerBrush}" CornerRadius="18" ClipToBounds="True"
               BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
         <Grid>
-          <Viewbox Width="220" Height="156" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+          <Viewbox x:Name="OverviewBackdrop" Width="220" Height="156" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                    IsHitTestVisible="False" Opacity="0.15">
             <Canvas Width="220" Height="156" ClipToBounds="True">
               <Path Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.4"
@@ -72,7 +72,7 @@
             <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
               <TextBlock x:Name="OverviewHeadline" FontSize="32" FontWeight="SemiBold" TextWrapping="Wrap" />
               <TextBlock x:Name="OverviewCounts" FontSize="14" Classes="muted" />
-              <TextBlock x:Name="OverviewFeedback" FontSize="13" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+              <TextBlock x:Name="OverviewFeedback" FontSize="13" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
               <Button x:Name="ShowAllOverviewButton" Content="查看全部待办" Click="ShowAllClicked" Classes="action accent"
                       HorizontalAlignment="Left" Margin="0,3,0,0" IsVisible="False" />
               <ProgressBar x:Name="OverviewProgress" IsVisible="False" Height="3" IsIndeterminate="True" MaxWidth="250"

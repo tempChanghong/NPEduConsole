@@ -137,6 +137,7 @@
         <Button Grid.Column="4" x:Name="AllocationPreviewButton" Classes="action" Content="预览分配" Click="PreviewClicked"/>
         <Button Grid.Column="5" x:Name="AllocationSave" Classes="action accent" Content="确认保存" Click="SaveClicked"/>
         <Button Grid.Column="6" x:Name="AllocationSchoolProfile" Classes="action" Content="教师登录设置" Click="OpenSchoolProfileClicked" IsVisible="False"/>
+        <Button Grid.Column="4" x:Name="AllocationLegacyWeb" Classes="action" Content="打开兼容网页入口" Click="OpenLegacyWebClicked" IsVisible="False"/>
       </Grid>
     </Border>
   </Grid>

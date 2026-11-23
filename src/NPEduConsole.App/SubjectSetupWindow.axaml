@@ -136,7 +136,7 @@
           <WrapPanel ItemSpacing="7" LineSpacing="4">
             <Button x:Name="SubjectSetupCloseButton" Content="返回" Classes="action" Click="CloseClicked"/>
             <Button x:Name="SubjectSetupReadButton" Content="刷新目录" Classes="action" Click="ReadClicked"/>
-            <Button x:Name="SubjectSetupWebButton" Content="网页学科目录" Classes="action" Click="WebClicked"/>
+            <Button x:Name="SubjectSetupWebButton" Content="打开学科目录" Classes="action" Click="OpenSubjectDirectoryClicked"/>
           </WrapPanel>
           <WrapPanel Grid.Column="1" HorizontalAlignment="Right" ItemSpacing="7" LineSpacing="4">
             <Button x:Name="SubjectSetupPreviewButton" Content="预览" Classes="action" Click="PreviewClicked" IsEnabled="False"/>

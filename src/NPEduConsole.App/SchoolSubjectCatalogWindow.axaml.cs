@@ -79,6 +79,7 @@ public sealed partial class SchoolSubjectCatalogWindow : Window
     }
 
     internal SchoolSubject? CreatedSubject { get; private set; }
+    internal bool DirectoryUnsupported { get; private set; }
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
 
     internal static string CategoryLabel(string code) => code switch { "CORE" => "基础科目", "ELECTIVE" => "选考科目", _ => "其他科目" };
@@ -93,6 +94,7 @@ public sealed partial class SchoolSubjectCatalogWindow : Window
         var catalog = await _client.GetSchoolSubjectsAsync(_school.Id, _lifetime.Token);
         if (_closed) return;
         _catalog = catalog;
+        DirectoryUnsupported = false;
         BindDirectory();
         if (_pending is { } pending)
         {
@@ -529,6 +531,7 @@ public sealed partial class SchoolSubjectCatalogWindow : Window
         catch (OperationCanceledException) when (_closed) { }
         catch (ConsoleApiException error) when (!_closed)
         {
+            DirectoryUnsupported = !HasEditor && _catalog is null && error.StatusCode is (404 or 426);
             if (error.StatusCode is 401 or 403)
             {
                 ForgetCreation();

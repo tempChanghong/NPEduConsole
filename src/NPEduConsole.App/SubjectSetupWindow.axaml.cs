@@ -71,6 +71,7 @@ public sealed partial class SubjectSetupWindow : Window
     private SubjectSetupCatalog? _catalog;
     private SchoolSubjectCatalogWindow? _createSubjectWindow;
     private SchoolSubject? _confirmedSubject;
+    private bool _directoryUnsupported;
     private bool _choicesOpen = true;
     internal UnconfirmedSubjectSetup? Pending { get; private set; }
     private bool _validPreview, _busy, _saving, _closed, _scopeChanged;
@@ -279,7 +280,8 @@ public sealed partial class SubjectSetupWindow : Window
         SubjectSetupTeachingButton.IsEnabled = editable && SubjectSetupTeachingPicker.SelectedItem is SubjectSetupCell;
         SubjectSetupReadButton.Classes.Set("accent", Pending is not null);
         SubjectSetupWebButton.IsVisible = Pending is null;
-        SubjectSetupWebButton.IsEnabled = !_busy;
+        SubjectSetupWebButton.IsEnabled = !_busy && _createSubjectWindow is null;
+        SubjectSetupWebButton.Content = _directoryUnsupported ? "旧 KV：打开网页学科目录" : "打开学科目录";
         SubjectSetupCount.IsVisible = _cells.Length > 0 || _catalog is { Subjects.Length: > 0 };
         SubjectSetupCount.Text = Pending is { } pending ? $"待核对 {pending.Submitted.Length} 项 · 已保留本次选择"
             : SubjectSetupTeachingRow.IsVisible ? $"服务器已确认 {_cells.Length} 项"
@@ -407,12 +409,28 @@ public sealed partial class SubjectSetupWindow : Window
         }
     }
 
-    private void WebClicked(object? sender, RoutedEventArgs args)
+    private async void OpenSubjectDirectoryClicked(object? sender, RoutedEventArgs args)
     {
-        string path = "请在网页学校管理的「组织与班级 → 学校与学科」打开学科目录。";
-        if (SchoolAdminBrowser.Link(_catalog?.AdminUrl, _school.Id, _termId, "structure") is { } url && SchoolAdminBrowser.Open(url))
-            SubjectSetupFeedback.Text = "已打开网页学科目录。维护后请返回这里刷新。";
-        else SubjectSetupFeedback.Text = path;
+        if (_busy || _closed || Pending is not null || _createSubjectWindow is not null) return;
+        if (_directoryUnsupported)
+        {
+            SubjectSetupFeedback.Text = SchoolAdminBrowser.Link(_catalog?.AdminUrl, _school.Id, _termId, "structure") is { } url && SchoolAdminBrowser.Open(url) ?
+                "已打开兼容网页学科目录。回来后可刷新原开科选择。" : "请在原网页的「组织与班级 → 学校与学科」继续。";
+            return;
+        }
+        var window = new SchoolSubjectCatalogWindow(_client, _school) { SessionExpired = error => { if (!_closed) SessionExpired?.Invoke(error); } };
+        _createSubjectWindow = window;
+        Render();
+        try { await window.ShowDialog(this); }
+        finally { _createSubjectWindow = null; }
+        if (_closed) return;
+        _directoryUnsupported = window.DirectoryUnsupported;
+        if (_directoryUnsupported)
+            SubjectSetupFeedback.Text = "当前 KV 未提供桌面学科目录，可从兼容网页继续。原开科选择已保留。";
+        else
+            await RunAsync(ReadCatalogAsync);
+        Render();
+        SubjectSetupWebButton.Focus();
     }
 
     private void TeachingSelectionChanged(object? sender, SelectionChangedEventArgs args) => Render();

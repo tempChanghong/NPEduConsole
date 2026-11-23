@@ -59,6 +59,7 @@ public sealed partial class TeacherAccountsWindow : Window
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<Window, Task<bool>>? OpenBulkAllocation { get; init; }
+    internal Uri? AllocationLegacyWebLink => SchoolAdminBrowser.Link(_directory?.AdminUrl, _school.Id, _directory?.ActiveTermId, "teachers");
     internal Func<Window, string, Task>? OpenSchoolAccount { get; init; }
     internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }
 
@@ -113,7 +114,7 @@ public sealed partial class TeacherAccountsWindow : Window
         TeacherAccountRows.ItemsSource = rows;
         TeacherAccountRows.SelectedItem = rows.FirstOrDefault(account => account.Id == _selectedId);
         _binding = false;
-        TeacherListMessage.Text = _directory?.Mode == "OAUTH_EMAIL" ? "本校通过 OAuth 邮箱登录，请在网页教师分配中办理。" :
+        TeacherListMessage.Text = _directory?.Mode == "OAUTH_EMAIL" ? "本校教师通过 OAuth 邮箱登录，可在「按邮箱分配」查看账号和待认领邀请。" :
             rows.Length > 0 ? null : _directory is null ? "暂无可显示的本校目录。" : query.Length > 0 ? "没有匹配的账号。" : "本校暂无普通本地教师账号。";
         TeacherListMessage.IsVisible = TeacherListMessage.Text is not null;
         ShowDetails();
@@ -186,7 +187,7 @@ public sealed partial class TeacherAccountsWindow : Window
         bool writable = !_busy && _directory?.SupportsLocalWrites == true && Pending is null;
         NewTeacherAccountButton.IsVisible = _directory?.SupportsLocalWrites == true;
         NewTeacherAccountButton.IsEnabled = writable;
-        TeacherAccountWeb.IsVisible = _directory?.Mode == "OAUTH_EMAIL";
+        TeacherAccountBulk.Content = _directory?.Mode == "OAUTH_EMAIL" ? "按邮箱分配" : "批量导入与分配";
         TeacherAccountBulk.IsEnabled = !_busy && _directory is not null && OpenBulkAllocation is not null;
         TeacherAccountRefresh.IsEnabled = !_busy;
         TeacherAccountRefresh.Content = Pending is null ? "刷新目录" : "核对操作回执";
@@ -404,12 +405,6 @@ public sealed partial class TeacherAccountsWindow : Window
     {
         if (!_closed && target.IsEffectivelyVisible && target.IsEffectivelyEnabled) target.Focus();
     }, DispatcherPriority.Loaded);
-
-    private void OpenWebClicked(object? sender, RoutedEventArgs args)
-    {
-        if (SchoolAdminBrowser.Link(_directory?.AdminUrl, _school.Id, _directory?.ActiveTermId, "teachers") is { } link && SchoolAdminBrowser.Open(link)) return;
-        Notice("请在原网页的「教师分配」中按邮箱办理。");
-    }
 
     private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
     internal void CloseForScopeChange() { _closed = true; _form?.CloseForScopeChange(); Close(); }

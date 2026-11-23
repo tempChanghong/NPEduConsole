@@ -270,32 +270,39 @@ public sealed partial class StaffResponsibilitiesWindow : Window
     private async void NewTeacherClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
     {
         if (_baseline is not { } baseline) return;
-        var form = new TeacherAccountForm(_client, _school, createLabel: "创建并返回职责") { SessionExpired = SessionExpired };
+        var form = new TeacherAccountForm(_client, _school, createLabel: "创建并返回职责")
+        {
+            SessionExpired = SessionExpired,
+            AllocationTermId = _termId,
+            AllocationGradeId = _kind == "grades" ? _targetId : null,
+            AllocationWorkspaceId = _kind == "classes" ? _targetId : null
+        };
         _teacherForm = form;
         try { await form.ShowDialog(this); }
         finally { _teacherForm = null; }
-        if (_closed || form.Receipt is not { } receipt) return;
-        _newTeacherId = receipt.Account.Id;
+        if (_closed || form.Receipt is null && !form.AllocationChanged) return;
+        _newTeacherId = form.Receipt?.Account.Id ?? form.AllocatedAccountId;
+        string completed = form.Receipt is not null ? "账号已创建" : "邮箱分配已保存";
         StaffSnapshot current;
         try { current = await ReadAsync(); }
         catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
         {
             if (_closed) return;
             _scopeLost = true;
-            StaffStatus.Text = $"账号已创建。原职责草稿需重新核对。{error.Message}";
+            StaffStatus.Text = $"{completed}。原职责草稿需重新核对。{error.Message}";
             return;
         }
         if (_closed) return;
         if (current.Version != baseline.Version)
         {
-            ShowCompare(current, "账号已创建。服务器职责安排有变化，草稿已保留。请核对后继续。");
+            ShowCompare(current, completed + "。服务器职责安排有变化，草稿已保留。请核对后继续。");
             return;
         }
         _baseline = current;
         _preview = null;
         ShowAdvisories(current.Diagnostics, "当前岗位提醒");
         SelectNewTeacher();
-        StaffStatus.Text = "账号已创建，原职责草稿已保留。可将新教师加入安排后另行保存。";
+        StaffStatus.Text = completed + "，原职责草稿已保留。可选用已登录的教师并另行保存安排。";
     });
 
     private void SelectNewTeacher()

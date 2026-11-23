@@ -44,6 +44,8 @@ public sealed partial class TermPreparationWindow
         ViewedTermName.Text = term?.Name ?? "选择本校学期查看";
         ViewedTermDetails.Text = term is null ? null : $"{term.Period} · {term.StatusText}\n{term.Dates}";
         TermManageClasses.IsVisible = term is not null;
+        TermViewDiagnostics.IsVisible = term is not null && OpenTermDiagnostics is not null;
+        TermViewDiagnostics.IsEnabled = editable;
         TermPrepareClasses.IsVisible = _page == Page.Check && _check?.Term.Status == "DRAFT";
         TermManageClasses.IsEnabled = TermPrepareClasses.IsEnabled = editable;
         TermManageTeaching.IsVisible = TermManageClasses.IsVisible;
@@ -74,6 +76,19 @@ public sealed partial class TermPreparationWindow
 
     private async void TermManageClassesClicked(object? sender, RoutedEventArgs args) =>
         await OpenTermClassesAsync(SelectedTerm, TermManageClasses);
+
+    internal Func<Window, ManagedAcademicTerm, Task>? OpenTermDiagnostics { get; init; }
+
+    private async void TermDiagnosticsClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || _closed || SelectedTerm is not { } term || OpenTermDiagnostics is not { } open) return;
+        await RunAsync(async () =>
+        {
+            await open(this, term);
+            if (!_closed) await LoadCatalogAsync();
+        });
+        if (!_closed) Focus(TermViewDiagnostics);
+    }
 
     private async void TermPrepareClassesClicked(object? sender, RoutedEventArgs args) =>
         await OpenTermClassesAsync(_check?.Term, TermPrepareClasses);

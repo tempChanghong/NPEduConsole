@@ -298,7 +298,7 @@ public sealed partial class TeacherAllocationWindow
     private void AddAccessClicked(object? sender, RoutedEventArgs args)
     {
         if (SelectedTeacher is not { } teacher || Term is null) return;
-        var initial = _archivedCorrection && teacher.Access.Count == 0 ?
+        var initial = teacher.Access.Count == 0 ?
             _catalog?.Workspaces.FirstOrDefault(room => room.Id == _initialWorkspaceId) : null;
         teacher.Access.Add(new(initial?.Id, initial?.Code, "SET", _archivedCorrection ? "VIEWER" : "TEACHER"));
         RebuildAccessEditor();

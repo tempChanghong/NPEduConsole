@@ -16,7 +16,7 @@ public sealed partial class MainWindow
         if (_client == client && _school == school && _page == ShellPage.Classes) OpenTeacherAccountsButton.Focus();
     }
 
-    private async Task ShowTeacherAccountsAsync(ConsoleClient client, School school, string? accountId)
+    private async Task ShowTeacherAccountsAsync(ConsoleClient client, School school, string? accountId, Window? owner = null)
     {
         if (_teacherAccountsWindow is not null || _client != client || _school != school) return;
         var window = new TeacherAccountsWindow(client, school, accountId)
@@ -27,14 +27,14 @@ public sealed partial class MainWindow
             OpenSchoolProfile = owner => ShowSchoolProfileAsync(owner, client, school)
         };
         _teacherAccountsWindow = window;
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(owner ?? this); }
         finally { if (_teacherAccountsWindow == window) _teacherAccountsWindow = null; }
         if (_client == client && _school == school && window.Destination is { } next)
         {
             if (next.Kind == "teaching")
-                await ShowTeachingAsync(client, school, next.TermId, next.TargetId, next.SubjectId, next.AccountId);
+                await ShowTeachingAsync(client, school, next.TermId, next.TargetId, next.SubjectId, next.AccountId, owner: owner);
             else if (next.Kind is "grades" or "classes")
-                await ShowStaffResponsibilitiesAsync(client, school, next.TermId, next.Kind, next.TargetId, next.AccountId);
+                await ShowStaffResponsibilitiesAsync(client, school, next.TermId, next.Kind, next.TargetId, next.AccountId, owner);
         }
         ApplyPendingSchoolLabel();
     }
@@ -56,7 +56,8 @@ public sealed partial class MainWindow
         var window = new TeacherAllocationWindow(client, school, termId, gradeId, archivedCorrection, workspaceId)
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
-            OpenSchoolProfile = archivedCorrection ? null : popup => ShowSchoolProfileAsync(popup, client, school)
+            OpenSchoolProfile = archivedCorrection ? null : popup => ShowSchoolProfileAsync(popup, client, school),
+            LegacyWebLink = (owner as TeacherAccountsWindow)?.AllocationLegacyWebLink
         };
         _teacherAllocationWindow = window;
         try { await window.ShowDialog(owner); }

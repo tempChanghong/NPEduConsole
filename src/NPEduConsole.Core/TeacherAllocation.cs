@@ -13,7 +13,7 @@ public sealed record AllocationWorkspace(string Id, string TermId, string Code, 
 }
 public sealed record AllocationMember(string WorkspaceId, string AccountId, string Role);
 public sealed record AllocationInvitation(string Id, string WorkspaceId, string NormalizedEmail, string Role,
-    DateTimeOffset? ClaimedAt, string? ClaimedByAccountId);
+    DateTimeOffset? ClaimedAt, string? ClaimedByAccountId, DateTimeOffset? UpdatedAt = null);
 public sealed record AllocationTeachingSubject(string Id, string Name);
 public sealed record AllocationTeaching(string WorkspaceId, string AccountId, string Position, AllocationTeachingSubject Subject);
 public sealed record AllocationDuty(string AccountId, string Position, string Type, string TargetId, string TargetName)
@@ -23,7 +23,8 @@ public sealed record AllocationDuty(string AccountId, string Position, string Ty
 }
 public sealed record TeacherAllocationCatalog(string SchoolId, string Mode, OrganizationTerm[] Terms, string? TermId,
     OrganizationGradeOption[] Grades, string? GradeId, AllocationAccount[] Accounts, AllocationWorkspace[] Workspaces,
-    AllocationMember[] Members, AllocationInvitation[] Invitations, AllocationTeaching[] Teaching, AllocationDuty[] Duties);
+    AllocationMember[] Members, AllocationInvitation[] Invitations, AllocationTeaching[] Teaching, AllocationDuty[] Duties,
+    bool CanRevokeArchivedInvitations = false);
 public sealed record AllocationAccess(string? WorkspaceId, string? WorkspaceCode, string Operation, string? Role,
     bool ConfirmReduction = false, string? InvitationId = null);
 public sealed record AllocationTeacher(string? Username, string? Email, string? AccountId, string? Name, string? Pin,

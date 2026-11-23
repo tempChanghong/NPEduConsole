@@ -357,28 +357,32 @@ public sealed partial class TeachingWindow : Window
         if (Subject is not { } subject) return;
         var form = new TeacherAccountForm(_client, _school, createLabel: "创建并返回任课")
         {
-            SessionExpired = error => SessionExpired?.Invoke(error)
+            SessionExpired = error => SessionExpired?.Invoke(error),
+            AllocationTermId = _termId,
+            AllocationWorkspaceId = _classId
         };
         _teacherForm = form;
         try { await form.ShowDialog(this); }
         finally { _teacherForm = null; }
-        if (_closed || form.Receipt is not { } receipt) return;
-        TeachingFeedback.Text = "账号已创建，正在核对原任课目标…";
+        if (_closed || form.Receipt is null && !form.AllocationChanged) return;
+        string? teacherId = form.Receipt?.Account.Id ?? form.AllocatedAccountId ?? Teacher?.Id;
+        string completed = form.Receipt is not null ? "账号已创建" : "邮箱分配已保存";
+        TeachingFeedback.Text = completed + "，正在核对原任课目标…";
         var catalog = await ReadAfterTeacherCreationAsync();
         if (_closed || catalog is null) return;
         if (!catalog.Subjects.Any(row => row.Id == subject.Id))
         {
             _scopeUnavailable = true;
-            TeachingFeedback.Text = "账号已创建。原科目已变化，请刷新原任课范围后核对。";
+            TeachingFeedback.Text = completed + "。原科目已变化，请刷新原任课范围后核对。";
             return;
         }
         _binding = true;
         TeachingTeacherPicker.ItemsSource = catalog.Teachers;
-        TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(teacher => teacher.Id == receipt.Account.Id);
+        TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(teacher => teacher.Id == teacherId);
         _binding = false;
         ResetPreview();
-        TeachingFeedback.Text = Teacher is null ? "账号已创建，当前无法选用这位教师。请刷新核对。" :
-            "已选中新教师，原班级和任课身份仍在。请预览并确认任课。";
+        TeachingFeedback.Text = Teacher is null ? completed + "。待认领邀请需等教师本人完成登录后才能选用。" :
+            completed + "。原班级、科目及任课身份仍在，请预览并确认任课。";
         Dispatcher.UIThread.Post(() => { if (!_closed) TeachingTeacherPicker.Focus(NavigationMethod.Tab); }, DispatcherPriority.Loaded);
     });
 

@@ -732,8 +732,8 @@ public sealed partial class TermPreparationWindow : Window
             (_page == Page.Directory && PreparedTerms.ItemCount > 0 || _page == Page.Check && _check is not null);
         TermOrganizationImport.Content = _page == Page.Directory && SelectedTerm?.Status == "ARCHIVED" ? "批量更正" : "导入草稿组织";
         TermOrganizationImport.IsEnabled = editable && (_page == Page.Check ? _check is not null : SelectedTerm?.Status is "DRAFT" or "ARCHIVED");
-        TermWeb.IsVisible = !pending && _catalog is not null && (_page == Page.Directory &&
-            (!_catalog.HasAnyTerm || _catalog.Terms is null && _activeTerm is null) || _page == Page.Check);
+        TermWeb.IsVisible = !pending && _catalog is not null && (_page == Page.Directory && !_catalog.HasAnyTerm ||
+            _catalog.Terms is null && _page is Page.Directory or Page.Check);
         TermWeb.Content = _catalog?.HasAnyTerm == false ? "打开初始化入口" : "网页学期管理";
         TermPrimary.IsVisible = pending ? _canRetry : _page == Page.Create || _page == Page.Directory && (SelectedTerm ?? _activeTerm) is not null;
         TermPrimary.Content = pending ? "按原编号重试" : _page == Page.Create ? "建立草稿" : SelectedTerm is not null ? "以此建立新学期" : "新建草稿";

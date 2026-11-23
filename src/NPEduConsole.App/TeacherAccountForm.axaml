@@ -46,7 +46,7 @@
             <TextBlock x:Name="TeacherFormExplanation" Classes="muted" TextWrapping="Wrap"/>
           </StackPanel>
         </Border>
-        <Button x:Name="TeacherFormWeb" Classes="action" Content="打开网页邮箱分配" Click="OpenWebClicked" IsVisible="False" HorizontalAlignment="Left"/>
+        <Button x:Name="TeacherFormAllocation" Classes="action" Content="打开邮箱分配" Click="OpenAllocationClicked" IsVisible="False" HorizontalAlignment="Left"/>
       </StackPanel>
     </ScrollViewer>
     <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,8">

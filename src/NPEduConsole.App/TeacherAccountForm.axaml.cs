@@ -18,6 +18,7 @@ public sealed partial class TeacherAccountForm : Window
     private readonly string _createLabel = "创建教师";
     private readonly CancellationTokenSource _lifetime = new();
     private TeacherAccountDirectory? _directory;
+    private TeacherAllocationWindow? _allocationWindow;
     private Guid? _abandonedRequest, _missingReceipt;
     private bool _closed, _busy, _writing, _retryAllowed, _accessLost;
 
@@ -49,6 +50,7 @@ public sealed partial class TeacherAccountForm : Window
         Closed += (_, _) =>
         {
             _closed = true;
+            _allocationWindow?.CloseForScopeChange();
             TeacherFormPin.Clear();
             _lifetime.Cancel();
             _lifetime.Dispose();
@@ -56,6 +58,11 @@ public sealed partial class TeacherAccountForm : Window
     }
 
     internal TeacherAccountReceipt? Receipt { get; private set; }
+    internal bool AllocationChanged { get; private set; }
+    internal string? AllocatedAccountId { get; private set; }
+    internal string? AllocationTermId { get; init; }
+    internal string? AllocationGradeId { get; init; }
+    internal string? AllocationWorkspaceId { get; init; }
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     private string Action => _resetId is null ? "CREATE" : "RESET_PIN";
     private (string, string) OperationKey => (_school.Id, _resetId ?? "");
@@ -76,7 +83,7 @@ public sealed partial class TeacherAccountForm : Window
             await VerifyAsync(pending);
             return;
         }
-        if (directory.Mode == "OAUTH_EMAIL") Status("本校使用 OAuth 邮箱登录。请在原网页按邮箱分配教师。");
+        if (directory.Mode == "OAUTH_EMAIL") Status("本校教师通过 OAuth 邮箱登录。可在邮箱分配中核对已有教师或办理待认领邀请。");
         else if (_resetId is not null && !directory.UsesPin) Status("本校采用学校通用口令。教师无需个人 PIN。");
         else if (_resetId is not null && directory.Accounts.All(account => account.Id != _resetId))
             Status("该教师已不在本校普通账号目录，请返回核对。", error: true);
@@ -103,7 +110,7 @@ public sealed partial class TeacherAccountForm : Window
             return directory.UsesPin
                 ? "重置后，教师的现有会话会退出。请让教师用新 PIN 重新登录。任课和岗位不受影响。"
                 : "本校教师用学校通用口令或 OAuth 邮箱登录，没有个人 PIN 可重置。";
-        return directory.UsesPin
+        return directory.Mode == "OAUTH_EMAIL" ? "教学空间访问与任课、岗位分别保存。" : directory.UsesPin
             ? "创建普通学校成员。任课和岗位在相应页面另行保存。"
             : "教师使用学校通用口令登录。任课和岗位在相应页面另行保存。";
     }
@@ -123,7 +130,8 @@ public sealed partial class TeacherAccountForm : Window
         TeacherIdentityFields.IsEnabled = !_busy && pending is null;
         TeacherPinField.IsVisible = allowWork && _directory?.UsesPin == true && (pending is null || _retryAllowed);
         TeacherPinField.IsEnabled = !_busy && modeAllows;
-        TeacherFormWeb.IsVisible = allowWork && _directory?.Mode == "OAUTH_EMAIL";
+        TeacherFormAllocation.IsVisible = allowWork && _resetId is null && _directory?.Mode == "OAUTH_EMAIL";
+        TeacherFormAllocation.IsEnabled = !_busy && _allocationWindow is null;
         TeacherFormCheck.IsVisible = allowWork && (pending is not null || _directory is null);
         TeacherFormCheck.Content = pending is null ? "重新读取" : "核对回执";
         TeacherFormCheck.Classes.Set("accent", pending is not null && !_retryAllowed);
@@ -296,10 +304,26 @@ public sealed partial class TeacherAccountForm : Window
         if (!_closed && control.IsEffectivelyVisible && control.IsEffectivelyEnabled) control.Focus();
     }, DispatcherPriority.Loaded);
 
-    private void OpenWebClicked(object? sender, RoutedEventArgs args)
+    private async void OpenAllocationClicked(object? sender, RoutedEventArgs args)
     {
-        if (SchoolAdminBrowser.Link(_directory?.AdminUrl, _school.Id, _directory?.ActiveTermId, "teachers") is { } link && SchoolAdminBrowser.Open(link)) return;
-        Status("请在原网页的「教师分配」中按邮箱办理。");
+        if (_busy || _closed || _allocationWindow is not null || _directory is not { Mode: "OAUTH_EMAIL" } directory) return;
+        var term = AllocationTermId ?? directory.ActiveTermId;
+        var window = new TeacherAllocationWindow(_client, _school, term, AllocationGradeId, initialWorkspaceId: AllocationWorkspaceId)
+        {
+            SessionExpired = SessionExpired,
+            LegacyWebLink = SchoolAdminBrowser.Link(directory.AdminUrl, _school.Id, term, "teachers")
+        };
+        _allocationWindow = window;
+        try { await window.ShowDialog(this); }
+        finally { _allocationWindow = null; }
+        if (_closed) return;
+        if (window.AccessChanged)
+        {
+            AllocationChanged = true;
+            AllocatedAccountId = window.AllocatedAccountId;
+            Close();
+        }
+        else Focus(TeacherFormAllocation);
     }
 
     private void CloseClicked(object? sender, RoutedEventArgs args) => Close();

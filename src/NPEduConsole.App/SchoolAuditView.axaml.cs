@@ -293,6 +293,7 @@ public sealed partial class SchoolAuditView : UserControl
         AuditDetailRequest.Text = $"{entry.RequestMethod ?? "—"} {entry.RequestPath ?? "—"}";
         AuditDetailResult.Text = $"HTTP {entry.StatusCode?.ToString(CultureInfo.InvariantCulture) ?? "—"} · {row.Result}";
         AuditDetailIp.Text = string.IsNullOrWhiteSpace(entry.ClientIp) ? "未记录" : entry.ClientIp;
+        AuditDetailId.Text = entry.Id;
         AuditDetailMetadata.Text = entry.Metadata is { } metadata ? JsonSerializer.Serialize(metadata, MetadataJson) : null;
         AuditDetailParameters.IsVisible = AuditDetailMetadata.Text is not null;
         AuditSearch.IsVisible = false;
@@ -312,7 +313,7 @@ public sealed partial class SchoolAuditView : UserControl
         AuditDetails.IsVisible = false;
         AuditDetailParameters.IsVisible = false;
         AuditDetailTitle.Text = AuditDetailActor.Text = AuditDetailTime.Text = AuditDetailAction.Text = AuditDetailEntity.Text =
-            AuditDetailRequest.Text = AuditDetailResult.Text = AuditDetailIp.Text = AuditDetailMetadata.Text = null;
+            AuditDetailRequest.Text = AuditDetailResult.Text = AuditDetailIp.Text = AuditDetailId.Text = AuditDetailMetadata.Text = null;
         AuditSearch.IsVisible = true;
     }
 }
@@ -326,6 +327,7 @@ internal sealed class SchoolAuditRow(SchoolAuditEntry entry)
         ["ADMIN_CLASSES_BATCH_CREATED"] = "批量创建行政班", ["ADMIN_CLASS_UPDATED"] = "修改行政班", ["ORGANIZATION_IMPORT"] = "导入学校组织",
         ["SCHOOL_ORGANIZATION_IMPORT_PREVIEW"] = "预览开学组织导入", ["SCHOOL_ORGANIZATION_IMPORT"] = "导入年级教学组织",
         ["TEACHER_ALLOCATION_PREVIEW"] = "预览教师名册与空间分配", ["TEACHER_ALLOCATION"] = "保存教师名册与空间分配",
+        ["ARCHIVED_WORKSPACE_INVITATION_REVOKED"] = "撤回归档教学空间邀请",
         ["SCHOOL_MIGRATION_EXPORT_CREATED"] = "生成整校迁移包", ["SCHOOL_MIGRATION_IMPORT_COMPLETED"] = "导入整校迁移包",
         ["TERM_TRANSITION_PREVIEW"] = "预览学期切换", ["TERM_ACTIVATION_PREVIEW"] = "检查学期启用条件", ["TERM_ACTIVATED"] = "切换启用学期",
         ["TERM_DRAFT_CREATED"] = "建立学期草稿", ["TERM_STATUS_CHANGED"] = "修改学期状态", ["SCREEN_COMMAND_ISSUED"] = "下发大屏值守指令",

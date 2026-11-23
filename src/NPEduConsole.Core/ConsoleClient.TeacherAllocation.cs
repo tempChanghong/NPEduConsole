@@ -1,8 +1,32 @@
+using System.Globalization;
+
 namespace NPEduConsole.Core;
 
 public sealed partial class ConsoleClient
 {
     private static string TeacherAllocationPath(string school) => $"api/v2/admin/schools/{Segment(school)}/teacher-allocation";
+    private sealed record ArchivedInvitationResult(string SchoolId, string TermId, string GradeId, string WorkspaceId, string InvitationId);
+
+    public async Task RevokeArchivedInvitationAsync(TeacherAllocationCatalog catalog, AllocationWorkspace room,
+        AllocationInvitation invite, CancellationToken ct)
+    {
+        var term = catalog.Terms.SingleOrDefault(row => row.Id == catalog.TermId);
+        if (!catalog.CanRevokeArchivedInvitations || term is not { Status: "ARCHIVED", UpdatedAt: { } termVersion } ||
+            catalog.GradeId is not { } grade || !catalog.Workspaces.Contains(room) ||
+            !catalog.Invitations.Contains(invite) || invite.WorkspaceId != room.Id || invite.ClaimedAt is not null ||
+            invite.UpdatedAt is not { } invitationVersion)
+            throw new ArgumentException("请重新读取这条归档待认领邀请。");
+        var session = CurrentSession;
+        var path = TeacherAllocationPath(catalog.SchoolId) + $"/archived/{Segment(term.Id)}/grades/{Segment(grade)}" +
+            $"/workspaces/{Segment(room.Id)}/invitations/{Segment(invite.Id)}";
+        static string Timestamp(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
+        var confirmed = await RequestAsync<ArchivedInvitationResult>(HttpMethod.Delete, path, session.Token, ct, body: new
+        {
+            TermUpdatedAt = Timestamp(termVersion), InvitationUpdatedAt = Timestamp(invitationVersion), invite.NormalizedEmail, invite.Role
+        });
+        CheckCreationSession(session, ct);
+        if (confirmed != new ArchivedInvitationResult(catalog.SchoolId, term.Id, grade, room.Id, invite.Id)) throw InvalidResponse();
+    }
 
     public async Task<TeacherAllocationCatalog> GetTeacherAllocationAsync(string school, string? term, string? grade, bool accountsOnly,
         CancellationToken ct, bool archivedCorrection = false)

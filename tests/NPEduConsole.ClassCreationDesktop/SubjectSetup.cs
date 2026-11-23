@@ -60,6 +60,16 @@ internal static partial class Program
             Check(Choice(setup, "Class", access.SevenId).IsChecked == true &&
                 Choice(setup, "Class", access.EightId).IsChecked == false, "class details defaults to the selected class");
             Choice(setup, "Subject", access.MathId).IsChecked = true;
+            var directoryLink = Find<Button>(setup, "SubjectSetupWebButton");
+            Check(Equals(directoryLink.Content, "打开学科目录"), "supported KV routes to the desktop directory");
+            Click(directoryLink);
+            await Until(() => desktop.Windows.OfType<SchoolSubjectCatalogWindow>().Any(window => window.IsVisible &&
+                Find<ListBox>(window, "SubjectDirectoryRows").ItemCount > 0), "desktop school subject directory reads real entries");
+            var subjectDirectory = desktop.Windows.OfType<SchoolSubjectCatalogWindow>().Single(window => window.IsVisible);
+            subjectDirectory.Close();
+            await Until(() => directoryLink.IsEffectivelyEnabled && directoryLink.IsFocused, "opening the directory returns focus to setup");
+            Check(Choice(setup, "Class", access.SevenId).IsChecked == true &&
+                Choice(setup, "Subject", access.MathId).IsChecked == true, "setup keeps the selected classroom and subject on return");
             foreach (string id in access.LongSubjectIds) Choice(setup, "Subject", id).IsChecked = true;
             Click(Find<Button>(setup, "SubjectSetupPreviewButton"));
             var longList = Find<ListBox>(setup, "SubjectSetupRows");

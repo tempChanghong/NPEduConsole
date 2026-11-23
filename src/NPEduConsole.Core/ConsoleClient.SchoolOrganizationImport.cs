@@ -18,6 +18,10 @@ public sealed partial class ConsoleClient
         "TEACHER_ALLOCATION_MODE_CHANGED" => "学校登录方式已变化。请重新读取教师目录。",
         "TEACHER_ALLOCATION_IDENTITY_CHANGED" or "TEACHER_ALLOCATION_INVITATION_CHANGED" =>
             "账号或访问已有变化。本次零写入，请重新预览。",
+        "ARCHIVED_INVITATION_TERM_CHANGED" => "所选学期或其版本已变化，请回学期目录核对。",
+        "ARCHIVED_INVITATION_CLAIMED" => "这条邀请已被认领，请核对由此取得的直接成员权限。",
+        "ARCHIVED_INVITATION_CHANGED" => "这条邀请的资料已变化，请重新核对邮箱和角色。",
+        "WORKSPACE_INVITATION_NOT_FOUND" => "服务器已找不到这条待认领邀请，无法确认是本次撤回。",
         _ => HttpError(status, false).Message
     }, code);
 

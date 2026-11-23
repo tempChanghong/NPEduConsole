@@ -12,6 +12,18 @@ namespace NPEduConsole.App;
 public sealed record OverviewTaskItem(SchoolOverviewTask Task, string ActionLabel, string Evidence)
 {
     public string Message => Task.Message;
+    public bool CanOpen => Task.Action != "INSPECT" && (Task.Action != "OPEN_WEB" || WebSection(Task) is not null);
+    internal static string? WebSection(SchoolOverviewTask task) => task.Code switch
+    {
+        "NO_ACTIVE_TERM" => "terms",
+        "ADMIN_CLASS_SCREEN_INACTIVE" when task.ClassId is not null => "screens",
+        "SCREEN_NOT_ACTIVATED" or "SCREEN_WEB_AWAITING_HEARTBEAT" or "SCREEN_OFFLINE" or "SCREEN_DEGRADED" or
+            "SCREEN_WEB_NEEDS_VERIFICATION" or "TERM_SCREEN_RETAINED_ORIGINAL" when task.ScreenId is not null => "screens",
+        "DISABLED_ACCOUNT_HAS_ASSIGNMENT" or "LOCAL_ACCOUNT_NEVER_LOGGED_IN" when task.AccountId is not null => "accounts",
+        "DISABLED_TEACHER_ASSIGNED" or "TEACHER_ACCESS_MISSING" when task.ClassId is not null || task.CourseGroupId is not null => "teachers",
+        "TEACHING_ASSIGNMENT_SUBJECT_CONFLICT" or "MULTIPLE_PRIMARY_TEACHERS" when task.ClassId is not null => "structure",
+        _ => null
+    };
     public string AutomationId => "SchoolOverviewTask-" + Task.Code + "-" + (Task.ScreenId ?? Task.CourseGroupId ?? Task.ClassId ?? Task.GradeId ?? "school") +
         (Task.Action is "OPEN_TEACHING" or "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING" ? "-" + Task.SubjectId + (Task.CourseGroupId is not null && Task.ClassId is not null ? "-" + Task.ClassId : "") : Task.AccountId is { } accountId ? "-" + accountId : "");
 }
@@ -20,6 +32,7 @@ public sealed partial class SchoolOverviewView : UserControl
 {
     private ConsoleClient? _client;
     private School? _school;
+    private string? _termId;
     private CancellationTokenSource? _request;
     private SchoolOverview? _snapshot;
     private IReadOnlyList<Classroom> _classLinks = [];
@@ -36,14 +49,21 @@ public sealed partial class SchoolOverviewView : UserControl
 
     public SchoolOverviewView() => InitializeComponent();
 
-    public void SetScope(ConsoleClient? client, School? school)
+    public void SetScope(ConsoleClient? client, School? school, string? termId = null)
     {
-        if (_client == client && _school == school) return;
+        if (_client == client && _school == school && _termId == termId) return;
         _client = client;
         _school = school;
+        _termId = termId;
         _request?.Cancel();
         _request = null;
-        _showQueue = false;
+        _showQueue = termId is not null;
+        OverviewTitle.Text = termId is null ? "学校总览" : "学期诊断";
+        OverviewTitle.FontSize = termId is null ? 29 : 19;
+        RefreshSchoolOverviewButton.Content = termId is null ? "刷新总览" : "刷新诊断";
+        OverviewBackdrop.IsVisible = termId is null;
+        OverviewContent.Margin = termId is null ? new Thickness(25, 20, 25, 24) : new Thickness(16, 8, 16, 12);
+        ArrangeSpotlights();
         _returnTarget = null;
         _returnOffset = _returnQueueOffset = default;
         OverviewTaskFilter.SelectedIndex = 0;
@@ -72,7 +92,8 @@ public sealed partial class SchoolOverviewView : UserControl
         OverviewProgress.IsVisible = true;
         try
         {
-            var overview = await client.GetSchoolOverviewAsync(school.Id, request.Token);
+            var overview = _termId is { } termId ? await client.GetTermOverviewAsync(school.Id, termId, request.Token) :
+                await client.GetSchoolOverviewAsync(school.Id, request.Token);
             if (_request != request) return;
             _snapshot = overview;
             var counts = overview.Counts;
@@ -80,10 +101,11 @@ public sealed partial class SchoolOverviewView : UserControl
                 ? "当前暂无待办" : $"有 {overview.Tasks.Count} 项事务待办理";
             OverviewCounts.Text = overview.Term is null ? null :
                 $"{counts.Grades} 个年级   ·   {counts.AdministrativeClasses} 个行政班   ·   {counts.Screens} 台大屏";
-            OverviewFeedback.Text = $"核对时间 {Time(overview.GeneratedAt)}";
+            OverviewFeedback.Text = $"核对时间 {Time(overview.GeneratedAt)}" +
+                (overview.Legacy ? " · 旧 KV 仅提供部分办理入口" : "");
             OverviewResults.IsVisible = true;
-            ShowAllOverviewButton.IsVisible = overview.Tasks.Count > 0;
-            OverviewClassLink.IsVisible = overview.Term is not null;
+            ShowAllOverviewButton.IsVisible = _termId is null && overview.Tasks.Count > 0;
+            OverviewClassLink.IsVisible = !overview.Scoped && overview.Term is not null;
             RenderClassLinks();
             RenderTasks();
             SnapshotChanged?.Invoke(overview, OverviewFeedback.Text);
@@ -96,7 +118,8 @@ public sealed partial class SchoolOverviewView : UserControl
             if (_request != request) return;
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
             else SetReadState("学校状态待核对", error.StatusCode is 404 or 426
-                ? "当前 KV 未提供学校总览。仍可从班级与教务查看已授权班级。"
+                ? (_termId is null ? "当前 KV 未提供学校总览。仍可从班级与教务查看已授权班级。" :
+                    "所选学期不可用，或当前 KV 尚未提供指定学期诊断。可返回学期目录核对。")
                 : $"待核对：学校总览读取失败。{error.Message}");
             if (restoreTask && IsEffectivelyVisible) RefreshSchoolOverviewButton.Focus();
         }
@@ -170,10 +193,11 @@ public sealed partial class SchoolOverviewView : UserControl
     {
         bool compact = Bounds.Width < 710;
         bool shortWindow = Bounds.Height > 0 && Bounds.Height < 510;
-        OverviewHero.Margin = new Thickness(20, shortWindow ? 10 : 17);
-        OverviewHeadline.FontSize = shortWindow ? 26 : 32;
+        bool scoped = _termId is not null;
+        OverviewHero.Margin = scoped ? new Thickness(14, 8) : new Thickness(20, shortWindow ? 10 : 17);
+        OverviewHeadline.FontSize = scoped ? 18 : shortWindow ? 26 : 32;
         OverviewIllustration.MaxHeight = shortWindow ? 92 : 142;
-        OverviewIllustration.IsVisible = Bounds.Width >= 560;
+        OverviewIllustration.IsVisible = !scoped && Bounds.Width >= 560;
         OverviewHero.ColumnDefinitions[0].Width = new GridLength(OverviewIllustration.IsVisible ? (Bounds.Width < 820 ? 102 : 156) : 0);
         bool pair = EducationSpotlight.IsVisible && DeviceSpotlight.IsVisible;
         Spotlights.ColumnDefinitions[1].Width = compact || !pair ? new GridLength(0) : GridLength.Star;
@@ -252,6 +276,7 @@ public sealed partial class SchoolOverviewView : UserControl
             "OPEN_SCREEN" => "定位大屏",
             "OPEN_SCREEN_DUTY" => task.Code == "SCREEN_WEB_ACCOUNT_REQUIRED" ? "配置网页账号" : "查看网页值守",
             "OPEN_TEACHING" => "分配任课",
+            "OPEN_TERM_TEACHING" => "核对本学期教学安排",
             "OPEN_COURSE_GROUP_TEACHING" => "分配走班任课",
             "OPEN_COURSE_GROUP_SOURCE" => "核对走班来源",
             "OPEN_TERM_PREPARATION" => "打开学期管理",

@@ -22,6 +22,7 @@ public sealed partial class GradeTeachingPlanWindow : Window
     private readonly School _school = null!;
     private readonly string? _specifiedTermId;
     private string? _initialClassId;
+    private readonly bool _requireInitialTarget;
     private string? _continueTeachingKey;
     private bool _archiveEditable;
     private readonly CancellationTokenSource _lifetime = new();
@@ -48,12 +49,14 @@ public sealed partial class GradeTeachingPlanWindow : Window
     public GradeTeachingPlanWindow() => InitializeComponent();
 
     internal GradeTeachingPlanWindow(ConsoleClient client, School school, string? gradeId, string? subjectId, string? groupId,
-        string? specifiedTermId = null, string? classId = null, string? teacherId = null, string? ruleAction = null) : this()
+        string? specifiedTermId = null, string? classId = null, string? teacherId = null, string? ruleAction = null,
+        bool requireInitialTarget = false) : this()
     {
         _client = client;
         _school = school;
         _specifiedTermId = specifiedTermId;
         _initialClassId = classId;
+        _requireInitialTarget = requireInitialTarget;
         _openingGroup = groupId;
         _gradeId = gradeId;
         _subjectId = subjectId;
@@ -143,6 +146,9 @@ public sealed partial class GradeTeachingPlanWindow : Window
     {
         var options = await ReadCatalogAsync(null, null, null);
         if (_closed) return;
+        if (_requireInitialTarget && (_gradeId is { } gradeTarget && !options.Grades.Any(row => row.Id == gradeTarget) ||
+            _subjectId is { } subjectTarget && !options.Subjects.Any(row => row.Id == subjectTarget)))
+            throw new ConsoleApiException(409, "待办对应的年级或科目已变化。请返回学期诊断重新核对。");
         _filling = true;
         PlanGrade.ItemsSource = options.Grades;
         PlanSubject.ItemsSource = options.Subjects;
@@ -154,6 +160,9 @@ public sealed partial class GradeTeachingPlanWindow : Window
         if (options.TermId is { } term && _gradeId is { } grade && (_subjectId is not null || _specifiedTermId is not null))
             options = await ReadCatalogAsync(term, grade, _subjectId);
         if (_closed) return;
+        if (_requireInitialTarget && (_initialClassId is { } classTarget && !options.Classes.Any(row => row.Id == classTarget) ||
+            _openingGroup is { } groupTarget && !options.Groups.Any(row => row.Id == groupTarget)))
+            throw new ConsoleApiException(409, "待办对应的班级或教学班已变化。请返回学期诊断重新核对。");
         if (_catalog?.ScopeVersion != options.ScopeVersion) _archiveEditable = false;
         _catalog = options;
         _scopeLost = Pending?.Draft.TermId is { } pendingTerm && pendingTerm != options.TermId;

@@ -1,7 +1,7 @@
 namespace NPEduConsole.Core;
 
 public sealed record OrganizationSchool(string Id, string Code, string Name);
-public sealed record OrganizationTerm(string Id, string Name, string Status, int AcademicYear, int Semester)
+public sealed record OrganizationTerm(string Id, string Name, string Status, int AcademicYear, int Semester, DateTimeOffset? UpdatedAt = null)
 {
     public override string ToString() => $"{Name} · {Status switch { "DRAFT" => "草稿", "ARCHIVED" => "已归档", _ => "当前学期" }}";
 }

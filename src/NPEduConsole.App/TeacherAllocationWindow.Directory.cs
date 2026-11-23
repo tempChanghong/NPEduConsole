@@ -43,7 +43,14 @@ public sealed partial class TeacherAllocationWindow
 
     private void RebuildDirectories()
     {
-        if (_catalog is not { } data) return;
+        if (_catalog is not { } data)
+        {
+            AllocationDirectoryTeachers.ItemsSource = null;
+            AllocationDirectorySpaces.ItemsSource = null;
+            RenderTeacherDirectory();
+            RenderSpaceDirectory();
+            return;
+        }
         var picked = AllocationDirectoryTeachers.SelectedItem as DirectoryPerson;
         var board = AllocationDirectorySpaces.SelectedItem as AllocationWorkspace;
         var people = data.Accounts.Select(row => new DirectoryPerson(row.Id, row.Name, row.Username, row.Email, row.Disabled, row.Manageable)).ToList();
@@ -174,6 +181,17 @@ public sealed partial class TeacherAllocationWindow
             revoke.Click += (_, _) => AddDirectoryAction(new(null, "邮箱邀请", null, pending.NormalizedEmail, false, true),
                 new(room.Id, room.Code, "REVOKE", null, InvitationId: pending.Id));
             actions.Children.Add(revoke);
+        }
+        if (_archivedCorrection && invite is {ClaimedAt: null} archived)
+        {
+            if (data.CanRevokeArchivedInvitations && archived.UpdatedAt is not null)
+            {
+                var revoke = new Button {Content = "撤回这条邀请", Classes = { "action" }};
+                Avalonia.Automation.AutomationProperties.SetAutomationId(revoke, "RevokeArchivedInvitation-" + archived.Id);
+                revoke.Click += async (_, _) => await ConfirmArchivedRevocationAsync(data, room, archived);
+                actions.Children.Add(revoke);
+            }
+            else content.Children.Add(Description("此 KV 版本未提供归档邀请的核对式撤回。"));
         }
         if (teacher.Id is { } id && teacher.Manageable && !teacher.Disabled && Term is { } term &&
             (term.Status == "ACTIVE" || _archivedCorrection && term.Status == "ARCHIVED") &&

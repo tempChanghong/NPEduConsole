@@ -88,7 +88,7 @@
         <ScrollViewer x:Name="AuditDetailScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Spacing="14" Margin="0,0,10,0">
             <TextBlock x:Name="AuditDetailTitle" Classes="label" FontSize="16" />
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="78,*" ColumnSpacing="10" RowSpacing="8">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="78,*" ColumnSpacing="10" RowSpacing="8">
               <TextBlock Text="操作者" Classes="muted" />
               <SelectableTextBlock x:Name="AuditDetailActor" Grid.Column="1" TextWrapping="Wrap" />
               <TextBlock Grid.Row="1" Text="本地时间" Classes="muted" />
@@ -103,6 +103,8 @@
               <SelectableTextBlock x:Name="AuditDetailResult" Grid.Row="5" Grid.Column="1" TextWrapping="Wrap" />
               <TextBlock Grid.Row="6" Text="来源 IP" Classes="muted" />
               <SelectableTextBlock x:Name="AuditDetailIp" Grid.Row="6" Grid.Column="1" TextWrapping="Wrap" />
+              <TextBlock Grid.Row="7" Text="记录编号" Classes="muted" />
+              <SelectableTextBlock x:Name="AuditDetailId" Grid.Row="7" Grid.Column="1" TextWrapping="Wrap" />
             </Grid>
             <StackPanel x:Name="AuditDetailParameters" Spacing="6" IsVisible="False">
               <TextBlock Text="脱敏后的操作参数" Classes="label" />

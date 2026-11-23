@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Interactivity;
 using NPEduConsole.Core;
 
@@ -15,7 +16,7 @@ public sealed partial class MainWindow
     }
 
     private async Task ShowStaffReviewAsync(ConsoleClient client, School school, string? term = null, string? key = null,
-        string? grade = null, string? classroom = null)
+        string? grade = null, string? classroom = null, Window? owner = null)
     {
         if (_staffReview is not null || _client != client || _school != school) return;
         var window = new StaffReviewWindow(client, school, term, key, grade, classroom)
@@ -24,9 +25,9 @@ public sealed partial class MainWindow
         };
         _staffReview = window;
         window.Closed += (_, _) => { if (_staffReview == window) _staffReview = null; };
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(owner ?? this); }
         finally { if (_staffReview == window) _staffReview = null; }
-        if (window.WorkspaceChanged && _client == client && _school == school && !_showSchoolOverview)
+        if (owner is null && window.WorkspaceChanged && _client == client && _school == school && !_showSchoolOverview)
             await SchoolOverviewWorkspace.RefreshAsync();
     }
 
