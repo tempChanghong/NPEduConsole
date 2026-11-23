@@ -39,7 +39,7 @@ public sealed partial class SchoolStudyDisplayWindow : Window
     private SchoolStudyReview? _review;
     private SchoolStudyEdit? _edit;
     private DeviceFieldActionWindow? _fieldAction;
-    private bool _busy, _filling, _closed, _scopeLost, _closeConfirmed, _showPreview, _compact, _sampleSignal = true, _checkedMissing;
+    private bool _busy, _sending, _filling, _closed, _scopeLost, _closeConfirmed, _showPreview, _compact, _sampleSignal = true, _checkedMissing;
     private int? _savedRevision;
     private int _page;
     private DisplayPage[] _pages = [];
@@ -81,7 +81,7 @@ public sealed partial class SchoolStudyDisplayWindow : Window
         Closing += (_, args) =>
         {
             if (_closeConfirmed || _scopeLost || _closed) return;
-            if (_busy) { args.Cancel = true; return; }
+            if (_sending) { args.Cancel = true; return; }
             if (!Dirty || Pending is not null) return;
             args.Cancel = true;
             _closeConfirmed = true;
@@ -182,7 +182,7 @@ public sealed partial class SchoolStudyDisplayWindow : Window
     private void FieldChanged(object? sender, TextChangedEventArgs args) => Changed();
     private void Changed()
     {
-        if (_filling || _client is null) return;
+        if (_filling || _busy || _closed || _client is null) return;
         _targetWithDraft = Selected;
         _closeConfirmed = false;
         _review = null; _edit = null; _draftBeforeReview = null;
@@ -245,7 +245,7 @@ public sealed partial class SchoolStudyDisplayWindow : Window
         DisplayCheckReceipt.IsVisible = !_scopeLost && pending is not null;
         DisplayRetry.IsVisible = DisplayCheckReceipt.IsVisible && _checkedMissing;
         DisplayCheckReceipt.IsEnabled = DisplayRetry.IsEnabled = !_busy;
-        DisplayClose.IsEnabled = !_busy;
+        DisplayClose.IsEnabled = !_sending;
         DisplayImpactPanel.IsVisible = _review is not null;
         DisplayRefreshScreens.IsEnabled = !_scopeLost && !_busy;
         DisplayScreenRows.IsEnabled = DisplayRefreshScreens.IsEnabled;

@@ -16,8 +16,10 @@ public sealed partial class SchoolStudyDisplayWindow
         _savedDisplay = null;
         DisplayScreenRows.ItemsSource = null;
         SetDisplay(null);
-        _savedDisplay = await _client.ReadSchoolStudyDisplayAsync(_scope, _date, _lifetime.Token);
-        if (!_closed) SetDisplay(_savedDisplay);
+        var display = await _client.ReadSchoolStudyDisplayAsync(_scope, _date, _lifetime.Token);
+        if (_closed) return;
+        _savedDisplay = display;
+        SetDisplay(display);
     }
 
     private async void ReloadClicked(object? sender, RoutedEventArgs args) => await RunAsync(ReloadAsync);
@@ -75,7 +77,7 @@ public sealed partial class SchoolStudyDisplayWindow
         try { preview = await _client.PreviewSchoolStudyAsync(edit, _date, _lifetime.Token, _scope.ClassId); }
         catch (ConsoleApiException error) when (NeedsNewPreview(error))
         {
-            await RefreshStalePreviewAsync();
+            if (!_closed) await RefreshStalePreviewAsync();
             return;
         }
         if (_closed) return;
@@ -106,8 +108,8 @@ public sealed partial class SchoolStudyDisplayWindow
 
     private async void SaveClicked(object? sender, RoutedEventArgs args)
     {
-        if (_edit is not { } edit || _review is not { } preview || _draftBeforeReview is not { } draft ||
-            ReadControls() is not { } current || !draft.SameSettings(current) || _busy || Pending is not null) return;
+        if (_closed || _scopeLost || _busy || Pending is not null || _edit is not { } edit || _review is not { } preview ||
+            _draftBeforeReview is not { } draft || ReadControls() is not { } current || !draft.SameSettings(current)) return;
         var operation = new Operation(edit, preview, Guid.NewGuid());
         Operations[OperationKey] = operation;
         await RunAsync(() => SubmitAsync(operation));
@@ -116,23 +118,31 @@ public sealed partial class SchoolStudyDisplayWindow
     private async Task SubmitAsync(Operation operation)
     {
         _checkedMissing = false;
+        int revision;
         try
         {
-            int revision = await _client.SaveSchoolStudyAsync(operation.Edit, operation.Preview, operation.Id, _lifetime.Token);
-            if (!_closed) await ConfirmedAsync(revision);
+            _sending = true;
+            Render();
+            try { revision = await _client.SaveSchoolStudyAsync(operation.Edit, operation.Preview, operation.Id, _lifetime.Token); }
+            finally { _sending = false; if (!_closed) Render(); }
         }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
         {
+            if (_closed) return;
             Notice("保存结果待核对，正在读取本账号回执。");
             await VerifyAsync(operation);
+            return;
         }
         catch (ConsoleApiException error)
         {
+            if (_closed) return;
             Operations.Remove(OperationKey);
             _review = null; _edit = null;
             if (NeedsNewPreview(error)) await RefreshStalePreviewAsync();
             else throw;
+            return;
         }
+        if (!_closed) await ConfirmedAsync(revision);
     }
 
     private static bool NeedsNewPreview(ConsoleApiException error) => error.Code is "STUDY_PREVIEW_CHANGED" or
@@ -280,6 +290,7 @@ public sealed partial class SchoolStudyDisplayWindow
         DisplayDevicePanel.IsExpanded = true;
         DisplayScreenRows.ItemsSource = new StudyDisplayLine[] { new("正在核对本班绑定", "") };
         var metadata = await _client.ReadSchoolSeatingAsync(_scope, _lifetime.Token);
+        if (_closed) return;
         var lines = await Task.WhenAll(metadata.Bindings.Select(ReadBindingAsync));
         if (!_closed) DisplayScreenRows.ItemsSource = lines.Length > 0 ? lines : [new("本班暂无已登记的大屏", "")];
     }

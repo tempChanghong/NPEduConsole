@@ -89,6 +89,11 @@ export async function verifyStudyDisplay({prisma, origin, fixture, fromKv, direc
   legacy.catch(() => {});
   const marks = new Set(), cases = [];
   let native, nativeFailure, drops = 0, receiptReads = 0, requestId, independentPreview, relayOrigin;
+  let holdFirstDisplay = true, holdFirstReceipt = true;
+  const holdDisplay = Promise.withResolvers(), cancelDisplay = Promise.withResolvers();
+  const holdWrite = Promise.withResolvers(), loseWriteReply = Promise.withResolvers();
+  const holdReceipt = Promise.withResolvers(), cancelReceipt = Promise.withResolvers();
+  const receiptAttempts = [], forwardedDisplayWrites = [];
   const revisions = async () => prisma.$queryRaw`SELECT "targetId", revision, policy FROM "NpepStudySetting" WHERE "schoolId"=${school.id}`;
   async function updateGrade(change, token = admin.access_token) {
     const current = (await revisions()).find(row => row.targetId === grade.id);
@@ -129,12 +134,25 @@ export async function verifyStudyDisplay({prisma, origin, fixture, fromKv, direc
   }
 
   async function checkpoint(name) {
-    if (name === 'legacy') await legacyChange();
+    if (name === 'display-read-held') await holdDisplay.promise;
+    else if (name === 'display-read-cancelled') {
+      await cancelDisplay.promise;
+      assert.deepEqual(forwardedDisplayWrites, []);
+      assert.equal((await revisions()).find(row => row.targetId === grade.id).revision, 1);
+    } else if (name === 'legacy') await legacyChange();
     else if (name === 'stale') {
       const gradeNow = (await revisions()).find(row => row.targetId === grade.id);
       assert.deepEqual([gradeNow.revision, gradeNow.policy.settings.homework.sourceClassIds, drops], [2, [ten.id], 0]);
-    } else if (name === 'saved') {
+    } else if (name === 'display-write-held') {
+      await holdWrite.promise;
+      assert.equal((await revisions()).find(row => row.targetId === grade.id).revision, 3);
+    } else if (name === 'display-lose-save-reply') loseWriteReply.resolve();
+    else if (name === 'display-receipt-held') await holdReceipt.promise;
+    else if (name === 'display-receipt-cancelled') await cancelReceipt.promise;
+    else if (name === 'saved') {
       assert.deepEqual([drops, receiptReads], [1, 1]);
+      assert.deepEqual(receiptAttempts, [requestId, requestId]);
+      assert.equal(forwardedDisplayWrites.filter(id => id === requestId).length, 1);
       const planned = (await revisions()).find(row => row.targetId === grade.id);
       assert.equal(planned.revision, 3);
       assert.deepEqual(planned.policy.settings.homework.sourceClassIds, [eight.id]);
@@ -195,6 +213,21 @@ export async function verifyStudyDisplay({prisma, origin, fixture, fromKv, direc
         marks.add(mark);
         return res.writeHead(204).end();
       }
+      if (holdFirstDisplay && req.method === 'GET' && url.pathname + url.search === studyPath + '/display' + query(seven)) {
+        holdFirstDisplay = false;
+        res.once('close', () => cancelDisplay.resolve());
+        holdDisplay.resolve();
+        return;
+      }
+      if (requestId && url.pathname === `${studyPath}/requests/${requestId}` && req.method === 'GET') {
+        receiptAttempts.push(requestId);
+        if (holdFirstReceipt) {
+          holdFirstReceipt = false;
+          res.once('close', () => cancelReceipt.resolve());
+          holdReceipt.resolve();
+          return;
+        }
+      }
       const chunks = [];
       for await (const part of req) chunks.push(part);
       const body = chunks.length ? Buffer.concat(chunks) : undefined;
@@ -204,10 +237,16 @@ export async function verifyStudyDisplay({prisma, origin, fixture, fromKv, direc
       const response = Buffer.from(await upstream.arrayBuffer());
       if (url.pathname === studyPath + '/preview' && req.method === 'POST' && upstream.status === 409 &&
           JSON.parse(response).error?.code === 'STUDY_DISPLAY_BASE_CHANGED') independentPreview = JSON.parse(body).requestId;
-      if (url.pathname === studyPath && req.method === 'POST' && upstream.ok && JSON.parse(body).displayEdit && !drops) {
-        requestId = JSON.parse(body).requestId;
-        drops++;
-        return res.writeHead(502).end();
+      if (url.pathname === studyPath && req.method === 'POST' && upstream.ok && JSON.parse(body).displayEdit) {
+        const id = JSON.parse(body).requestId;
+        forwardedDisplayWrites.push(id);
+        if (!drops) {
+          requestId = id;
+          drops++;
+          holdWrite.resolve();
+          await loseWriteReply.promise;
+          return res.writeHead(502).end();
+        }
       }
       if (requestId && url.pathname === `${studyPath}/requests/${requestId}` && upstream.ok) receiptReads++;
       const clean = Object.fromEntries(upstream.headers);
@@ -223,10 +262,14 @@ export async function verifyStudyDisplay({prisma, origin, fixture, fromKv, direc
       date: day, gradeId: grade.id, sevenId: seven.id, eightId: eight.id, nineId: nine.id, allowDisplayWrites: true}), {mode: 0o600});
     await runDesktop(['--live-study-display', access, join(evidence, 'console')]);
     await native;
-    assert.deepEqual(cases, ['legacy', 'stale', 'saved', 'checked', 'independent-basis', 'independent-stale', 'independent']);
+    assert.deepEqual(cases, ['display-read-held', 'display-read-cancelled', 'legacy', 'stale', 'display-write-held',
+      'display-lose-save-reply', 'display-receipt-held', 'display-receipt-cancelled', 'saved', 'checked',
+      'independent-basis', 'independent-stale', 'independent']);
     await writeFile(join(evidence, 'study-display-result.json'), JSON.stringify({result: 'PASS', cases, marks: [...marks],
-      drops, receiptReads, schools: [school.id, other.id], front: front.binding.id, rear: back.binding.id, publicationId: publication.id}, null, 2));
+      drops, receiptReads, receiptAttempts, forwardedDisplayWrites, schools: [school.id, other.id], front: front.binding.id, rear: back.binding.id,
+      publicationId: publication.id}, null, 2));
   } finally {
+    loseWriteReply.resolve();
     marks.add('display-checked');
     if (native) await native.catch(() => {});
     relay.closeAllConnections();

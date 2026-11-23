@@ -60,6 +60,14 @@ internal static partial class Program
             await PressScoped(uncalibrated, "DisplayClose");
 
             await OpenDisplay(access.SevenId);
+            var waiting = await WindowOf<SchoolStudyDisplayWindow>();
+            await Signal("display-read-held");
+            Check(Ready(waiting, "DisplayClose"), "查看展示期间返回仍可用，即使服务器尚未返回");
+            await PressScoped(waiting, "DisplayClose");
+            await Until(() => !waiting.IsVisible && Find<Button>(calendar, "StudyClassDisplay").IsFocused, "慢读取可退出并恢复原班焦点");
+            await Signal("display-read-cancelled");
+
+            await OpenDisplay(access.SevenId);
             var editor = await WindowOf<SchoolStudyDisplayWindow>();
             var scope = Find<ComboBox>(editor, "DisplayScopeChoice");
             await Until(() => Read(editor, "DisplayHomeworkState").Contains("暂无可展示"), "各班默认使用本班，七班无作业");
@@ -121,6 +129,24 @@ internal static partial class Program
             await PressScoped(editor, "DisplayToggleSignal");
             Check(Read(editor, "DisplayNoiseSample").Contains("暂无有效") && !Read(editor, "DisplayNoiseSample").Contains("dB"), "无信号样例清除数值");
             await PressScoped(editor, "DisplaySave");
+            await Signal("display-write-held");
+            Check(!Ready(editor, "DisplayClose"), "写请求等待结果期间仍保护返回");
+            editor.Close();
+            Check(editor.IsVisible, "窗口关闭同样保护正在提交的写请求");
+            await Signal("display-lose-save-reply");
+            await Signal("display-receipt-held");
+            Check(Ready(editor, "DisplayClose"), "由写入转为只读核对后允许返回");
+            await CaptureWithFrame(editor, output, "03a-slow-receipt-can-close");
+            editor.Close();
+            await Until(() => !editor.IsVisible && Find<Button>(calendar, "StudyClassDisplay").IsFocused, "只读回执可取消并返回原班");
+            await Signal("display-receipt-cancelled");
+            await OpenDisplay(access.SevenId);
+            editor = await WindowOf<SchoolStudyDisplayWindow>();
+            editor.Width = 840;
+            editor.Height = 480;
+            scope = Find<ComboBox>(editor, "DisplayScopeChoice");
+            sourceControl = (StudyDisplaySourcesView)Find<ContentControl>(editor, "DisplaySourceControl").Content!;
+            search = Find<TextBox>(sourceControl, "SourceSearchBox");
             await Until(() => Read(editor, "DisplayNotice").Contains("本人回执 v3"), "成功回包丢失只读找回");
             await Signal("saved");
             await PressScoped(editor, "DisplayRefreshScreens");
