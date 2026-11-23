@@ -60,6 +60,7 @@ public sealed partial class MainWindow
         SchoolAuditWorkspace.SetScope(SchoolAuditWorkspace.IsVisible ? _client : null, SchoolAuditWorkspace.IsVisible ? _school : null);
         SchoolOverviewWorkspace.SetScope(_client, _school);
         ReturnToSchoolOverviewButton.IsVisible = _overviewJourney && ClassWorkspaceLayout.IsVisible;
+        ReturnToSchoolOverviewButton.Content = _openingDeviceReturn is null ? "返回总览" : "返回开学配置";
         ReturnToDeviceDirectoryButton.IsVisible = _directoryReturnScreenId is not null && ClassWorkspaceLayout.IsVisible;
         OpenSchoolOverviewButton.IsEnabled = OpenClassWorkspaceButton.IsEnabled = OpenDeviceDirectoryButton.IsEnabled =
             OpenSchoolAuditButton.IsEnabled = scoped;
@@ -226,6 +227,7 @@ public sealed partial class MainWindow
 
     private void ChangePage(ShellPage page)
     {
+        _openingDeviceReturn = null;
         bool navigating = _overviewNavigation is not null;
         _overviewNavigation = null;
         if (navigating) CancelRequest();

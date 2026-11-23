@@ -22,7 +22,7 @@ public sealed partial class MainWindow
     }
 
     private async Task ShowScreenDutyAsync(ConsoleClient client, School school, string? bindingId, string? classId, Control? anchor = null,
-        bool restoreTask = false)
+        bool restoreTask = false, Func<ScreenDutyDetail, Task>? openNative = null)
     {
         if (_screenDutyWindow is not null || _client != client || _school != school) return;
         var window = new ScreenDutyWindow(client, school, bindingId, classId)
@@ -44,6 +44,11 @@ public sealed partial class MainWindow
         if (_client != client || _school != school) return;
         if (window.NativeTarget is { Active: true } native)
         {
+            if (openNative is not null)
+            {
+                await openNative(native);
+                return;
+            }
             _overviewNavigation = null;
             await OpenShellTargetAsync(native.Room.Id, native.Id, native.Room.TermId);
             return;

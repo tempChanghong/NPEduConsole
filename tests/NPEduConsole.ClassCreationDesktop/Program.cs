@@ -22,6 +22,8 @@ internal static partial class Program
     {
         if (args is ["--live-school-overview", var overviewFixture, var overviewOutput])
             return StartSchoolOverview(overviewFixture, overviewOutput);
+        if (args is ["--live-school-opening", var openingFixture, var openingOutput])
+            return StartSchoolOpening(openingFixture, openingOutput);
         if (args is ["--live-teaching", var teachingFixture, var teachingOutput])
             return StartTeaching(teachingFixture, teachingOutput);
         if (args is ["--live-subject-setup", var subjectFixture, var subjectOutput])

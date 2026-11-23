@@ -15,6 +15,12 @@ public sealed partial class MainWindow
     private async void SchoolOverviewClicked(object? sender, RoutedEventArgs args)
     {
         if (_client is null || _school is null || !LeaveAcademicWorkspace()) return;
+        if (sender == ReturnToSchoolOverviewButton && _openingDeviceReturn is { } opening)
+        {
+            ChangePage(ShellPage.Overview);
+            await OpenSchoolOpeningAsync(opening);
+            return;
+        }
         if (_showSchoolOverview)
         {
             await SchoolOverviewWorkspace.RefreshAsync();

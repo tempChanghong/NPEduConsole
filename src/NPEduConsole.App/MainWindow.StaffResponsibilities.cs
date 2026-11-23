@@ -72,10 +72,10 @@ public sealed partial class MainWindow
     }
 
     private async Task ShowStaffResponsibilitiesAsync(ConsoleClient client, School school, string termId, string kind, string targetId, string? accountId,
-        Window? owner = null)
+        Window? owner = null, string? currentTermName = null)
     {
         if (_staffWindow is not null || _client != client || _school != school) return;
-        var window = new StaffResponsibilitiesWindow(client, school, termId, kind, targetId, accountId)
+        var window = new StaffResponsibilitiesWindow(client, school, termId, kind, targetId, accountId, currentTermName: currentTermName)
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
         };

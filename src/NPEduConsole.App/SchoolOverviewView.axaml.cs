@@ -48,6 +48,7 @@ public sealed partial class SchoolOverviewView : UserControl
     public event Action<SchoolOverview?, string>? SnapshotChanged;
     public event Action? ClassDirectoryRequested;
     public event Action<Classroom>? ClassRequested;
+    internal event Action? OpeningRequested;
 
     public SchoolOverviewView() => InitializeComponent();
 
@@ -60,6 +61,7 @@ public sealed partial class SchoolOverviewView : UserControl
         _request?.Cancel();
         _request = null;
         OverviewTitle.Text = termId is null ? "学校总览" : "学期诊断";
+        OpenSchoolOpeningButton.IsVisible = termId is null;
         OverviewTitle.FontSize = termId is null ? 29 : 19;
         RefreshSchoolOverviewButton.Content = termId is null ? "刷新总览" : "刷新诊断";
         OverviewContent.Margin = termId is null ? new Thickness(25, 20, 25, 24) : new Thickness(16, 8, 16, 12);
@@ -74,6 +76,10 @@ public sealed partial class SchoolOverviewView : UserControl
     }
 
     public bool Shows(SchoolOverview overview) => ReferenceEquals(_snapshot, overview);
+
+    private void OpeningClicked(object? sender, RoutedEventArgs e) => OpeningRequested?.Invoke();
+
+    internal void FocusOpeningEntry() => OpenSchoolOpeningButton.Focus(NavigationMethod.Tab);
 
     public void ShowNavigationMessage(string? message)
     {

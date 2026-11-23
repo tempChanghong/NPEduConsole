@@ -8,6 +8,8 @@ namespace NPEduConsole.App;
 
 public sealed partial class TermClassManagementView : UserControl
 {
+    internal string ReturnLabel { set => StructureClose.Content = value; }
+
     private readonly CancellationTokenSource _lifetime = new();
     private ConsoleClient? _client;
     private School? _school;

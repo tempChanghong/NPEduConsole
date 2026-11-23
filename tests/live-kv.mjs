@@ -21,6 +21,7 @@ import { prepareGradeRename } from './grade-rename-fixture.mjs';
 import { prepareClassBatch } from './class-batch-fixture.mjs';
 import { verifyClassMaintenance } from './class-maintenance-fixture.mjs';
 import { verifySchoolOverview } from './school-overview-fixture.mjs';
+import { verifySchoolOpening } from './school-opening-fixture.mjs';
 import { verifyCurrentTeaching } from './teaching-fixture.mjs';
 import { verifySubjectSetup } from './subject-setup-fixture.mjs';
 import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
@@ -55,7 +56,7 @@ const [checkout, binaries, mode] = process.argv.slice(2);
 assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
-  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview',
+  '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview', '--school-opening',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-status', '--term-status-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
@@ -79,6 +80,7 @@ const gradeRename = mode === '--grade-rename';
 const classBatch = mode === '--class-batch';
 const classMaintenance = mode === '--class-maintenance';
 const schoolOverview = mode === '--school-overview';
+const schoolOpening = mode === '--school-opening';
 const currentTeaching = mode === '--current-teaching';
 const subjectSetup = mode === '--current-subject-setup';
 const schoolSubjects = mode === '--school-subjects';
@@ -246,7 +248,7 @@ async function seed() {
   const manager = await account('admin', managementAccounts || termStatus || mode === '--desktop-oauth' ? 'OWNER' : 'ADMIN');
   await account('viewer', 'VIEWER');
   if (studyMonitoring) await account('owner', 'OWNER');
-  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || managementAccounts || ['--screen-duty', '--exam-workbench', '--homework-settings'].includes(mode))
+  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || managementAccounts || schoolOpening || ['--screen-duty', '--exam-workbench', '--homework-settings'].includes(mode))
     await account('admin2', 'ADMIN');
   const term = await prisma.academicTerm.create({ data: {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
@@ -255,7 +257,7 @@ async function seed() {
   const studyGrade = classStudy ? await prisma.grade.create({ data: { termId: term.id, name: '高一', code: 'G1', sortOrder: 2 } }) : null;
   const devices = [], classes = [], revokedDeviceId = randomUUID();
   let classroomBearer;
-  for (let number = 1; number <= (schoolOverview || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || gradePlan || gradePlanDatabase || schoolStudy || organizationImport || termPreparation || termActivation || termActivationDatabase || termStatus ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
+  for (let number = 1; number <= (schoolOverview || schoolOpening || currentTeaching || subjectSetup || schoolSubjects || currentStaff || teacherAccounts || courseGroups || gradePlan || gradePlanDatabase || schoolStudy || organizationImport || termPreparation || termActivation || termActivationDatabase || termStatus ? 0 : classStudy || firstScreen ? 4 : 3); number++) {
     const roomGrade = studyGrade && number > 2 ? studyGrade : grade;
     const section = roomGrade === studyGrade ? number - 2 : number;
     const room = await prisma.workspace.create({ data: {
@@ -1077,6 +1079,23 @@ async function runFixture() {
       createTeacher, runDesktop: args => runDesktop(project, args), runDatabase});
     return verifyCurrentTeaching({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
       createTeacher, runDesktop: args => runDesktop(project, args), runDatabase});
+  }
+  if (schoolOpening) {
+    const {initSocket} = await fromKv('utils/socket.js');
+    fixtureSocket = initSocket(server);
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const native = fileURLToPath(new URL('./NPEduConsole.FirstScreenSmoke/NPEduConsole.FirstScreenSmoke.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_OPENING_EVIDENCE || '.artifacts/school-opening');
+    const {localProviderId} = await fromKv('domain/localAccount.js');
+    const createTeacher = async (username, name) => {
+      const {school, pin} = fixture;
+      const person = await prisma.account.create({data: {name, provider: 'school-local', providerId: localProviderId(school.code, username),
+        localUsername: username, localPasswordHash: await bcrypt.hash(pin, 10), providerData: {schoolCode: school.code}}});
+      await prisma.schoolMember.create({data: {schoolId: school.id, accountId: person.id, role: 'VIEWER'}});
+      return person;
+    };
+    return verifySchoolOpening({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'), createTeacher,
+      runDesktop: args => runDesktop(project, args), runNative: args => runDesktop(native, args)});
   }
   if (schoolOverview) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));

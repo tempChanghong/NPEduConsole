@@ -78,7 +78,7 @@ public sealed partial class MainWindow
     }
 
     private async Task<bool> ShowTermClassDirectoryAsync(ConsoleClient client, School school, ManagedAcademicTerm term,
-        string? classId = null, string? gradeId = null)
+        string? classId = null, string? gradeId = null, string? returnLabel = null)
     {
         if (_client != client || _school != school) return false;
         var view = new TermClassManagementView(client, school, term, classId, gradeId)
@@ -87,6 +87,7 @@ public sealed partial class MainWindow
             OpenMaintenance = edit => ShowClassMaintenancePageAsync(client, school, edit),
             OpenRoster = roster => ShowRosterPageAsync(client, school, roster),
         };
+        if (returnLabel is not null) view.ReturnLabel = returnLabel;
         view.CloseRequested = () => ReturnFromAcademicPage(view);
         var exit = PushAcademicPage(view, view.CanClose, view.End);
         await view.StartAsync();

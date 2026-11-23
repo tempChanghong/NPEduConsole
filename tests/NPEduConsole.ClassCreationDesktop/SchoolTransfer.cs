@@ -150,6 +150,7 @@ internal static partial class Program
                 var create = Find<Button>(main, "OpenFirstSchoolClass");
                 await Until(() => create.IsEffectivelyVisible && create.IsEffectivelyEnabled, "owner completion reply lost but readback opens scoped first class action");
                 Check(Text(main, "FirstSchoolClassScope").Contains("首个启用学期"), "first class names the exact confirmed term");
+                await CheckOpeningAvailable("0 个启用行政班", "06a-narrow-fresh-school-checklist");
                 await CaptureWithFrame(main, output, "06-narrow-first-class-entry");
                 Click(create);
                 var dialog = await WindowOf<ClassCreationWindow>();
@@ -254,6 +255,7 @@ internal static partial class Program
                 Check(Find<ComboBox>(main, "SchoolPicker").SelectedItem is School school && school.Id == access.SchoolId,
                     "target preserves the original school ID");
                 Check(!Find<Border>(main, "FirstSchoolClassCard").IsVisible, "restored existing school does not offer creation of a first class");
+                await CheckOpeningAvailable("个启用行政班", "04a-restored-school-checklist");
                 await Capture(main, output, "04-target-owner-workspace");
             }
             await File.WriteAllTextAsync(Path.Combine(output, firstSchool ? "windows-first-school.json" : "windows-transfer.json"),
@@ -307,6 +309,18 @@ internal static partial class Program
                 button.IsEffectivelyVisible && button.IsEffectivelyEnabled && button.Content is "退出登录");
             Click(signOut);
             await Until(() => Ready(main, "OpenFirstSchoolSetup"), "signed out to the setup entry");
+        }
+        async Task CheckOpeningAvailable(string expected, string name)
+        {
+            var overview = Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace");
+            Check(Ready(overview, "OpenSchoolOpeningButton"), "school overview can continue school opening");
+            Click(Find<Button>(overview, "OpenSchoolOpeningButton"));
+            var opening = await AcademicPageAsync<SchoolOpeningView>(main);
+            await Until(() => Text(opening, "OpeningSummary").Contains(expected) &&
+                (firstSchool || !Text(opening, "OpeningSummary").EndsWith(" 0 个启用行政班")), "first or restored school opening summary");
+            await CaptureWithFrame(main, output, name);
+            Click(Find<Button>(opening, "OpeningBack"));
+            await Until(() => Ready(overview, "OpenSchoolOpeningButton"), "returns to the new or restored school overview");
         }
     }
 }

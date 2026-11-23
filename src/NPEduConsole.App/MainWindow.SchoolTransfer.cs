@@ -55,6 +55,7 @@ public sealed partial class MainWindow
             SchoolConnectionSetup.Reset();
             OpenFirstSchoolSetup.IsVisible = OpenServerStatusButton.IsVisible = true;
             _firstClassSetup = result.FirstTerm is { } term ? new(result.SchoolId, term) : null;
+            _openingWebsite = target.Website is { } website ? (result.SchoolId, website) : null;
             ServerAddress.Text = result.Client.ServerUri.AbsoluteUri.TrimEnd('/');
             Password.Clear();
             ShowSignedIn(result.Client, result.Schools, result.AccountName);

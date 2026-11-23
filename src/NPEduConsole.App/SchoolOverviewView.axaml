@@ -35,8 +35,12 @@
     <StackPanel x:Name="OverviewContent" Margin="25,20,25,24" Spacing="13">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
         <TextBlock x:Name="OverviewTitle" Text="学校总览" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center" />
-        <Button x:Name="RefreshSchoolOverviewButton" Grid.Column="1" Content="刷新总览" Classes="action"
-                Click="RefreshClicked" VerticalAlignment="Center" />
+        <WrapPanel Grid.Column="1" ItemSpacing="7" LineSpacing="4" VerticalAlignment="Center">
+          <Button x:Name="OpenSchoolOpeningButton" Content="开学配置" Classes="action"
+                  Click="OpeningClicked" />
+          <Button x:Name="RefreshSchoolOverviewButton" Content="刷新总览" Classes="action"
+                  Click="RefreshClicked" />
+        </WrapPanel>
       </Grid>
       <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
               BorderThickness="1" CornerRadius="9" Padding="12,8">

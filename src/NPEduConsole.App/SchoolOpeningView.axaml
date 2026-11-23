@@ -1,0 +1,84 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolOpeningView">
+  <UserControl.Styles>
+    <Style Selector="Button.opening-action">
+      <Setter Property="FocusAdorner">
+        <Template><Border CornerRadius="8" BorderThickness="2" BorderBrush="{DynamicResource FocusBrush}" IsHitTestVisible="False"/></Template>
+      </Setter>
+    </Style>
+  </UserControl.Styles>
+  <Grid Margin="16,10" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+      <StackPanel Spacing="3">
+        <TextBlock Text="开学配置" Classes="heading" FontSize="24"/>
+        <TextBlock x:Name="OpeningScope" Classes="muted" TextWrapping="Wrap"/>
+      </StackPanel>
+      <Button x:Name="OpeningBack" Grid.Column="1" Classes="action" Content="返回学校总览" Click="BackClicked"/>
+    </Grid>
+    <StackPanel Grid.Row="1" Spacing="6">
+      <WrapPanel ItemSpacing="7" LineSpacing="4">
+        <Button x:Name="OpeningOrganization" Classes="action" Content="班级与课程" Click="OrganizationClicked"/>
+        <Button x:Name="OpeningTeachers" Classes="action" Content="教师与岗位" Click="TeachersClicked"/>
+        <Button x:Name="OpeningClassrooms" Classes="action" Content="教室接入" Click="ClassroomsClicked"/>
+      </WrapPanel>
+      <TextBlock x:Name="OpeningSummary" Classes="muted" TextWrapping="Wrap"/>
+      <TextBlock x:Name="OpeningStatus" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
+    </StackPanel>
+
+    <Grid x:Name="OpeningPanes" Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="8">
+      <Border x:Name="OpeningListPane" Classes="card" Padding="8">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="5">
+          <TextBox x:Name="OpeningSearch" Classes="search-field" PlaceholderText="查找当前事项"
+                   AutomationProperties.Name="查找当前事项" TextChanged="SearchChanged"/>
+          <ListBox x:Name="OpeningRows" Grid.Row="1" Classes="object-list" Background="Transparent" BorderThickness="0"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="SelectionChanged"
+                   KeyDown="ListKeyDown" Tapped="ListTapped" AutomationProperties.Name="配置事项">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:SchoolOpeningRow">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Classes="label"/>
+                  <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" Classes="muted"/>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock x:Name="OpeningEmpty" Grid.Row="1" Margin="6,8" Classes="muted" TextWrapping="Wrap"
+                     VerticalAlignment="Top" IsHitTestVisible="False" IsVisible="False"/>
+          <Button x:Name="OpeningShowDetail" Grid.Row="2" Classes="action" Content="查看所选事项"
+                  Click="ShowDetailClicked" IsVisible="False"/>
+        </Grid>
+      </Border>
+      <Border x:Name="OpeningDetailPane" Grid.Column="1" Classes="card" Padding="11">
+        <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock x:Name="OpeningDetailTitle" Classes="label" FontSize="16" TextWrapping="Wrap" VerticalAlignment="Center"/>
+            <Button x:Name="OpeningBackToList" Grid.Column="1" Classes="action opening-action" Content="返回事项列表"
+                    Click="BackToListClicked" IsVisible="False"/>
+          </Grid>
+          <ScrollViewer x:Name="OpeningDetailsScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="10">
+              <TextBlock x:Name="OpeningEvidence" TextWrapping="Wrap" LineHeight="22" AutomationProperties.Name="所选事项的证据"/>
+              <StackPanel x:Name="OpeningAddressCard" Spacing="6" IsVisible="False">
+                  <TextBlock x:Name="OpeningAddress" TextWrapping="Wrap" Classes="muted"/>
+                  <local:FormField Header="师生网页地址">
+                    <TextBox x:Name="OpeningWebsite" PlaceholderText="请核对学校实际使用的网页地址"
+                             AutomationProperties.Name="师生网页地址"/>
+                  </local:FormField>
+                  <Button x:Name="OpeningBrowserCheck" Classes="action" Content="在浏览器检查网页连接" Click="BrowserCheckClicked"/>
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+          <Button x:Name="OpeningHandleRow" Grid.Row="2" Classes="action accent opening-action" Click="HandleClicked"
+                  IsVisible="False"/>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <WrapPanel Grid.Row="3" ItemSpacing="8" LineSpacing="4">
+      <Button x:Name="OpeningRefresh" Classes="action" Content="重新核对" Click="RefreshClicked"/>
+      <Button x:Name="OpeningPrimary" Classes="action" Click="PrimaryClicked"/>
+      <Button x:Name="OpeningSecondary" Classes="action" Click="SecondaryClicked"/>
+      <Button x:Name="OpeningCheckAddresses" Classes="action" Content="核对访问地址" Click="AddressesClicked"/>
+    </WrapPanel>
+  </Grid>
+</UserControl>

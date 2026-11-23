@@ -57,7 +57,8 @@ public sealed partial class StaffResponsibilitiesWindow : Window
     public StaffResponsibilitiesWindow() => InitializeComponent();
 
     internal StaffResponsibilitiesWindow(ConsoleClient client, School school, string termId, string kind, string targetId,
-        string? accountId, TermStructureIdentity? term = null, TermStructureIdentity? active = null, string? scope = null) : this()
+        string? accountId, TermStructureIdentity? term = null, TermStructureIdentity? active = null, string? scope = null,
+        string? currentTermName = null) : this()
     {
         _client = client;
         _school = school;
@@ -67,7 +68,7 @@ public sealed partial class StaffResponsibilitiesWindow : Window
         _accountId = accountId;
         _term = term;
         _openedScope = scope;
-        StaffScope.Text = term is null ? $"{school.Name} · 当前学期"
+        StaffScope.Text = term is null ? $"{school.Name} · {currentTermName ?? "当前学期"}"
             : $"{school.Name} / {term.Name} · {term.StatusLabel}　全校启用 {active?.Name ?? "暂无"}";
         StaffHeading.Text = kind == "classes" ? "班主任" : "年级组长";
         StaffAccessNote.Text = kind == "classes"

@@ -73,6 +73,7 @@ public sealed partial class MainWindow : Window
         SchoolOverviewWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
         SchoolOverviewWorkspace.TaskRequested += async (overview, task) => await OpenSchoolOverviewTaskAsync(overview, task);
         SchoolOverviewWorkspace.SnapshotChanged += OverviewSnapshotChanged;
+        SchoolOverviewWorkspace.OpeningRequested += async () => await OpenSchoolOpeningAsync();
         SchoolOverviewWorkspace.ClassDirectoryRequested += async () => await OpenClassDirectoryAsync();
         SchoolOverviewWorkspace.ClassRequested += async room =>
         {
@@ -228,6 +229,7 @@ public sealed partial class MainWindow : Window
             _showClassStudy = false;
             _page = ShellPage.Overview;
             var school = SchoolPicker.SelectedItem as School;
+            _openingDeviceReturn = null;
             if (_school is { } previous && previous != school) TeachingView.ForgetPausedDrafts(_client, previous);
             CloseSchoolSubjects();
             CloseStaffResponsibilities();
@@ -667,6 +669,8 @@ public sealed partial class MainWindow : Window
         CancelSoftwareSession();
         CloseTransferForScopeChange();
         _firstClassSetup = null;
+        _openingWebsite = null;
+        _openingDeviceReturn = null;
         _school = null;
         _directoryTermId = null;
         ClearClassDirectory();
