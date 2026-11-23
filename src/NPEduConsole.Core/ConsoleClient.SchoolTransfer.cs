@@ -19,8 +19,9 @@ public sealed record SchoolTransferReadiness(TransferSchool School, int FormatVe
 public sealed record SchoolTransferReceipt(bool Imported, TransferSchool School, TransferManifest Manifest, Dictionary<string, int> Counts,
     TransferScreen[] ScreenActions, TransferRetained? Retained, TransferOwnerRoute[] OwnerRoutes);
 public sealed record SetupOwner(string Id, string Name, string? LocalUsername = null, string? Provider = null);
-public sealed record SetupContext(TransferSchool School, SetupOwner Owner, Guid? MigrationId = null);
-public sealed record SetupCreated(TransferSchool School, SetupOwner Account);
+public sealed record SetupTerm(string Id, string Name);
+public sealed record SetupContext(TransferSchool School, SetupOwner Owner, Guid? MigrationId = null, SetupTerm? Term = null);
+public sealed record SetupCreated(TransferSchool School, SetupOwner Account, SetupTerm? Term = null);
 public sealed record SetupCompleted(string SchoolId, string State, DateTimeOffset CompletedAt, DateTimeOffset OwnerVerifiedAt, string Method);
 public sealed record NewSchoolSetup(string SchoolName, string SchoolCode, string AdministratorName, string Username, string Pin,
     string TermName, int AcademicYear, int Semester, DateOnly? StartsAt, DateOnly? EndsAt,
@@ -47,8 +48,19 @@ public sealed partial class ConsoleClient
 
     public Uri ServerUri => _http.BaseAddress!;
 
-    public Task<SetupStatus> GetSetupStatusAsync(CancellationToken ct) =>
-        ReadTransferAsync<SetupStatus>(HttpMethod.Get, SetupPath + "status", ct);
+    public async Task<SetupStatus> GetSetupStatusAsync(CancellationToken ct)
+    {
+        try
+        {
+            var status = await ReadTransferAsync<SetupStatus>(HttpMethod.Get, SetupPath + "status", ct);
+            if (status.State is not ("NEW" or "CONFIGURING" or "COMPLETED")) throw InvalidResponse();
+            return status;
+        }
+        catch (ConsoleApiException error) when (error.StatusCode == 0 && error.Code is null)
+        {
+            throw new ConsoleApiException(502, "目标返回了网页或无法识别的初始化数据，请核对 API 网关。", "SETUP_STATUS_INVALID");
+        }
+    }
 
     public async Task<SchoolSetupSession> BeginSchoolSetupAsync(string key, CancellationToken ct)
     {
@@ -208,7 +220,7 @@ public sealed partial class ConsoleClient
             return envelope is { Success: true } ? ReadData<T>(envelope) : throw InvalidResponse();
         }
         catch (JsonException) { throw InvalidResponse(); }
-        catch (HttpRequestException) { throw new ConsoleApiException(0, "与服务器的连接中断，请先核对当前状态。"); }
+        catch (HttpRequestException) { throw new ConsoleApiException(0, "与服务器的连接中断，请先核对当前状态。", "TRANSFER_CONNECTION_FAILED"); }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new ConsoleApiException(408, "服务器响应超时，请先核对当前状态。"); }
     }
 

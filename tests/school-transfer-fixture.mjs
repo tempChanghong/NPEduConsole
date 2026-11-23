@@ -29,8 +29,18 @@ export async function verifyConsoleFirstSchool({prisma, origin, directory, evide
   await mkdir(evidence, {recursive: true});
   const path = join(directory, 'first-school.json');
   const pin = '761298', schoolCode = 'NEW-CONSOLE';
-  await writeFile(path, JSON.stringify({sourceOrigin: origin, setupKey: process.env.BOOTSTRAP_SETUP_KEY, pin, schoolCode, isolated: true}));
-  await runDesktop(['--live-first-school-console', path, evidence]);
+  const gateways = await firstSchoolGateways(origin);
+  try {
+    await writeFile(path, JSON.stringify({sourceOrigin: gateways.same, splitWebsite: gateways.web, splitApi: gateways.api,
+      setupKey: process.env.BOOTSTRAP_SETUP_KEY, pin, schoolCode, isolated: true}));
+    await runDesktop(['--live-first-school-console', path, evidence]);
+  } finally { await gateways.close(); }
+  const checks = gateways.counts;
+  assert.deepEqual(checks.sessions, {same: 2, api: 1}, 'only confirmed gateways receive a key');
+  assert.equal(checks.expired, 1, 'one expired session response was injected');
+  assert.equal(checks.initialized, 1, 'one real core initialization despite the lost reply');
+  assert.equal(checks.completed, 1, 'one real owner completion despite the lost reply');
+  assert.ok(checks.contextReads >= 2, 'lost reply and reopening both read original context');
   const school = await prisma.school.findUniqueOrThrow({where: {code: schoolCode}});
   const owner = await prisma.schoolMember.findFirstOrThrow({where: {schoolId: school.id, role: 'OWNER'}});
   const setup = await prisma.instanceSetup.findUniqueOrThrow({where: {id: 'default'}});
@@ -43,7 +53,90 @@ export async function verifyConsoleFirstSchool({prisma, origin, directory, evide
   assert.equal(room.type, 'ADMIN_CLASS');
   await login(origin, schoolCode, 'founder', pin);
   await writeFile(join(evidence, 'first-school-database.json'), JSON.stringify({schoolCreated: true, termCreated: true,
-    ownerLoginProof: true, setupCompleted: true, firstClassId: room.id}, null, 2));
+    ownerLoginProof: true, setupCompleted: true, schoolId: school.id, termId: term.id, firstClassId: room.id, gateways: checks}, null, 2));
+}
+
+async function firstSchoolGateways(origin) {
+  const counts = {sessions: {same: 0, api: 0}, expired: 0, initialized: 0, completed: 0, contextReads: 0};
+  let splitApi;
+  let delayNextSplit = false;
+  let apiResponse = 'live';
+  let sameDeclaration = 'same';
+  const gates = [];
+  async function open(kind) {
+    const server = createServer((req, res) => {
+      if (kind === 'api' && req.url === '/__oobe/delay-next-declaration') {
+        delayNextSplit = true;
+        res.writeHead(204).end();
+        return;
+      }
+      if (kind === 'api' && req.url?.startsWith('/__oobe/api-response/')) {
+        apiResponse = req.url.slice('/__oobe/api-response/'.length);
+        res.writeHead(204).end();
+        return;
+      }
+      if (kind === 'api' && req.url?.startsWith('/__oobe/same-declaration/')) {
+        sameDeclaration = req.url.slice('/__oobe/same-declaration/'.length);
+        res.writeHead(204).end();
+        return;
+      }
+      if (kind === 'api' && req.url === setupPath + '/status' && apiResponse !== 'live') {
+        if (apiResponse === 'closed') res.destroy();
+        else res.writeHead(apiResponse === 'missing' ? 404 : 200, {'Content-Type': 'application/json'})
+          .end(JSON.stringify({success: true, data: {state: 'UNRECOGNIZED'}}));
+        return;
+      }
+      if (req.url === '/.well-known/npclassworks-deployment.json' && kind !== 'api') {
+        if (kind === 'same' && sameDeclaration === 'missing') {
+          res.writeHead(404).end();
+          return;
+        }
+        const send = () => res.writeHead(200, {'Content-Type': 'application/json', 'Cache-Control': 'no-store'})
+          .end(JSON.stringify({schemaVersion: 1, apiBaseUrl: kind === 'web' || sameDeclaration === 'changed' ? splitApi : null}));
+        if (kind === 'web' && delayNextSplit) {
+          delayNextSplit = false;
+          setTimeout(send, 1100);
+        } else send();
+        return;
+      }
+      if (kind === 'web' || !/^\/(api|accounts|socket\.io)(\/|$)/.test(req.url ?? '')) {
+        res.writeHead(200, {'Content-Type': 'text/html'}).end('<!doctype html><title>Isolated frontend gateway</title>');
+        return;
+      }
+      if (req.method === 'POST' && req.url === setupPath + '/session') counts.sessions[kind]++;
+      if (req.method === 'POST' && req.url === setupPath + '/initialize' && !counts.expired) {
+        counts.expired++;
+        req.resume();
+        res.writeHead(401, {'Content-Type': 'application/json'})
+          .end(JSON.stringify({success: false, code: 'SETUP_TOKEN_EXPIRED', message: '初始化会话已过期'}));
+        return;
+      }
+      const upstream = request(origin + req.url, {method: req.method, headers: req.headers}, reply => {
+        if (req.url === setupPath + '/initialize' && reply.statusCode === 201 ||
+            req.url === setupPath + '/desktop-complete' && reply.statusCode === 200) {
+          if (req.url.endsWith('/initialize')) counts.initialized++;
+          else counts.completed++;
+          reply.resume();
+          res.destroy();
+          return;
+        }
+        if (req.url === setupPath + '/context' && reply.statusCode === 200) counts.contextReads++;
+        res.writeHead(reply.statusCode, reply.headers);
+        reply.pipe(res);
+      });
+      upstream.on('error', () => res.destroy());
+      req.pipe(upstream);
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    gates.push(server);
+    return 'http://127.0.0.1:' + server.address().port;
+  }
+  splitApi = await open('api');
+  const same = await open('same'), web = await open('web');
+  return {api: splitApi, same, web, counts, close: () => Promise.all(gates.map(server => {
+    server.closeAllConnections();
+    return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }))};
 }
 
 async function startTarget({fixtureRunner, kv, binaries}) {

@@ -1,0 +1,51 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolConnectionSetupView">
+  <Grid RowDefinitions="*,Auto" Background="{DynamicResource CanvasBrush}">
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel Margin="20,14" Spacing="12" MaxWidth="770">
+        <TextBlock Text="首次配置学校服务器" Classes="heading" FontSize="25"/>
+        <Border Classes="card" Padding="14">
+          <StackPanel Spacing="9">
+            <local:FormField x:Name="SetupWebsiteField" Header="师生网页地址">
+              <TextBox x:Name="SetupWebsiteAddress" PlaceholderText="https://school.example.com"
+                       AutomationProperties.Name="师生网页地址" TextChanged="AddressChanged"/>
+            </local:FormField>
+            <WrapPanel ItemSpacing="20" LineSpacing="4">
+              <CheckBox x:Name="SetupSeparateApi" Content="使用独立 KV 地址" IsCheckedChanged="AddressChanged"/>
+              <CheckBox x:Name="SetupApiOnly" Content="只有 KV 地址，网页稍后核对" IsCheckedChanged="AddressChanged"/>
+            </WrapPanel>
+            <local:FormField x:Name="SetupApiField" Header="KV 地址" IsVisible="False">
+              <TextBox x:Name="SetupApiAddress" PlaceholderText="https://api.example.com"
+                       AutomationProperties.Name="KV 地址" TextChanged="AddressChanged"/>
+            </local:FormField>
+          </StackPanel>
+        </Border>
+        <StackPanel Spacing="8">
+          <TextBlock x:Name="SetupConnectionStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+          <StackPanel x:Name="SetupConnectionDetails" Spacing="4" IsVisible="False">
+            <TextBlock x:Name="SetupCheckedOrigin" Classes="label" TextWrapping="Wrap"/>
+            <TextBlock x:Name="SetupDeclarationStatus" Classes="muted" TextWrapping="Wrap"/>
+            <CheckBox x:Name="SetupLegacyAcknowledged" IsCheckedChanged="AcknowledgementChanged" IsVisible="False">
+              <TextBlock Text="我已另外核对网页与此 KV 的对应关系" TextWrapping="Wrap"/>
+            </CheckBox>
+          </StackPanel>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0" Padding="16,9">
+      <WrapPanel ItemSpacing="8" LineSpacing="5">
+        <Button x:Name="SetupConnectionBack" Content="返回登录" Classes="action" Click="ReturnClicked"/>
+        <Button x:Name="SetupCheckConnection" Content="检查连接" Classes="action accent" Click="CheckClicked"/>
+        <Button x:Name="InitializeNewSchool" Content="新建学校" Classes="action accent" IsVisible="False" Click="NewClicked"/>
+        <Button x:Name="RestoreSchoolTransfer" Content="从迁移包恢复" Classes="action" IsVisible="False" Click="ImportClicked"/>
+        <Button x:Name="ResumeSchoolSetup" Content="继续初始化" Classes="action accent" IsVisible="False" Click="ResumeClicked"/>
+        <Button x:Name="SetupLoginWithTarget" Content="使用此地址登录" Classes="action accent" IsVisible="False" Click="LoginClicked"/>
+        <Button x:Name="SetupOpenBrowserCheck" Classes="action" Content="在浏览器检查网页连接"
+                Click="OpenBrowserCheck" IsVisible="False"/>
+        <Button x:Name="SetupOpenLegacy" Classes="action" Content="打开网页版初始化"
+                Click="OpenLegacy" IsVisible="False"/>
+      </WrapPanel>
+    </Border>
+  </Grid>
+</UserControl>

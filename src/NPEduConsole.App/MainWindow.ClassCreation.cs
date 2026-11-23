@@ -22,14 +22,14 @@ public sealed partial class MainWindow
         }
     }
 
-    private async Task OpenClassCreationAsync(string? initialGradeTermId = null)
+    private async Task OpenClassCreationAsync(string? initialGradeTermId = null, string? requiredActiveTermId = null)
     {
         if (_classCreationWindow is not null || _openingCreatedClass is not null || _classRosterView is not null ||
             _client is not { } client || _school is not { } school) return;
         SetClassMaintenanceNotice(null);
         var window = new ClassCreationWindow(client, school, _unconfirmedClassCreations.GetValueOrDefault(school.Id),
             _unconfirmedGradeCreations.GetValueOrDefault(school.Id), _unconfirmedClassBatches.GetValueOrDefault(school.Id),
-            initialGradeTermId);
+            initialGradeTermId, requiredActiveTermId: requiredActiveTermId);
         _classCreationWindow = window;
         window.PendingChanged += pending =>
         {

@@ -51,7 +51,8 @@ public sealed partial class MainWindow
         bool scoped = _school is not null && _client is not null;
         bool academicPage = _academicPages.Count > 0;
         SchoolSelectionNotice.IsVisible = !scoped;
-        SchoolOverviewWorkspace.IsVisible = scoped && !academicPage && _showSchoolOverview;
+        SchoolOverviewPanel.IsVisible = scoped && !academicPage && _showSchoolOverview;
+        UpdateFirstClassSetup();
         SchoolAuditWorkspace.IsVisible = scoped && !academicPage && _showSchoolAudit;
         ClassWorkspaceLayout.IsVisible = scoped && !academicPage && _page is ShellPage.Classes or ShellPage.Screen;
         DeviceDirectory.IsVisible = scoped && !academicPage && _page == ShellPage.Devices;
@@ -142,6 +143,9 @@ public sealed partial class MainWindow
     private void OverviewSnapshotChanged(SchoolOverview? snapshot, string status)
     {
         _overviewTerm = snapshot?.School.Id == _school?.Id ? snapshot?.Term : null;
+        if (snapshot?.School.Id == _firstClassSetup?.SchoolId && snapshot is { Counts.AdministrativeClasses: > 0 })
+            _firstClassSetup = null;
+        UpdateFirstClassSetup();
         if (_page == ShellPage.Classes && !_showClassStudy) UpdateClassContext();
         ShellTermName.Text = snapshot?.Term?.Name ?? (snapshot is not null ? "暂无启用学期" : null);
         DeviceDirectory.SetSnapshot(snapshot, status);

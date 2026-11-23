@@ -26,6 +26,7 @@ public sealed partial class ClassCreationWindow : Window
     private bool _closed;
     private bool _allowClose;
     private string? _initialGradeTermId;
+    private readonly string? _requiredActiveTermId;
     private ClassCreationContext? _specifiedTerm;
     private bool _canRetrySpecifiedClass;
 
@@ -73,11 +74,12 @@ public sealed partial class ClassCreationWindow : Window
 
     internal ClassCreationWindow(ConsoleClient client, School school, ClassCreationSubmission? pending, GradeCreationSubmission? pendingGrade,
         ClassBatchSubmission? pendingBatch, string? initialGradeTermId = null, ClassCreationContext? specifiedTerm = null,
-        string? preferredGradeId = null) : this()
+        string? preferredGradeId = null, string? requiredActiveTermId = null) : this()
     {
         _client = client;
         _school = school;
         _specifiedTerm = specifiedTerm;
+        _requiredActiveTermId = requiredActiveTermId;
         _pending = pending;
         CreationSchool.Text = school.Name;
         if (pendingBatch is not null)
@@ -156,14 +158,20 @@ public sealed partial class ClassCreationWindow : Window
         if (_initialGradeTermId is { } targetTerm && _request is null && _context is { } current && !_closed)
         {
             _initialGradeTermId = null;
-            if (current.TermId == targetTerm) OpenGradeCreation();
+            if (current.TermId == targetTerm && (_requiredActiveTermId is null || current.Grades.Count == 0))
+                OpenGradeCreation();
         }
     }
 
-    private async Task<ClassCreationContext> ReadCreationContextAsync(ConsoleClient client, string schoolId, CancellationToken ct) =>
-        _specifiedTerm?.TermId is { } termId
+    private async Task<ClassCreationContext> ReadCreationContextAsync(ConsoleClient client, string schoolId, CancellationToken ct)
+    {
+        var context = _specifiedTerm?.TermId is { } termId
             ? (await client.GetTermClassStructureAsync(schoolId, termId, ct)).Creation
             : await client.GetClassCreationContextAsync(schoolId, ct);
+        if (_requiredActiveTermId is { } required && context.TermId != required)
+            throw new ConsoleApiException(409, "已切换启用学期。请关闭此页，从当前学期的班级入口办理。");
+        return context;
+    }
 
     private void ShowContext(ClassCreationContext context, string? gradeId)
     {

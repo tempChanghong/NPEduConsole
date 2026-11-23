@@ -91,10 +91,9 @@ public sealed partial class MainWindow : Window
         UpdateShellPage();
         Activated += (_, _) => RefreshAfterWebOverviewTask();
         LoginView.AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
-        ServerAddress.TextChanged += (_, _) => _ = RefreshSetupEntryAsync();
+        ConnectSchoolSetup();
         RestoreLoginServer();
         Opened += (_, _) => (KnownServerRow.IsVisible ? SchoolCode : ServerAddress).Focus();
-        _ = RefreshSetupEntryAsync();
         Closing += OnClosing;
     }
 
@@ -133,7 +132,7 @@ public sealed partial class MainWindow : Window
 
     private async Task LoginAsync()
     {
-        if (_request is not null || _signingOut || _client is not null || _desktopLogin is not null || _schoolSetupWindow is not null) return;
+        if (_request is not null || _signingOut || _client is not null || _desktopLogin is not null || !LoginView.IsVisible) return;
         string address = (ServerAddress.Text ?? "").Trim();
         string schoolCode = (SchoolCode.Text ?? "").Trim();
         string username = (Username.Text ?? "").Trim();
@@ -563,6 +562,7 @@ public sealed partial class MainWindow : Window
     private async void OnClosing(object? sender, WindowClosingEventArgs args)
     {
         if (_allowClose) return;
+        if (!CanExitSchoolSetup()) { args.Cancel = true; return; }
         if (!CanLeaveAcademicWorkspace()) { args.Cancel = true; return; }
         if (_desktopLogin is not null || _closingBrowserLogin)
         {
@@ -575,6 +575,8 @@ public sealed partial class MainWindow : Window
             return;
         }
         StopBrowserDiscovery();
+        SchoolConnectionSetup.ClearCheck();
+        CloseSchoolSetupView();
         CancelRequest();
         if (_client is null && !_signingOut) return;
         args.Cancel = true;
@@ -664,6 +666,7 @@ public sealed partial class MainWindow : Window
         CancelMicrophoneChanges();
         CancelSoftwareSession();
         CloseTransferForScopeChange();
+        _firstClassSetup = null;
         _school = null;
         _directoryTermId = null;
         ClearClassDirectory();
@@ -679,7 +682,6 @@ public sealed partial class MainWindow : Window
         LoginView.IsVisible = true;
         Password.Clear();
         _ = DiscoverBrowserLoginAsync();
-        _ = RefreshSetupEntryAsync();
     }
 
     private void SetClassroom(Classroom? room)
@@ -804,6 +806,7 @@ public sealed partial class MainWindow : Window
         LoginButton.IsEnabled = ServerAddress.IsEnabled = SchoolCode.IsEnabled = Username.IsEnabled = Password.IsEnabled = !busy;
         BrowserLogin.IsEnabled = !busy || _desktopLogin is not null;
         ChangeLoginServer.IsEnabled = OpenServerStatusButton.IsEnabled = !busy;
+        OpenFirstSchoolSetup.IsEnabled = !busy;
         LoginProgress.IsVisible = busy;
         LoginButton.Content = busy ? (_signingOut ? "正在退出…" : "正在登录…") : "登录";
     }

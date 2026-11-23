@@ -95,8 +95,12 @@
             <Image Source="/Assets/Branding/npeduconsole-64.png" Width="25" Height="25" />
             <TextBlock Text="NPEduConsole" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
           </StackPanel>
-          <Button x:Name="OpenServerStatusButton" Grid.Column="1" Background="Transparent" VerticalAlignment="Center" WindowDecorationProperties.ElementRole="User"
-                  Content="运维诊断" Click="OpenServerStatusClicked" />
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+            <Button x:Name="OpenFirstSchoolSetup" Background="Transparent" WindowDecorationProperties.ElementRole="User"
+                    Content="首次配置学校服务器" Click="OpenFirstSchoolSetupClicked"/>
+            <Button x:Name="OpenServerStatusButton" Background="Transparent" WindowDecorationProperties.ElementRole="User"
+                    Content="运维诊断" Click="OpenServerStatusClicked"/>
+          </StackPanel>
         </Grid>
       </Border>
       <ScrollViewer x:Name="LoginView" Grid.Row="1" Background="{DynamicResource LoginCanvasBrush}"
@@ -133,16 +137,11 @@
             <Button x:Name="LoginButton" Classes="action accent" MinHeight="42" Content="登录" Click="LoginClicked"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,4,0,0" />
             <local:DesktopOAuthLoginView x:Name="BrowserLogin" IsVisible="False" />
-            <StackPanel x:Name="LoginSetupOptions" IsVisible="False" Spacing="7">
-              <TextBlock x:Name="LoginSetupNotice" Classes="muted" TextWrapping="Wrap"/>
-              <WrapPanel ItemSpacing="7" LineSpacing="5">
-                <Button x:Name="InitializeNewSchool" Classes="action" Content="新建学校" Click="InitializeSchoolClicked"/>
-                <Button x:Name="RestoreSchoolTransfer" Classes="action" Content="从迁移包恢复" Click="RestoreTransferClicked"/>
-                <Button x:Name="ResumeSchoolSetup" Classes="action" Content="继续初始化" Click="ResumeSetupClicked"/>
-              </WrapPanel>
-            </StackPanel>
         </StackPanel>
       </ScrollViewer>
+      <local:SchoolConnectionSetupView x:Name="SchoolConnectionSetup" Grid.Row="1" IsVisible="False"/>
+      <ContentControl x:Name="SchoolSetupHost" Grid.Row="1" IsVisible="False"
+                      HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
 
     </Grid>
     <Grid x:Name="Workspace" ColumnDefinitions="184,*" IsVisible="False" SizeChanged="ShellSizeChanged">
@@ -612,7 +611,16 @@
             </Grid>
           </Grid>
           <local:SchoolAuditView x:Name="SchoolAuditWorkspace" IsVisible="False" />
-          <local:SchoolOverviewView x:Name="SchoolOverviewWorkspace" IsVisible="False" />
+          <Grid x:Name="SchoolOverviewPanel" RowDefinitions="Auto,*" IsVisible="False">
+            <Border x:Name="FirstSchoolClassCard" Classes="card" Padding="10" Margin="0,0,0,8" IsVisible="False">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBlock x:Name="FirstSchoolClassScope" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                <Button Grid.Column="1" x:Name="OpenFirstSchoolClass" Classes="action accent" Content="创建首班"
+                        Click="OpenFirstSchoolClassClicked"/>
+              </Grid>
+            </Border>
+            <local:SchoolOverviewView x:Name="SchoolOverviewWorkspace" Grid.Row="1" />
+          </Grid>
           <local:SchoolDeviceDirectoryView x:Name="DeviceDirectory" IsVisible="False" />
           <Grid x:Name="AcademicWorkspace" IsVisible="False" />
         </Grid>

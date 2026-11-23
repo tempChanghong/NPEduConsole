@@ -7,29 +7,30 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class SchoolSetupWindow : Window
+public sealed partial class SchoolSetupView : UserControl
 {
     internal enum Work { NewSchool, Import, Resume }
     private enum Step { Key, School, Package, Owner }
-    internal sealed record SignedIn(ConsoleClient Client, IReadOnlyList<School> Schools, string AccountName);
+    internal sealed record SignedIn(ConsoleClient Client, IReadOnlyList<School> Schools, string AccountName, string SchoolId, SetupTerm? FirstTerm);
     private sealed record TeacherMode(string Id, string Label) { public override string ToString() => Label; }
 
     private readonly CancellationTokenSource _lifetime = new();
     private ConsoleClient _client = null!;
     private SchoolSetupSession? _setup;
     private TransferSchool? _school;
+    private SetupTerm? _firstTerm;
     private SchoolTransferPreview? _preview;
     private string? _path;
     private Guid? _pending;
     private Work _work;
     private Step _step;
-    private bool _busy, _writing, _closed;
+    private bool _busy, _writing, _closed, _initializationUnconfirmed;
 
-    public SchoolSetupWindow() => InitializeComponent();
+    public SchoolSetupView() => InitializeComponent();
 
-    internal SchoolSetupWindow(string origin, Work work) : this()
+    internal SchoolSetupView(Uri origin, Work work) : this()
     {
-        _client = new ConsoleClient(origin);
+        _client = new ConsoleClient(origin.AbsoluteUri);
         _work = work;
         SetupServer.Text = $"目标服务器  {_client.ServerUri.AbsoluteUri.TrimEnd('/')}";
         SetupYear.Text = DateTime.Today.Year.ToString();
@@ -40,31 +41,45 @@ public sealed partial class SchoolSetupWindow : Window
             new("LOCAL_PIN", "个人 PIN"), new("SHARED_PASSWORD", "学校通用口令"), new("OAUTH_EMAIL", "OAuth 邮箱"),
         };
         SetupTeacherMode.SelectedIndex = 0;
-        Opened += (_, _) => { BatchWorkspaceWindow.FitSchoolWindow(this); SetupKey.Focus(); };
-        Closing += (_, args) => args.Cancel = _writing && !_closed;
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _lifetime.Cancel();
-            ClearSecrets();
-            if (!_busy)
-            {
-                if (Result is null) _client.Dispose();
-                _lifetime.Dispose();
-            }
-        };
         Render();
     }
 
-    internal SignedIn? Result { get; private set; }
+    private SignedIn? Result { get; set; }
     internal Func<Task<string?>>? ChoosePackagePath { get; init; }
+    internal Func<CancellationToken, Task>? VerifyDeployment { get; init; }
+    internal event Action? ReturnRequested;
+    internal event Action<SignedIn>? Completed;
+    internal bool CanExit => !_writing;
+
+    internal void FocusKey() => Dispatcher.UIThread.Post(() =>
+    {
+        if (!_closed && SetupKey.IsEffectivelyVisible) SetupKey.Focus();
+    }, DispatcherPriority.Loaded);
+
+    internal void Deactivate()
+    {
+        if (_closed) return;
+        _closed = true;
+        _lifetime.Cancel();
+        ClearSecrets();
+        if (!_busy) DisposeSetup();
+    }
+
+    private void DisposeSetup()
+    {
+        if (Result is null) _client.Dispose();
+        _lifetime.Dispose();
+    }
 
     private async void Continue(object? sender, RoutedEventArgs e) => await RunAsync(async () =>
     {
         switch (_step)
         {
             case Step.Key: await AuthenticateSetupAsync(); break;
-            case Step.School: await InitializeAsync(); break;
+            case Step.School:
+                if (_initializationUnconfirmed) await CheckInitializationAsync();
+                else await InitializeAsync();
+                break;
             case Step.Package: await PackageStepAsync(); break;
             case Step.Owner: await LocalOwnerAsync(); break;
         }
@@ -75,16 +90,25 @@ public sealed partial class SchoolSetupWindow : Window
         var key = SetupKey.Text ?? "";
         if (key.Length == 0) { SetupNotice.Text = "请填写服务器初始化密钥。"; return; }
         SetupKey.Clear();
-        _setup = await _client.BeginSchoolSetupAsync(key, _lifetime.Token);
+        if (VerifyDeployment is { } verify) await verify(_lifetime.Token);
         var status = await _client.GetSetupStatusAsync(_lifetime.Token);
-        if (!status.SupportsDesktopSetup) throw new ConsoleApiException(426, "请更新 KV 后使用桌面初始化。");
-        if (status.State == "COMPLETED") throw new ConsoleApiException(409, "本实例已完成初始化，请返回登录。");
+        if (status.State == "COMPLETED") throw new ConsoleApiException(409, "本实例已完成初始化，请返回连接检查后登录。");
+        if (!status.SupportsDesktopSetup || !status.CanStart || status.State is not ("NEW" or "CONFIGURING"))
+            throw new ConsoleApiException(409, "目标当前不能进行桌面初始化，请返回连接检查。");
+        _lifetime.Token.ThrowIfCancellationRequested();
+        _setup = await _client.BeginSchoolSetupAsync(key, _lifetime.Token);
+        if (_closed) return;
         if (status.State == "CONFIGURING")
         {
             await ResumeAsync();
             return;
         }
         _step = _work == Work.Import ? Step.Package : Step.School;
+        if (_pending is not null)
+        {
+            await CheckReceiptAsync();
+            return;
+        }
         SetupNotice.Text = _work == Work.Import
             ? "确认目标为当前这台空白服务器。生产换服时，请在源服务器停止业务写入后使用最终导出的包。"
             : "先建立学校、所有者和首学期。进入学校后可继续建年级、首班、教师和大屏。";
@@ -107,6 +131,8 @@ public sealed partial class SchoolSetupWindow : Window
             var receipt = await _client.GetSchoolTransferReceiptAsync(_setup!, previous, _lifetime.Token);
             ShowTransferReceipt(receipt);
         }
+        else _firstTerm = context.Term;
+        _pending = null;
         await ShowOwnerAsync(context.School, context.Owner.LocalUsername);
         SetupNotice.Text = "服务器确认学校数据已写入。请用所有者本人身份真实登录，完成初始化。";
     }
@@ -133,7 +159,7 @@ public sealed partial class SchoolSetupWindow : Window
         if (start > end) { SetupNotice.Text = "学期结束日期须在开始日期当天或之后。"; return; }
         SetupPin.Clear();
         SetupShared.Clear();
-        _writing = true;
+        SetWriting(true);
         SetupCreated created;
         try
         {
@@ -142,14 +168,32 @@ public sealed partial class SchoolSetupWindow : Window
         }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500 || error.Code == "SETUP_SCHOOL_EXISTS")
         {
-            var status = await _client.GetSetupStatusAsync(_lifetime.Token);
-            if (status.State == "CONFIGURING") await ResumeAsync();
-            else SetupNotice.Text = "尚未确认写入，请重新核对目标服务器后继续。";
+            _initializationUnconfirmed = true;
+            await CheckInitializationAsync();
             return;
         }
-        finally { _writing = false; }
+        finally { SetWriting(false); }
+        _firstTerm = created.Term;
         await ShowOwnerAsync(created.School, username);
         SetupNotice.Text = "学校数据已写入。请验证所有者登录，随后进入学校总览。";
+    }
+
+    private async Task CheckInitializationAsync()
+    {
+        var status = await _client.GetSetupStatusAsync(_lifetime.Token);
+        if (status.State == "CONFIGURING")
+        {
+            await ResumeAsync();
+            _initializationUnconfirmed = false;
+        }
+        else if (status.State == "NEW")
+        {
+            _initializationUnconfirmed = false;
+            SetupNotice.Text = "服务器仍为空白。若要再次建立学校，请重新填写 PIN 和本次使用的口令。";
+        }
+        else if (status.State == "COMPLETED")
+            SetupNotice.Text = "服务器已完成初始化。请返回连接检查，核对后登录。";
+        else SetupNotice.Text = "建校结果仍待核对。请再次读取服务器现状。";
     }
 
     private async void ChoosePackage(object? sender, RoutedEventArgs e) => await RunAsync(async () =>
@@ -166,7 +210,8 @@ public sealed partial class SchoolSetupWindow : Window
 
     private async Task<string?> PickPackageAsync()
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new()
+        if (TopLevel.GetTopLevel(this) is not { } host) return null;
+        var files = await host.StorageProvider.OpenFilePickerAsync(new()
         {
             Title = "选择加密学校迁移包", AllowMultiple = false,
             FileTypeFilter = [new FilePickerFileType("学校迁移包") { Patterns = ["*.npcw-transfer"] }],
@@ -194,7 +239,7 @@ public sealed partial class SchoolSetupWindow : Window
         }
         var preview = _preview;
         _pending = preview.Manifest.MigrationId;
-        _writing = true;
+        SetWriting(true);
         SetupNotice.Text = "正在写入此目标实例…";
         try
         {
@@ -211,7 +256,7 @@ public sealed partial class SchoolSetupWindow : Window
             ClearPreview();
             throw;
         }
-        finally { _writing = false; }
+        finally { SetWriting(false); }
     }
 
     private async void ReadReceipt(object? sender, RoutedEventArgs e) => await RunAsync(CheckReceiptAsync);
@@ -227,9 +272,11 @@ public sealed partial class SchoolSetupWindow : Window
         catch (ConsoleApiException error) when (error.Code == "MIGRATION_RECEIPT_NOT_FOUND")
         {
             _pending = null;
-            SetupNotice.Text = "暂未找到这份包的回执。可以再次确认同一份包，服务器会核对包文件和目标，已写入时返回原结果。";
+            SetupNotice.Text = _preview is null
+                ? "暂未找到这份包的回执。请重新输入迁移包口令并预检。"
+                : "暂未找到这份包的回执。可以再次确认同一份包，服务器会核对包文件和目标，已写入时返回原结果。";
         }
-        catch (ConsoleApiException error)
+        catch (ConsoleApiException error) when (!SetupAuthorizationExpired(error))
         {
             SetupNotice.Text = $"迁入尚待确认。请继续只读核对本次回执。{error.Message}";
         }
@@ -239,10 +286,11 @@ public sealed partial class SchoolSetupWindow : Window
     {
         if (!receipt.Imported || receipt.Manifest.MigrationId != expected || receipt.School.Id != receipt.Manifest.School.Id)
             throw new ConsoleApiException(502, "服务器结果与原迁移编号不一致。");
+        var context = await _client.GetSetupContextAsync(_setup!, _lifetime.Token);
+        if (context.School.Id != receipt.School.Id || context.MigrationId != expected)
+            throw new ConsoleApiException(502, "服务器初始化学校或迁移编号已变化。");
         _pending = null;
         ShowTransferReceipt(receipt);
-        var context = await _client.GetSetupContextAsync(_setup!, _lifetime.Token);
-        if (context.School.Id != receipt.School.Id) throw new ConsoleApiException(502, "服务器初始化学校已变化。");
         await ShowOwnerAsync(receipt.School, context.Owner.LocalUsername);
         SetupNotice.Text = "KV 已确认这份迁移包写入。核对逐屏接入安排后，用原所有者身份完成登录。";
     }
@@ -318,16 +366,20 @@ public sealed partial class SchoolSetupWindow : Window
             if (_school is null || !schools.Any(school => school.Id == _school.Id && school.ManagementRole == "OWNER"))
                 throw new ConsoleApiException(403, "该账号当前不是目标学校的所有者。");
             SetupNotice.Text = "所有者登录已核验，正在确认初始化完成…";
-            _writing = true;
-            await _client.FinishSchoolSetupAsync(_setup!, _school.Id, _lifetime.Token);
+            SetWriting(true);
+            try { await _client.FinishSchoolSetupAsync(_setup!, _school.Id, _lifetime.Token); }
+            catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
+            {
+                if ((await _client.GetSetupStatusAsync(_lifetime.Token)).State != "COMPLETED") throw;
+            }
             if (_closed) return;
-            Result = new(_client, schools, username);
-            _writing = false;
-            Close();
+            Result = new(_client, schools, username, _school.Id, _firstTerm);
+            SetWriting(false);
+            Completed?.Invoke(Result);
         }
         finally
         {
-            _writing = false;
+            SetWriting(false);
             if (Result is null) try { await _client.LogoutAsync(CancellationToken.None); } catch (ConsoleApiException) { }
         }
     }
@@ -363,18 +415,28 @@ public sealed partial class SchoolSetupWindow : Window
         SetupTransferPreview.IsVisible = _preview is not null;
         SetupContent.IsEnabled = !_busy;
         SetupClose.IsEnabled = !_writing;
-        SetupReadReceipt.IsVisible = _pending is not null;
+        SetupReadReceipt.IsVisible = _step == Step.Package && _pending is not null;
         SetupReadReceipt.IsEnabled = !_busy;
-        SetupPrimary.IsEnabled = !_busy && _pending is null;
+        SetupPrimary.IsEnabled = !_busy && (_pending is null || _step == Step.Key);
         SetupPrimary.Content = _step switch
         {
-            Step.Key => "继续", Step.School => "建立学校", Step.Package => _preview is null ? "检查迁移包" : "确认迁入",
+            Step.Key => "验证初始化密钥", Step.School => _initializationUnconfirmed ? "核对建校结果" : "建立学校",
+            Step.Package => _preview is null ? "检查迁移包" : "确认迁入",
             _ => "验证所有者并进入学校",
         };
     }
     private void ScrollToTop() => SetupScroll.Offset = new Avalonia.Vector();
-    private void CloseClicked(object? sender, RoutedEventArgs e) => Close();
+    private void CloseClicked(object? sender, RoutedEventArgs e)
+    {
+        if (CanExit) ReturnRequested?.Invoke();
+    }
     private void ClearSecrets() { SetupKey.Clear(); SetupPin.Clear(); SetupShared.Clear(); SetupPackagePassphrase.Clear(); SetupOwnerPin.Clear(); }
+
+    private void SetWriting(bool writing)
+    {
+        _writing = writing;
+        if (!_closed) SetupClose.IsEnabled = !writing;
+    }
     private async Task RunAsync(Func<Task> work)
     {
         if (_busy || _closed) return;
@@ -382,6 +444,16 @@ public sealed partial class SchoolSetupWindow : Window
         Render();
         try { await work(); }
         catch (OperationCanceledException) when (_closed) { }
+        catch (ConsoleApiException error) when (SetupAuthorizationExpired(error))
+        {
+            if (_closed) return;
+            _setup = null;
+            _step = Step.Key;
+            ClearSecrets();
+            ClearPreview();
+            SetupNotice.Text = "初始化授权已过期或失效。请重新验证密钥，再读取此服务器的进度。";
+            FocusKey();
+        }
         catch (Exception error) when (error is ConsoleApiException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
             if (!_closed) SetupNotice.Text = error is ConsoleApiException ? error.Message : "无法读取文件或打开浏览器，请核对本机访问权限。";
@@ -389,12 +461,11 @@ public sealed partial class SchoolSetupWindow : Window
         finally
         {
             _busy = false;
-            if (_closed)
-            {
-                if (Result is null) _client.Dispose();
-                _lifetime.Dispose();
-            }
+            if (_closed) DisposeSetup();
             else Render();
         }
     }
+
+    private static bool SetupAuthorizationExpired(ConsoleApiException error) =>
+        error.Code is "SETUP_TOKEN_EXPIRED" or "SETUP_TOKEN_INVALID";
 }

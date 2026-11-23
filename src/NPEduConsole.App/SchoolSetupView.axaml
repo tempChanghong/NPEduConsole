@@ -1,7 +1,5 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolSetupWindow"
-        Width="1160" Height="780" MinWidth="720" MinHeight="454" Title="服务器初始化"
-        WindowStartupLocation="CenterOwner" Background="{DynamicResource CanvasBrush}">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolSetupView">
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="17,12">
       <StackPanel Spacing="3">
@@ -87,11 +85,11 @@
       <StackPanel Spacing="7">
         <TextBlock x:Name="SetupNotice" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
         <WrapPanel ItemSpacing="7" LineSpacing="5">
-          <Button x:Name="SetupClose" Content="关闭" Classes="action" Click="CloseClicked"/>
+          <Button x:Name="SetupClose" Content="返回连接检查" Classes="action" Click="CloseClicked"/>
           <Button x:Name="SetupReadReceipt" Content="核对迁入回执" Classes="action" Click="ReadReceipt" IsVisible="False"/>
           <Button x:Name="SetupPrimary" Content="继续" Classes="action accent" Click="Continue"/>
         </WrapPanel>
       </StackPanel>
     </Border>
   </Grid>
-</Window>
+</UserControl>
