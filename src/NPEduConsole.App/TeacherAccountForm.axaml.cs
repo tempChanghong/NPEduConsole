@@ -184,9 +184,17 @@ public sealed partial class TeacherAccountForm : Window
             TeacherAccountReceipt result;
             try
             {
-                result = _resetId is null
-                    ? await _client.CreateTeacherAccountAsync(intent.Baseline, intent.Username, intent.Name, pin, intent.RequestId, _lifetime.Token, handoff)
-                    : await _client.UpdateTeacherAccountAsync(intent.Baseline, _resetId, Action, pin, intent.RequestId, _lifetime.Token, handoff);
+                try
+                {
+                    result = _resetId is null
+                        ? await _client.CreateTeacherAccountAsync(intent.Baseline, intent.Username, intent.Name, pin, intent.RequestId, _lifetime.Token, handoff)
+                        : await _client.UpdateTeacherAccountAsync(intent.Baseline, _resetId, Action, pin, intent.RequestId, _lifetime.Token, handoff);
+                }
+                finally
+                {
+                    _writing = false;
+                    if (!_closed) Render();
+                }
                 if (!_closed && handoff && pin is not null && result.PinApplied && directory.SchoolCode is {Length: > 0})
                     _delivery = new(result.Account.Id, result.Account.Username, pin, result.Account.Version);
             }
@@ -313,7 +321,7 @@ public sealed partial class TeacherAccountForm : Window
         catch (ConsoleApiException error)
         {
             if (_closed) return;
-            if (error.StatusCode is 401 or 403) { _directory = null; _delivery = null; }
+            if (error.StatusCode is 401 or 403) { _directory = null; _delivery = null; TeacherFormPin.Clear(); }
             if (error.StatusCode == 403) _accessLost = true;
             if (error.Code == "SNAPSHOT_CHANGED") _directory = null;
             Status(Pending is null ? error.Message : $"操作回执待核对。{error.Message}", error: true);

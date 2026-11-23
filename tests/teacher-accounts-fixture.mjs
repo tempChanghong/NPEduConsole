@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import {createServer, request} from 'node:http';
 import {mkdir, writeFile} from 'node:fs/promises';
-import {randomInt} from 'node:crypto';
+import {randomInt, randomUUID} from 'node:crypto';
 import {join} from 'node:path';
 
 export async function verifyTeacherAccounts({prisma, origin, fixture, directory, evidence, bcrypt, localProviderId, runDesktop, runDatabase}) {
   await mkdir(evidence, {recursive: true});
   const {school, other, term, pin, managerId} = fixture;
   await prisma.schoolMember.create({data: {schoolId: other.id, accountId: managerId, role: 'ADMIN'}});
+  const reviewer = await prisma.account.create({data: {provider: 'school-local', providerId: localProviderId(school.code, 'receipt-reviewer'),
+    localUsername: 'receipt-reviewer', name: '另一位管理员', localPasswordHash: await bcrypt.hash(pin, 10), providerData: {schoolCode: school.code}}});
+  await prisma.schoolMember.create({data: {schoolId: school.id, accountId: reviewer.id, role: 'ADMIN'}});
   const grade = await prisma.grade.findFirstOrThrow({where: {termId: term.id}});
   const rooms = await Promise.all([8, 9].map(n => prisma.workspace.create({data: {
     termId: term.id, gradeId: grade.id, code: 'TACC-' + n, name: '高二（' + n + '）班', type: 'ADMIN_CLASS'
@@ -23,11 +26,14 @@ export async function verifyTeacherAccounts({prisma, origin, fixture, directory,
 
   const teacherPin = String(randomInt(100000, 1000000));
   const resetPin = String((Number(teacherPin) - 100000 + 563025) % 900000 + 100000);
+  const recoveryPin = String((Number(teacherPin) - 100000 + 299567) % 900000 + 100000);
   const teacherUsername = 'wang-b';
   const schoolPath = '/api/v2/admin/schools/' + school.id;
   const directoryPath = schoolPath + '/teacher-accounts';
   const backend = new URL(origin);
   let teacher, signedIn, afterRestore, createWrites = 0, readReceipts = 0, lost = false;
+  let recovery, nextTerm, nextRoom;
+  const recoveries = [];
   const checks = [];
   async function api(path, {method = 'GET', token, body, expected = 200} = {}) {
     const response = await fetch(origin + path, {method, headers: {
@@ -40,6 +46,12 @@ export async function verifyTeacherAccounts({prisma, origin, fixture, directory,
   const login = (username, password, expected) => api('/accounts/local/login', {method: 'POST', expected,
     body: {schoolCode: school.code, username, password}});
   const workspaces = (token, expected) => api('/api/v2/me/workspaces?termId=' + term.id, {token, expected});
+  function holdReceipt(action) {
+    let started;
+    const firstRead = new Promise(resolve => { started = resolve; });
+    recovery = {action, writes: 0, reads: 0, firstRead, started};
+    recoveries.push(recovery);
+  }
   async function teacherRelations(count) {
     const rows = await prisma.teachingAssignment.findMany({where: {accountId: teacher.id}});
     assert.equal(rows.length, count);
@@ -89,6 +101,58 @@ export async function verifyTeacherAccounts({prisma, origin, fixture, directory,
       assert.deepEqual((await workspaces(credentials.access_token)).map(row => row.workspace.id), [eight.id]);
       break;
     }
+    case 'hold-disable':
+      holdReceipt('DISABLE');
+      break;
+    case 'hold-pin-reset':
+      holdReceipt('RESET_PIN');
+      break;
+    case 'receipt-read-started': {
+      await recovery.firstRead;
+      const receipt = await prisma.schoolTeacherAccountReceipt.findFirstOrThrow({where: {
+        schoolId: school.id, requestId: recovery.requestId, actorId: managerId, accountId: teacher.id,
+      }});
+      assert.equal(receipt.action, recovery.action);
+      break;
+    }
+    case 'restore-after-held-disable': {
+      const admin = await login(reviewer.localUsername, pin);
+      const directory = await api(directoryPath, {token: admin.access_token});
+      const account = directory.accounts.find(row => row.id === teacher.id);
+      assert.ok(account.disabled);
+      const restored = await api(directoryPath + '/' + teacher.id, {method: 'PATCH', token: admin.access_token, body: {
+        requestId: randomUUID(), action: 'RESTORE', expectedMode: directory.mode, expectedVersion: account.version,
+      }});
+      assert.equal(restored.account.disabled, false);
+      break;
+    }
+    case 'switch-term-after-held-pin': {
+      nextTerm = await prisma.academicTerm.create({data: {schoolId: school.id, status: 'DRAFT', name: '同名班新学期',
+        academicYear: term.academicYear + 1, semester: term.semester}});
+      const nextGrade = await prisma.grade.create({data: {termId: nextTerm.id, code: grade.code, name: grade.name}});
+      nextRoom = await prisma.workspace.create({data: {termId: nextTerm.id, gradeId: nextGrade.id, name: eight.name, code: eight.code,
+        type: 'ADMIN_CLASS'}});
+      await prisma.workspaceMember.create({data: {workspaceId: nextRoom.id, accountId: teacher.id, role: 'VIEWER'}});
+      await prisma.$transaction([
+        prisma.academicTerm.update({where: {id: term.id}, data: {status: 'ARCHIVED'}}),
+        prisma.academicTerm.update({where: {id: nextTerm.id}, data: {status: 'ACTIVE'}}),
+      ]);
+      break;
+    }
+    case 'check-recovery': {
+      await login(teacherUsername, resetPin, 401);
+      const credentials = await login(teacherUsername, recoveryPin);
+      const original = await workspaces(credentials.access_token);
+      const next = await api('/api/v2/me/workspaces?termId=' + nextTerm.id, {token: credentials.access_token});
+      assert.deepEqual(original.map(row => [row.workspace.id, row.role]), [[eight.id, 'ASSISTANT']]);
+      assert.deepEqual(next.map(row => [row.workspace.id, row.role]), [[nextRoom.id, 'VIEWER']]);
+      assert.equal(await prisma.teachingAssignment.count({where: {accountId: teacher.id}}), 1);
+      assert.equal(await prisma.administrativeClassLeadership.count({where: {accountId: teacher.id}}), 0);
+      assert.equal(await prisma.schoolMember.count({where: {schoolId: other.id, accountId: teacher.id}}), 0);
+      assert.ok(recovery.failedRefresh);
+      for (const operation of recoveries) assert.deepEqual([operation.writes, operation.reads, operation.cancelled], [1, 2, true]);
+      break;
+    }
     case 'audit': {
       const row = await prisma.auditLog.findFirstOrThrow({where: {schoolId: school.id, entityId: teacher.id, action: 'TEACHER_ACCOUNT_CREATED'}});
       assert.ok(row.summary?.startsWith('创建教师账号'));
@@ -109,11 +173,32 @@ export async function verifyTeacherAccounts({prisma, origin, fixture, directory,
     }
     const drop = req.method === 'POST' && req.url === directoryPath && !lost;
     if (req.method === 'POST' && req.url === directoryPath) createWrites++;
-    if (req.method === 'GET' && req.url?.startsWith(directoryPath + '/receipts/')) readReceipts++;
+    const operation = recovery;
+    const dropUpdate = operation && req.method === 'PATCH' && req.url === directoryPath + '/' + teacher.id;
+    if (dropUpdate) operation.writes++;
+    if (req.method === 'GET' && req.url?.startsWith(directoryPath + '/receipts/')) {
+      readReceipts++;
+      if (operation?.dropped) {
+        const id = req.url.split('/').at(-1);
+        operation.reads++;
+        if (operation.reads === 1) {
+          operation.requestId = id;
+          res.once('close', () => { operation.cancelled = !res.writableEnded; });
+          operation.started();
+          return;
+        }
+        assert.equal(id, operation.requestId, 'reopened the exact same receipt');
+      }
+    }
+    if (req.method === 'GET' && req.url === directoryPath && operation?.action === 'RESET_PIN' && operation.reads === 2 && !operation.failedRefresh) {
+      operation.failedRefresh = true;
+      res.writeHead(502).end();
+      return;
+    }
     const upstream = request(new URL(req.url, backend), {method: req.method, headers: {...req.headers, host: backend.host}}, reply => {
-      if (drop && reply.statusCode === 201) {
+      if ((drop && reply.statusCode === 201) || (dropUpdate && reply.statusCode === 200)) {
         reply.resume();
-        reply.on('end', () => { lost = true; res.destroy(); });
+        reply.on('end', () => { if (dropUpdate) operation.dropped = true; else lost = true; res.destroy(); });
         return;
       }
       res.writeHead(reply.statusCode, reply.headers);
@@ -128,13 +213,16 @@ export async function verifyTeacherAccounts({prisma, origin, fixture, directory,
     await writeFile(access, JSON.stringify({
       origin: 'http://127.0.0.1:' + server.address().port, schoolId: school.id, schoolCode: school.code, noTermSchoolId: other.id,
       password: pin, eightId: eight.id, nineId: rooms[1].id, physicsId: physics.id, teacherUsername, teacherPin,
-      resetPin, sameNameId: sameName.id, allowTeacherTestWrites: true
+      resetPin, recoveryPin, sameNameId: sameName.id, allowTeacherTestWrites: true
     }), {mode: 0o600});
     await runDesktop(['--live-teacher-accounts', access, evidence]);
     await check('audit');
-    assert.deepEqual(checks, ['before-assignment', 'sign-in', 'disabled', 'restored', 'pin-reset', 'audit']);
+    assert.deepEqual(checks, ['before-assignment', 'sign-in', 'disabled', 'restored', 'pin-reset', 'hold-disable',
+      'receipt-read-started', 'restore-after-held-disable', 'hold-pin-reset', 'receipt-read-started', 'switch-term-after-held-pin', 'check-recovery', 'audit']);
     await runDatabase();
-    await writeFile(join(evidence, 'server-result.json'), JSON.stringify({checks, createWrites, readReceipts, lost, passed: true}, null, 2));
+    await writeFile(join(evidence, 'server-result.json'), JSON.stringify({checks, createWrites, readReceipts, lost,
+      accountId: teacher.id, rooms: [eight.id, nextRoom.id], recoveries: recoveries.map(({action, requestId, writes, reads, cancelled}) =>
+        ({action, requestId, writes, reads, cancelled})), passed: true}, null, 2));
     console.log('PASS: real teacher sign-in, exact classroom access, disable/restore and redacted account audit after a lost response.');
   } finally {
     server.closeAllConnections();

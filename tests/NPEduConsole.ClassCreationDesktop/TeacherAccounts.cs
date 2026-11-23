@@ -12,7 +12,7 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record TeacherAccess(string Origin, string SchoolId, string SchoolCode, string NoTermSchoolId,
-        string Password, string EightId, string NineId, string PhysicsId, string TeacherUsername, string TeacherPin, string ResetPin, string SameNameId,
+        string Password, string EightId, string NineId, string PhysicsId, string TeacherUsername, string TeacherPin, string ResetPin, string RecoveryPin, string SameNameId,
         bool AllowTeacherTestWrites);
 
     private static int StartTeacherAccounts(string path, string output)
@@ -205,7 +205,102 @@ internal static partial class Program
             classRows.SelectedItem = classRows.Items.Cast<Classroom>().Single(row => row.Id == access.EightId);
             await VerifyStaffPicker("OpenClassResponsibilityButton", "homeroom-draft");
             await VerifyStaffPicker("OpenGradeResponsibilityButton", "grade-draft");
-            Finish("PASS: Windows 1160×780 / 840×480, create without a term, recovered exact create receipt, preserved teaching and responsibility drafts, first login, revoked sessions, restored original teacher and reset PIN.", 0);
+            await VerifyReceiptRecovery();
+            Finish("PASS: Windows 1160×780 / 840×480, teacher creation and status changes, exact account and scope, and leaving/recovering stalled status and PIN receipt reads.", 0);
+
+            async Task<TeacherAccountsWindow> OpenDirectory(string schoolId)
+            {
+                schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == schoolId);
+                Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+                if (!adminEntry.IsEffectivelyVisible) Click(Find<Button>(main, "OpenSchoolAffairsButton"));
+                await Until(() => adminEntry.IsEffectivelyVisible && adminEntry.IsEffectivelyEnabled, "school affairs for the selected school");
+                Click(adminEntry);
+                return await WindowOf<TeacherAccountsWindow>();
+            }
+
+            async Task SelectOriginal(TeacherAccountsWindow directory)
+            {
+                var rows = Find<ListBox>(directory, "TeacherAccountRows");
+                await Until(() => rows.Items.Cast<ManagedTeacherAccount>().Any(row => row.Id == id), "directory includes the original account ID");
+                rows.SelectedItem = rows.Items.Cast<ManagedTeacherAccount>().Single(row => row.Id == id);
+                var detail = Find<Button>(directory, "OpenTeacherDetails");
+                if (detail.IsEffectivelyVisible) Click(detail);
+                await Until(() => Find<Button>(directory, "ChangeTeacherStatus").IsEffectivelyVisible &&
+                    Find<Button>(directory, "ChangeTeacherStatus").IsEffectivelyEnabled, "the original teacher's details are ready");
+            }
+
+            async Task VerifyReceiptRecovery()
+            {
+                var directory = await OpenDirectory(access.SchoolId);
+                await SelectOriginal(directory);
+                await Signal("hold-disable");
+                var close = Find<Button>(directory, "CloseTeacherAccountsButton");
+                Click(Find<Button>(directory, "ChangeTeacherStatus"));
+                Click(Find<Button>(directory, "ConfirmTeacherStatus"));
+                Check(!close.IsEffectivelyEnabled, "directory protects the status write itself");
+                await Until(() => StaffText(directory, "TeacherAccountsNotice").Contains("只读核对"), "disable moved from writing to receipt lookup");
+                await Signal("receipt-read-started");
+                await Capture(directory, output, "09-status-receipt-wait", includeFrame: true);
+                Check(close.IsEffectivelyEnabled, "A stalled read of the disable receipt still locks the teacher directory.");
+                Click(close);
+                await Until(() => !directory.IsVisible, "the directory can close without its pending receipt response");
+
+                var other = await OpenDirectory(access.NoTermSchoolId);
+                var otherRows = Find<ListBox>(other, "TeacherAccountRows");
+                await Until(() => otherRows.Items.Cast<ManagedTeacherAccount>().Any(row => row.Username == "no-term-teacher"), "other school loads independently");
+                Check(otherRows.Items.Cast<ManagedTeacherAccount>().All(row => row.Id != id) &&
+                    Find<Button>(other, "TeacherAccountRefresh").Content is "刷新目录", "other school never inherits the prior school receipt or account");
+                await Signal("restore-after-held-disable");
+                Click(Find<Button>(other, "CloseTeacherAccountsButton"));
+                await Until(() => !other.IsVisible, "returns from the other school");
+
+                directory = await OpenDirectory(access.SchoolId);
+                await Until(() => StaffText(directory, "TeacherAccountsNotice").Contains("本次已停用") &&
+                    StaffText(directory, "TeacherAccountsNotice").Contains("当前已启用"), "own disable receipt and the later current status are shown separately");
+                Check(Find<ListBox>(directory, "TeacherAccountRows").SelectedItem is ManagedTeacherAccount { Disabled: false } recovered && recovered.Id == id,
+                    "the actual restored original ID is selected on reopening");
+                await Capture(directory, output, "10-status-receipt-recovered", includeFrame: true);
+                await SelectOriginal(directory);
+
+                await Signal("hold-pin-reset");
+                Click(Find<Button>(directory, "ResetTeacherPin"));
+                var form = await WindowOf<TeacherAccountForm>();
+                var save = Find<Button>(form, "TeacherFormSave");
+                var formClose = Find<Button>(form, "TeacherFormClose");
+                await Until(() => save.IsEffectivelyVisible && save.IsEffectivelyEnabled, "same account permits PIN reset");
+                Find<TextBox>(form, "TeacherFormPin").Text = access.RecoveryPin;
+                Click(save);
+                Check(!formClose.IsEffectivelyEnabled, "single-account form protects the PIN write itself");
+                await Until(() => StaffText(form, "TeacherFormNotice").Contains("只读核对"), "PIN reset moved from writing to receipt lookup");
+                await Signal("receipt-read-started");
+                await Capture(form, output, "11-pin-receipt-wait", includeFrame: true);
+                Check(formClose.IsEffectivelyEnabled && string.IsNullOrEmpty(Find<TextBox>(form, "TeacherFormPin").Text),
+                    "The read-only PIN receipt can be left and the PIN input is cleared.");
+                Click(formClose);
+                await Until(() => !form.IsVisible && Find<Button>(directory, "ResetTeacherPin").IsEffectivelyEnabled, "PIN lookup can close without blocking the directory");
+                await Signal("switch-term-after-held-pin");
+
+                Click(Find<Button>(directory, "ResetTeacherPin"));
+                await Until(() => StaffText(directory, "TeacherAccountsNotice").Contains("PIN 已重置") &&
+                    StaffText(directory, "TeacherAccountsNotice").Contains("目录暂未刷新"), "the same PIN request recovers after term switch even if directory refresh fails");
+                Check(!Find<StackPanel>(directory, "TeacherDetailData").IsEffectivelyVisible &&
+                    !Find<Button>(directory, "ResetTeacherPin").IsEffectivelyVisible &&
+                    StaffText(directory, "TeacherDetailName") == "教师目录待读取",
+                    "receipt facts cannot populate teaching or duties into a stale directory or enable another reset");
+                await Capture(directory, output, "12-pin-receipt-directory-awaits-refresh", includeFrame: true);
+                directory.Width = 1160;
+                directory.Height = 780;
+                await Until(() => Find<TextBlock>(directory, "TeacherDetailName").IsEffectivelyVisible &&
+                    directory.ClientSize.Width > 900, "wide directory also shows the awaiting-read state");
+                await Capture(directory, output, "13-wide-directory-awaits-refresh", includeFrame: true);
+                Click(Find<Button>(directory, "TeacherAccountRefresh"));
+                await Until(() => StaffText(directory, "TeacherAccountsNotice") == "目录已刷新。" &&
+                    Find<ListBox>(directory, "TeacherAccountRows").SelectedItem is ManagedTeacherAccount current && current.Id == id &&
+                    current.Assignments.Count == 0, "directory reload shows the same account with the new active term's assignments");
+                await Signal("check-recovery");
+                Click(Find<Button>(directory, "CloseTeacherAccountsButton"));
+                await Until(() => !directory.IsVisible, "the recovered directory returns normally");
+            }
 
             OverviewTaskItem? FindTask(string code) => list.Items.Cast<OverviewTaskItem>()
                 .FirstOrDefault(item => item.Task.Code == code && item.Task.AccountId == id);

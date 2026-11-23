@@ -106,6 +106,13 @@ public sealed partial class TeacherAccountsWindow : Window
         Filter();
     }
 
+    private void ClearDirectory()
+    {
+        _directory = null;
+        TeacherAccountsScope.Text = _school.Name;
+        Filter();
+    }
+
     private void Filter()
     {
         if (TeacherAccountRows is null || _client is null) return;
@@ -138,7 +145,8 @@ public sealed partial class TeacherAccountsWindow : Window
     private void ShowDetails()
     {
         var account = Current;
-        TeacherDetailName.Text = account?.Display ?? (_selectedId is null ? "选择一个教师账号" : "该账号暂不在本校目录");
+        TeacherDetailName.Text = account?.Display ?? (_directory is null ? "教师目录待读取" :
+            _selectedId is null ? "选择一个教师账号" : "该账号暂不在本校目录");
         TeacherDetailData.IsVisible = account is not null;
         TeacherDetailState.Text = account?.StateLabel;
         TeacherDetailLogin.Text = account is null ? null : account.LastLoginAt?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "从未登录";
@@ -317,7 +325,15 @@ public sealed partial class TeacherAccountsWindow : Window
             Operations[_school.Id] = pending;
             Render();
             TeacherAccountReceipt result;
-            try { result = await _client.UpdateTeacherAccountAsync(directory, account.Id, action, null, pending.RequestId, _lifetime.Token); }
+            try
+            {
+                try { result = await _client.UpdateTeacherAccountAsync(directory, account.Id, action, null, pending.RequestId, _lifetime.Token); }
+                finally
+                {
+                    _writing = false;
+                    if (!_closed) Render();
+                }
+            }
             catch (ConsoleApiException error) when (TeacherAccountForm.Uncertain(error))
             {
                 await ReadReceiptAsync(pending);
@@ -351,26 +367,31 @@ public sealed partial class TeacherAccountsWindow : Window
         if (_closed) return;
         if (receipt.Account.Id != pending.AccountId) throw new ConsoleApiException(0, "账号回执与原操作不一致，请重新核对。");
         Operations.Remove(_school.Id);
-        await RefreshAfterConfirmedAsync(receipt, receipt.Account.Disabled
-            ? "服务器确认账号已停用，任课和岗位保留。" : "服务器确认账号已启用，教师可以重新登录。");
+        bool disabledByOperation = pending.Action == "DISABLE";
+        string confirmation = $"回执确认本次已{(disabledByOperation ? "停用" : "恢复")} {receipt.Account.Display}。";
+        await RefreshAfterConfirmedAsync(receipt, confirmation, disabledByOperation);
     }
 
-    private async Task RefreshAfterConfirmedAsync(TeacherAccountReceipt receipt, string confirmation)
+    private async Task RefreshAfterConfirmedAsync(TeacherAccountReceipt receipt, string confirmation, bool? disabledByOperation = null)
     {
         _selectedId = receipt.Account.Id;
         try { await LoadAsync(); }
         catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
         {
             if (_closed) return;
-            if (_directory is { } earlier)
-            {
-                _directory = earlier with { Accounts = earlier.Accounts.Where(row => row.Id != receipt.Account.Id).Append(receipt.Account).ToArray() };
-                Filter();
-            }
+            ClearDirectory();
             Notice(confirmation + "目录暂未刷新，请稍后重新读取。", error: true);
             return;
         }
-        if (!_closed) Notice(confirmation);
+        if (_closed) return;
+        if (disabledByOperation is { } expected)
+        {
+            var current = Current;
+            if (current is null) confirmation += "当前目录中已无此账号。";
+            else if (current.Disabled != expected) confirmation += $"该账号当前{current.StateLabel}。";
+            else confirmation += expected ? "任课和岗位保留。" : "教师可以重新登录。";
+        }
+        Notice(confirmation);
     }
 
     private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
@@ -391,9 +412,8 @@ public sealed partial class TeacherAccountsWindow : Window
             if (_closed) return;
             if (error.StatusCode is 401 or 403)
             {
-                _directory = null;
                 _selectedId = null;
-                Filter();
+                ClearDirectory();
             }
             Notice(Pending is null ? error.Message : $"操作回执待核对。{error.Message}", error: true);
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
