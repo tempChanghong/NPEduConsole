@@ -1,8 +1,21 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:NPEduConsole.App" xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.MainWindow"
         Title="NPEduConsole · 学校管理控制台" Width="1160" Height="780" MinWidth="720" MinHeight="480"
-        WindowStartupLocation="CenterScreen">
+        Padding="0" WindowDecorationsTheme="{DynamicResource ConsoleIntegratedFrame}" WindowStartupLocation="CenterScreen">
   <Window.Styles>
+    <Style Selector="Border.shell-top">
+      <Setter Property="Padding" Value="16,0"/>
+    </Style>
+    <!-- In an extended window the caption buttons share the business header. -->
+    <Style Selector="Window[IsExtendedIntoWindowDecorations=True] Border.shell-top">
+      <Setter Property="Padding" Value="16,0,154,0"/>
+    </Style>
+    <Style Selector="Grid.compact TextBlock#AccountName">
+      <Setter Property="IsVisible" Value="False"/>
+    </Style>
+    <Style Selector="Grid.compact local|ShellObjectPicker TextBlock#TriggerText, Grid.compact local|ShellObjectPicker Border.keyhint">
+      <Setter Property="IsVisible" Value="False"/>
+    </Style>
     <Style Selector="Border.single-screen Button.class-screen-entry, Border.single-screen TextBlock.class-screen-name, TextBlock.screen-devices-heading">
       <Setter Property="IsVisible" Value="False" />
     </Style>
@@ -64,15 +77,15 @@
     </Style>
   </Window.Styles>
   <Grid Background="{DynamicResource CanvasBrush}">
-    <Grid x:Name="LoginShell" RowDefinitions="57,*">
-      <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
-              BorderThickness="0,0,0,1" Padding="24,0">
+    <Grid x:Name="LoginShell" RowDefinitions="46,*">
+      <Border Classes="shell-top" Background="{DynamicResource FrameBrush}" BorderBrush="{DynamicResource LineBrush}"
+              BorderThickness="0,0,0,1" WindowDecorationProperties.ElementRole="TitleBar">
         <Grid ColumnDefinitions="*,Auto">
           <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-            <Image Source="/Assets/Branding/npeduconsole-64.png" Width="30" Height="30" />
+            <Image Source="/Assets/Branding/npeduconsole-64.png" Width="25" Height="25" />
             <TextBlock Text="NPEduConsole" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
           </StackPanel>
-          <Button x:Name="OpenServerStatusButton" Grid.Column="1" Background="Transparent" VerticalAlignment="Center"
+          <Button x:Name="OpenServerStatusButton" Grid.Column="1" Background="Transparent" VerticalAlignment="Center" WindowDecorationProperties.ElementRole="User"
                   Content="运维诊断" Click="OpenServerStatusClicked" />
         </Grid>
       </Border>
@@ -98,25 +111,21 @@
             <StackPanel Spacing="7" Margin="0,0,0,6">
               <TextBlock Text="管理员登录" FontSize="27" FontWeight="SemiBold" />
             </StackPanel>
-            <StackPanel Spacing="6">
-              <TextBlock Text="服务地址" Classes="label" />
+            <local:FormField x:Name="ServerField" Header="服务地址">
               <TextBox x:Name="ServerAddress" PlaceholderText="https://school.example.edu" AutomationProperties.Name="服务地址" />
-            </StackPanel>
+            </local:FormField>
             <local:DesktopOAuthLoginView x:Name="BrowserLogin" IsVisible="False" />
             <Grid x:Name="LocalSchoolLoginFields" ColumnDefinitions="*,16,*">
-              <StackPanel Spacing="6">
-                <TextBlock Text="学校代码" Classes="label" />
+              <local:FormField x:Name="SchoolField" Header="学校代码">
                 <TextBox x:Name="SchoolCode" AutomationProperties.Name="学校代码" />
-              </StackPanel>
-              <StackPanel Grid.Column="2" Spacing="6">
-                <TextBlock Text="短账号" Classes="label" />
+              </local:FormField>
+              <local:FormField x:Name="AccountField" Grid.Column="2" Header="短账号">
                 <TextBox x:Name="Username" AutomationProperties.Name="短账号" />
-              </StackPanel>
+              </local:FormField>
             </Grid>
-            <StackPanel x:Name="LocalPasswordLoginFields" Spacing="6">
-              <TextBlock Text="密码" Classes="label" />
+            <local:FormField x:Name="LocalPasswordLoginFields" Header="密码">
               <TextBox x:Name="Password" PasswordChar="●" AutomationProperties.Name="密码" />
-            </StackPanel>
+            </local:FormField>
             <Border x:Name="LoginFeedback" IsVisible="False" Background="{DynamicResource ErrorTintBrush}" CornerRadius="8" Padding="12,9">
               <TextBlock x:Name="LoginMessage" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
             </Border>
@@ -140,7 +149,7 @@
     <Grid x:Name="Workspace" ColumnDefinitions="184,*" IsVisible="False" SizeChanged="ShellSizeChanged">
       <Border Background="{DynamicResource SidebarBrush}" Padding="10,18,10,13">
         <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="24">
-          <StackPanel Orientation="Horizontal" Spacing="8" Margin="7,0,0,0" VerticalAlignment="Center">
+          <StackPanel Orientation="Horizontal" Spacing="8" Margin="7,0,0,0" VerticalAlignment="Center" Background="Transparent" WindowDecorationProperties.ElementRole="TitleBar">
             <Image Source="/Assets/Branding/npeduconsole-64.png" Width="29" Height="29" />
             <TextBlock Classes="shell-label" Text="NPEduConsole" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
           </StackPanel>
@@ -222,22 +231,23 @@
           </StackPanel>
         </Grid>
       </Border>
-      <Grid Grid.Column="1" RowDefinitions="60,*" MinWidth="0">
-        <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
-                BorderThickness="0,0,0,1" Padding="19,0">
-          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="13">
-            <Grid ColumnDefinitions="0.9*,1.1*" ColumnSpacing="11" VerticalAlignment="Center" MaxWidth="520" HorizontalAlignment="Left">
-              <ComboBox x:Name="SchoolPicker" HorizontalAlignment="Stretch" MinWidth="177" MaxWidth="264"
+      <Grid Grid.Column="1" RowDefinitions="46,*" MinWidth="0">
+        <Border Classes="shell-top" Background="{DynamicResource FrameBrush}" BorderBrush="{DynamicResource LineBrush}"
+                BorderThickness="0,0,0,1" WindowDecorationProperties.ElementRole="TitleBar">
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="9">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="9" VerticalAlignment="Center" MaxWidth="490" HorizontalAlignment="Left">
+              <ComboBox x:Name="SchoolPicker" HorizontalAlignment="Stretch" MinWidth="160" MaxWidth="230" MinHeight="34" Padding="9,3,0,3"
+                        WindowDecorationProperties.ElementRole="User"
                         PlaceholderText="选择已授权学校" AutomationProperties.Name="获授权学校" SelectionChanged="SchoolChanged" />
               <TextBlock x:Name="ShellTermName" Grid.Column="1" Classes="muted" FontSize="12" MaxLines="1"
                          TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
             </Grid>
-            <local:ShellObjectPicker x:Name="ObjectPicker" Grid.Column="1" VerticalAlignment="Center" />
+            <local:ShellObjectPicker x:Name="ObjectPicker" Grid.Column="1" VerticalAlignment="Center" WindowDecorationProperties.ElementRole="User"/>
             <StackPanel x:Name="AccountBar" Grid.Column="2" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center" IsVisible="False">
               <TextBlock x:Name="AccountName" Classes="muted" MaxWidth="84" MaxLines="1"
                          TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Text, RelativeSource={RelativeSource Self}}"
                          VerticalAlignment="Center" />
-              <Button Classes="action" MinHeight="36" Content="退出登录" Click="LogoutClicked" AutomationProperties.Name="退出登录" />
+              <Button Classes="action" MinHeight="32" Padding="8,3" Content="退出登录" Click="LogoutClicked" AutomationProperties.Name="退出登录" WindowDecorationProperties.ElementRole="User"/>
             </StackPanel>
           </Grid>
         </Border>
@@ -259,7 +269,7 @@
                           MinHeight="32" Padding="7,4" FontSize="12"
                           Click="OpenClassCreationClicked" IsEnabled="False" />
                 </Grid>
-                <TextBox x:Name="ClassSearch" Grid.Row="1" PlaceholderText="班名、年级或代码" MinHeight="36"
+                <TextBox x:Name="ClassSearch" Grid.Row="1" Classes="search-field" PlaceholderText="班名、年级或代码" MinHeight="36"
                          Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
                          AutomationProperties.Name="筛选班级目录">
                   <TextBox.InnerRightContent>

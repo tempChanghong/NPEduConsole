@@ -1,0 +1,27 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Keep Avalonia's caption peers, native hit testing, system menu and restore glyph. -->
+  <x:Double x:Key="CaptionButtonWidth">44</x:Double>
+  <x:Double x:Key="CaptionButtonHeight">44</x:Double>
+  <ControlTheme x:Key="ConsoleWindowFrame" TargetType="WindowDrawnDecorations"
+                BasedOn="{StaticResource {x:Type WindowDrawnDecorations}}">
+    <Style Selector="^ /template/ Button#PART_FullScreenButton">
+      <Setter Property="IsVisible" Value="False"/>
+    </Style>
+    <Style Selector="^ /template/ Panel#PART_TitleTextPanel">
+      <Setter Property="Background" Value="{DynamicResource FrameBrush}"/>
+    </Style>
+    <Style Selector="^ /template/ Panel#PART_TitleTextPanel TextBlock">
+      <Setter Property="Margin" Value="18,0,142,0"/>
+      <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+  </ControlTheme>
+  <ControlTheme x:Key="ConsoleIntegratedFrame" TargetType="WindowDrawnDecorations"
+                BasedOn="{StaticResource ConsoleWindowFrame}">
+    <Style Selector="^ /template/ Panel#PART_TitleTextPanel">
+      <Setter Property="Opacity" Value="0"/>
+    </Style>
+  </ControlTheme>
+</ResourceDictionary>

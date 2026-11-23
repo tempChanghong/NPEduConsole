@@ -6,11 +6,11 @@
 
   <!-- Keep Fluent's native popup, item presenter, input handling and accessibility peers. -->
   <Style Selector="ComboBox">
-    <Setter Property="MinHeight" Value="42" />
+    <Setter Property="MinHeight" Value="38" />
     <Setter Property="MaxDropDownHeight" Value="300" />
     <Setter Property="CornerRadius" Value="8" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="Padding" Value="12,7,0,7" />
+    <Setter Property="Padding" Value="11,5,0,5" />
     <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
     <Setter Property="PlaceholderForeground" Value="{DynamicResource MutedBrush}" />
   </Style>

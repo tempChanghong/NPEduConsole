@@ -18,11 +18,12 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        string? output = args is ["--verify", var directory] ? directory : null;
+        bool frame = args is ["--window-frame", _];
+        string? output = args is ["--verify" or "--window-frame", var directory] ? directory : null;
         bool interactive = args is ["--interactive"] or [];
         if (output is null && !interactive)
         {
-            Console.Error.WriteLine("用法：NPEduConsole.ShellPickerDesktop --verify <输出目录> | --interactive");
+            Console.Error.WriteLine("用法：NPEduConsole.ShellPickerDesktop --verify <输出目录> | --window-frame <输出目录> | --interactive");
             return 2;
         }
 
@@ -30,7 +31,8 @@ internal static class Program
         return AppBuilder.Configure<ConsoleApplication>().UsePlatformDetect()
             .AfterSetup(builder => Dispatcher.UIThread.Post(() =>
             {
-                if (output is null) RunInteractive();
+                if (frame) _ = WindowFrameChecks.Run(Desktop, output!);
+                else if (output is null) RunInteractive();
                 else _ = VerifyAsync(output);
             }))
             .StartWithClassicDesktopLifetime([]);

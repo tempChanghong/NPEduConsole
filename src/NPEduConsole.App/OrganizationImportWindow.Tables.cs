@@ -129,6 +129,7 @@ public sealed partial class OrganizationImportWindow
     private TextBox Entry(string path, string value, string label, int maxLength, Action<string> change)
     {
         var box = new TextBox { Text = value, MaxLength = maxLength, PlaceholderText = label, MinWidth = 0 };
+        box.Classes.Add("compact-field");
         Avalonia.Automation.AutomationProperties.SetName(box, label);
         _fields[path] = box;
         box.TextChanged += (_, _) => { var text = box.Text ?? ""; change(text); Edited(); };

@@ -53,12 +53,12 @@ public static class ConsoleHighContrast
     private static ResourceDictionary Palette(Color surface, Color ink, Color selected, Color onSelected)
     {
         var result = new ResourceDictionary();
-        Set(surface, "CanvasBrush", "SidebarBrush", "SurfaceBrush", "ScrollRailBrush", "AccentTintBrush", "AccentSoftBrush", "OverviewBannerBrush",
+        Set(surface, "FrameBrush", "FieldBrush", "CanvasBrush", "SidebarBrush", "SurfaceBrush", "ScrollRailBrush", "AccentTintBrush", "AccentSoftBrush", "OverviewBannerBrush",
             "ErrorTintBrush", "WarningTintBrush", "SuccessTintBrush", "ComboBoxBackground",
             "ComboBoxDropDownBackground", "ComboBoxBackgroundPointerOver", "ComboBoxBackgroundPressed",
             "ComboBoxItemBackgroundPointerOver", "ComboBoxItemBackgroundPressed", "ComboBoxItemBackgroundSelected",
             "ComboBoxItemBackgroundSelectedPointerOver", "ComboBoxItemBackgroundSelectedPressed");
-        Set(ink, "InkBrush", "MutedBrush", "LineBrush", "ScrollGripBrush", "AccentBrush", "AccentStrongBrush", "FocusBrush",
+        Set(ink, "FieldEdgeBrush", "CaptionButtonForeground", "InkBrush", "MutedBrush", "LineBrush", "ScrollGripBrush", "AccentBrush", "AccentStrongBrush", "FocusBrush",
             "ErrorBrush", "WarningBrush", "SuccessBrush", "ComboBoxBorderBrush", "ComboBoxDropDownBorderBrush",
             "ComboBoxBorderBrushPointerOver", "ComboBoxBorderBrushPressed", "ComboBoxBackgroundBorderBrushFocused",
             "ComboBoxItemBorderBrushSelected", "ComboBoxItemBorderBrushSelectedPointerOver",

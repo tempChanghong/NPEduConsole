@@ -231,6 +231,7 @@ public sealed partial class TeacherAllocationWindow
     private TextBox Input(string path, string value, string label, int max, Action<string> change, bool secret = false)
     {
         var box = new TextBox { Text = value, PlaceholderText = label, MaxLength = max, MinWidth = 0 };
+        box.Classes.Add("compact-field");
         if (secret) box.PasswordChar = '●';
         AutomationProperties.SetName(box, label);
         _allocationFields[path] = box;

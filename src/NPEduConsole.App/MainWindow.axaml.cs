@@ -124,15 +124,16 @@ public sealed partial class MainWindow : Window
         string password = Password.Text ?? "";
         if (address.Length == 0)
         {
-            SetLoginMessage("请输入完整的服务地址，例如 https://school.example.edu。");
-            ServerAddress.Focus();
+            SetLoginMessage("");
+            ServerField.ReportError("请输入完整的服务地址，例如 https://school.example.edu。");
             return;
         }
 
         if (schoolCode.Length == 0 || username.Length == 0 || password.Length == 0)
         {
-            SetLoginMessage("请填写学校代码、短账号和密码。");
-            (schoolCode.Length == 0 ? SchoolCode : username.Length == 0 ? Username : Password).Focus();
+            SetLoginMessage("");
+            var missing = schoolCode.Length == 0 ? SchoolField : username.Length == 0 ? AccountField : LocalPasswordLoginFields;
+            missing.ReportError($"请输入{missing.Header}。");
             return;
         }
 

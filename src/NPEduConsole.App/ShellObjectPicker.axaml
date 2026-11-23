@@ -79,7 +79,7 @@
               BorderBrush="{DynamicResource LineBrush}"
               BoxShadow="0 8 24 0 #22152A41">
         <Grid RowDefinitions="Auto,Auto,*,Auto">
-          <TextBox x:Name="SearchBox" PlaceholderText="输入班名、代码或大屏名" MinHeight="36"
+          <TextBox x:Name="SearchBox" Classes="search-field" PlaceholderText="输入班名、代码或大屏名" MinHeight="36"
                    Margin="2,2,2,6" TextChanged="SearchChanged" KeyDown="SearchKeyDown"
                    AutomationProperties.Name="查找班级或大屏"
                    AutomationProperties.HelpText="方向键选择，Enter 打开，Esc 关闭" />

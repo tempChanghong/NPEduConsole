@@ -44,8 +44,8 @@
               <ComboBox x:Name="SetupSemester" Grid.Column="2" AutomationProperties.Name="第一或第二学期" HorizontalAlignment="Stretch"/>
             </Grid>
             <Grid ColumnDefinitions="*,*" ColumnSpacing="9">
-              <CalendarDatePicker x:Name="SetupStart" HorizontalAlignment="Stretch" Watermark="开始日期（可选）" AutomationProperties.Name="学期开始日期"/>
-              <CalendarDatePicker x:Name="SetupEnd" Grid.Column="1" HorizontalAlignment="Stretch" Watermark="结束日期（可选）" AutomationProperties.Name="学期结束日期"/>
+              <CalendarDatePicker x:Name="SetupStart" HorizontalAlignment="Stretch" PlaceholderText="开始日期（可选）" AutomationProperties.Name="学期开始日期"/>
+              <CalendarDatePicker x:Name="SetupEnd" Grid.Column="1" HorizontalAlignment="Stretch" PlaceholderText="结束日期（可选）" AutomationProperties.Name="学期结束日期"/>
             </Grid>
             <TextBlock Text="教师登录方式" Classes="label"/>
             <ComboBox x:Name="SetupTeacherMode" AutomationProperties.Name="教师登录方式" HorizontalAlignment="Left" MinWidth="275"

@@ -1,0 +1,61 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App">
+  <Styles.Resources>
+    <ControlTheme x:Key="{x:Type local:FormField}" TargetType="local:FormField">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <StackPanel Spacing="5">
+            <TextBlock Text="{TemplateBinding Header}" Classes="label"/>
+            <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}"/>
+            <TextBlock Text="{TemplateBinding ErrorMessage}" TextWrapping="Wrap" FontSize="12"
+                       IsVisible="{Binding ErrorMessage, RelativeSource={RelativeSource TemplatedParent}, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       Foreground="{DynamicResource ErrorBrush}" AutomationProperties.LiveSetting="Polite"/>
+          </StackPanel>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
+  </Styles.Resources>
+  <!-- Preserve the native text presenter, IME, password masking and validation adorners. -->
+  <Style Selector="TextBox">
+    <Setter Property="MinHeight" Value="38"/>
+    <Setter Property="Padding" Value="11,6"/>
+    <Setter Property="CornerRadius" Value="7"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Background" Value="{DynamicResource FieldBrush}"/>
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource FieldEdgeBrush}"/>
+    <Setter Property="CaretBrush" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="PlaceholderForeground" Value="{DynamicResource MutedBrush}"/>
+  </Style>
+  <Style Selector="TextBox:pointerover:not(:disabled) /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
+    <Setter Property="Background" Value="{DynamicResource FieldBrush}"/>
+  </Style>
+  <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
+    <Setter Property="BorderThickness" Value="2"/>
+  </Style>
+  <Style Selector="TextBox[IsReadOnly=True]:not(:focus) /template/ Border#PART_BorderElement">
+    <Setter Property="Background" Value="{DynamicResource CanvasBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+  </Style>
+  <Style Selector="TextBox:error /template/ Border#PART_BorderElement, local|FormField:invalid TextBox /template/ Border#PART_BorderElement">
+    <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}"/>
+    <Setter Property="BorderThickness" Value="2"/>
+  </Style>
+  <Style Selector="TextBox.compact-field, TextBox.roster-cell">
+    <Setter Property="MinHeight" Value="32"/>
+    <Setter Property="Padding" Value="8,3"/>
+    <Setter Property="CornerRadius" Value="5"/>
+  </Style>
+  <Style Selector="TextBox.search-field">
+    <Setter Property="MinHeight" Value="36"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+    <Setter Property="InnerLeftContent">
+      <Template><Path Margin="2,0,8,0" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center"
+                      Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.5" StrokeLineCap="Round"
+                      Data="M 6,1.4 A 4.6,4.6 0 1 0 6,10.6 A 4.6,4.6 0 1 0 6,1.4 Z M 9.5,9.5 L 13,13"/></Template>
+    </Setter>
+  </Style>
+</Styles>
