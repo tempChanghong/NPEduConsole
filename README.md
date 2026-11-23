@@ -2,7 +2,25 @@
 
 学校管理桌面端。具有学校管理权限的本地账号可以查看班级大屏，为单台 NPEduTools 指定监测麦克风，并核对设备回执。
 
-## 启动
+## Windows 管理员首次使用
+
+从学校部署方的 HTTPS 页面获取 Windows x64 ZIP，核对公布的版本和 SHA-256 后，完整解压到本机目录并打开 `NPEduConsole.App.exe`。发行包自带 .NET 运行时。继续保留解压目录中的其余文件。
+
+首次建校、续办或迁入时，在登录页点「首次配置学校服务器」。同源部署填写师生网页地址。师生网页和 KV 分域时勾选「使用独立 KV 地址」，再填写 API 地址。先检查连接，确认目标状态和地址一致，再按页面选择新建、继续初始化或从迁移包恢复。只有部署人员提供的初始化密钥适用于此步骤。已有学校使用「使用此地址登录」按正常账号登录。更详细的可核对状态见[首次建校与整校迁入](docs/school-management-migration.md#首次建校与整校迁入)。
+
+### 生成发行包
+
+在 Windows 的 PowerShell 中使用 .NET 10 或兼容 SDK，运行：
+
+```powershell
+./scripts/Publish-Windows.ps1 -Version 0.1.0
+```
+
+默认输出到 `.artifacts/windows-release/0.1.0/`。也可用 `-OutputDirectory` 指定尚不存在的发行目录。发布时将 ZIP 与生成的 `console-release.json` 一同放在师生网页的 `/downloads/npeduconsole/` 下。版本、文件名、字节数和 SHA-256 来自该次实际生成的 ZIP。需要核对本地文件时运行 `Get-FileHash -Algorithm SHA256 ./NPEduConsole-0.1.0-win-x64.zip`。
+
+发行版桌面验收使用交互式 Windows、PowerShell 7 和隔离 KV/PostgreSQL。将 `NP_CONSOLE_RELEASE_ZIP` 指向本次发布或浏览器下载的 ZIP，运行 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --windows-release-oobe`。若校验清单与下载件分开存放，通过 `NP_CONSOLE_RELEASE_MANIFEST` 指定清单。测试从独立解压目录启动发行 EXE，记录实际加载的运行时和宽窄窗截图。
+
+## 开发启动
 
 安装 .NET 10 SDK 后，在仓库根目录运行以下命令。
 

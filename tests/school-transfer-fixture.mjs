@@ -139,7 +139,7 @@ async function firstSchoolGateways(origin) {
   }))};
 }
 
-async function startTarget({fixtureRunner, kv, binaries}) {
+export async function startTarget({fixtureRunner, kv, binaries}) {
   const tail = [];
   const child = fork(fixtureRunner, [kv, binaries, '--school-transfer-target'], {silent: true, windowsHide: true});
   for (const stream of [child.stdout, child.stderr]) stream.on('data', bytes => {
