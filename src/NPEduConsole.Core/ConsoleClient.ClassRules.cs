@@ -142,8 +142,11 @@ public sealed partial class ConsoleClient
         var current = CheckClassRules(preview.Current, session, baseline.SchoolId, baseline.Term.Id, baseline.Classroom.Id);
         if (preview.Changes is null || preview.Changes.Any(row => !ValidRuleChoice(row) ||
                 !current.Rows.Any(original => original.SubjectId == row.SubjectId)) ||
+            preview.Changes.Select(row => row.SubjectId).Distinct().Count() != preview.Changes.Length ||
             preview.Removals is null || preview.Removals.Any(row => row is null || row.RemainingSources is null ||
-                !current.Rows.Any(subject => subject.SubjectId == row.SubjectId && subject.Groups.Any(item => item.Id == row.GroupId))) ||
+                !preview.Changes.Any(change => change.SubjectId == row.SubjectId) ||
+                !current.Rows.Any(subject => subject.SubjectId == row.SubjectId && subject.Groups.Any(item => item.Id == row.GroupId && item.ScopeValid))) ||
+            preview.Removals.Select(row => row.GroupId).Distinct().Count() != preview.Removals.Length ||
             !ValidIssues(preview.Issues) || !ValidIssues(preview.Notices)) throw InvalidResponse();
         if (preview.State == "READY") _ = ReadStructureVersion(preview.Version);
         else if (preview.State != "STALE" || preview.CanApply || preview.Version is not null) throw InvalidResponse();

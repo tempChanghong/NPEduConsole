@@ -1,6 +1,12 @@
 using System.Text.Json;
 using NPEduConsole.Core;
 
+if (args is ["--class-rule-source-review"])
+{
+    ClassRuleSourceReviewChecks.Verify();
+    return;
+}
+
 if (args is ["--device-diagnostics-checks"])
 {
     DeviceDiagnosticsChecks.Verify();
