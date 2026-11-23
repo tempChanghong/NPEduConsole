@@ -40,7 +40,9 @@ export async function verifyConsoleFirstSchool({prisma, origin, directory, evide
   assert.equal(checks.expired, 1, 'one expired session response was injected');
   assert.equal(checks.initialized, 1, 'one real core initialization despite the lost reply');
   assert.equal(checks.completed, 1, 'one real owner completion despite the lost reply');
-  assert.ok(checks.contextReads >= 2, 'lost reply and reopening both read original context');
+  assert.ok(checks.contextReads >= 1, 'reopening reads the original school from the server');
+  assert.deepEqual(checks.protectedWrites, {initialize: true, complete: true});
+  assert.deepEqual(checks.recoveryReads, {initialize: 'cancelled', complete: 'returned'});
   const school = await prisma.school.findUniqueOrThrow({where: {code: schoolCode}});
   const owner = await prisma.schoolMember.findFirstOrThrow({where: {schoolId: school.id, role: 'OWNER'}});
   const setup = await prisma.instanceSetup.findUniqueOrThrow({where: {id: 'default'}});
@@ -57,7 +59,9 @@ export async function verifyConsoleFirstSchool({prisma, origin, directory, evide
 }
 
 async function firstSchoolGateways(origin) {
-  const counts = {sessions: {same: 0, api: 0}, expired: 0, initialized: 0, completed: 0, contextReads: 0};
+  const counts = {sessions: {same: 0, api: 0}, expired: 0, initialized: 0, completed: 0, contextReads: 0, recoveryReads: {}, protectedWrites: {}};
+  const held = new Map();
+  let holdNextStatus;
   let splitApi;
   let delayNextSplit = false;
   let apiResponse = 'live';
@@ -78,6 +82,16 @@ async function firstSchoolGateways(origin) {
       if (kind === 'api' && req.url?.startsWith('/__oobe/same-declaration/')) {
         sameDeclaration = req.url.slice('/__oobe/same-declaration/'.length);
         res.writeHead(204).end();
+        return;
+      }
+      if (kind === 'api' && req.url?.startsWith('/__oobe/recovery/')) {
+        const [action, phase] = req.url.slice('/__oobe/recovery/'.length).split('/');
+        const answer = held.get(phase);
+        if (action === 'release' && answer) {
+          answer();
+          held.delete(phase);
+        }
+        res.writeHead(answer ? 204 : 404).end();
         return;
       }
       if (kind === 'api' && req.url === setupPath + '/status' && apiResponse !== 'live') {
@@ -111,13 +125,24 @@ async function firstSchoolGateways(origin) {
           .end(JSON.stringify({success: false, code: 'SETUP_TOKEN_EXPIRED', message: '初始化会话已过期'}));
         return;
       }
+      const recovery = req.method === 'GET' && req.url === setupPath + '/status' ? holdNextStatus : null;
+      if (recovery) holdNextStatus = null;
       const upstream = request(origin + req.url, {method: req.method, headers: req.headers}, reply => {
         if (req.url === setupPath + '/initialize' && reply.statusCode === 201 ||
             req.url === setupPath + '/desktop-complete' && reply.statusCode === 200) {
-          if (req.url.endsWith('/initialize')) counts.initialized++;
+          const phase = req.url.endsWith('/initialize') ? 'initialize' : 'complete';
+          if (phase === 'initialize') counts.initialized++;
           else counts.completed++;
           reply.resume();
-          res.destroy();
+          held.set(phase + '-write', () => {
+            counts.protectedWrites[phase] = !res.destroyed;
+            holdNextStatus = phase;
+            res.destroy();
+          });
+          return;
+        }
+        if (recovery) {
+          deferReply(reply, res, send => held.set(recovery, () => { counts.recoveryReads[recovery] = send(); }));
           return;
         }
         if (req.url === setupPath + '/context' && reply.statusCode === 200) counts.contextReads++;
@@ -137,6 +162,16 @@ async function firstSchoolGateways(origin) {
     server.closeAllConnections();
     return new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }))};
+}
+
+function deferReply(upstream, response, ready) {
+  const chunks = [];
+  upstream.on('data', chunk => chunks.push(chunk));
+  upstream.on('end', () => ready(() => {
+    if (response.destroyed) return 'cancelled';
+    response.writeHead(upstream.statusCode, upstream.headers).end(Buffer.concat(chunks));
+    return 'returned';
+  }));
 }
 
 export async function startTarget({fixtureRunner, kv, binaries}) {
@@ -163,7 +198,15 @@ export async function startTarget({fixtureRunner, kv, binaries}) {
 
 async function dropImportReply(origin) {
   let dropped = 0, reads = 0;
+  let sendReceipt, released;
   const server = createServer((req, res) => {
+    if (req.url === '/__migration-recovery/held') { res.writeHead(sendReceipt ? 204 : 404).end(); return; }
+    if (req.url === '/__migration-recovery/release') {
+      released = sendReceipt?.();
+      sendReceipt = null;
+      res.writeHead(released ? 204 : 404).end();
+      return;
+    }
     const upstream = request(origin + req.url, {method: req.method, headers: req.headers}, reply => {
       if (req.url?.endsWith('/migration/import') && reply.statusCode === 201 && !dropped) {
         dropped++;
@@ -171,7 +214,10 @@ async function dropImportReply(origin) {
         res.destroy();
         return;
       }
-      if (req.url?.includes('/migration/receipts/') && reply.statusCode === 200) reads++;
+      if (req.url?.includes('/migration/receipts/') && reply.statusCode === 200 && ++reads === 1) {
+        deferReply(reply, res, send => { sendReceipt = send; });
+        return;
+      }
       res.writeHead(reply.statusCode, reply.headers);
       reply.pipe(res);
     });
@@ -179,7 +225,7 @@ async function dropImportReply(origin) {
     req.pipe(upstream);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  return {origin: 'http://127.0.0.1:' + server.address().port, counts: () => ({dropped, reads}),
+  return {origin: 'http://127.0.0.1:' + server.address().port, counts: () => ({dropped, reads, released}),
     close() { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); }};
 }
 
@@ -274,7 +320,7 @@ export async function verifyConsoleSchoolTransfer(context) {
     assert.equal(payload.manifest.retained.photos, 1);
     assert.equal(payload.manifest.retained.exitEvents, 1);
     assert.equal(payload.data.seatVersions[0].imageBase64, image.toString('base64'));
-    assert.deepEqual(relay.counts(), {dropped: 1, reads: 1});
+    assert.deepEqual(relay.counts(), {dropped: 1, reads: 1, released: 'returned'});
     const exists = (name, id) => record.query(`SELECT id FROM "${name}" WHERE id=$1`, [id]).then(result => result.rowCount);
     for (const [table, id] of [['School', school.id], ['AcademicTerm', term.id], ['Workspace', classId], ['Account', teacher.id],
       ['AdministrativeClassStudent', student.id], ['TeachingAssignment', relation.id], ['Publication', publication.id],

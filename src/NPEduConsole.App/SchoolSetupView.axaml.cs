@@ -129,6 +129,7 @@ public sealed partial class SchoolSetupView : UserControl
         if (context.MigrationId is { } previous)
         {
             var receipt = await _client.GetSchoolTransferReceiptAsync(_setup!, previous, _lifetime.Token);
+            if (_closed) return;
             ShowTransferReceipt(receipt);
         }
         else _firstTerm = context.Term;
@@ -169,6 +170,8 @@ public sealed partial class SchoolSetupView : UserControl
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500 || error.Code == "SETUP_SCHOOL_EXISTS")
         {
             _initializationUnconfirmed = true;
+            SetWriting(false);
+            SetupNotice.Text = "未收到明确的建校结果，正在只读核对。可返回连接检查，再从原服务器继续。";
             await CheckInitializationAsync();
             return;
         }
@@ -181,6 +184,7 @@ public sealed partial class SchoolSetupView : UserControl
     private async Task CheckInitializationAsync()
     {
         var status = await _client.GetSetupStatusAsync(_lifetime.Token);
+        if (_closed) return;
         if (status.State == "CONFIGURING")
         {
             await ResumeAsync();
@@ -238,17 +242,19 @@ public sealed partial class SchoolSetupView : UserControl
             return;
         }
         var preview = _preview;
-        _pending = preview.Manifest.MigrationId;
+        var migrationId = preview.Manifest.MigrationId;
+        _pending = migrationId;
         SetWriting(true);
         SetupNotice.Text = "正在写入此目标实例…";
+        SchoolTransferReceipt imported;
         try
         {
-            var receipt = await _client.ImportSchoolTransferAsync(_setup!, preview, _path, passphrase, _lifetime.Token);
-            await AcceptTransferReceiptAsync(receipt, _pending.Value);
+            imported = await _client.ImportSchoolTransferAsync(_setup!, preview, _path, passphrase, _lifetime.Token);
         }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
         {
             await CheckReceiptAsync();
+            return;
         }
         catch (ConsoleApiException)
         {
@@ -257,6 +263,9 @@ public sealed partial class SchoolSetupView : UserControl
             throw;
         }
         finally { SetWriting(false); }
+        if (_closed) return;
+        SetupNotice.Text = "已取得迁入回执，正在只读核对对应学校。";
+        await AcceptTransferReceiptAsync(imported, migrationId);
     }
 
     private async void ReadReceipt(object? sender, RoutedEventArgs e) => await RunAsync(CheckReceiptAsync);
@@ -264,6 +273,8 @@ public sealed partial class SchoolSetupView : UserControl
     private async Task CheckReceiptAsync()
     {
         if (_pending is not { } id) return;
+        SetWriting(false);
+        SetupNotice.Text = "正在只读核对迁入回执。可返回连接检查，再从原服务器继续。";
         try
         {
             var receipt = await _client.GetSchoolTransferReceiptAsync(_setup!, id, _lifetime.Token);
@@ -287,6 +298,7 @@ public sealed partial class SchoolSetupView : UserControl
         if (!receipt.Imported || receipt.Manifest.MigrationId != expected || receipt.School.Id != receipt.Manifest.School.Id)
             throw new ConsoleApiException(502, "服务器结果与原迁移编号不一致。");
         var context = await _client.GetSetupContextAsync(_setup!, _lifetime.Token);
+        if (_closed) return;
         if (context.School.Id != receipt.School.Id || context.MigrationId != expected)
             throw new ConsoleApiException(502, "服务器初始化学校或迁移编号已变化。");
         _pending = null;
@@ -314,6 +326,7 @@ public sealed partial class SchoolSetupView : UserControl
         try
         {
             var providers = await _client.GetDesktopOAuthProvidersAsync(_lifetime.Token);
+            if (_closed) return;
             SetupProviders.ItemsSource = providers;
             SetupProviders.DisplayMemberBinding = new Avalonia.Data.Binding(nameof(DesktopOAuthProvider.Name));
             SetupProviders.SelectedIndex = providers.Count == 1 ? 0 : -1;
@@ -370,6 +383,8 @@ public sealed partial class SchoolSetupView : UserControl
             try { await _client.FinishSchoolSetupAsync(_setup!, _school.Id, _lifetime.Token); }
             catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
             {
+                SetWriting(false);
+                SetupNotice.Text = "未收到完成确认，正在只读核对服务器状态。可返回连接检查。";
                 if ((await _client.GetSetupStatusAsync(_lifetime.Token)).State != "COMPLETED") throw;
             }
             if (_closed) return;

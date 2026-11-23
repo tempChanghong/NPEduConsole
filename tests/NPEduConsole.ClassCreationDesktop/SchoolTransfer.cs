@@ -127,11 +127,17 @@ internal static partial class Program
                     string.IsNullOrEmpty(Field(wizard, "SetupPin").Text), "only nonsensitive school draft is preserved");
                 Field(wizard, "SetupPin").Text = access.Pin;
                 Click(Find<Button>(wizard, "SetupPrimary"));
-                await Until(() => Find<Border>(wizard, "SetupOwnerPanel").IsEffectivelyVisible && Ready(wizard, "SetupPrimary"),
-                    "creation response lost, readback finds school awaiting owner login");
-                await CaptureWithFrame(main, output, "03-wide-school-written");
+                await WaitForHeldReplyAsync(access.SplitApi + "/__oobe/recovery/held/initialize-write");
+                Check(!wizard.CanExit && !Ready(wizard, "SetupClose"), "actual creation POST still protects closing before it returns");
+                main.Close();
+                Check(main.IsVisible && wizard.IsEffectivelyVisible, "closing the actual window is blocked while the creation POST is pending");
+                await SetFixture("/recovery/release/initialize-write");
+                await WaitForHeldReplyAsync(access.SplitApi + "/__oobe/recovery/held/initialize");
+                await CaptureWithFrame(main, output, "03-wide-create-recovery-reading");
+                Check(Ready(wizard, "SetupClose"), "a held read-only check after the creation POST must allow returning to connection setup");
                 Click(Find<Button>(wizard, "SetupClose"));
                 await Until(() => connection.IsEffectivelyVisible, "return to checked-address flow");
+                Check(Field(connection, "SetupWebsiteAddress").Text == access.SourceOrigin, "return retains the original checked server address");
                 Field(connection, "SetupWebsiteAddress").Text = access.SplitWebsite;
                 Find<CheckBox>(connection, "SetupSeparateApi").IsChecked = true;
                 Field(connection, "SetupApiAddress").Text = access.SplitApi;
@@ -145,8 +151,18 @@ internal static partial class Program
                     Find<Button>(wizard, "SetupPrimary").IsEffectivelyEnabled, "resume the originally written school");
                 Check(Text(wizard, "SetupOwnerInfo").Contains(access.SchoolCode) &&
                     Text(wizard, "SetupServer").Contains(access.SplitApi!), "owner verification in the confirmed split API");
+                await SetFixture("/recovery/release/initialize");
+                Check(Ready(wizard, "SetupPrimary") && Text(wizard, "SetupOwnerInfo").Contains(access.SchoolCode),
+                    "the old read can finish without replacing the reopened school");
                 await CaptureWithFrame(main, output, "05-narrow-owner-verification");
                 EnterOwner(wizard);
+                await WaitForHeldReplyAsync(access.SplitApi + "/__oobe/recovery/held/complete-write");
+                Check(!wizard.CanExit && !Ready(wizard, "SetupClose"), "actual owner completion POST still protects closing");
+                await SetFixture("/recovery/release/complete-write");
+                await WaitForHeldReplyAsync(access.SplitApi + "/__oobe/recovery/held/complete");
+                Check(Ready(wizard, "SetupClose"), "a held read-only check after the completion POST must allow returning");
+                await CaptureWithFrame(main, output, "05a-narrow-owner-recovery-reading");
+                await SetFixture("/recovery/release/complete");
                 var create = Find<Button>(main, "OpenFirstSchoolClass");
                 await Until(() => create.IsEffectivelyVisible && create.IsEffectivelyEnabled, "owner completion reply lost but readback opens scoped first class action");
                 Check(Text(main, "FirstSchoolClassScope").Contains("首个启用学期"), "first class names the exact confirmed term");
@@ -194,6 +210,7 @@ internal static partial class Program
                     using var response = await http.GetAsync(access.SplitApi + "/__oobe" + path);
                     response.EnsureSuccessStatusCode();
                 }
+
             }
             else
             {
@@ -245,6 +262,12 @@ internal static partial class Program
                 Check(Find<TextBlock>(wizard, "SetupServer").Text?.Contains(access.TargetOrigin!) == true, "target origin is visible");
                 await Capture(wizard, output, "02-target-preview-compact");
                 Click(Find<Button>(wizard, "SetupPrimary"));
+                await WaitForHeldReplyAsync(access.TargetOrigin + "/__migration-recovery/held");
+                Check(wizard.CanExit && Ready(wizard, "SetupClose"), "migration receipt lookup does not keep the actual write lock");
+                await CaptureWithFrame(main, output, "02a-narrow-migration-receipt-reading");
+                using (var http = new HttpClient())
+                using (var release = await http.GetAsync(access.TargetOrigin + "/__migration-recovery/release"))
+                    release.EnsureSuccessStatusCode();
                 await Until(() => Find<Border>(wizard, "SetupOwnerPanel").IsVisible && Find<Button>(wizard, "SetupPrimary").IsEffectivelyEnabled,
                     "target found the original receipt after the proxy dropped the import response");
                 Check(Find<TextBlock>(wizard, "SetupNotice").Text?.Contains("确认这份迁移包写入") == true, "target reports committed data");
@@ -322,5 +345,17 @@ internal static partial class Program
             Click(Find<Button>(opening, "OpeningBack"));
             await Until(() => Ready(overview, "OpenSchoolOpeningButton"), "returns to the new or restored school overview");
         }
+    }
+
+    private static async Task WaitForHeldReplyAsync(string checkpoint)
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            using var response = await http.GetAsync(checkpoint);
+            if (response.IsSuccessStatusCode) return;
+            await Task.Delay(35);
+        }
+        throw new TimeoutException("The isolated fixture never held the response for " + new Uri(checkpoint).AbsolutePath);
     }
 }
