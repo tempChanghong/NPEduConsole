@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 
@@ -210,7 +209,7 @@ public sealed partial class ConsoleClient
         string version, string requestId, CancellationToken ct)
     {
         Envelope? envelope = null;
-        try { envelope = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct); }
+        try { envelope = await ReadEnvelopeAsync(response.Content, ct); }
         catch (JsonException) { }
         var code = envelope?.ProtocolVersion == version && envelope.RequestId == requestId ? envelope.Error?.Code : null;
         var message = code is not null ? ExamReason.Describe(code) : status switch

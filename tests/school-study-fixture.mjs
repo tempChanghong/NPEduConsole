@@ -74,6 +74,8 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
   const pgRows = () => prisma.$queryRaw`SELECT "targetType", "targetId", revision, policy FROM "NpepStudySetting" WHERE "schoolId"=${school.id}`;
   const gradeRow = async () => (await pgRows()).find(row => row.targetType === 'GRADE' && row.targetId === grade.id);
   const seatQuery = '?termId=' + term.id + '&classId=' + seven.id;
+  let holdSeatRead = true, corruptSeatRead = true;
+  const seatReadStarted = Promise.withResolvers(), seatReadCancelled = Promise.withResolvers();
   async function checkNative(mark) {
     for (let attempt = 0; attempt < 170; attempt++) {
       if (nativeFailure) throw nativeFailure;
@@ -87,6 +89,8 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
   legacy.catch(() => {});
   async function checkpoint(step) {
     if (step === 'web-change') await (await legacy).edit();
+    else if (step === 'seat-read-started') await seatReadStarted.promise;
+    else if (step === 'seat-read-cancelled') await seatReadCancelled.promise;
     else if (step === 'stale') {
       const rows = await pgRows();
       assert.equal((await gradeRow()).revision, 1);
@@ -157,18 +161,30 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
     }
     const studySave = req.method === 'POST' && req.url === studyPath;
     const seatSave = req.method === 'POST' && req.url === seatingPath;
+    const seatRead = req.method === 'GET' && req.url === seatingPath + seatQuery;
+    if (holdSeatRead && seatRead) {
+      holdSeatRead = false;
+      seatReadStarted.resolve();
+      res.once('close', () => seatReadCancelled.resolve());
+      return;
+    }
     if (req.method === 'GET' && req.url.startsWith(studyPath + '/requests/')) studyReceiptReads++;
     if (req.method === 'GET' && req.url.startsWith(seatingPath + '/requests/')) seatingReceiptReads++;
     const endpoint = new URL(req.url, origin);
     const forwarded = request(endpoint, {method: req.method, headers: {...req.headers, host: endpoint.host}}, response => {
-      if (response.statusCode !== 200 || !studySave && !seatSave) {
+      const injectBadReceipt = seatRead && corruptSeatRead;
+      if (response.statusCode !== 200 || !studySave && !seatSave && !injectBadReceipt) {
         res.writeHead(response.statusCode, response.headers); response.pipe(res); return;
       }
       const chunks = [];
       response.on('data', chunk => chunks.push(chunk));
       response.on('end', () => {
-        const body = Buffer.concat(chunks), value = JSON.parse(body).data;
-        if (studySave && !lostSchedule) { lostSchedule = true; res.destroy(); }
+        const body = Buffer.concat(chunks), envelope = JSON.parse(body), value = envelope.data;
+        if (injectBadReceipt) {
+          corruptSeatRead = false;
+          value.receipts.push(null);
+          res.writeHead(200, {'content-type': 'application/json'}).end(JSON.stringify(envelope));
+        } else if (studySave && !lostSchedule) { lostSchedule = true; res.destroy(); }
         else if (seatSave && value.revision === 2 && !lostSeat) { lostSeat = true; res.destroy(); }
         else { res.writeHead(response.statusCode, response.headers); res.end(body); }
       });
@@ -208,7 +224,7 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
     {mode: 0o600});
     await runDesktop(['--live-school-study', desktopPath, join(evidence, 'console')]);
     await native;
-    assert.deepEqual(checkpoints, ['web-change', 'stale', 'schedule-applied', 'start-native', 'old-in-use', 'allow-close',
+    assert.deepEqual(checkpoints, ['web-change', 'stale', 'schedule-applied', 'seat-read-started', 'seat-read-cancelled', 'start-native', 'old-in-use', 'allow-close',
       'new-in-use', 'withdrawn', 'restored', 'restored-inheritance']);
     await writeFile(join(evidence, 'cross-end-result.json'), JSON.stringify({passed: true, checkpoints, native: [...marks],
       date, room: seven.id, front: front.binding.id, rear: back.binding.id, studyReceiptReads, seatingReceiptReads}, null, 2));

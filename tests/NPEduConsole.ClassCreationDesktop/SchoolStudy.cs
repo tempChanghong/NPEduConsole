@@ -118,12 +118,27 @@ internal static partial class Program
             Click(openRoom);
 
             Click(seatingEntry);
+            var waiting = await WindowOf<SchoolStudySeatingWindow>();
+            await Signal("seat-read-started");
+            Check(Find<Button>(waiting, "SeatClose").IsEffectivelyEnabled, "A delayed seat read must leave the return action available.");
+            waiting.Close();
+            Check(!waiting.IsVisible, "Window close must release the parent while a seat read is still pending.");
+            await Signal("seat-read-cancelled");
+            await Until(() => seatingEntry.IsEffectivelyEnabled, "same classroom usable after cancelling a seat read");
+            Click(seatingEntry);
             var seating = await WindowOf<SchoolStudySeatingWindow>();
             var saveSeat = Find<Button>(seating, "SeatSave");
+            await Until(() => Find<TextBlock>(seating, "SeatFeedback").Text?.Contains("不兼容") == true, "report a malformed seat record without closing the app");
+            Check(!saveSeat.IsEffectivelyEnabled, "no seat edits based on an unreadable snapshot");
+            Click(Find<Button>(seating, "SeatRefresh"));
             await Until(() => Find<Button>(seating, "SeatChoose").IsEffectivelyEnabled, "exact class seating editor loaded");
             seating.StageImage(SchoolStudySeatingWindow.NormalizePng(File.ReadAllBytes(access.Image1)));
             Check(saveSeat.IsEffectivelyEnabled, "synthetic image passes production normalizer and preview");
+            seating.Close();
+            Check(seating.IsVisible && Find<Button>(seating, "SeatClose").Content is "放弃草稿", "an unpublished draft still needs an explicit discard");
             Click(saveSeat);
+            seating.Close();
+            Check(seating.IsVisible && !Find<Button>(seating, "SeatClose").IsEffectivelyEnabled, "publishing protects the in-flight write");
             await WaitSeat(1);
             await Signal("start-native");
             seating.StageImage(SchoolStudySeatingWindow.NormalizePng(File.ReadAllBytes(access.Image2)));

@@ -20,8 +20,9 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args is not ([_] or ["--live" or "--live-lost", _, _])) throw new ArgumentException("Specify an output directory or --live/--live-lost <fixture.json> <directory>.");
-        using var fixture = args.Length == 1 ? new Fixture() : null;
+        var directoryRecovery = args is ["--directory-recovery", _];
+        if (!directoryRecovery && args is not ([_] or ["--live" or "--live-lost", _, _])) throw new ArgumentException("Specify an output directory, --directory-recovery <directory> or --live/--live-lost <fixture.json> <directory>.");
+        using var fixture = args.Length == 1 || directoryRecovery ? new Fixture() : null;
         var access = fixture?.Access ?? JsonSerializer.Deserialize<Access>(File.ReadAllText(args[1]), JsonSerializerOptions.Web)!;
         bool lost = args[0] == "--live-lost";
         string origin = lost ? access.LostReplyOrigin : access.Origin;
@@ -29,11 +30,11 @@ internal static class Program
         string output = args[^1];
         Directory.CreateDirectory(output);
         return AppBuilder.Configure<ConsoleApplication>().UsePlatformDetect()
-            .AfterSetup(builder => Dispatcher.UIThread.Post(() => { _ = VerifyAsync(access, origin, fixture, lost, output); }))
+            .AfterSetup(builder => Dispatcher.UIThread.Post(() => { _ = VerifyAsync(access, origin, fixture, lost, output, directoryRecovery); }))
             .StartWithClassicDesktopLifetime([]);
     }
 
-    private static async Task VerifyAsync(Access access, string origin, Fixture? fixture, bool lost, string output)
+    private static async Task VerifyAsync(Access access, string origin, Fixture? fixture, bool lost, string output, bool directoryRecovery)
     {
         var desktop = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
         try
@@ -51,6 +52,42 @@ internal static class Program
             Find<TextBox>("ServerAddress").Text = origin;
             Find<TextBox>("SchoolCode").Text = access.SchoolCode;
             Find<TextBox>("Username").Text = access.Username;
+            if (directoryRecovery)
+            {
+                var server = fixture!;
+                var message = Find<TextBlock>("LoginMessage");
+                foreach (var fault in new[] { "charset", "membership" })
+                {
+                    server.DirectoryFault = fault;
+                    Find<TextBox>("Password").Text = access.Password;
+                    Click(login);
+                    await Until(() => login.IsEffectivelyEnabled && !string.IsNullOrWhiteSpace(message.Text),
+                        $"invalid {fault} is recoverable at the login page");
+                    Check(schools.ItemCount == 0, "incomplete memberships cannot grant a school");
+                }
+                server.DirectoryFault = "utf8";
+                Find<TextBox>("Password").Text = access.Password;
+                Click(login);
+                await Until(() => schools.ItemCount == 2, "retry with a UTF-8 alias signs in");
+                SelectSchool(access.SchoolId);
+                await Until(() => classes.ItemCount > 0, "school directory initially loads");
+                Click(Find<Button>("OpenClassWorkspaceButton"));
+                var read = Find<Button>("RefreshClassDirectoryButton");
+                await Until(() => read.IsEffectivelyVisible && read.IsEffectivelyEnabled, "directory refresh reachable");
+                foreach (var fault in new[] { "screens", "classes", "devices", "terms" })
+                {
+                    server.DirectoryFault = fault;
+                    Click(read);
+                    await Until(() => Find<TextBlock>("ClassListMessage").Text?.Contains("读取失败") == true, $"invalid {fault} gives a directory error");
+                    Check(classes.ItemCount == 0 && schools.SelectedItem is School { Id: "school" }, "retain authorized school, clear incomplete list");
+                    server.DirectoryFault = "";
+                    Click(read);
+                    await Until(() => classes.ItemCount > 0, "refresh recovers in the same session");
+                }
+                await SignOut();
+                End("PASS: login and class directory recover from incompatible responses, UTF-8 alias, same-session retry and logout.", 0);
+                return;
+            }
             Find<TextBox>("Password").Text = access.Password;
             Click(login);
             if (fixture is not null)
@@ -243,6 +280,7 @@ internal static class Program
         private readonly List<ScreenRow> _screens = [new("inactive-screen", "inactive", false)];
         public Access Access { get; }
         public bool FailNextList { get; set; }
+        public volatile string DirectoryFault = "";
         public bool OverviewUnavailable { get; set; }
         public int WriteCount { get; private set; }
         public string? LastAdmissionScreen { get; private set; }
@@ -254,6 +292,26 @@ internal static class Program
             builder.Logging.ClearProviders();
             builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0));
             _app = builder.Build();
+            _app.Use(async (context, next) =>
+            {
+                var path = context.Request.Path.Value!;
+                var fault = DirectoryFault;
+                if (path == "/accounts/local/login" && fault is "charset" or "utf8")
+                {
+                    var charset = fault == "utf8" ? "utf8" : "unrecognized-charset";
+                    context.Response.ContentType = "application/json; charset=" + charset;
+                    await context.Response.Body.WriteAsync("""{"success":true,"data":{"access_token":"fixture-school-token"}}"""u8.ToArray());
+                }
+                else if ((path == "/api/v2/me/schools" && fault == "membership") || (path.EndsWith("/classroom-screens") && fault == "screens"))
+                    await Academic(new object?[] { null }).ExecuteAsync(context);
+                else if (path == "/api/v2/me/schools" && fault == "terms")
+                    await Academic(new[] { new { role = "ADMIN", school = new { id = "school", name = "首屏演练学校", terms = new object?[] { null } } } }).ExecuteAsync(context);
+                else if (path.EndsWith("/academic-structure") && fault == "classes")
+                    await Academic(new { term = new { id = "term", status = "ACTIVE" }, administrativeClasses = new object?[] { null } }).ExecuteAsync(context);
+                else if (path.EndsWith("/device-overview") && fault == "devices")
+                    await Protocol("0.1", context.Request.Headers["X-Request-Id"].ToString(), new { items = new object?[] { null }, nextCursor = (string?)null }).ExecuteAsync(context);
+                else await next(context);
+            });
             _app.MapPost("/accounts/local/login", () => Academic(new { access_token = "fixture-school-token" }));
             _app.MapPost("/accounts/logout", () => Academic(new { }));
             var term = new { id = "term", status = "ACTIVE" };

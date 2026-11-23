@@ -204,7 +204,7 @@ public sealed partial class ConsoleClient
         {
             using var response = await client.SendAsync(request, ct);
             await EnsureTransferSuccessAsync(response, ct);
-            var envelope = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct);
+            var envelope = await ReadEnvelopeAsync(response.Content, ct);
             return envelope is { Success: true } ? ReadData<T>(envelope) : throw InvalidResponse();
         }
         catch (JsonException) { throw InvalidResponse(); }

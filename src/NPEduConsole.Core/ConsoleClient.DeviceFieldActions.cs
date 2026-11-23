@@ -1,4 +1,3 @@
-using System.Net.Http.Json;
 
 namespace NPEduConsole.Core;
 
@@ -92,7 +91,7 @@ public sealed partial class ConsoleClient
     {
         if (status == 426) return new(426, "此 KV 版本尚未提供现场处置。请升级服务后重试。", "FIELD_ACTION_UNSUPPORTED");
         Envelope? envelope = null;
-        try { envelope = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct); }
+        try { envelope = await ReadEnvelopeAsync(response.Content, ct); }
         catch (System.Text.Json.JsonException) { }
         string? code = envelope?.ProtocolVersion == FieldVersion && envelope.RequestId == requestId ? envelope.Error?.Code : null;
         return new(status, code switch

@@ -148,8 +148,9 @@ public sealed partial class ConsoleClient
         var result = await RequestAsync<SchoolStudySeating>(HttpMethod.Get, SeatingAdminPath(scope.SchoolId) + SeatingQuery(scope),
             session.Token, ct, "0.14");
         CheckCreationSession(session, ct);
-        if (result.Versions.Length > 20 || result.Bindings.Select(row => row.BindingId).Distinct().Count() != result.Bindings.Length ||
-            !ValidSeatingVersion(result.Current) || result.Versions.Any(row => !ValidSeatingVersion(row))) throw InvalidResponse();
+        RequireNonNullRows(result.Receipts);
+        if (result.Versions.Length > 20 || RequireNonNullRows(result.Bindings).Select(row => row.BindingId).Distinct().Count() != result.Bindings.Length ||
+            !ValidSeatingVersion(result.Current) || RequireNonNullRows(result.Versions).Any(row => !ValidSeatingVersion(row))) throw InvalidResponse();
         return result;
     }
 

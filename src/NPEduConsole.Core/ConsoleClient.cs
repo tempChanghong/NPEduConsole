@@ -110,8 +110,16 @@ public sealed partial class ConsoleClient : IDisposable
         catch (Exception error) when (error is ConsoleApiException or OperationCanceledException or ObjectDisposedException) { }
     }
 
-    private Task<Membership[]> MembershipsAsync(string token, CancellationToken ct) =>
-        RequestAsync<Membership[]>(HttpMethod.Get, "api/v2/me/schools", token, ct);
+    private async Task<Membership[]> MembershipsAsync(string token, CancellationToken ct)
+    {
+        var rows = await RequestAsync<Membership[]>(HttpMethod.Get, "api/v2/me/schools", token, ct);
+        foreach (var membership in RequireNonNullRows(rows)) RequireNonNullRows(membership.School.Terms);
+        return rows;
+    }
+
+    // System.Text.Json validates required array properties, but not the nullability of their elements.
+    private static T[] RequireNonNullRows<T>(T[] rows) where T : class =>
+        Array.IndexOf(rows, null) < 0 ? rows : throw InvalidResponse();
 
     private static bool IsAdministrator(Membership membership) => membership.Role is "OWNER" or "ADMIN";
     private Session CurrentSession => _session ?? throw new ConsoleApiException(401, "请先登录管理账号。");
@@ -139,10 +147,10 @@ public sealed partial class ConsoleClient : IDisposable
         // A screen account may already exist before NPEduTools pairs. Keep it visible in that state.
         var devices = await devicesTask;
         var byScreen = (devices ?? []).ToLookup(d => (d.AdministrativeClassId, d.ScreenBindingId, d.BindingRevision));
-        var byClass = screens.Where(s => s.SchoolId == schoolId && s.AdministrativeClassId is not null)
+        var byClass = RequireNonNullRows(screens).Where(s => s.SchoolId == schoolId && s.AdministrativeClassId is not null)
             .ToLookup(s => s.AdministrativeClassId!);
         var classrooms = new List<Classroom>();
-        foreach (var room in structure.AdministrativeClasses.Where(c => c.IsActive))
+        foreach (var room in RequireNonNullRows(structure.AdministrativeClasses).Where(c => c.IsActive))
         {
             var roomScreens = new List<Screen>();
             var bindings = byClass[room.Id];
@@ -181,7 +189,7 @@ public sealed partial class ConsoleClient : IDisposable
         {
             var url = cursor is null ? path : path + "&cursor=" + Segment(cursor);
             var page = await RequestAsync<OverviewPage>(HttpMethod.Get, url, token, ct, version: "0.1");
-            devices.AddRange(page.Items.Where(d => d.SchoolId == schoolId && d.State == "ACTIVE" && !d.BindingChanged));
+            devices.AddRange(RequireNonNullRows(page.Items).Where(d => d.SchoolId == schoolId && d.State == "ACTIVE" && !d.BindingChanged));
             if (page.NextCursor is not null && (!Guid.TryParseExact(page.NextCursor, "D", out _)
                 || string.CompareOrdinal(page.NextCursor, cursor) <= 0))
                 throw InvalidResponse();
@@ -198,7 +206,7 @@ public sealed partial class ConsoleClient : IDisposable
         var response = ReadData<EquipmentResponse>(envelope);
         var policy = response.Policy;
         var inventory = response.Inventory;
-        var microphones = inventory?.Microphones ?? [];
+        var microphones = inventory is null ? [] : RequireNonNullRows(inventory.Microphones);
         string? NameFor(string? id) => id is null ? null : microphones.FirstOrDefault(m => m.Id == id)?.Name;
         var name = policy.MicrophoneId is null ? null : NameFor(policy.MicrophoneId) ?? "已指定（上报清单中无名称）";
         return new Equipment(policy.Revision, inventory?.AppliedRevision, policy.Locked, inventory?.Unlocked, name,
@@ -315,6 +323,18 @@ public sealed partial class ConsoleClient : IDisposable
         catch (JsonException) { throw InvalidResponse(); }
     }
 
+    private static async Task<Envelope?> ReadEnvelopeAsync(HttpContent content, CancellationToken ct)
+    {
+        var type = content.Headers.ContentType;
+        if (type is not null && string.Equals(type.CharSet?.Trim('"'), "utf8", StringComparison.OrdinalIgnoreCase))
+            type.CharSet = "utf-8";
+        try { return await content.ReadFromJsonAsync<Envelope>(Json, ct); }
+        catch (InvalidOperationException error) when (error.InnerException is ArgumentException)
+        {
+            throw new JsonException("Unsupported JSON response encoding.", error);
+        }
+    }
+
     private async Task<Envelope> SendAsync(HttpMethod method, string path, string? token, CancellationToken ct,
         string? version = null, object? body = null, Guid? operationId = null)
     {
@@ -390,14 +410,14 @@ public sealed partial class ConsoleClient : IDisposable
                 if (version is not null && IsSchoolStudyAdminPath(path) && status is 400 or 403 or 404 or 409 or 413 or 426)
                 {
                     Envelope? protocolError = null;
-                    try { protocolError = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct); }
+                    try { protocolError = await ReadEnvelopeAsync(response.Content, ct); }
                     catch (JsonException) { }
                     if (protocolError?.RequestId == requestId && protocolError.ProtocolVersion == version)
                         throw SchoolStudyProtocolError(status, protocolError.Error?.Code);
                 }
                 if (version is not null && status == 409)
                 {
-                    var error = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct);
+                    var error = await ReadEnvelopeAsync(response.Content, ct);
                     if (error?.RequestId == requestId && error.ProtocolVersion == version)
                         throw ProtocolConflict(error.Error?.Code);
                 }
@@ -419,7 +439,7 @@ public sealed partial class ConsoleClient : IDisposable
                 }
                 throw HttpError(status, token is null);
             }
-            var envelope = await response.Content.ReadFromJsonAsync<Envelope>(Json, ct) ?? throw InvalidResponse();
+            var envelope = await ReadEnvelopeAsync(response.Content, ct) ?? throw InvalidResponse();
             if (version is null ? envelope.Success != true :
                 envelope.ProtocolVersion != version || envelope.RequestId != requestId || envelope.ServerTime is null)
                 throw InvalidResponse();

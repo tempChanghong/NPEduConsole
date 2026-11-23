@@ -39,7 +39,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
     private byte[]? _draftPreview;
     private Bitmap? _bitmap;
     private long _seatReadTime;
-    private bool _busy, _closed, _allowClose, _filling, _retry, _needsReview, _discardAsked;
+    private bool _busy, _sending, _closed, _allowClose, _filling, _retry, _needsReview, _discardAsked;
 
     public SchoolStudySeatingWindow() => InitializeComponent();
 
@@ -63,8 +63,8 @@ public sealed partial class SchoolStudySeatingWindow : Window
         Closing += (_, args) =>
         {
             if (_allowClose) return;
-            args.Cancel = _busy || _draft is not null && Pending is null;
-            if (args.Cancel && !_busy) WarnClose();
+            args.Cancel = _sending || _draft is not null && Pending is null;
+            if (args.Cancel && !_sending) WarnClose();
         };
         Closed += (_, _) =>
         {
@@ -280,7 +280,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
         _retry = false;
         try
         {
-            var saved = await _client.SaveSchoolSeatingAsync(operation.Edit, operation.Id, _lifetime.Token);
+            var saved = await PublishAsync(operation);
             if (!_closed) await SavedAsync(saved);
         }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
@@ -292,6 +292,14 @@ public sealed partial class SchoolStudySeatingWindow : Window
             if (error.Code == "SEATING_CHANGED") { _needsReview = true; await LoadAsync(preserve: true); }
             if (!_closed) SeatFeedback.Text = error.Message;
         }
+    }
+
+    private async Task<StudySeatingVersion> PublishAsync(Operation operation)
+    {
+        _sending = true;
+        UpdateControls();
+        try { return await _client.SaveSchoolSeatingAsync(operation.Edit, operation.Id, _lifetime.Token); }
+        finally { _sending = false; if (!_closed) UpdateControls(); }
     }
 
     private async Task SavedAsync(StudySeatingVersion result)
@@ -420,7 +428,8 @@ public sealed partial class SchoolStudySeatingWindow : Window
         SeatUseCurrent.IsEnabled = editable && (SelectedHistory is not null || _draft is not null);
         SeatRestore.IsEnabled = editable && SelectedHistory?.Version.Restorable == true;
         SeatWithdraw.IsEnabled = editable && _snapshot?.Current.Hash is not null;
-        SeatRefresh.IsEnabled = SeatClose.IsEnabled = SeatDevices.IsEnabled = !_busy;
+        SeatRefresh.IsEnabled = SeatDevices.IsEnabled = !_busy;
+        SeatClose.IsEnabled = !_sending;
         SeatCheck.IsVisible = Pending is not null;
         SeatCheck.IsEnabled = !_busy;
         SeatSave.IsEnabled = !_busy && (Pending is not null ? _retry : editable && _draft is not null);
@@ -437,6 +446,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
 
     private void CloseSeat(object? sender, RoutedEventArgs args)
     {
+        if (_sending) return;
         if (_draft is not null && Pending is null)
         {
             if (!_discardAsked) { WarnClose(); return; }
