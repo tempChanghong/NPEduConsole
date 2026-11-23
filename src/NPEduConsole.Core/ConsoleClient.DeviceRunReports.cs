@@ -30,6 +30,7 @@ public sealed partial class ConsoleClient
     private sealed record ScheduleRecord(string SessionId, string Version, StudyReportWindow Window);
     private sealed record DeviceSchedule(ScheduleRecord[] Sessions);
     private sealed record ClassRunWire(System.Text.Json.JsonElement[] Items);
+    private sealed record ClassRunFragments(DeviceReportWire[] Fragments);
 
     public async Task<DeviceRunReports> ReadDeviceRunReportsAsync(DeviceFieldScope scope, CancellationToken ct)
     {
@@ -79,14 +80,15 @@ public sealed partial class ConsoleClient
         catch (ConsoleApiException error) when (error.StatusCode == 404) { CheckCreationSession(current, ct); return null; }
         CheckCreationSession(current, ct);
         if (data.Items is not [var item]) throw InvalidResponse();
-        var group = System.Text.Json.JsonSerializer.Deserialize<StudyReportGroup>(item, Json);
-        if (group is null || !ValidStudyGroup(group) || group.DeviceId != scope.DeviceId || group.FragmentCount != 1 ||
-            group.Fragments is not [var fragment] || fragment.SessionId != sessionId || fragment.Ownership != ownership ||
+        var group = ReadValue<StudyReportGroup>(item);
+        if (!ValidStudyGroup(group) || group.DeviceId != scope.DeviceId || group.FragmentCount != 1 ||
+            group.Fragments is not [{ } fragment] || fragment.SessionId != sessionId || fragment.Ownership != ownership ||
             fragment.Study.Mode != group.Mode || fragment.Study.Window != group.Window ||
             group.Photos is null || group.Photos.Length > 300 || group.Photos.Any(p => p is null || !ValidRecordId(p.EventId)) ||
             group.Events is null || group.Events.Length > 300 || group.Events.Any(e => e is null || !ValidRecordId(e.EventId) ||
                 e.PhotoEventId is not null && e.PhotoEventId != e.EventId)) throw InvalidResponse();
-        var row = System.Text.Json.JsonSerializer.Deserialize<DeviceReportWire>(item.GetProperty("fragments")[0], Json);
+        var details = ReadValue<ClassRunFragments>(item);
+        if (details.Fragments is not [{ } row]) throw InvalidResponse();
         return new(ConvertDeviceReport(row, ownership, []), group);
     }
 

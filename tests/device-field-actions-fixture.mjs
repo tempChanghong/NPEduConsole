@@ -91,6 +91,8 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
   const marks = new Set(), steps = [];
   let native, nativeError, browser, resumeBody, resumeReceipt, revokeBody, revokeReceipt, legacyEvidence, legacyReports;
   let reportProof, exportProof;
+  const reportFaults = ['missing-fragment-fields', 'empty-fragment-row', 'missing-elapsed-seconds'];
+  let nextReportFault;
   let revokePosts = 0, ownRevokeReads = 0;
   let legacyFront;
   async function wait(mark, timeout = 35000) {
@@ -191,6 +193,8 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
         assert.equal((await classReport(replacement, reportProof.matchedSession, room.id, 404)).code, 'NOT_FOUND');
         reportProof.replacementDeviceId = replacement.device.id;
       }
+    } else if (withReports && reportFaults.includes(name)) {
+      nextReportFault = name;
     } else if (withReports && name === 'report-revoke') {
       await prisma.schoolMember.update({where:{schoolId_accountId:{schoolId:school.id,accountId:managerId}},data:{role:'VIEWER'}});
     } else if (withReports && name === 'report-restored') {
@@ -325,6 +329,16 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
       for (const key of ['connection', 'host', 'transfer-encoding', 'content-length']) delete headers[key];
       const upstream = await fetch(url, {method: req.method, headers, body, redirect: 'manual'});
       const response = Buffer.from(await upstream.arrayBuffer());
+      if (nextReportFault && upstream.ok && url.pathname.endsWith('/study-sessions') && url.searchParams.has('sessionId')) {
+        const reply = JSON.parse(response);
+        const parts = reply.data.items[0].fragments;
+        assert.equal(parts.length, 1);
+        if (nextReportFault === 'missing-fragment-fields') delete parts[0].summary;
+        else if (nextReportFault === 'missing-elapsed-seconds') delete parts[0].summary.elapsedSeconds;
+        else parts[0] = null;
+        nextReportFault = null;
+        return res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(reply));
+      }
       if (withReports && url.pathname.endsWith('/device-overview') && url.searchParams.get('search') === '延迟诊断') {
         marks.add('delayed-diagnostic-response');
         await wait('release-diagnostic-response');
@@ -383,7 +397,8 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
       await runDesktop(['--live-device-field-actions', access, join(evidence, 'console')]);
       await native;
     }});
-    assert.deepEqual(steps, ['arm', 'received', 'processed', 'sample-shown', 'second-stop', 'revoked', ...(withReports
+    assert.deepEqual(steps, ['arm', 'received', 'processed', 'sample-shown', 'second-stop',
+      ...(withReports ? reportFaults : []), 'revoked', ...(withReports
       ? ['report-revoke','report-restored','export-revoke','export-restored','export-begin-switch','export-finish-switch'] : [])]);
     const attribution = await verifyAttribution();
     await writeFile(join(evidence, 'device-field-actions-result.json'), JSON.stringify({result: 'PASS', steps, marks: [...marks],

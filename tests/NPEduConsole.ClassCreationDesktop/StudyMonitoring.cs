@@ -122,10 +122,12 @@ internal static partial class Program
             Check(Find<TextBlock>(window, "RecordsScope").Text?.Contains("学校日期 " + access.Date.ToString("yyyy/M/d")) == true,
                 "class selector labels the school-clock date separately from capture time");
             await Capture(window, output, "03-compact-single-photo");
+            Click(compact.FindControl<Button>("StudyRecordsDelete")!);
             Click(back);
             await Until(() => list.IsEffectivelyVisible && list.SelectedItem is StudyRecordRow row && row.Key == selected.Key &&
                 list.ContainerFromItem(row) is ListBoxItem {IsFocused: true}, "back restores selection and keyboard focus");
             Check(image.Source is null, "return releases the preview");
+            Check(!Find<Button>(window, "RemoveRecordConfirm").IsEffectivelyVisible, "leaving the photo cancels its deletion");
             list.RaiseEvent(new KeyEventArgs {RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter});
             await Until(() => image.Source is not null, "photo open before permission is revoked");
             await Signal("revoke");
@@ -222,6 +224,14 @@ internal static partial class Program
             Check(summary.IsEffectivelyVisible && summary.Text?.Contains("7）班") == true && summary.Text.Contains("拍摄") &&
                 summary.Text.Contains("连续超限"), "delete confirmation identifies class, capture time and event");
             await Capture(removal, output, "07-delete-confirmation");
+            removalList.SelectedItem = removalList.Items.OfType<StudyRecordRow>().Single(row => row.Key == "exit:" + access.ExitId);
+            await Until(() => !summary.IsEffectivelyVisible && !Find<Button>(removal, "RemoveRecordConfirm").IsEffectivelyVisible,
+                "opening another record cancels the previous photo deletion");
+            Click(Find<Button>(removal, "RemoveRecordConfirm"));
+            await Signal("photo-retained-after-selection-change");
+            removalList.SelectedItem = removalList.Items.OfType<StudyRecordRow>().Single(row => row.PhotoId == access.PhotoId);
+            await Until(() => delete.IsEffectivelyEnabled && delete.IsEffectivelyVisible, "original photo still opens");
+            Click(delete);
             Click(Find<Button>(removal, "RemoveRecordConfirm"));
             await Until(() => removalList.Items.OfType<StudyRecordRow>().Count() == 1 &&
                 removalList.Items.OfType<StudyRecordRow>().Single().Key == "exit:" + access.ExitId, "deleting the photo keeps the separate exit record");

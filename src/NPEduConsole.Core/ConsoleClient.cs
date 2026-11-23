@@ -316,10 +316,12 @@ public sealed partial class ConsoleClient : IDisposable
         string? version = null, object? body = null) =>
         ReadData<T>(await SendAsync(method, path, token, ct, version, body));
 
-    private static T ReadData<T>(Envelope envelope)
+    private static T ReadData<T>(Envelope envelope) => ReadValue<T>(envelope.Data);
+
+    private static T ReadValue<T>(JsonElement data)
     {
-        if (envelope.Data.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) throw InvalidResponse();
-        try { return envelope.Data.Deserialize<T>(Json) ?? throw InvalidResponse(); }
+        if (data.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) throw InvalidResponse();
+        try { return data.Deserialize<T>(Json) ?? throw InvalidResponse(); }
         catch (JsonException) { throw InvalidResponse(); }
     }
 

@@ -94,6 +94,21 @@ internal static partial class Program
                 var row = (DeviceRunReportRow)Find<ListBox>(ended, "RunReportRows").SelectedItem!;
                 Check(row.Report.Ownership?.ClassId == access.RoomId && row.Report.Summary.SampledSeconds > 0, "ended native report has exact class and sampling");
                 await Capture(ended, output, "08-wide-resume-linked-report");
+                var sessionId = row.Report.SessionId;
+                foreach (var fault in new[] { "missing-fragment-fields", "empty-fragment-row", "missing-elapsed-seconds" })
+                {
+                    await Signal(fault);
+                    await PressScoped(ended, "RunReportRecords");
+                    await Until(() => Read(ended, "RunReportFeedback").Contains("不兼容") && Ready(ended, "RunReportRecords"),
+                        "incomplete archived fragment stays recoverable in the original report window");
+                    Check(!desktop.Windows.OfType<StudyRecordsWindow>().Any(w => w.IsVisible),
+                        "an unreadable historical report opens no records");
+                    await PressScoped(ended, "RunReportRefresh");
+                    await Until(() => Read(ended, "RunReportFeedback").Contains("已定位") && Ready(ended, "RunReportRecords"),
+                        "same report can be refreshed after a failed details read");
+                    row = (DeviceRunReportRow)Find<ListBox>(ended, "RunReportRows").SelectedItem!;
+                    Check(row.Report.SessionId == sessionId, "refresh keeps the originally selected capture session");
+                }
                 await PressScoped(ended, "RunReportRecords");
                 var exitRecords = await Open<StudyRecordsWindow>();
                 await Until(() => Read(exitRecords, "RecordsStatus").Contains("已读取 1 条"), "only the matched capture's one authorized exit record is listed");

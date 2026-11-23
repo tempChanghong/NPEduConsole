@@ -77,7 +77,6 @@ public sealed partial class StudyRecordsWindow : Window
         {
             _request?.Cancel();
             ClearPreview();
-            SetRemoval(null);
             _rows.Clear();
             _photoCursor = _exitCursor = null;
             Records.SetRows([], false);
@@ -200,7 +199,7 @@ public sealed partial class StudyRecordsWindow : Window
 
     private void ConfirmRemoval(StudyRecordRow row)
     {
-        if (_request is not null || row.PhotoId is not { } id) return;
+        if (_request is not null || row.PhotoId is not { } id || id != _loadedPhoto) return;
         var photo = _rows.FirstOrDefault(entry => entry.Row.Key == $"photo:{id}").Row;
         SetRemoval(photo ?? row);
         RemoveRecordCancel.Focus();
@@ -221,8 +220,7 @@ public sealed partial class StudyRecordsWindow : Window
 
     private async void RemovePhoto(object? sender, RoutedEventArgs e)
     {
-        if (_removing?.PhotoId is not { } id || _request is not null) return;
-        SetRemoval(null);
+        if (_removing?.PhotoId is not { } id || id != _loadedPhoto || _request is not null) return;
         ClearPreview();
         string? outcome = null;
         await RunAsync("正在删除这一张照片…", async token =>
@@ -242,6 +240,7 @@ public sealed partial class StudyRecordsWindow : Window
 
     private void ClearPreview()
     {
+        SetRemoval(null);
         Records.SetPreview(null, null);
         _bitmap?.Dispose();
         _bitmap = null;
@@ -262,7 +261,6 @@ public sealed partial class StudyRecordsWindow : Window
             if (_closed || _request != request) return;
             _denied = true;
             ClearPreview();
-            SetRemoval(null);
             _rows.Clear();
             Records.SetRows([], false);
             RecordsRefresh.IsEnabled = RecordsAllDays.IsEnabled = false;

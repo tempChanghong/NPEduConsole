@@ -162,6 +162,9 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
           await api(studyPath, {method: 'POST', version: '0.10', body: {...change, expectedPreviewFingerprint: next.previewFingerprint}});
           assert.deepEqual((await prisma.npepStudyPhoto.findUniqueOrThrow({where: {eventId: capture.photoId}})).expiresAt, shortened.expiresAt);
           assert.deepEqual((await prisma.npepStudyExitEvent.findUniqueOrThrow({where: {eventId: capture.exitId}})).expiresAt, oldExit.expiresAt);
+        } else if (step === 'photo-retained-after-selection-change') {
+          assert.equal((await api(photoPath + '/image' + query)).bytes.length, download.bytes.length);
+          assert.equal(await prisma.npepAudit.count({where: {objectId: capture.photoId, action: 'STUDY_PHOTO_DELETE'}}), 0);
         } else if (step === 'expire-image') {
           savedExpiry = (await prisma.npepStudyPhoto.findUniqueOrThrow({where: {eventId: capture.photoId}})).expiresAt;
           await prisma.npepStudyPhoto.update({where: {eventId: capture.photoId}, data: {expiresAt: new Date(Date.now() - 1000)}});
