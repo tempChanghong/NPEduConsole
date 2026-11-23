@@ -40,6 +40,20 @@
     <Setter Property="Background" Value="{DynamicResource CanvasBrush}"/>
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
   </Style>
+  <Style Selector="TextBox:disabled /template/ Border#PART_BorderElement, ComboBox:disabled /template/ Border#Background">
+    <Setter Property="Background" Value="{DynamicResource FieldBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+  </Style>
+  <Style Selector="Button.action:disabled /template/ ContentPresenter#PART_ContentPresenter, Button.picker-trigger:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+    <Setter Property="Background" Value="{DynamicResource FieldBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
+  </Style>
+  <Style Selector="Button.shell-nav:disabled /template/ ContentPresenter#PART_ContentPresenter">
+    <Setter Property="Background" Value="Transparent"/>
+    <Setter Property="BorderBrush" Value="Transparent"/>
+    <Setter Property="Opacity" Value="0.68"/>
+  </Style>
   <Style Selector="TextBox:error /template/ Border#PART_BorderElement, local|FormField:invalid TextBox /template/ Border#PART_BorderElement">
     <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}"/>
     <Setter Property="BorderThickness" Value="2"/>
@@ -53,7 +67,7 @@
     <Setter Property="MinHeight" Value="36"/>
     <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}"/>
     <Setter Property="InnerLeftContent">
-      <Template><Path Margin="2,0,8,0" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center"
+      <Template><Path Margin="10,0,0,0" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center"
                       Stroke="{DynamicResource MutedBrush}" StrokeThickness="1.5" StrokeLineCap="Round"
                       Data="M 6,1.4 A 4.6,4.6 0 1 0 6,10.6 A 4.6,4.6 0 1 0 6,1.4 Z M 9.5,9.5 L 13,13"/></Template>
     </Setter>

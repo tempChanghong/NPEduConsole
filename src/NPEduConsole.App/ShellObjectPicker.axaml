@@ -66,7 +66,7 @@
               Data="M 6,1.5 A 4.5,4.5 0 1 0 6,10.5 A 4.5,4.5 0 1 0 6,1.5 Z M 9.4,9.4 L 12,12" />
         <TextBlock x:Name="TriggerText" Grid.Column="1" Margin="8,0,8,0" Classes="picker-placeholder"
                    Text="查找班级或大屏" />
-        <Border Grid.Column="2" Classes="keyhint" IsVisible="True">
+        <Border Grid.Column="2" Classes="keyhint">
           <TextBlock Text="Ctrl+K" />
         </Border>
       </Grid>

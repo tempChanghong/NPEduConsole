@@ -69,7 +69,12 @@ internal static class WindowFrameChecks
             temporary.Show(main);
             await Task.Delay(120);
             Require(temporary.IsExtendedIntoWindowDecorations && temporary.Padding.Top >= 40, "代码创建的对话框使用同一窗框");
-            temporary.Close();
+            var childHandle = temporary.TryGetPlatformHandle()!.Handle;
+            PostMessage(childHandle, 0x0104, 0x73, 0x203E0001); // WM_SYSKEYDOWN, Alt+F4
+            for (int attempt = 0; temporary.IsVisible && attempt < 40; attempt++) await Task.Delay(25);
+            Require(!temporary.IsVisible, "Alt+F4 通过正常关闭路径退出子窗口");
+            main.Activate();
+            await CheckSystemMenu(handle);
 
             var titlePoint = main.PointToScreen(new Point(main.ClientSize.Width / 2, 22));
             PostMessage(handle, 0x00A3, 2, (titlePoint.X & 65535) | (titlePoint.Y << 16));
@@ -109,6 +114,30 @@ internal static class WindowFrameChecks
         return SendMessage(window.TryGetPlatformHandle()!.Handle, 0x0084, 0, (screen.X & 65535) | (screen.Y << 16));
     }
 
+    private static async Task CheckSystemMenu(nint hwnd)
+    {
+        uint threadId = GetWindowThreadProcessId(hwnd, out _);
+        // The native system menu runs its own loop. Observe and dismiss only this test window's menu.
+        bool opened = await Task.Run(async () =>
+        {
+            var info = new GuiThreadInfo { Size = (uint)Marshal.SizeOf<GuiThreadInfo>() };
+            PostMessage(hwnd, 0x0112, 0xF100, 0x20); // SC_KEYMENU, space
+            for (int i = 0; i < 60; i++)
+            {
+                await Task.Delay(25);
+                if (GetGUIThreadInfo(threadId, ref info) && info.MenuOwner == hwnd && (info.Flags & 12) != 0)
+                {
+                    PostMessage(hwnd, 0x001F, 0, 0); // WM_CANCELMODE
+                    return true;
+                }
+            }
+            PostMessage(hwnd, 0x001F, 0, 0);
+            Console.WriteLine($"System menu check: flags={info.Flags}, owner={info.MenuOwner}, target={hwnd}.");
+            return false;
+        });
+        Require(opened, "Windows Alt+空格的系统菜单命令打开当前窗口菜单");
+    }
+
     private static void Capture(Window window, string output, string name)
     {
         var root = window.GetVisualAncestors().LastOrDefault() ?? window;
@@ -129,6 +158,17 @@ internal static class WindowFrameChecks
     private static extern bool PostMessage(nint hwnd, uint message, nint wParam, nint lParam);
     [StructLayout(LayoutKind.Sequential)]
     private struct WindowRect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public uint Size, Flags;
+        public nint Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        public WindowRect CaretRect;
+    }
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint hwnd, out uint processId);
+    [DllImport("user32.dll")]
+    private static extern bool GetGUIThreadInfo(uint threadId, ref GuiThreadInfo info);
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint hwnd, out WindowRect bounds);
 }
