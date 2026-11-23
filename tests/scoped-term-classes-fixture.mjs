@@ -30,7 +30,7 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
   const loginResult = await login.json();
   const auth = loginResult.data ?? loginResult;
   const steps = [];
-  let lost, receiptReads = 0, gradeReplyLost = false, gradeReadLost = false, browser, site;
+  let lost, receiptReads = 0, gradeReplyLost = false, gradeReadLost = false, browser, site, originalSpringIds;
   const sourcePath = '/api/v2/admin/schools/' + school.id + '/academic-terms/' + spring.id + '/structure';
 
   function makeTerm(academicYear, semester, name, status) {
@@ -96,7 +96,7 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
       await loaded;
       const rosterCard = page.locator('.class-roster-manager');
       const student = rosterCard.getByLabel('姓名 1', {exact: true});
-      assert.equal(await student.inputValue(), '春季原同学');
+      assert.equal(await student.inputValue(), '春季同名学生');
       await student.fill('旧网页先保存');
       await rosterCard.getByRole('button', {name: '预览并保存', exact: true}).click();
       await Promise.all([page.waitForResponse(response => isRoster(response, 'PUT')),
@@ -127,13 +127,32 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
       case 'before':
         await activeStudent(autumn, 'edge-student-autumn');
         break;
-      case 'legacy-writes': await legacyWrite(); break;
+      case 'long-roster-saved': {
+        const room = await prisma.workspace.findFirstOrThrow({where: {termId: spring.id, code: 'SPRING-ONE'}});
+        const rows = await roster(room);
+        assert.equal(rows.length, 120);
+        assert.equal(rows[0].studentNumber, '001');
+        assert.equal(rows.at(-1).studentNumber, '120');
+        break;
+      }
+      case 'legacy-writes':
+        originalSpringIds = (await roster(springRoom)).map(row => row.id);
+        await legacyWrite();
+        break;
       case 'legacy-rename-before-roster': await legacyClassName('高二（7）班', '高二（7）班 · 归档一版'); break;
       case 'legacy-rename-after-preview': await legacyClassName('高二（7）班 · 归档一版', '高二（7）班 · 归档二版'); break;
       case 'conflict-zero-overwrite':
+      case 'repreview-no-write':
         assert.deepEqual((await roster(springRoom)).map(row => [row.studentNumber, row.name]),
-          [['001', '旧网页先保存'], ['002', '春季新增同学']]);
+          [['001', '旧网页先保存'], ['002', '春季同名学生']]);
         break;
+      case 'reconciled-spring': {
+        const rows = await roster(springRoom);
+        assert.deepEqual(rows.map(row => row.id), originalSpringIds);
+        assert.deepEqual(rows.map(row => [row.studentNumber, row.name]),
+          [['001', '桌面未保存草稿'], ['002', '春季同名学生']]);
+        break;
+      }
       case 'archive-and-draft':
         assert.deepEqual((await roster(archiveRoom)).map(row => [row.id, row.studentNumber, row.name]),
           [[archivedStudent.id, '001', '归档已更正']]);
@@ -209,7 +228,7 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
           otherSchoolId: other.id, allowScopedTermWrites: true}), {mode: 0o600});
         await runDesktop(['--live-scoped-term-classes', access, evidence]);
       }});
-    assert.equal(steps.length, 7);
+    assert.equal(steps.length, 10);
     assert.ok(gradeReplyLost && gradeReadLost);
     await writeFile(join(evidence, 'scoped-term-result.json'), JSON.stringify({result: 'PASS', steps, receiptReads, gradeReplyLost, gradeReadLost,
       roomIds: {autumn: fallRoom.id, spring: springRoom.id, archive: archiveRoom.id},

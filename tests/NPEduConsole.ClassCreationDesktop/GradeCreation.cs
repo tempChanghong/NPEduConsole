@@ -55,17 +55,17 @@ internal static partial class Program
             Find<TextBox>(dialog, "CreationCode").Text = "g-first-01";
             await Capture(dialog, output, "03-first-class");
             Click(Find<Button>(dialog, "SubmitClassCreationButton"));
-            await Until(() => desktop.Windows.OfType<ClassRosterWindow>().Any(window => window.IsVisible &&
-                Find<Grid>(window, "RosterEditorPane").IsVisible), "class opened its roster");
-            var roster = desktop.Windows.OfType<ClassRosterWindow>().Single();
+            var roster = await AcademicPageAsync<ClassRosterView>(main);
+            await Until(() => Find<Grid>(roster, "RosterEditorPane").IsVisible, "class opened its roster");
             Check(classes.SelectedItem is Classroom { Name: "首建年级一班", GradeName: "首建年级" }, "new class and grade visible in the real workspace");
+            await PressScoped(roster, "OpenRosterImport");
             Find<TextBox>(roster, "RosterPasteText").Text = "001\t首班学生";
             Click(Find<Button>(roster, "ApplyRosterImport"));
             Click(Find<Button>(roster, "PreviewRosterButton"));
             await Until(() => Find<ListBox>(roster, "RosterChangesList").ItemCount == 1, "first roster preview");
             Click(Find<Button>(roster, "ConfirmRosterSave"));
-            await Until(() => Find<TextBlock>(roster, "RosterFeedback").Text?.Contains("名单已保存") == true, "first roster persisted");
-            roster.Close();
+            await Until(() => Find<TextBlock>(roster, "RosterFeedback").Text?.Contains("已保存") == true, "first roster persisted");
+            Click(Find<Button>(roster, "CloseRosterButton"));
             await Until(() => Notice().Contains("本次名单录入结果已确认"), "class and roster confirmed");
 
             dialog = await OpenCreation();

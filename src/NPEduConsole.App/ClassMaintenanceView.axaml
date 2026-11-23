@@ -1,15 +1,15 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.ClassMaintenanceWindow"
-        Title="维护行政班" Width="560" Height="650" MinWidth="450" MinHeight="440" WindowStartupLocation="CenterOwner">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.ClassMaintenanceView">
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,16">
       <StackPanel Spacing="5">
-        <TextBlock x:Name="MaintenanceSchool" Classes="muted" TextWrapping="Wrap" />
         <TextBlock x:Name="MaintenanceHeading" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <TextBlock x:Name="MaintenanceSchool" Classes="muted" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-      <StackPanel Margin="22,14" Spacing="12">
+      <StackPanel Margin="22,14" Spacing="12" HorizontalAlignment="Stretch" MaxWidth="820">
+        <Button x:Name="CorrectArchivedClass" Classes="action accent" Content="更正班级资料" Click="CorrectArchivedClicked" HorizontalAlignment="Left" IsVisible="False" />
         <Border x:Name="MaintenanceFields" Classes="card" Padding="16" IsVisible="False">
           <StackPanel Spacing="12">
             <StackPanel Spacing="4">
@@ -22,12 +22,15 @@
               <TextBlock Classes="muted" TextWrapping="Wrap" Text="2–64 位，以英文字母或数字开头，可使用 . _ -。" />
             </StackPanel>
             <CheckBox x:Name="MaintenanceStudentSelectable" Content="允许学生自行选择此行政班" />
-            <WrapPanel ItemSpacing="8" LineSpacing="8">
-              <Button x:Name="SaveMaintenanceButton" Classes="action accent" Content="保存修改" Click="SaveClicked" />
-              <Button x:Name="ReadDeactivationImpactButton" Classes="action" Content="查看停用影响" Click="PreviewClicked" />
-            </WrapPanel>
           </StackPanel>
         </Border>
+        <Grid x:Name="MaintenanceActivity" ColumnDefinitions="*,Auto" ColumnSpacing="12" IsVisible="False">
+          <StackPanel Spacing="3">
+            <TextBlock Text="班级状态" Classes="label"/>
+            <TextBlock Text="办理停用前，可核对名单、教学和设备关联。" Classes="muted"/>
+          </StackPanel>
+          <Button Grid.Column="1" x:Name="ReadDeactivationImpactButton" Classes="action" Content="查看停用影响" Click="PreviewClicked" VerticalAlignment="Center"/>
+        </Grid>
         <Border x:Name="MaintenanceServerCard" Classes="card" Padding="16" IsVisible="False">
           <TextBlock x:Name="MaintenanceServerState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
         </Border>
@@ -44,16 +47,25 @@
         <ProgressBar x:Name="MaintenanceProgress" IsIndeterminate="True" IsVisible="False" Height="4" />
         <TextBlock x:Name="MaintenanceScreenEffect" IsVisible="False" TextWrapping="Wrap"
                    Text="网页大屏在停用期间无法在线访问。已配对的 NPEduTools 会失去现有授权，重新启用班级后仍需到教室重新配对。班级和大屏记录会保留。" />
-        <TextBlock x:Name="MaintenanceFeedback" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-        <WrapPanel HorizontalAlignment="Right" ItemSpacing="8" LineSpacing="8">
+        <TextBlock x:Name="MaintenanceFeedback" Classes="muted" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
+        <WrapPanel x:Name="MaintenanceActions" HorizontalAlignment="Right" ItemSpacing="8" LineSpacing="8">
           <Button x:Name="CheckMaintenanceButton" Classes="action" Content="核对服务器班级" Click="CheckClicked" IsVisible="False" />
           <Button x:Name="RefreshImpactButton" Classes="action" Content="重新读取影响" Click="PreviewClicked" IsVisible="False" />
           <Button x:Name="CancelImpactButton" Classes="action" Content="返回修改" Click="CancelImpactClicked" IsVisible="False" />
-          <Button x:Name="ConfirmDeactivateButton" Classes="action" Content="确认停用" Click="DeactivateClicked" IsVisible="False" />
+          <Button x:Name="ConfirmDeactivateButton" Classes="action" Click="DeactivateClicked" IsVisible="False"
+                  Background="{DynamicResource ErrorTintBrush}" Foreground="{DynamicResource ErrorBrush}" BorderBrush="{DynamicResource ErrorBrush}">
+            <TextBlock x:Name="ConfirmDeactivateLabel" TextWrapping="Wrap" MaxWidth="300" />
+          </Button>
           <Button x:Name="ReactivateClassButton" Classes="action accent" Content="确认重新启用" Click="ReactivateClicked" IsVisible="False" />
-          <Button x:Name="CloseMaintenanceButton" Classes="action" Content="关闭" Click="CloseClicked" />
+          <Button x:Name="CloseMaintenanceButton" Classes="action" Content="返回班级" Click="CloseClicked" />
+          <Button x:Name="SaveMaintenanceButton" Classes="action accent" Content="保存修改" Click="SaveClicked" IsVisible="False" />
+        </WrapPanel>
+        <WrapPanel x:Name="MaintenanceDiscard" HorizontalAlignment="Right" ItemSpacing="8" LineSpacing="8" IsVisible="False">
+          <TextBlock Text="班级资料有未保存的修改。" Classes="label" VerticalAlignment="Center"/>
+          <Button x:Name="KeepMaintenanceDraft" Classes="action" Content="继续编辑" Click="KeepDraftClicked"/>
+          <Button Classes="action" Content="放弃修改并返回" Click="DiscardClicked"/>
         </WrapPanel>
       </StackPanel>
     </Border>
   </Grid>
-</Window>
+</UserControl>

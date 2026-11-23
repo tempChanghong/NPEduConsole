@@ -5,6 +5,21 @@
     <Style Selector="TextBlock.account-notice.error">
       <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
     </Style>
+    <Style Selector="Border#TeacherStatusConfirmation">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+    </Style>
+    <Style Selector="Border#TeacherStatusConfirmation.disable">
+      <Setter Property="Background" Value="{DynamicResource ErrorTintBrush}"/>
+    </Style>
+    <Style Selector="Button#ConfirmTeacherStatus.disable">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+    </Style>
+    <Style Selector="Button#CancelTeacherStatus:focus /template/ ContentPresenter">
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
+      <Setter Property="BorderThickness" Value="2"/>
+    </Style>
   </Window.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,11">
@@ -67,12 +82,12 @@
                 </StackPanel>
               </StackPanel>
             </ScrollViewer>
-            <Border x:Name="TeacherStatusConfirmation" Grid.Row="2" Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="10" IsVisible="False">
+            <Border x:Name="TeacherStatusConfirmation" Grid.Row="2" CornerRadius="8" Padding="10" IsVisible="False">
               <StackPanel Spacing="7">
                 <TextBlock x:Name="TeacherStatusExplanation" TextWrapping="Wrap"/>
                 <WrapPanel>
                   <Button x:Name="ConfirmTeacherStatus" Classes="action accent" Margin="0,0,7,4" Click="ConfirmStatusClicked"/>
-                  <Button Content="取消" Classes="action" Click="CancelStatusClicked"/>
+                  <Button x:Name="CancelTeacherStatus" Content="取消" Classes="action" Click="CancelStatusClicked"/>
                 </WrapPanel>
               </StackPanel>
             </Border>

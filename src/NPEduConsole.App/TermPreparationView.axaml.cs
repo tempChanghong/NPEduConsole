@@ -772,7 +772,6 @@ public sealed partial class TermPreparationView : UserControl
         if (_closed) return;
         _closed = true;
         _lifetime.Cancel();
-        _termClassesWindow?.CloseForScopeChange();
         _termTeachingWindow?.CloseForScopeChange();
         _termStatusWindow?.CloseForScopeChange();
         _lifetime.Dispose();

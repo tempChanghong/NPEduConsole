@@ -152,14 +152,15 @@ internal static partial class Program
                 var roster = await WaitForRoster();
                 var opened = (Classroom)classes.SelectedItem!;
                 Check(opened.Name == createdName && opened.Screens.Count == 0, "New class is selected after the idempotent retry.");
+                await PressScoped(roster, "OpenRosterImport");
                 Find<TextBox>(roster, "RosterPasteText").Text = "001\t录入示例甲\n002\t录入示例乙";
                 Click(Find<Button>(roster, "ApplyRosterImport"));
                 Click(Find<Button>(roster, "PreviewRosterButton"));
                 await Until(() => Find<ListBox>(roster, "RosterChangesList").ItemCount == 2, "first roster preview");
                 await Capture(roster, output, "03-first-roster");
                 Click(Find<Button>(roster, "ConfirmRosterSave"));
-                await Until(() => Find<TextBlock>(roster, "RosterFeedback").Text?.Contains("名单已保存") == true, "first roster saved to real KV");
-                roster.Close();
+                await Until(() => Find<TextBlock>(roster, "RosterFeedback").Text?.Contains("已保存") == true, "first roster saved to real KV");
+                Click(Find<Button>(roster, "CloseRosterButton"));
                 await Until(() => Notice().Contains("本次名单录入结果已确认"), "main window confirms both steps");
                 await Capture(main, output, "04-complete");
                 SelectSchool(access.SchoolId);
@@ -194,12 +195,12 @@ internal static partial class Program
             fixture.FailNextSchoolList = true;
             retried.Created("new-class");
             await Until(() => Notice().Contains("列表未能刷新"), "creation is acknowledged even if refresh fails");
-            Check(fixture.RosterGetCount == 0 && !desktop.Windows.OfType<ClassRosterWindow>().Any(), "A bad refresh cannot open a same-name class.");
+            Check(fixture.RosterGetCount == 0 && !main.GetVisualDescendants().OfType<ClassRosterView>().Any(view => view.IsEffectivelyVisible), "A bad refresh cannot open a same-name class.");
             await Capture(main, output, "03-created-refresh-failed");
             Click(Find<Button>(main, "RefreshButton"));
             var createdRoster = await WaitForRoster();
             Check(((Classroom)classes.SelectedItem!).Id == "new-class" && fixture.LastRosterClass == "new-class", "Selecting a similar name cannot redirect the roster handoff.");
-            createdRoster.Close();
+            Click(Find<Button>(createdRoster, "CloseRosterButton"));
             await Until(() => Notice().Contains("本次未确认名单保存"), "cancel leaves class created without making claims about the current roster");
 
             dialog = await OpenCreation();
@@ -250,11 +251,11 @@ internal static partial class Program
             void Fill(int grade, string code, string name) { Grade().SelectedIndex = grade; Code().Text = code; Name().Text = name; }
             async Task WaitForUnconfirmed() => await Until(() => SubmitButton().Content is "重试确认" && SubmitButton().IsEnabled && !Fields().IsEnabled,
                 "unconfirmed request offers an exact retry");
-            async Task<ClassRosterWindow> WaitForRoster()
+            async Task<ClassRosterView> WaitForRoster()
             {
-                await Until(() => desktop.Windows.OfType<ClassRosterWindow>().Any(window => window.IsVisible &&
-                    Find<Grid>(window, "RosterEditorPane").IsVisible), "automatic handoff to the roster modal");
-                return desktop.Windows.OfType<ClassRosterWindow>().Single();
+                var roster = await AcademicPageAsync<ClassRosterView>(main);
+                await Until(() => Find<Grid>(roster, "RosterEditorPane").IsEffectivelyVisible, "automatic handoff to the roster page");
+                return roster;
             }
             async Task SignOut()
             {

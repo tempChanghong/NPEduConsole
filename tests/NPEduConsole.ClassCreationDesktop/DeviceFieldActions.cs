@@ -141,6 +141,7 @@ internal static partial class Program
                 control.IsFocused && AutomationProperties.GetAutomationId(control) == "SchoolScreen-" + access.RearId)), "return focus to the original screen after revocation");
 
             await PressScoped(main, "OpenClassWorkspaceButton");
+            await PressScoped(main, "OpenSchoolAffairsButton");
             await PressScoped(main, "OpenSchoolStudyButton");
             var calendar = await Open<SchoolStudyWindow>();
             var rooms = Find<ListBox>(calendar, "StudyRooms");

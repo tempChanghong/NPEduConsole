@@ -41,13 +41,7 @@ public sealed partial class MainWindow
             await ShowTeacherAllocationAsync(owner, client, school, allocation.TermId, allocation.GradeId,
                 archivedTerm is not null, window.SelectedReceiptWorkspace);
         if (archivedTerm is not null && window.GoToHistoryClass is { } history && history.TermId == archivedTerm.Id)
-        {
-            var classes = new TermClassManagementWindow(client, school, archivedTerm, history.WorkspaceId, history.GradeId)
-            {
-                SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
-            };
-            await classes.ShowDialog(owner);
-        }
+            await ShowTermClassDirectoryAsync(client, school, archivedTerm, history.WorkspaceId, history.GradeId);
         if (window.GoToTeaching is { } target)
             await ShowTeachingAsync(client, school, target.TermId, target.WorkspaceId, null, courseGroup: target.IsGroup, owner: owner);
         return window.GoToDraftId;

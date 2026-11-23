@@ -81,14 +81,13 @@ internal static partial class Program
             await Until(() => !dialog.IsVisible, "reopened creation window closes");
 
             Click(Find<Button>(primary, "OpenClassRosterButton"));
-            await Until(() => desktop.Windows.OfType<ClassRosterWindow>().Any(window => window.IsVisible &&
-                Find<Grid>(window, "RosterEditorPane").IsVisible), "the selected class roster loads");
-            var roster = desktop.Windows.OfType<ClassRosterWindow>().Single();
+            var roster = await AcademicPageAsync<ClassRosterView>(primary);
+            await Until(() => Find<Grid>(roster, "RosterEditorPane").IsVisible, "the selected class roster loads");
             await Until(() => Find<TextBlock>(roster, "RosterCount").Text?.Contains("1 人") == true,
                 "the existing student remains in the roster");
             Check(roster.GetVisualDescendants().OfType<TextBox>().Any(text => text.Text == "模拟学生甲"),
                 "Renaming does not remove the seeded student.");
-            roster.Close();
+            Click(Find<Button>(roster, "CloseRosterButton"));
             await Until(() => !roster.IsVisible, "roster closes");
 
             await RenameAsync(staleDialog, firstRename + "-乙");

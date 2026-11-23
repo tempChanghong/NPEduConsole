@@ -228,10 +228,19 @@ internal static partial class Program
             classes.SelectedItem = classes.Items.Cast<Classroom>().Single(room => room.Id == access.ClassEightId);
             Check(IsScreenVisible(access.WaitingScreenId) && IsScreenVisible(access.ReadyScreenId), "both screens remain reachable from the class workspace");
             foreach (var name in new[] { "OpenClassCreationButton", "OpenTeachingButton", "OpenClassRosterButton",
-                "OpenSubjectSetupButton", "OpenClassMaintenanceButton", "OpenClassStudyButton" })
+                "OpenSubjectSetupButton", "OpenClassMaintenanceButton", "OpenClassStudyButton", "OpenClassScreenDirectoryButton" })
                 Check(Find<Button>(main, name).IsEffectivelyVisible && Find<Button>(main, name).IsEnabled, "reachable legacy entry " + name);
             Check(classTitle.Text == "高二（8）班" && classContext.Text?.Contains("G2-8") == true, "class heading identifies the selected class and its code");
-            await Capture(main, output, "class-home");
+            var schoolAffairs = Find<Button>(main, "OpenSchoolAffairsButton");
+            var termsEntry = Find<Button>(main, "OpenTermPreparationButton");
+            Check(!termsEntry.IsEffectivelyVisible && schoolAffairs.IsEffectivelyVisible, "class home keeps school-wide commands separate");
+            await Capture(main, output, "class-home", includeFrame: true);
+            Click(schoolAffairs);
+            await Until(() => termsEntry.IsEffectivelyVisible && !classTitle.IsEffectivelyVisible, "school affairs has a separate page");
+            await Capture(main, output, "school-affairs", includeFrame: true);
+            Click(Find<Button>(main, "ReturnToClassHomeButton"));
+            await Until(() => classTitle.IsEffectivelyVisible && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId,
+                "returning to class home retains the original class");
             var selectedClassRow = OutlineOf(classes, classes.SelectedIndex);
             Check(selectedClassRow.CornerRadius.TopLeft >= 8 && selectedClassRow.BorderThickness.Left > 0 &&
                 Find<Border>(main, "ClassHeader").CornerRadius.TopLeft >= 8, "class entries and the class summary have rounded outlines");
@@ -242,8 +251,9 @@ internal static partial class Program
             await Until(() => classes.ItemCount == 1 && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId, "class search combines grade and code");
             var rosterEntry = Find<Button>(main, "OpenClassRosterButton");
             Click(rosterEntry);
-            await Until(() => desktop.Windows.OfType<ClassRosterWindow>().Any(w => w.IsVisible), "roster opens from this exact class");
-            desktop.Windows.OfType<ClassRosterWindow>().Single().Close();
+            var rosterPage = await AcademicPageAsync<ClassRosterView>(main);
+            Check(TopLevel.GetTopLevel(rosterPage) == main, "class roster opens in the same main window");
+            Click(Find<Button>(rosterPage, "CloseRosterButton"));
             await Until(() => rosterEntry.IsFocused && classes.ItemCount == 1 && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId,
                 "roster returns focus without clearing the class filter");
             var teacherEntry = Find<Button>(main, "OpenTeachingButton");
@@ -257,7 +267,7 @@ internal static partial class Program
             var study = Find<Button>(main, "OpenClassStudyButton");
             Click(study);
             Check(Find<ClassStudyView>(main, "StudyWorkspace").IsEffectivelyVisible, "the existing study page opens");
-            Click(study);
+            Click(Find<Button>(main, "ReturnFromClassStudyButton"));
             Click(Find<Button>(main, "OpenSchoolAuditButton"));
             Check(Find<SchoolAuditView>(main, "SchoolAuditWorkspace").IsEffectivelyVisible, "audit remains available from the shell");
             Click(overviewNav);
@@ -404,7 +414,12 @@ internal static partial class Program
             Click(classesNav);
             await Until(() => classes.Items.Cast<Classroom>().Any(room => room.Id == access.ClassEightId), "the original classes finish loading");
             classes.SelectedItem = classes.Items.Cast<Classroom>().Single(room => room.Id == access.ClassEightId);
-            await Capture(main, output, "10-compact-class");
+            var firstScreenEntry = main.GetVisualDescendants().OfType<Button>().Single(button =>
+                AutomationProperties.GetAutomationId(button) == "ClassScreenDetails-" + access.ReadyScreenId);
+            await Until(() => firstScreenEntry.TranslatePoint(default, main) is { } p &&
+                p.Y > 0 && p.Y + firstScreenEntry.Bounds.Height <= main.Bounds.Height, "first classroom screen action fits on compact class home");
+            Check(Find<Button>(main, "OpenClassScreenDirectoryButton").IsEffectivelyVisible, "screen directory stays available after reselecting the class");
+            await Capture(main, output, "10-compact-class", includeFrame: true);
             foreach (var entry in new[] { rosterEntry, teacherEntry, Find<Button>(main, "OpenSubjectSetupButton") })
                 Check(entry.IsEffectivelyVisible && entry.TranslatePoint(default, main) is { } pos &&
                     pos.X >= 0 && pos.X + entry.Bounds.Width <= main.Bounds.Width &&
@@ -435,7 +450,7 @@ internal static partial class Program
             Console.WriteLine($"Directory measurement: load 204 bindings {loadMs} ms; filter to two visible bindings {filterMs} ms; {realized} realized list items; scale {main.RenderScaling}.");
             await Command("classlist");
             Click(classesNav);
-            Click(Find<Button>(main, "RefreshButton"));
+            Click(Find<Button>(main, "RefreshClassDirectoryButton"));
             await Until(() => classes.ItemCount >= 105, "large current-term class directory");
             classQuery.Text = "东区实验班";
             await Until(() => classes.ItemCount == 2, "same-name classes are both available");

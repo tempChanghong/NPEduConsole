@@ -2,10 +2,17 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-internal sealed record RosterCurrentRow(int Position, RosterStudent Student)
+internal sealed record RosterComparisonRow(string Key, RosterStudent? Server, RosterStudent? Draft, int? ServerPosition, int? DraftPosition)
 {
-    public string Label => $"{Position}. {Student.Name} · 学号 {Student.StudentNumber ?? "无"}";
-    public string AutomationId => $"RosterCurrentStudent-{Student.Id}";
+    public string Kind => Server is null ? "仅在草稿" : Draft is null ? "仅在服务器" :
+        Server != Draft ? "资料不同" : ServerPosition != DraftPosition ? "顺序不同" : "一致";
+    public bool Different => Kind != "一致";
+    public string ServerLabel => Label(Server, ServerPosition);
+    public string DraftLabel => Label(Draft, DraftPosition);
+    public string AutomationId => $"RosterComparison-{Key}";
+
+    private static string Label(RosterStudent? student, int? position) => student is null ? "无此记录"
+        : $"{student.Name} · 学号 {student.StudentNumber ?? "无"} · 第 {position} 行";
 }
 
 internal sealed record RosterReviewRow(RosterChange Change)

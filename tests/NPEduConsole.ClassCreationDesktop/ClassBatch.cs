@@ -55,7 +55,7 @@ internal static partial class Program
                     "saved first roster in the new process");
                 await Capture(main, output, "01-class-list");
                 await Capture(reopenedRoster, output, "02-saved-roster");
-                reopenedRoster.Close();
+                Click(Find<Button>(reopenedRoster, "CloseRosterButton"));
                 await SignOut(main);
                 Finish("PASS: restarted Windows Console found all 12 original IDs and reopened the saved roster by class ID.", 0);
                 return;
@@ -165,22 +165,23 @@ internal static partial class Program
             Click(openRoster);
             var roster = await WaitForRoster();
             Check(classPicker.SelectedItem is Classroom { Name: "高一3班" }, "The chosen third result opens the expected class.");
+            await PressScoped(roster, "OpenRosterImport");
             Find<TextBox>(roster, "RosterPasteText").Text = "001\t批量首份名单";
             Click(Find<Button>(roster, "ApplyRosterImport"));
             Click(Find<Button>(roster, "PreviewRosterButton"));
             await Until(() => Find<ListBox>(roster, "RosterChangesList").ItemCount == 1, "first student preview");
             Click(Find<Button>(roster, "ConfirmRosterSave"));
-            await Until(() => Find<TextBlock>(roster, "RosterFeedback").Text?.Contains("名单已保存") == true, "first roster saved");
+            await Until(() => Find<TextBlock>(roster, "RosterFeedback").Text?.Contains("已保存") == true, "first roster saved");
             await Capture(roster, output, "05-roster-saved");
-            roster.Close();
+            Click(Find<Button>(roster, "CloseRosterButton"));
             await SignOut(main);
             Finish("PASS: Windows Console preview, row 7 conflict, correction, lost acknowledgement, 12-row receipt, and first roster.", 0);
 
-            async Task<ClassRosterWindow> WaitForRoster()
+            async Task<ClassRosterView> WaitForRoster()
             {
-                await Until(() => desktop.Windows.OfType<ClassRosterWindow>().Any(window => window.IsVisible &&
-                    Find<Grid>(window, "RosterEditorPane").IsVisible), "roster editor loaded");
-                return desktop.Windows.OfType<ClassRosterWindow>().Single(window => window.IsVisible);
+                var roster = await AcademicPageAsync<ClassRosterView>(main);
+                await Until(() => Find<Grid>(roster, "RosterEditorPane").IsEffectivelyVisible, "roster editor loaded");
+                return roster;
             }
         }
         catch (Exception error)

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading.Channels;
 using Avalonia;
@@ -44,6 +43,8 @@ internal static class Program
         try
         {
             var main = (MainWindow)desktop.MainWindow!;
+            main.Width = 1160;
+            main.Height = 780;
             var open = Find<Button>(main, "OpenClassRosterButton");
             var classes = Find<ListBox>(main, "ClassPicker");
             var login = Find<Button>(main, "LoginButton");
@@ -57,10 +58,11 @@ internal static class Program
             await Until(() => classes.IsEffectivelyVisible && classes.ItemCount >= 2, "classes load when device overview is unavailable");
             Check(!open.IsEnabled, "A class must be selected before editing the roster.");
             SelectClass(access.ClassId);
-            Check(main.GetVisualDescendants().OfType<TextBlock>().Any(block => block.Text == "设备状态暂不可用") &&
-                !main.GetVisualDescendants().OfType<Button>().Any(button => button.Content is "配置口令接入"), "A failed device lookup cannot suggest binding the screen again.");
+            Check(classes.SelectedItem is Classroom { Screens.Count: > 0 } room && room.Screens.All(screen => screen.DeviceOverviewUnavailable) &&
+                !main.GetVisualDescendants().OfType<Button>().Any(button => button.IsEffectivelyVisible && button.Content is "配置口令接入"),
+                "A failed device lookup cannot suggest binding the screen again.");
             Click(open);
-            var window = desktop.Windows.OfType<ClassRosterWindow>().Single();
+            var window = await Editor();
             T Roster<T>(string name) where T : Control => Find<T>(window, name);
             void Action(string name) => Click(Roster<Button>(name));
             var list = Roster<ItemsControl>("RosterRows");
@@ -68,14 +70,15 @@ internal static class Program
             var preview = Roster<Button>("PreviewRosterButton");
             string Feedback() => Roster<TextBlock>("RosterFeedback").Text ?? "";
             await Until(() => list.ItemCount == 3, "initial roster populated");
-            Check(main.TryGetPlatformHandle() is { HandleDescriptor: "HWND" } owner && !IsWindowEnabled(owner.Handle) &&
+            Check(main.TryGetPlatformHandle() is { HandleDescriptor: "HWND" } && TopLevel.GetTopLevel(window) == main &&
                   Roster<TextBlock>("RosterScope").Text!.Contains(((Classroom)classes.SelectedItem!).Name),
-                "A modal roster displays the selected class and locks the owner.");
+                "The selected class roster is hosted in the real main HWND.");
 
             if (fixture is null)
             {
                 if (saveToFixture)
                 {
+                    Action("OpenRosterImport");
                     Roster<ComboBox>("RosterImportMode").SelectedIndex = 1;
                     paste.Text = "001\t陈晨修正\r\n002\t陈晨\r\n009\tExcel 新增";
                     Action("ApplyRosterImport");
@@ -91,7 +94,7 @@ internal static class Program
                 if (saveToFixture)
                 {
                     var previewRows = Roster<ListBox>("RosterChangesList");
-                    await RosterWorkspaceFocus.AssertRosterPreviewAsync(window, previewRows.Items.Cast<object>().ToArray());
+                    await RosterWorkspaceFocus.AssertRosterPreviewAsync(main, previewRows.Items.Cast<object>().ToArray());
                     Check(previewRows.GetVisualDescendants().OfType<Border>().Any(row =>
                         AutomationProperties.GetAutomationId(row) == "RosterChange-roster-a-Edit"),
                         "the review identifies the exact edited homonym");
@@ -100,11 +103,11 @@ internal static class Program
                 if (saveToFixture)
                 {
                     Action("ConfirmRosterSave");
-                    await Until(() => Feedback().Contains("名单已保存"), "commit the confirmed desktop preview");
+                    await Until(() => Feedback().Contains("已保存"), "commit the confirmed desktop preview");
                     Action("CloseRosterButton");
                     await Until(() => !window.IsVisible && open.IsEffectivelyEnabled, "close the saved roster");
                     Click(open);
-                    window = desktop.Windows.OfType<ClassRosterWindow>().Single();
+                    window = await Editor();
                     await Until(() => listFor(window).ItemCount == 3, "read the saved roster again from KV");
                     Check((await RowControls<TextBox>(2)).Any(field => field.Text == "009"), "reopened roster retains the leading-zero number");
                     Check((await RowControls<TextBox>(0)).Any(field =>
@@ -119,76 +122,82 @@ internal static class Program
                 else
                 {
                     Action("CancelRosterReview");
-                    await RosterWorkspaceFocus.AssertRosterPreviewCancelFocusAsync(window);
+                    await RosterWorkspaceFocus.AssertRosterPreviewCancelFocusAsync(main);
                     Action("CloseRosterButton");
                     Action("ConfirmRosterDiscard");
                 }
-                await Until(() => !window.IsVisible && open.IsEffectivelyEnabled, "return to real school classes");
+                await Until(() => !window.IsVisible && open.IsFocused, "return to the exact class roster button");
                 SelectClass(access.EmptyClassId);
                 Click(open);
-                window = desktop.Windows.OfType<ClassRosterWindow>().Single();
+                window = await Editor();
                 await Until(() => Roster<Grid>("RosterEditorPane").IsVisible && listFor(window).ItemCount == 0, "real class without any screen or students");
                 await Capture(window, output, "live-empty-class");
-                window.Close();
+                Action("CloseRosterButton");
                 await SignOut();
                 End("PASS: Windows with real KV/PostgreSQL, disabled NPEP, no-screen class, " +
                     (saveToFixture ? "confirmed save and reopened roster." : "and an unsubmitted roster preview."), 0);
                 return;
             }
 
-            Check(window.Width >= 1100 && window.Height >= 730, "the editor uses its school's working area");
-            window.Width = 840;
-            window.Height = 480;
-            await Until(() => window.Content is Control { Bounds.Width: <= 845, Bounds.Height: <= 485 },
+            Check(main.Width >= 1100 && main.Height >= 730, "the editor uses its school's working area");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 },
                 "narrow content has been arranged before measuring fixed bars");
-            paste.Text = string.Join(Environment.NewLine, Enumerable.Range(1, 97).Select(i => $"S{i:D3}\t长名单学生{i:D3}"));
+            Action("OpenRosterImport");
+            paste.Text = string.Join(Environment.NewLine, Enumerable.Range(1, 117).Select(i => $"S{i:D3}\t长名单学生{i:D3}"));
             Action("ApplyRosterImport");
-            await Until(() => list.ItemCount == 100, "import 97 rows alongside the original identities");
+            await Until(() => list.ItemCount == 120, "import 117 rows alongside the original identities");
             await Dispatcher.UIThread.InvokeAsync(window.UpdateLayout, DispatcherPriority.Loaded);
-            await RosterWorkspaceFocus.AssertRosterWorkspaceAsync(window, 100);
+            await RosterWorkspaceFocus.AssertRosterWorkspaceAsync(main, 120);
+            Action("OpenRosterImport");
             var hint = Roster<TextBlock>("RosterImportHint");
             Check(paste.TranslatePoint(default, window) is { } pasteOrigin &&
                 hint.TranslatePoint(default, window) is { } hintOrigin &&
                 pasteOrigin.Y + paste.Bounds.Height <= hintOrigin.Y + 1,
                 "the compact paste box does not overlap import guidance");
+            Action("OpenRosterImport");
             await Capture(window, output, "00-long-editor-compact");
             if (nativeScroll)
             {
-                await RosterWorkspaceFocus.AssertNativeScrollAsync(window);
+                await RosterWorkspaceFocus.AssertNativeScrollAsync(main);
                 await Capture(window, output, "00-native-scroll-compact");
             }
             Click(preview);
-            await Until(() => Roster<ListBox>("RosterChangesList").ItemCount == 97, "97 explicit additions appear in the long preview");
+            await Until(() => Roster<ListBox>("RosterChangesList").ItemCount == 117, "117 explicit additions appear in the long preview");
             var longPreview = Roster<ListBox>("RosterChangesList");
-            await RosterWorkspaceFocus.AssertRosterPreviewAsync(window, [longPreview.Items[0]!, longPreview.Items[^1]!]);
+            await RosterWorkspaceFocus.AssertRosterPreviewAsync(main, [longPreview.Items[0]!, longPreview.Items[^1]!]);
             await Capture(window, output, "00-long-preview-compact");
             window.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Source = window, Key = Key.Escape });
-            await RosterWorkspaceFocus.AssertRosterPreviewCancelFocusAsync(window);
+            await RosterWorkspaceFocus.AssertRosterPreviewCancelFocusAsync(main);
             Action("ReloadRosterButton");
             Action("ConfirmRosterDiscard");
             await Until(() => list.ItemCount == 3, "discard the isolated long draft without saving");
-            window.Width = 1160;
-            window.Height = 780;
+            main.Width = 1160;
+            main.Height = 780;
 
             await Edit(0, "张晓", "007");
-            await RowAction(1, "上移");
-            await RowAction(0, "下移");
-            await RowAction(1, "上移");
-            await RowAction(2, "移出");
+            await RowAction(1, "MoveRosterStudentUp");
+            await RowAction(0, "MoveRosterStudentDown");
+            await RowAction(1, "MoveRosterStudentUp");
+            await RowAction(2, "RemoveRosterStudent");
             Action("AddRosterStudent");
             await Edit(2, "刘同学", "007");
             Click(preview);
             Check(Feedback().Contains("重复") && fixture.Puts == 0, "Duplicate numbers are rejected before any network write.");
             await Edit(2, "刘同学", "003");
+            Action("OpenRosterImport");
             paste.Text = "007\t张晓\r\n004\t王同学";
             Action("ApplyRosterImport");
             Check(list.ItemCount == 4, "Excel TSV updates an existing number and appends a new row.");
+            Action("OpenRosterImport");
             paste.Text = "无号同学";
             Action("ApplyRosterImport");
             Check(list.ItemCount == 5, "Plain text adds an unnumbered student.");
 
+            Action("OpenRosterImport");
             paste.Text = "未应用的粘贴内容";
-            window.Close();
+            Action("CloseRosterButton");
             Check(window.IsVisible && Roster<Grid>("RosterDiscardActions").IsVisible, "Closing asks before discarding draft and unapplied text.");
             Action("KeepRosterEditing");
             Action("ReloadRosterButton");
@@ -209,23 +218,21 @@ internal static class Program
             fixture.Current = new("r2", [.. fixture.Current.Students, new("id-remote", "另一位管理员新增", "010")]);
             first.Reply(409, "CLASS_ROSTER_CONFLICT");
             var current = Roster<ListBox>("CurrentRosterRows");
-            await Until(() => current.ItemCount == 4 && Roster<Button>("AdoptRosterRevisionButton").IsEnabled, "409 reads current roster for comparison");
+            await Until(() => current.ItemCount > 0 && Roster<Button>("AdoptRosterRevisionButton").IsEnabled, "409 reads current roster for comparison");
             Check(list.ItemCount == 5 && !preview.IsEnabled && fixture.Puts == 1, "Conflict preserves edits and prevents automatic resubmission.");
             await Capture(window, output, "03-conflict");
-            window.Width = 840;
-            window.Height = 480;
+            main.Width = 840;
+            main.Height = 480;
             await Capture(window, output, "03-conflict-compact");
-            window.Width = 1160;
-            window.Height = 780;
-            current.SelectedIndex = 0;
-            await Until(() => list.GetVisualDescendants().OfType<Border>().Any(box =>
-                box.Classes.Contains("compared") && box.GetVisualDescendants().OfType<TextBox>().Any(field =>
-                    AutomationProperties.GetAutomationId(field) == "RosterStudentName-id-1" && field.Text == "张晓")),
-                "compare locates the same student ID without replacing the draft text");
-            current.SelectedIndex = 3;
+            main.Width = 1160;
+            main.Height = 780;
+            var identity = await ComparisonRow("id-1");
+            var values = identity.GetVisualDescendants().OfType<TextBlock>().Select(text => text.Text ?? "").ToArray();
+            Check(values.Any(text => text.Contains("张同学 · 学号 001")) && values.Any(text => text.Contains("张晓 · 学号 007")),
+                "compare pairs the exact ID and preserves the draft");
+            current.SelectedItem = (await ComparisonRow("id-remote")).DataContext;
             Action("UseCurrentStudentButton");
             Action("AdoptRosterRevisionButton");
-            Click(preview);
             Check(!changes.Items.Cast<object>().Any(change => change.ToString()!.Contains("移出") && change.ToString()!.Contains("另一位管理员新增")), "Adopting the visible row keeps the remote addition.");
             Action("ConfirmRosterSave");
             var second = await fixture.NextPut();
@@ -236,6 +243,7 @@ internal static class Program
             Check(fixture.Puts == 2 && !preview.IsEnabled, "A lost receipt never repeats the write.");
             await Capture(window, output, "04-save-rechecked");
 
+            Action("OpenRosterImport");
             Roster<ComboBox>("RosterImportMode").SelectedIndex = 1;
             paste.Text = "010 另一位管理员新增";
             Action("ApplyRosterImport");
@@ -244,7 +252,7 @@ internal static class Program
             Action("ConfirmRosterSave");
             var third = await fixture.NextPut();
             third.Reply(409, "CLASS_ROSTER_TERM_CHANGED");
-            await Until(() => Feedback().Contains("学期已切换") && Roster<Grid>("RosterComparisonPane").IsVisible && current.ItemCount == 6, "changed term blocks editing even when read succeeds");
+            await Until(() => Feedback().Contains("学期已切换") && Roster<Border>("RosterComparisonPane").IsVisible && current.ItemCount == 6, "changed term blocks editing even when read succeeds");
             Check(!Roster<Button>("AdoptRosterRevisionButton").IsEnabled && !preview.IsEnabled && list.ItemCount == 1, "Old-term draft is preserved and cannot be submitted again.");
             Action("CloseRosterButton");
             Action("ConfirmRosterDiscard");
@@ -252,7 +260,7 @@ internal static class Program
 
             SelectClass(access.EmptyClassId);
             Click(open);
-            window = desktop.Windows.OfType<ClassRosterWindow>().Single();
+            window = await Editor();
             await Until(() => Roster<TextBlock>("EmptyRosterDraft").IsEffectivelyVisible, "explicit empty roster for a class without a screen");
             await Capture(window, output, "05-empty-class");
             Action("AddRosterStudent");
@@ -261,20 +269,23 @@ internal static class Program
             Action("ConfirmRosterSave");
             var denied = await fixture.NextPut();
             denied.Reply(403);
-            await Until(() => Feedback().Contains("无权"), "permission loss");
-            Check(listFor(window).ItemCount == 0 && !Roster<Grid>("RosterEditorPane").IsVisible, "A permission rejection clears protected student data.");
-            window.Close();
-            await Until(() => open.IsEffectivelyEnabled, "return after permission rejection");
-
+            await Until(() => !window.IsEffectivelyVisible && listFor(window).ItemCount == 0, "permission rejection closes protected student data");
+            await SignOut();
+            Find<TextBox>(main, "Password").Text = access.Password;
+            Click(login);
+            await Until(() => Find<Button>(main, "OpenClassWorkspaceButton").IsEnabled, "login after isolated permission check");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            await Until(() => classes.IsEffectivelyVisible && classes.ItemCount >= 2, "reload the fixture directory");
+            SelectClass(access.EmptyClassId);
             fixture.HoldNextRead = true;
             Click(open);
-            window = desktop.Windows.OfType<ClassRosterWindow>().Single();
+            window = await Editor();
             var staleWindow = window;
             await fixture.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(8));
             await SignOut();
             fixture.ReleaseRead.TrySetResult();
             await Task.Delay(100);
-            Check(!staleWindow.IsVisible && listFor(staleWindow).ItemCount == 0, "Logout closes the modal and discards late data.");
+            Check(!staleWindow.IsVisible && listFor(staleWindow).ItemCount == 0, "Logout closes the work page and discards late data.");
             End("PASS: Windows roster selection without NPEP, row edits and both imports, discard protection, actual preview, conflict reconciliation, unknown save, term and permission guards, and late logout isolation.", 0);
 
             async Task SignOut()
@@ -285,7 +296,7 @@ internal static class Program
 
             void SelectClass(string id) => classes.SelectedItem = classes.Items.Cast<Classroom>().Single(room => room.Id == id);
 
-            static ItemsControl listFor(Window selected) => Find<ItemsControl>(selected, "RosterRows");
+            static ItemsControl listFor(Control selected) => Find<ItemsControl>(selected, "RosterRows");
 
             async Task Edit(int index, string name, string number)
             {
@@ -294,7 +305,31 @@ internal static class Program
                 boxes[1].Text = number;
             }
 
-            async Task RowAction(int index, string title) => Click((await RowControls<Button>(index)).Single(button => Equals(button.Content, title)));
+            async Task RowAction(int index, string action)
+            {
+                var field = (await RowControls<TextBox>(index))[0];
+                field.BringIntoView();
+                field.Focus();
+                await Until(() => Find<Button>(window, action).IsEffectivelyEnabled, "select the intended row before editing");
+                Action(action);
+            }
+
+            async Task<Border> ComparisonRow(string id)
+            {
+                Border? row = null;
+                await Until(() => (row = Find<ListBox>(window, "CurrentRosterRows").GetVisualDescendants().OfType<Border>()
+                    .SingleOrDefault(item => AutomationProperties.GetAutomationId(item) == $"RosterComparison-{id}")) is not null,
+                    "realized comparison row " + id);
+                return row!;
+            }
+
+            async Task<ClassRosterView> Editor()
+            {
+                ClassRosterView? visible = null;
+                await Until(() => (visible = main.GetVisualDescendants().OfType<ClassRosterView>()
+                    .SingleOrDefault(item => item.IsEffectivelyVisible)) is not null, "the active roster work page opens");
+                return visible!;
+            }
 
             async Task<T[]> RowControls<T>(int index) where T : Control
             {
@@ -318,17 +353,13 @@ internal static class Program
         }
     }
 
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool IsWindowEnabled(nint window);
-
-    private static T Find<T>(Window window, string name) where T : Control => window.FindControl<T>(name) ?? throw new InvalidDataException(name);
+    private static T Find<T>(Control window, string name) where T : Control => window.FindControl<T>(name) ?? throw new InvalidDataException(name);
     private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-    private static async Task Capture(Window target, string output, string name)
+    private static async Task Capture(Control target, string output, string name)
     {
         await Task.Delay(120);
-        var root = (Control)target.Content!;
+        var root = TopLevel.GetTopLevel(target) as Control ?? target;
         using var image = new RenderTargetBitmap(new PixelSize((int)root.Bounds.Width, (int)root.Bounds.Height));
         image.Render(root);
         image.Save(Path.Combine(output, name + ".png"), new PngBitmapEncoderOptions());

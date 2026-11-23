@@ -71,7 +71,7 @@ internal static partial class Program
                 Find<TextBox>(dialog, "CreationName").Text = "高一（1）班";
                 Find<TextBox>(dialog, "CreationCode").Text = "G1-1";
                 Click(Find<Button>(dialog, "SubmitClassCreationButton"));
-                var roster = await WindowOf<ClassRosterWindow>();
+                var roster = await AcademicPageAsync<ClassRosterView>(main);
                 await Until(() => Find<Grid>(roster, "RosterEditorPane").IsEffectivelyVisible, "first class opens the standard roster");
                 await Capture(roster, output, "03-first-roster");
             }

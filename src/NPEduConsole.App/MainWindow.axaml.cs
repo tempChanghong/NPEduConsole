@@ -267,6 +267,9 @@ public sealed partial class MainWindow : Window
         if (_school != school)
         {
             CloseTransferForScopeChange();
+            _schoolAffairsSelected = false;
+            _overviewTerm = null;
+            SchoolAffairsNotice.IsVisible = false;
             _directoryTermId = null;
             _directoryClasses = null;
             ClassSearch.Clear();
@@ -339,6 +342,7 @@ public sealed partial class MainWindow : Window
         if (!_settingSelection && _client is not null)
         {
             var room = ClassPicker.SelectedItem as Classroom;
+            if (room is not null) _schoolAffairsSelected = false;
             if (_firstScreen is { } preparation && !preparation.Matches(room)) ResetFirstScreen();
             await SelectClassroomAsync(room);
         }
@@ -685,7 +689,7 @@ public sealed partial class MainWindow : Window
         OpenClassRosterButton.IsEnabled = room?.IsActive == true;
         OpenClassRosterButton.IsVisible = _page != ShellPage.Screen && room?.IsActive != false;
         OpenClassMaintenanceButton.IsVisible = _page != ShellPage.Screen && room?.TermId is not null;
-        OpenClassMaintenanceButton.Content = room?.IsActive == false ? "重新启用" : "维护班级";
+        OpenClassMaintenanceButton.Content = room?.IsActive == false ? "重新启用" : "编辑班级资料";
         CloseClassAdmission();
         CloseScreenReplacement();
         CloseSoftwareMaintenance();
@@ -738,7 +742,7 @@ public sealed partial class MainWindow : Window
         bool show = _showClassStudy && _classroom?.IsActive == true;
         if (show) CloseScreenReplacement();
         OpenClassStudyButton.IsVisible = _page != ShellPage.Screen && _classroom?.IsActive == true;
-        OpenClassStudyButton.Content = show ? "返回班级详情" : "本班学校自习";
+
         var screen = _page == ShellPage.Screen ? _classroom?.Screens.FirstOrDefault(item => item.Id == _detailScreenId) : null;
         bool classHome = _page == ShellPage.Classes;
         OpenGradeResponsibilityButton.IsVisible = classHome && !show && _school is not null;
@@ -746,10 +750,8 @@ public sealed partial class MainWindow : Window
         ClassHeader.Classes.Set("class-home", classHome && _classroom is not null && !show);
         ClassHeader.Classes.Set("active-class", classHome && _classroom?.IsActive == true);
         ClassTeachingActions.IsVisible = classHome && !show && _classroom?.IsActive == true;
-        ClassContext.Text = _classroom is null ? _school?.Name : classHome && !show
-            ? string.Join("  /  ", new[] { _school?.Name, _classroom.GradeName, _classroom.Code,
-                _classroom.IsActive ? null : "已停用" }.Where(text => !string.IsNullOrWhiteSpace(text)))
-            : $"{_school?.Name} / {ClassroomName(_classroom)}";
+        if (classHome && !show) UpdateClassContext();
+        else ClassContext.Text = _classroom is null ? _school?.Name : $"{_school?.Name} / {ClassroomName(_classroom)}";
         if (screen is not null && _classroom!.Screens.Any(item => item.Id != screen.Id && item.Name == screen.Name))
             ClassContext.Text += $" / 绑定 {screen.Id}";
         ClassWorkspaceTitle.Text = show ? "本班学校自习" : _page == ShellPage.Screen
@@ -759,7 +761,17 @@ public sealed partial class MainWindow : Window
         StudyWorkspace.IsVisible = show;
         if (show) StudyWorkspace.SetScope(_client, _school?.Id, _classroom?.TermId, _classroom);
         else StudyWorkspace.SetScope(null, null, null, null);
+        UpdateClassPane();
         ClassWorkspaceScroll.Offset = default;
+    }
+
+    private void UpdateClassContext()
+    {
+        var room = _classroom;
+        string? term = room?.TermId is null ? null :
+            _overviewTerm is null ? "当前学期" : _overviewTerm.Id == room.TermId ? _overviewTerm.Name : "学期待核对，请刷新";
+        ClassContext.Text = string.Join("  /  ", new[] { _school?.Name, term, room?.GradeName, room?.Code,
+            room?.IsActive == false ? "已停用" : null }.Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
     private CancellationTokenSource StartRequest()

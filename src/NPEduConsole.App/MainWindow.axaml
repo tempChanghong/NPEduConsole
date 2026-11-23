@@ -261,7 +261,7 @@
           <Grid x:Name="ClassWorkspaceLayout" ColumnDefinitions="230,*" IsVisible="False">
             <Border x:Name="ClassDirectoryPanel" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
                     BorderThickness="0,0,1,0" Padding="12,16">
-              <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="9">
+              <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="9">
                 <Grid x:Name="ClassPickerHeading" ColumnDefinitions="*,Auto" ColumnSpacing="3">
                   <TextBlock Text="班级目录" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
                   <Button x:Name="OpenClassCreationButton" Grid.Column="1" Classes="action" Content="新建行政班"
@@ -283,7 +283,7 @@
                             IsEnabled="False" IsCheckedChanged="ClassActivityFilterChanged" />
                 </Grid>
                 <Grid x:Name="ClassPickerPanel" Grid.Row="3">
-                  <ListBox x:Name="ClassPicker" Classes="object-list" Background="Transparent" BorderThickness="0"
+                  <ListBox x:Name="ClassPicker" Classes="object-list" Background="Transparent" BorderThickness="0" Tapped="ClassListTapped" KeyDown="ClassListKeyDown"
                            ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="ClassChanged" AutomationProperties.Name="班级">
                     <ListBox.ItemTemplate>
                       <DataTemplate x:DataType="core:Classroom">
@@ -301,72 +301,72 @@
                   </ListBox>
                   <TextBlock x:Name="ClassListMessage" Classes="muted" IsHitTestVisible="False" Text="请先选择学校。" Margin="3,8,3,0" />
                 </Grid>
+                <Grid Grid.Row="4" ColumnDefinitions="*,Auto" ColumnSpacing="4">
+                  <Button x:Name="OpenSchoolAffairsButton" Classes="action affairs-link" Click="OpenSchoolAffairsClicked"
+                          HorizontalAlignment="Stretch" AutomationProperties.Name="全校教务">
+                    <StackPanel Orientation="Horizontal" Spacing="6"><Path Classes="shell-glyph" Data="{StaticResource TeachingGlyph}"/><TextBlock VerticalAlignment="Center" Text="全校教务"/></StackPanel>
+                  </Button>
+                  <Button x:Name="RefreshClassDirectoryButton" Grid.Column="1" Classes="action" Content="刷新" Padding="7,4"
+                          ToolTip.Tip="刷新班级目录" AutomationProperties.Name="刷新班级目录" Click="RefreshClicked"/>
+                </Grid>
               </Grid>
             </Border>
       <Grid x:Name="ClassManagementWorkspace" Grid.Column="1" RowDefinitions="Auto,Auto,*">
         <Border x:Name="ClassHeader" BorderBrush="{DynamicResource LineBrush}" Padding="22,13">
-        <Grid RowDefinitions="Auto,Auto" RowSpacing="9">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
-            <Border x:Name="ClassEmblem" Classes="class-emblem" Width="45" Height="45" Background="{DynamicResource SurfaceBrush}"
+        <StackPanel Spacing="6">
+          <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+            <Border x:Name="ClassEmblem" Classes="class-emblem" Width="44" Height="44" Background="{DynamicResource SurfaceBrush}"
                     BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="12" VerticalAlignment="Center">
-              <Path Classes="shell-glyph" Data="{StaticResource ClassGlyph}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+              <Path Classes="shell-glyph" Data="{StaticResource ClassGlyph}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <StackPanel Grid.Column="1" Spacing="2">
-              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" HorizontalAlignment="Left">
-                <TextBlock x:Name="ClassContext" Classes="muted" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
-                <Button x:Name="OpenGradeResponsibilityButton" Grid.Column="1" Classes="action" Padding="7,3" MinHeight="28"
-                        Content="年级组长" Click="OpenGradeResponsibilityClicked" IsVisible="False" />
-              </Grid>
-              <TextBlock x:Name="ClassWorkspaceTitle" Text="班级与教务" FontSize="26" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+              <TextBlock x:Name="ClassWorkspaceTitle" Text="班级与教务" FontSize="25" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+              <TextBlock x:Name="ClassContext" Classes="muted" FontSize="12" TextWrapping="Wrap"/>
             </StackPanel>
+            <Button x:Name="OpenClassMaintenanceButton" Grid.Column="2" Classes="action" Content="编辑班级资料"
+                    Click="OpenClassMaintenanceClicked" IsVisible="False" VerticalAlignment="Center"/>
           </Grid>
-          <WrapPanel Grid.Row="1" ItemSpacing="8" LineSpacing="6" HorizontalAlignment="Left" VerticalAlignment="Center">
-            <Button x:Name="ReturnToDeviceDirectoryButton" Classes="action" Content="返回设备目录" Click="OpenDeviceDirectoryClicked" IsVisible="False" />
-            <Button x:Name="ReturnToSchoolOverviewButton" Classes="action" Content="返回总览" Click="SchoolOverviewClicked" IsVisible="False" />
-            <Button x:Name="OpenScreenClassButton" Classes="action" Content="查看所属班级" Click="OpenScreenClassClicked" IsVisible="False" />
-            <Button x:Name="OpenClassMaintenanceButton" Classes="action" Content="维护班级" Click="OpenClassMaintenanceClicked" IsVisible="False" />
-            <Button x:Name="OpenSchoolStudyButton" Classes="action" Content="学校自习" Click="SchoolStudyClicked" IsVisible="False" />
-            <Button x:Name="OpenClassStudyButton" Classes="action" Content="本班学校自习" Click="ClassStudyClicked" IsVisible="False" />
-            <Button x:Name="OpenTermPreparationButton" Classes="action" Content="学期管理" Click="OpenTermPreparationClicked" IsVisible="False" />
-            <Button x:Name="OpenOrganizationImportButton" Classes="action" Content="开学组织导入" Click="OpenOrganizationImportClicked" IsVisible="False" />
-            <Button x:Name="OpenGradeTeachingPlanButton" Classes="action" Content="年级教学安排" Click="OpenGradeTeachingPlanClicked" IsVisible="False" />
-            <Button x:Name="OpenCourseGroupsButton" Classes="action" Content="走班教学班" Click="OpenCourseGroupsClicked" IsVisible="False" />
-            <Button x:Name="OpenTeacherAccountsButton" Classes="action" Content="教师账号" Click="OpenTeacherAccountsClicked" IsVisible="False" />
-            <Button x:Name="OpenClassScreenDirectoryButton" Classes="action" Content="管理班级大屏" Click="OpenClassScreenDirectoryClicked" IsVisible="False" />
-            <Button x:Name="OpenSchoolSubjectsButton" Classes="action" Content="学科目录" Click="OpenSchoolSubjectsClicked" IsVisible="False" />
-            <Button x:Name="OpenStaffReviewButton" Classes="action" Content="师资核对" Click="OpenStaffReviewClicked" IsVisible="False" />
-            <Button x:Name="OpenHomeworkSettingsButton" Classes="action" Content="作业录入设置" Click="OpenHomeworkSettingsClicked" IsVisible="False" />
-            <Button x:Name="RefreshButton" Classes="action" Content="刷新" Click="RefreshClicked" IsEnabled="False" />
+          <WrapPanel x:Name="ClassReturnActions" ItemSpacing="7" LineSpacing="4" IsVisible="False">
+            <Button x:Name="ReturnToDeviceDirectoryButton" Classes="action" Content="返回设备目录" Click="OpenDeviceDirectoryClicked" IsVisible="False"/>
+            <Button x:Name="ReturnToSchoolOverviewButton" Classes="action" Content="返回总览" Click="SchoolOverviewClicked" IsVisible="False"/>
+            <Button x:Name="OpenScreenClassButton" Classes="action" Content="查看所属班级" Click="OpenScreenClassClicked" IsVisible="False"/>
+            <Button x:Name="RefreshButton" Classes="action" Content="刷新" Click="RefreshClicked" IsEnabled="False"/>
+            <Button x:Name="ReturnFromClassStudyButton" Classes="action" Content="返回班级详情" Click="ClassStudyClicked" IsVisible="False"/>
           </WrapPanel>
-        </Grid>
+        </StackPanel>
         </Border>
-        <Border x:Name="ClassCreationNotice" Grid.Row="1" Classes="card" Margin="29,0,29,12" Padding="14,10" IsVisible="False">
-          <TextBlock x:Name="ClassCreationNoticeText" Classes="muted" AutomationProperties.LiveSetting="Polite" />
+        <StackPanel Grid.Row="1" Margin="20,0">
+        <Border x:Name="ClassCreationNotice" Classes="card" Margin="0,0,0,6" Padding="14,10" IsVisible="False">
+          <TextBlock x:Name="ClassCreationNoticeText" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
         </Border>
-        <Border x:Name="ClassMaintenanceNotice" Grid.Row="1" Classes="card" Margin="29,0,29,12" Padding="14,10" IsVisible="False">
+        <Border x:Name="ClassMaintenanceNotice" Classes="card" Margin="0,0,0,6" Padding="14,10" IsVisible="False">
           <TextBlock x:Name="ClassMaintenanceNoticeText" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
         </Border>
+        </StackPanel>
         <ScrollViewer x:Name="ClassWorkspaceScroll" Grid.Row="2" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="20,15,20,24" Spacing="16">
-            <Border x:Name="ClassTeachingActions" Classes="card" Padding="4" IsVisible="False">
-              <Grid ColumnDefinitions="*,1,*,1,*,1,*" RowDefinitions="Auto,Auto">
-                <Button x:Name="OpenClassRosterButton" Classes="class-task" Click="OpenClassRosterClicked" IsEnabled="False" AutomationProperties.Name="学生名单">
-                  <StackPanel Orientation="Horizontal" Spacing="7"><Path Classes="shell-glyph" Data="{StaticResource RosterGlyph}"/><TextBlock Text="学生名单" Classes="label" VerticalAlignment="Center"/></StackPanel>
-                </Button>
-                <Border Grid.Column="1" Background="{DynamicResource LineBrush}" Margin="0,10" />
-                <Button Grid.Column="2" x:Name="OpenSubjectSetupButton" Classes="class-task" Click="OpenSubjectSetupClicked" AutomationProperties.Name="配置授课科目">
-                  <StackPanel Orientation="Horizontal" Spacing="7"><Path Classes="shell-glyph" Data="{StaticResource TeachingGlyph}"/><TextBlock Text="配置授课科目" Classes="label" VerticalAlignment="Center"/></StackPanel>
-                </Button>
-                <Border Grid.Column="3" Background="{DynamicResource LineBrush}" Margin="0,10" />
-                <Button Grid.Column="4" x:Name="OpenTeachingButton" Classes="class-task" Click="OpenTeachingClicked" AutomationProperties.Name="任课分配">
-                  <StackPanel Orientation="Horizontal" Spacing="7"><Path Classes="shell-glyph" Data="{StaticResource TeacherGlyph}"/><TextBlock Text="任课分配" Classes="label" VerticalAlignment="Center"/></StackPanel>
-                </Button>
-                <Border Grid.Column="5" Background="{DynamicResource LineBrush}" Margin="0,10" />
-                <Button Grid.Column="6" x:Name="OpenClassResponsibilityButton" Classes="class-task" Click="OpenClassResponsibilityClicked" AutomationProperties.Name="班主任">
-                  <StackPanel Orientation="Horizontal" Spacing="7"><Path Classes="shell-glyph" Data="{StaticResource TeacherGlyph}"/><TextBlock Text="班主任" Classes="label" VerticalAlignment="Center"/></StackPanel>
-                </Button>
-                <Button x:Name="OpenClassRulesButton" Grid.Row="1" Grid.ColumnSpan="7" Classes="action" Content="编辑整班规则"
-                        HorizontalAlignment="Left" Click="OpenCurrentClassRulesClicked" Margin="7,3,0,4"/>
+            <Border x:Name="ClassTeachingActions" Classes="card" Padding="10,7" IsVisible="False">
+              <Grid RowDefinitions="Auto,1,Auto" RowSpacing="4">
+                <Grid ColumnDefinitions="*,1,*,1,*" ColumnSpacing="4">
+                  <Button x:Name="OpenClassRosterButton" Classes="class-task" Click="OpenClassRosterClicked" AutomationProperties.Name="学生名单" IsEnabled="False">
+                    <StackPanel Orientation="Horizontal" Spacing="8"><Path Classes="shell-glyph" Data="{StaticResource RosterGlyph}"/><TextBlock Classes="label" Text="学生名单" VerticalAlignment="Center"/></StackPanel>
+                  </Button>
+                  <Border Grid.Column="1" Background="{DynamicResource LineBrush}" Margin="0,9"/>
+                  <Button x:Name="OpenTeachingButton" Grid.Column="2" Classes="class-task" Click="OpenTeachingClicked" AutomationProperties.Name="任课分配">
+                    <StackPanel Orientation="Horizontal" Spacing="8"><Path Classes="shell-glyph" Data="{StaticResource TeacherGlyph}"/><TextBlock Classes="label" Text="任课分配" VerticalAlignment="Center"/></StackPanel>
+                  </Button>
+                  <Border Grid.Column="3" Background="{DynamicResource LineBrush}" Margin="0,9"/>
+                  <Button x:Name="OpenClassStudyButton" Grid.Column="4" Classes="class-task" Click="ClassStudyClicked" AutomationProperties.Name="本班自习">
+                    <StackPanel Orientation="Horizontal" Spacing="8"><Path Classes="shell-glyph" Data="{StaticResource TeachingGlyph}"/><TextBlock Classes="label" Text="本班自习" VerticalAlignment="Center"/></StackPanel>
+                  </Button>
+                </Grid>
+                <Border Grid.Row="1" Background="{DynamicResource LineBrush}" Margin="3,0"/>
+                <WrapPanel Grid.Row="2" ItemSpacing="6" LineSpacing="3">
+                  <Button x:Name="OpenSubjectSetupButton" Classes="class-link" Content="配置授课科目" Click="OpenSubjectSetupClicked"/>
+                  <Button x:Name="OpenClassRulesButton" Classes="class-link" Content="整班授课规则" Click="OpenCurrentClassRulesClicked"/>
+                  <Button x:Name="OpenClassResponsibilityButton" Classes="class-link" Content="班主任" Click="OpenClassResponsibilityClicked"/>
+                  <Button x:Name="OpenGradeResponsibilityButton" Classes="class-link" Content="年级组长" Click="OpenGradeResponsibilityClicked" IsVisible="False"/>
+                </WrapPanel>
               </Grid>
             </Border>
             <StackPanel x:Name="ClassDeviceWorkspace" Spacing="16">
@@ -386,7 +386,10 @@
                         VerticalAlignment="Center" Click="RefreshFirstScreenClicked" IsVisible="False" />
               </Grid>
             </Border>
-            <TextBlock x:Name="ScreensHeading" Text="绑定大屏和设备" FontSize="18" FontWeight="SemiBold" IsVisible="False" />
+            <Grid ColumnDefinitions="*,Auto">
+              <TextBlock x:Name="ScreensHeading" Text="教室大屏" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" IsVisible="False"/>
+              <Button x:Name="OpenClassScreenDirectoryButton" Grid.Column="1" Classes="class-link" Content="管理班级大屏" Click="OpenClassScreenDirectoryClicked" IsVisible="False"/>
+            </Grid>
             <Border x:Name="ScreenEvidenceCard" IsVisible="False" Classes="card" Padding="19,15"
                     Focusable="True" AutomationProperties.Name="大屏接入记录">
               <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="*,*" RowSpacing="13" ColumnSpacing="17">
@@ -559,6 +562,54 @@
           </StackPanel>
         </ScrollViewer>
       </Grid>
+            <Grid Grid.Column="1" x:Name="SchoolAffairsPage" IsVisible="False" RowDefinitions="Auto,*">
+              <Border Background="{DynamicResource SurfaceBrush}" Padding="22,14" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="*,Auto">
+                  <StackPanel Spacing="3"><TextBlock Text="全校教务" FontSize="25" FontWeight="SemiBold"/><TextBlock x:Name="SchoolAffairsScope" Classes="muted"/></StackPanel>
+                  <Button Grid.Column="1" x:Name="ReturnToClassHomeButton" Classes="action" Content="返回所选班级" Click="ReturnToClassHomeClicked" VerticalAlignment="Center"/>
+                </Grid>
+              </Border>
+              <ScrollViewer Grid.Row="1" x:Name="SchoolAffairsScroll" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="20,16" Spacing="15">
+                  <TextBlock Text="{Binding #ClassCreationNoticeText.Text}" IsVisible="{Binding #ClassCreationNotice.IsVisible}"
+                             Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                  <TextBlock Text="{Binding #ClassMaintenanceNoticeText.Text}" IsVisible="{Binding #ClassMaintenanceNotice.IsVisible}"
+                             Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                  <TextBlock x:Name="SchoolAffairsNotice" Classes="muted" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
+                  <StackPanel Spacing="6">
+                    <TextBlock Classes="label" FontSize="16" Text="学期与开学准备"/>
+                    <Border Classes="card" Padding="5">
+                      <Grid ColumnDefinitions="*,*" RowDefinitions="Auto" ColumnSpacing="4" RowSpacing="2">
+                        <Button x:Name="OpenTermPreparationButton" Grid.Column="0" Grid.Row="0" Classes="affairs-action" Content="学期管理" Click="OpenTermPreparationClicked"/>
+                        <Button x:Name="OpenOrganizationImportButton" Grid.Column="1" Grid.Row="0" Classes="affairs-action" Content="开学组织导入" Click="OpenOrganizationImportClicked"/>
+                      </Grid>
+                    </Border>
+                  </StackPanel>
+                  <StackPanel Spacing="6">
+                    <TextBlock Classes="label" FontSize="16" Text="教学与师资"/>
+                    <Border Classes="card" Padding="5">
+                      <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="4" RowSpacing="2">
+                        <Button x:Name="OpenGradeTeachingPlanButton" Grid.Column="0" Grid.Row="0" Classes="affairs-action" Content="年级教学安排" Click="OpenGradeTeachingPlanClicked"/>
+                        <Button x:Name="OpenCourseGroupsButton" Grid.Column="1" Grid.Row="0" Classes="affairs-action" Content="走班教学班" Click="OpenCourseGroupsClicked"/>
+                        <Button x:Name="OpenSchoolSubjectsButton" Grid.Column="0" Grid.Row="1" Classes="affairs-action" Content="学科目录" Click="OpenSchoolSubjectsClicked"/>
+                        <Button x:Name="OpenTeacherAccountsButton" Grid.Column="1" Grid.Row="1" Classes="affairs-action" Content="教师账号" Click="OpenTeacherAccountsClicked"/>
+                        <Button x:Name="OpenStaffReviewButton" Grid.Column="0" Grid.Row="2" Classes="affairs-action" Content="师资核对" Click="OpenStaffReviewClicked"/>
+                        <Button x:Name="SchoolGradeStaffButton" Grid.Column="1" Grid.Row="2" Classes="affairs-action" Content="年级组长" Click="OpenGradeResponsibilityClicked"/>
+                      </Grid>
+                    </Border>
+                  </StackPanel>
+                  <StackPanel Spacing="6">
+                    <TextBlock Classes="label" FontSize="16" Text="自习与作业"/>
+                    <Border Classes="card" Padding="5">
+                      <Grid ColumnDefinitions="*,*" RowDefinitions="Auto" ColumnSpacing="4" RowSpacing="2">
+                        <Button x:Name="OpenSchoolStudyButton" Grid.Column="0" Grid.Row="0" Classes="affairs-action" Content="学校自习" Click="SchoolStudyClicked"/>
+                        <Button x:Name="OpenHomeworkSettingsButton" Grid.Column="1" Grid.Row="0" Classes="affairs-action" Content="作业录入设置" Click="OpenHomeworkSettingsClicked"/>
+                      </Grid>
+                    </Border>
+                  </StackPanel>
+                </StackPanel>
+              </ScrollViewer>
+            </Grid>
           </Grid>
           <local:SchoolAuditView x:Name="SchoolAuditWorkspace" IsVisible="False" />
           <local:SchoolOverviewView x:Name="SchoolOverviewWorkspace" IsVisible="False" />

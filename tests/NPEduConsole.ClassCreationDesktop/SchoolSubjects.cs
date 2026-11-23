@@ -229,6 +229,7 @@ internal static partial class Program
             await Until(() => schools.Items.Cast<School>().Any(item => item.Id == id), "authorized school loaded");
             schools.SelectedItem = schools.Items.Cast<School>().Single(item => item.Id == id);
             Press(main, "OpenClassWorkspaceButton");
+            Press(main, "OpenSchoolAffairsButton");
             await Until(() => Find<Button>(main, "OpenSchoolSubjectsButton").IsEffectivelyVisible, "school catalog entry in the class workspace");
         }
 

@@ -67,6 +67,7 @@ internal static partial class Program
             var classes = Find<Button>(main,"OpenClassWorkspaceButton");
             await Until(() => classes.IsEffectivelyEnabled && classes.IsEffectivelyVisible,"class workspace reachable");
             Click(classes);
+            Click(Find<Button>(main,"OpenSchoolAffairsButton"));
             var openStudy = Find<Button>(main,"OpenSchoolStudyButton");
             await Until(() => openStudy.IsEffectivelyEnabled && openStudy.IsEffectivelyVisible,"self-study workspace reachable");
             Click(openStudy);

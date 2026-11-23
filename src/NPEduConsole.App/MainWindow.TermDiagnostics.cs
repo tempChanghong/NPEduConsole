@@ -46,10 +46,8 @@ public sealed partial class MainWindow
             {
                 case "CREATE_GRADE":
                 case "CREATE_CLASS":
-                    var structure = new TermClassManagementWindow(client, school, term with {Status = selected.Status!, Name = selected.Name},
-                        task.ClassId, task.GradeId) {SessionExpired = Expired};
-                    await ShowLegacyAsync(structure, structure.CloseForScopeChange);
-                    return true;
+                    return await ShowTermClassDirectoryAsync(client, school, term with {Status = selected.Status!, Name = selected.Name},
+                        task.ClassId, task.GradeId);
                 case "OPEN_TEACHING" when selected.Status == "ACTIVE" && task.ClassId is { } classroom && task.SubjectId is { } subject:
                     return await ShowTeachingPageAsync(client, school, selected.Id, classroom, subject, task.AccountId, termName: selected.Name);
                 case "OPEN_COURSE_GROUP_TEACHING" when selected.Status == "ACTIVE" && task.CourseGroupId is { } group && task.SubjectId is { } groupSubject:

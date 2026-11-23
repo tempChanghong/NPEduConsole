@@ -7,7 +7,7 @@ namespace NPEduConsole.App;
 public sealed partial class TermPreparationView
 {
     private TermStatusWindow? _termStatusWindow;
-    private TermClassManagementWindow? _termClassesWindow;
+    private bool _openingTermClasses;
     private GradeTeachingPlanWindow? _termTeachingWindow;
     private ManagedAcademicTerm[] CatalogTerms => _catalog?.Terms ??
         (_catalog is { } catalog ? (catalog.ActiveTerm is { } active ? [active, ..catalog.Drafts] : catalog.Drafts) : []);
@@ -78,6 +78,7 @@ public sealed partial class TermPreparationView
         await OpenTermClassesAsync(SelectedTerm, TermManageClasses);
 
     internal Func<Window, ManagedAcademicTerm, Task>? OpenTermDiagnostics { get; init; }
+    internal Func<ManagedAcademicTerm, Task<bool>>? OpenTermClassDirectory { get; init; }
 
     private async void TermDiagnosticsClicked(object? sender, RoutedEventArgs args)
     {
@@ -115,14 +116,15 @@ public sealed partial class TermPreparationView
 
     private async Task OpenTermClassesAsync(ManagedAcademicTerm? term, Button source)
     {
-        if (term is null || _busy || _closed || _termClassesWindow is not null) return;
-        var window = new TermClassManagementWindow(_client, _school, term) { SessionExpired = SessionExpired };
-        _termClassesWindow = window;
+        if (term is null || _busy || _closed || _openingTermClasses || OpenTermClassDirectory is not { } open) return;
+        _openingTermClasses = true;
         TermManageClasses.IsEnabled = TermPrepareClasses.IsEnabled = false;
-        try { await window.ShowDialog(HostWindow); }
-        finally { _termClassesWindow = null; }
+        bool returned;
+        try { returned = await open(term); }
+        finally { _openingTermClasses = false; }
         if (_closed) return;
-        await RunAsync(_page == Page.Check ? () => ReadCheckAsync(term.Id) : LoadCatalogAsync);
+        if (returned) await RunAsync(_page == Page.Check ? () => ReadCheckAsync(term.Id) : LoadCatalogAsync);
+        else Render();
         Focus(source);
     }
 

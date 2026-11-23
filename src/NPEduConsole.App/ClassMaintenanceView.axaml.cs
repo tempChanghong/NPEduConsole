@@ -1,19 +1,23 @@
 using System.Net.Http;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class ClassMaintenanceWindow : Window
+public sealed partial class ClassMaintenanceView : UserControl
 {
     private readonly ConsoleClient _client = null!;
     private readonly string _schoolId = "";
+    private readonly string _schoolName = "";
     private readonly string _termId = "";
     private readonly string _classId = "";
     private readonly bool _initiallyActive;
     private readonly string _initialName = "";
+    private readonly string? _initialCode;
     private readonly ClassCreationContext? _specifiedTerm;
+    private string? _activeTermName;
     private readonly CancellationTokenSource _lifetime = new();
     private ClassMaintenanceSnapshot? _baseline;
     private ClassDeactivationPreview? _preview;
@@ -23,6 +27,7 @@ public sealed partial class ClassMaintenanceWindow : Window
     private bool _blocked;
     private bool _showImpact;
     private bool _closing;
+    private bool _archiveEditing, _allowClose, _confirmDiscard;
 
     private sealed record PendingChange(bool Active, string Name, string Code, bool Selectable)
     {
@@ -30,37 +35,53 @@ public sealed partial class ClassMaintenanceWindow : Window
             room.Code == Code && room.IsStudentSelectable == Selectable;
     }
 
-    public ClassMaintenanceWindow() => InitializeComponent();
+    public ClassMaintenanceView() => InitializeComponent();
 
-    public ClassMaintenanceWindow(ConsoleClient client, School school, Classroom room, ClassCreationContext? specifiedTerm = null) : this()
+    internal ClassMaintenanceView(ConsoleClient client, School school, Classroom room, ClassCreationContext? specifiedTerm = null) : this()
     {
         _client = client;
         _schoolId = school.Id;
+        _schoolName = school.Name;
         _termId = room.TermId ?? throw new ArgumentException("A current term is required.", nameof(room));
         _classId = room.Id;
         _initiallyActive = room.IsActive;
         _initialName = room.Name;
+        _initialCode = room.Code;
         _specifiedTerm = specifiedTerm;
-        MaintenanceSchool.Text = specifiedTerm is null ? school.Name : $"{school.Name} / {specifiedTerm.TermName} · {specifiedTerm.TermStatus}";
-        MaintenanceHeading.Text = room.Name;
-        Opened += async (_, _) => await ReadClassAsync();
-        Closing += (_, args) => args.Cancel = _busy && !_closing;
-        Closed += (_, _) =>
-        {
-            _closing = true;
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
+        SetIdentity(room.Name, room.GradeName, room.Code, room.IsActive);
     }
 
     public event Action<ConsoleApiException>? SessionExpired;
+    internal Action? CloseRequested { get; set; }
     public ClassMaintenanceSnapshot? ObservedChange { get; private set; }
     public string? Outcome { get; private set; }
 
-    public void CloseForScopeChange()
+    internal Task StartAsync() => ReadClassAsync();
+
+    internal void End()
     {
+        if (_closing) return;
         _closing = true;
-        Close();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        _baseline = null;
+        _preview = null;
+        _unconfirmed = null;
+        MaintenanceName.Clear();
+        MaintenanceCode.Clear();
+        MaintenanceServerState.Text = null;
+        MaintenanceImpactSummary.SetImpact(null);
+    }
+
+    private void SetIdentity(string name, string? grade, string? code, bool active)
+    {
+        string term = _specifiedTerm is { } selected ? $"{selected.TermName} · {selected.TermStatus}" :
+            _activeTermName is { } title ? $"{title} · 启用中" : "当前启用学期";
+        MaintenanceSchool.Text = $"{_schoolName} / {term} / {grade ?? "未设年级"} / {code ?? "代码待核对"} · {(active ? "班级启用" : "班级停用")}";
+        MaintenanceHeading.Text = $"班级资料 · {name}";
+        ConfirmDeactivateLabel.Text = $"停用「{name}」";
+        AutomationProperties.SetName(ConfirmDeactivateButton, ConfirmDeactivateLabel.Text);
+        ReactivateClassButton.Content = $"重新启用「{name}」";
     }
 
     private async void CheckClicked(object? sender, RoutedEventArgs args) => await ReadClassAsync();
@@ -69,9 +90,21 @@ public sealed partial class ClassMaintenanceWindow : Window
     {
         if (_busy || _blocked || _closing) return;
         SetBusy(true);
-        MaintenanceFeedback.Text = "正在读取服务器上的班级…";
+        SetFeedback("正在读取服务器上的班级…");
         try
         {
+            if (_specifiedTerm is null && _activeTermName is null)
+            {
+                try
+                {
+                    var active = await _client.GetClassCreationContextAsync(_schoolId, _lifetime.Token);
+                    if (_closing) return;
+                    if (active.TermId != _termId)
+                        throw new ConsoleApiException(409, "当前启用学期已变化。请返回班级目录核对。", "CLASS_MAINTENANCE_TERM_CHANGED");
+                    _activeTermName = active.TermName;
+                }
+                catch (ConsoleApiException error) when (error.Code == "CLASS_CREATION_UNSUPPORTED") { }
+            }
             var room = _specifiedTerm is { } context
                 ? await _client.GetTermClassMaintenanceAsync(context, _classId, _lifetime.Token)
                 : await _client.GetCurrentClassMaintenanceAsync(_schoolId, _termId, _classId, _lifetime.Token);
@@ -81,7 +114,7 @@ public sealed partial class ClassMaintenanceWindow : Window
             _preview = null;
             _showImpact = false;
             _checkingRequired = false;
-            MaintenanceHeading.Text = room.Name;
+            SetIdentity(room.Name, room.GradeName, room.Code, room.IsActive);
             if (previous is null || previous.IsActive != room.IsActive)
             {
                 FillFields(room);
@@ -91,7 +124,7 @@ public sealed partial class ClassMaintenanceWindow : Window
             {
                 ObservedChange = room;
             }
-            if (previous is null && room.IsActive == _initiallyActive && room.Name == _initialName) ObservedChange = null;
+            if (previous is null && room.IsActive == _initiallyActive && room.Name == _initialName && room.Code == _initialCode) ObservedChange = null;
             MaintenanceServerCard.IsVisible = previous is not null;
             MaintenanceServerState.Text = $"服务器当前班级：{room.Name}\n代码：{room.Code}\n学生自选：{(room.IsStudentSelectable ? "允许" : "不允许")} · {(room.IsActive ? "启用" : "已停用")}";
             if (_unconfirmed is { } pending)
@@ -99,20 +132,25 @@ public sealed partial class ClassMaintenanceWindow : Window
                 Outcome = pending.Matches(room)
                     ? "已核对，服务器上的班级与本次提交一致。"
                     : "已核对，服务器上的班级与本次提交不同，请查看当前状态。";
-                MaintenanceFeedback.Text = Outcome;
+                SetFeedback(Outcome);
                 ObservedChange = room;
                 _unconfirmed = null;
             }
             else
             {
-                MaintenanceFeedback.Text = previous is null ? "" : room.IsActive
+                SetFeedback(previous is null ? null : room.IsActive
                     ? "已读取服务器当前内容。草稿仍保留，请核对后再保存。"
-                    : "已读取服务器当前状态。";
+                    : "已读取服务器当前状态。");
             }
         }
         catch (Exception error) when (IsServiceError(error)) { ReportError(error); }
         finally { SetBusy(false); }
-        if (!_closing && _baseline?.IsActive == true && !_checkingRequired) MaintenanceName.Focus();
+        if (!_closing && !_checkingRequired && _baseline is not null)
+        {
+            if (ArchiveReadOnly) CorrectArchivedClass.Focus();
+            else if (_baseline.IsActive) MaintenanceName.Focus();
+            else ReactivateClassButton.Focus();
+        }
     }
 
     private void FillFields(ClassMaintenanceSnapshot room)
@@ -127,11 +165,11 @@ public sealed partial class ClassMaintenanceWindow : Window
 
     private async void SaveClicked(object? sender, RoutedEventArgs args)
     {
-        if (_baseline is not { IsActive: true } room || _showImpact || _checkingRequired) return;
+        if (_baseline is not { IsActive: true } room || _showImpact || _checkingRequired || ArchiveReadOnly) return;
         var draft = Draft();
         if (draft.Matches(room))
         {
-            MaintenanceFeedback.Text = "班级内容没有变化。";
+            SetFeedback("班级内容没有变化。");
             return;
         }
         await WriteAsync(draft, ct => _client.EditCurrentClassAsync(room, draft.Name, draft.Code, draft.Selectable, ct), "已保存班级修改。");
@@ -141,16 +179,16 @@ public sealed partial class ClassMaintenanceWindow : Window
 
     private async Task ReadImpactAsync(string? feedback = null)
     {
-        if (_busy || _closing || _blocked || _checkingRequired || _baseline is not { IsActive: true } room) return;
+        if (_busy || _closing || _blocked || _checkingRequired || ArchiveReadOnly || _baseline is not { IsActive: true } room) return;
         if (!Draft().Matches(room))
         {
-            MaintenanceFeedback.Text = "还有未保存的班级修改。请先保存修改，或恢复原值后再查看停用影响。";
+            SetFeedback("还有未保存的班级修改。请先保存修改，或恢复原值后再查看停用影响。");
             return;
         }
         _showImpact = true;
         _preview = null;
         MaintenanceImpactSummary.SetImpact(null);
-        MaintenanceFeedback.Text = feedback;
+        SetFeedback(feedback);
         SetBusy(true);
         try
         {
@@ -170,6 +208,7 @@ public sealed partial class ClassMaintenanceWindow : Window
             }
         }
         finally { SetBusy(false); }
+        if (!_closing && _showImpact) CancelImpactButton.Focus();
     }
 
     private void CancelImpactClicked(object? sender, RoutedEventArgs args)
@@ -181,7 +220,7 @@ public sealed partial class ClassMaintenanceWindow : Window
 
     private async void DeactivateClicked(object? sender, RoutedEventArgs args)
     {
-        if (_preview is not { } preview || _checkingRequired) return;
+        if (_preview is not { } preview || _checkingRequired || ArchiveReadOnly) return;
         var room = preview.Classroom;
         await WriteAsync(new(false, room.Name, room.Code, room.IsStudentSelectable),
             ct => _client.DeactivateCurrentClassAsync(preview, ct), "已停用班级。可在「已停用」筛选中找回原班。");
@@ -189,7 +228,7 @@ public sealed partial class ClassMaintenanceWindow : Window
 
     private async void ReactivateClicked(object? sender, RoutedEventArgs args)
     {
-        if (_baseline is not { IsActive: false } room || _checkingRequired) return;
+        if (_baseline is not { IsActive: false } room || _checkingRequired || ArchiveReadOnly) return;
         await WriteAsync(new(true, room.Name, room.Code, room.IsStudentSelectable),
             ct => _client.ReactivateCurrentClassAsync(room, ct), "已重新启用原班。可打开学生名单继续维护。");
     }
@@ -198,7 +237,7 @@ public sealed partial class ClassMaintenanceWindow : Window
     {
         if (_busy || _blocked || _closing) return;
         SetBusy(true);
-        MaintenanceFeedback.Text = "正在保存…";
+        SetFeedback("正在保存…");
         string? impactChanged = null;
         bool codeConflict = false;
         try
@@ -208,7 +247,7 @@ public sealed partial class ClassMaintenanceWindow : Window
             if (!change.Matches(room)) throw new ConsoleApiException(0, "服务器回执与提交不一致。");
             ObservedChange = room;
             Outcome = success;
-            CloseForScopeChange();
+            _allowClose = true;
         }
         catch (ConsoleApiException error) when (error.Code == "CLASS_DEACTIVATION_IMPACT_CHANGED")
         {
@@ -225,11 +264,12 @@ public sealed partial class ClassMaintenanceWindow : Window
                 _checkingRequired = true;
                 _preview = null;
                 Outcome = "上次提交结果未确认。请重新打开班级维护核对服务器上的当前状态。";
-                MaintenanceFeedback.Text = "提交结果暂未确认。请先点击「核对服务器班级」。";
+                SetFeedback("提交结果暂未确认。请先点击「核对服务器班级」。");
             }
             else ReportError(error);
         }
         finally { SetBusy(false); }
+        if (_allowClose) CloseRequested?.Invoke();
         if (codeConflict && !_closing) MaintenanceCode.Focus();
         if (impactChanged is not null) await ReadImpactAsync(impactChanged);
     }
@@ -237,14 +277,13 @@ public sealed partial class ClassMaintenanceWindow : Window
     private void ReportError(Exception error)
     {
         if (_closing) return;
-        if (error is ConsoleApiException { StatusCode: 401 } expired)
+        if (error is ConsoleApiException { StatusCode: 401 or 403 } expired)
         {
             SessionExpired?.Invoke(expired);
             return;
         }
-        MaintenanceFeedback.Text = error is ConsoleApiException service ? service.Message : "暂时无法连接学校服务，请重试。";
-        if (error is ConsoleApiException { Code: "CLASS_MAINTENANCE_TERM_CHANGED" or "ADMIN_CLASS_NOT_FOUND" or "CLASS_MAINTENANCE_UNSUPPORTED" }
-            or ConsoleApiException { StatusCode: 403 })
+        SetFeedback(error is ConsoleApiException service ? service.Message : "暂时无法连接学校服务，请重试。");
+        if (error is ConsoleApiException { Code: "CLASS_MAINTENANCE_TERM_CHANGED" or "ADMIN_CLASS_NOT_FOUND" or "CLASS_MAINTENANCE_UNSUPPORTED" })
         {
             _blocked = true;
             _preview = null;
@@ -261,6 +300,12 @@ public sealed partial class ClassMaintenanceWindow : Window
     private static bool IsServiceError(Exception error) =>
         error is ConsoleApiException or HttpRequestException or OperationCanceledException or System.Text.Json.JsonException;
 
+    private void SetFeedback(string? message)
+    {
+        MaintenanceFeedback.Text = message;
+        MaintenanceFeedback.IsVisible = !string.IsNullOrWhiteSpace(message);
+    }
+
     private void SetBusy(bool busy)
     {
         _busy = busy;
@@ -270,10 +315,15 @@ public sealed partial class ClassMaintenanceWindow : Window
     private void Render()
     {
         var room = _baseline;
-        bool canWrite = !_busy && !_blocked && !_checkingRequired;
+        bool canWrite = !_busy && !_blocked && !_checkingRequired && !_confirmDiscard && !ArchiveReadOnly;
         MaintenanceProgress.IsVisible = _busy;
         MaintenanceFields.IsVisible = room?.IsActive == true && !_showImpact;
-        MaintenanceFields.IsEnabled = !_busy && !_blocked;
+        MaintenanceActivity.IsVisible = MaintenanceFields.IsVisible && !ArchiveReadOnly;
+        MaintenanceFields.IsEnabled = !_busy && !_blocked && !_confirmDiscard && !ArchiveReadOnly;
+        CorrectArchivedClass.IsVisible = ArchiveReadOnly && room is not null;
+        MaintenanceDiscard.IsVisible = _confirmDiscard;
+        MaintenanceActions.IsVisible = !_confirmDiscard;
+        SaveMaintenanceButton.IsVisible = MaintenanceFields.IsVisible && !ArchiveReadOnly;
         SaveMaintenanceButton.IsEnabled = canWrite;
         ReadDeactivationImpactButton.IsEnabled = canWrite;
         MaintenanceInactivePanel.IsVisible = room?.IsActive == false;
@@ -292,5 +342,39 @@ public sealed partial class ClassMaintenanceWindow : Window
         CloseMaintenanceButton.IsEnabled = !_busy;
     }
 
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
+    private bool ArchiveReadOnly => _specifiedTerm?.TermStatus == "已归档" && !_archiveEditing;
+
+    private void CorrectArchivedClicked(object? sender, RoutedEventArgs args)
+    {
+        _archiveEditing = true;
+        Render();
+        if (_baseline?.IsActive == true) MaintenanceName.Focus();
+        else ReactivateClassButton.Focus();
+    }
+
+    internal bool CanClose()
+    {
+        if (_allowClose) return true;
+        if (_busy) return false;
+        if (_baseline is not { IsActive: true } room || Draft().Matches(room)) return true;
+        _confirmDiscard = true;
+        Render();
+        KeepMaintenanceDraft.Focus();
+        return false;
+    }
+
+    private void KeepDraftClicked(object? sender, RoutedEventArgs args)
+    {
+        _confirmDiscard = false;
+        Render();
+        MaintenanceName.Focus();
+    }
+
+    private void DiscardClicked(object? sender, RoutedEventArgs args)
+    {
+        _allowClose = true;
+        CloseRequested?.Invoke();
+    }
+
+    private void CloseClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
 }

@@ -22,7 +22,8 @@ public sealed partial class MainWindow
             SessionExpired = error => AcademicScopeUnavailable(error, client, school),
             OpenPlacement = (owner, termId, bindingId) => ShowTermScreenPlacementAsync(owner, client, school, termId, bindingId),
             OpenOrganizationImport = (owner, term) => ShowOrganizationImportAsync(owner, client, school, term.Id, term.Status == "ARCHIVED" ? term : null),
-            OpenTermDiagnostics = (owner, term) => ShowTermDiagnosticsAsync(owner, client, school, term)
+            OpenTermDiagnostics = (owner, term) => ShowTermDiagnosticsAsync(owner, client, school, term),
+            OpenTermClassDirectory = term => ShowTermClassDirectoryAsync(client, school, term),
         };
         _termPreparationView = view;
         view.CloseRequested = () => ReturnFromAcademicPage(view);

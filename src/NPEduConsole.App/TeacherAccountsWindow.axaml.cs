@@ -34,6 +34,7 @@ public sealed partial class TeacherAccountsWindow : Window
         _selectedId = targetId;
         _showDetails = targetId is not null;
         TeacherAccountsScope.Text = school.Name;
+        AddHandler(KeyDownEvent, OnConfirmationKeyDown, RoutingStrategies.Tunnel);
         SizeChanged += (_, _) => LayoutPanes();
         Opened += async (_, _) =>
         {
@@ -280,12 +281,22 @@ public sealed partial class TeacherAccountsWindow : Window
     {
         if (Current is not { } account || !ChangeTeacherStatus.IsEnabled) return;
         _confirmation = account.Disabled ? "RESTORE" : "DISABLE";
+        ConfirmTeacherStatus.Classes.Set("accent", account.Disabled);
+        ConfirmTeacherStatus.Classes.Set("disable", !account.Disabled);
+        TeacherStatusConfirmation.Classes.Set("disable", !account.Disabled);
         ConfirmTeacherStatus.Content = account.Disabled ? "确认恢复" : "确认停用";
         TeacherStatusExplanation.Text = account.Disabled
             ? $"恢复 {account.Display} 后，教师可用原账号重新登录。"
             : $"停用 {account.Display}？现有会话会退出，任课和岗位仍保留。";
         Render();
-        Focus(ConfirmTeacherStatus);
+        Focus(account.Disabled ? ConfirmTeacherStatus : CancelTeacherStatus);
+    }
+
+    private void OnConfirmationKeyDown(object? sender, KeyEventArgs args)
+    {
+        if (args.Key != Key.Escape || _confirmation is null || _busy) return;
+        args.Handled = true;
+        CancelStatusClicked(sender, args);
     }
 
     private void CancelStatusClicked(object? sender, RoutedEventArgs args)

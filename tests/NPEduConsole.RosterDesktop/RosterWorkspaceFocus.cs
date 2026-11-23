@@ -305,7 +305,8 @@ internal static class RosterWorkspaceFocus
     }
 
     private static T FindNamed<T>(Window window, string name) where T : Control =>
-        window.FindControl<T>(name) ?? throw new InvalidDataException($"Window is missing {name}");
+        window.GetVisualDescendants().OfType<T>().SingleOrDefault(control => control.Name == name)
+        ?? throw new InvalidDataException($"Window is missing {name}");
 
     private static bool IsRendered(Control control) =>
         control.IsEffectivelyVisible && control.Bounds.Width > 0 && control.Bounds.Height > 0;

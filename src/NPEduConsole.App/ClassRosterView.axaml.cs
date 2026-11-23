@@ -12,14 +12,16 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class ClassRosterWindow : Window
+public sealed partial class ClassRosterView : UserControl
 {
     private readonly ObservableCollection<RosterDraftRow> _rows = [];
     private ConsoleClient? _client;
     private string _schoolId = "";
     private string _schoolName = "";
     private string _classId = "";
+    private Classroom _room = null!;
     private ClassCreationContext? _specifiedTerm;
+    private bool _currentEntry, _legacyRoster, _archiveEditing, _importOpen;
     private CancellationTokenSource? _request;
     private ClassRoster? _baseline;
     private ClassRoster? _current;
@@ -36,50 +38,51 @@ public sealed partial class ClassRosterWindow : Window
     private DiscardAction _discard;
 
     private enum DiscardAction { None, Close, Reload }
-    private RosterDraftRow? _compared;
+    private RosterDraftRow? _selected;
 
     public event Action<ConsoleApiException>? SessionExpired;
+    internal Action? CloseRequested { get; set; }
     internal bool HasConfirmedSave { get; private set; }
 
-    public ClassRosterWindow()
+    public ClassRosterView()
     {
         InitializeComponent();
         RosterRows.ItemsSource = _rows;
         RosterImportMode.SelectedIndex = 0;
-        Closing += ConfirmClose;
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            var request = _request;
-            _request = null;
-            request?.Cancel();
-            ClearRoster();
-            _client = null;
-        };
         AddHandler(KeyDownEvent, CloseOnEscape, RoutingStrategies.Tunnel);
     }
 
-    internal ClassRosterWindow(ConsoleClient client, string schoolId, string classId, string schoolName, string className,
+    internal ClassRosterView(ConsoleClient client, School school, Classroom room,
         ClassCreationContext? specifiedTerm = null) : this()
     {
         _client = client;
-        _schoolId = schoolId;
-        _schoolName = schoolName;
-        _classId = classId;
+        _schoolId = school.Id;
+        _schoolName = school.Name;
+        _classId = room.Id;
+        _room = room;
         _specifiedTerm = specifiedTerm;
-        RosterScope.Text = specifiedTerm is null ? $"{schoolName} / {className}"
-            : $"{schoolName} / {specifiedTerm.TermName} · {specifiedTerm.TermStatus} / {className}";
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            await LoadAsync(compare: false);
-        };
+        _currentEntry = specifiedTerm is null;
+        ShowRosterIdentity();
     }
 
-    internal void CloseForScopeChange()
+    internal async Task StartAsync()
     {
-        _allowClose = true;
-        Close();
+        await LoadAsync(compare: false);
+        if (_closed) return;
+        var action = RosterCorrectArchived.IsEffectivelyVisible ? RosterCorrectArchived :
+            OpenRosterImport.IsEffectivelyVisible ? OpenRosterImport : CloseRosterButton;
+        action.Focus(NavigationMethod.Tab);
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        var request = _request;
+        _request = null;
+        request?.Cancel();
+        ClearRoster();
+        _client = null;
     }
 
     private async Task LoadAsync(bool compare)
@@ -92,15 +95,28 @@ public sealed partial class ClassRosterWindow : Window
         Render();
         try
         {
+            if (_currentEntry && !_legacyRoster && !compare)
+            {
+                try
+                {
+                    var directory = await client.GetTermClassStructureAsync(_schoolId, _room.TermId!, request.Token);
+                    if (_request != request) return;
+                    if (directory.Term.Status != "ACTIVE" || !directory.Classes.Any(room => room.Id == _classId))
+                        throw new ConsoleApiException(409, "当前启用学期或班级已变化，请返回班级目录刷新。", "CLASS_ROSTER_TERM_CHANGED");
+                    _specifiedTerm = directory.Creation;
+                    _room = _room with { GradeName = directory.Classes.Single(room => room.Id == _classId).GradeName };
+                }
+                catch (ConsoleApiException error) when (error.Code == "TERM_STRUCTURE_UNSUPPORTED") { _legacyRoster = true; }
+            }
             var roster = _specifiedTerm is { } context
                 ? await client.GetTermClassRosterAsync(context, _classId, request.Token, compare)
                 : await client.GetClassRosterAsync(_schoolId, _classId, request.Token);
             if (_request != request) return;
             if (!compare)
             {
-                ShowRosterIdentity(roster);
                 SetBaseline(roster);
-                SetFeedback(roster.IsActive ? null : "该行政班已停用，名单仅供查看。");
+                SetFeedback(!roster.IsActive ? "该行政班已停用，名单仅供查看。" : _legacyRoster
+                    ? "旧版学校服务只能核对当前班级名单。页头名称、代码取自进入时的班级目录。" : null);
             }
             else if (CanAdoptRoster(roster) && _baseline is { } baseline && _uncertainSubmission is { } submitted && RosterEditor.MatchesSaved(baseline, submitted, roster) &&
                      _rawSubmittedDraft is { } raw && Rows().SequenceEqual(raw))
@@ -119,14 +135,22 @@ public sealed partial class ClassRosterWindow : Window
                 _uncertainSubmission = _rawSubmittedDraft = null;
                 SetFeedback(_scopeChanged is { } reason
                     ? $"{reason} 可核对当前名单并复制草稿，再返回班级列表。"
-                    : $"{_checkReason} 已读取学校当前名单。请核对两份名单，再决定是否采用当前版本继续编辑。", error: _scopeChanged is not null);
+                    : $"{_checkReason} 已读取服务器当前名单。请逐行核对，再以它为基准重新预览。", error: _scopeChanged is not null);
             }
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
         catch (ConsoleApiException error)
         {
             if (_request == request && !HandlePermissionLoss(error))
+            {
+                if (error.Code is "CLASS_ROSTER_TERM_CHANGED" or "CLASS_ROSTER_CLASS_INACTIVE" or "TERM_STRUCTURE_SCOPE_CHANGED")
+                {
+                    _scopeChanged = error.Message;
+                    _checkingRequired = _baseline is not null;
+                    SetCurrent(null);
+                }
                 SetFeedback(compare ? $"暂时无法核对当前名单，草稿仍保留。{error.Message}" : error.Message, error: true);
+            }
         }
         finally { EndRequest(request); }
     }
@@ -137,21 +161,24 @@ public sealed partial class ClassRosterWindow : Window
     private bool ClassIdentityChanged(ClassRoster roster) => _specifiedTerm is not null && _baseline is { } before &&
         (before.ClassName != roster.ClassName || before.ClassCode != roster.ClassCode);
 
-    private void ShowRosterIdentity(ClassRoster roster)
+    private void ShowRosterIdentity(ClassRoster? roster = null)
     {
-        if (_specifiedTerm is { } term)
-            RosterScope.Text = $"{_schoolName} / {term.TermName} · {term.TermStatus} / {roster.ClassName}（{roster.ClassCode}）";
+        string term = _specifiedTerm is { } context ? $"{context.TermName} · {context.TermStatus}" : "当前启用学期";
+        RosterScope.Text = $"{_schoolName} / {term} / {_room.GradeName ?? "未设年级"} / " +
+            $"{roster?.ClassName ?? _room.Name}（{roster?.ClassCode ?? _room.Code ?? "代码待核对"}）";
     }
 
     private void SetBaseline(ClassRoster roster)
     {
         _baseline = roster;
+        ShowRosterIdentity(roster);
         SetCurrent(null);
         ClearPreview();
         _uncertainSubmission = _rawSubmittedDraft = null;
         _checkingRequired = false;
         _checkReason = null;
         _scopeChanged = null;
+        _importOpen = false;
         RosterPasteText.Clear();
         RosterImportMode.SelectedIndex = 0;
         SetRows(roster.Students);
@@ -174,7 +201,7 @@ public sealed partial class ClassRosterWindow : Window
         _permissionLost = true;
         ClearRoster();
         SetFeedback(error.StatusCode == 403 ? "当前账号已无权查看这个班级的名单。" : "登录已失效，请重新登录。", error: true);
-        if (error.StatusCode == 401) SessionExpired?.Invoke(error);
+        SessionExpired?.Invoke(error);
         return true;
     }
 
@@ -193,6 +220,7 @@ public sealed partial class ClassRosterWindow : Window
 
     private void SetRows(IEnumerable<RosterStudent> students)
     {
+        SelectDraftRow(null);
         foreach (var row in _rows) row.PropertyChanged -= RowChanged;
         _rows.Clear();
         foreach (var student in students) AppendRow(student);
@@ -225,6 +253,7 @@ public sealed partial class ClassRosterWindow : Window
         if (_rows.Count >= RosterEditor.MaxStudents) return;
         var row = AppendRow(new(null, "", null));
         UpdateRowPositions();
+        SelectDraftRow(row);
         BringRosterRowIntoView(row, row.NameEditorId);
     }
 
@@ -245,34 +274,63 @@ public sealed partial class ClassRosterWindow : Window
         }, DispatcherPriority.Loaded);
     }
 
-    private void MoveUpClicked(object? sender, RoutedEventArgs args) => Move(sender, -1);
-    private void MoveDownClicked(object? sender, RoutedEventArgs args) => Move(sender, 1);
-
-    private void Move(object? sender, int delta)
+    private void SelectStudentRow(object? sender, FocusChangedEventArgs args)
     {
-        if (sender is not Button { DataContext: RosterDraftRow row }) return;
+        if (sender is Control { DataContext: RosterDraftRow row }) SelectDraftRow(row);
+    }
+
+    private void SelectDraftRow(RosterDraftRow? row)
+    {
+        if (_selected == row) return;
+        if (_selected is not null) _selected.IsCompared = false;
+        _selected = row;
+        if (row is not null) row.IsCompared = true;
+        Render();
+    }
+
+    private void ToggleImportClicked(object? sender, RoutedEventArgs args)
+    {
+        _importOpen = !_importOpen;
+        Render();
+        if (_importOpen) RosterPasteText.Focus(NavigationMethod.Tab);
+    }
+
+    private void EnableCorrectionClicked(object? sender, RoutedEventArgs args)
+    {
+        _archiveEditing = true;
+        Render();
+        AddRosterStudent.Focus(NavigationMethod.Tab);
+    }
+
+    private void MoveUpClicked(object? sender, RoutedEventArgs args) => Move(-1);
+    private void MoveDownClicked(object? sender, RoutedEventArgs args) => Move(1);
+
+    private void Move(int delta)
+    {
+        if (_selected is not { } row) return;
         int index = _rows.IndexOf(row);
         if (index < 0 || index + delta < 0 || index + delta >= _rows.Count) return;
         _rows.Move(index, index + delta);
         UpdateRowPositions();
-        BringRosterRowIntoView(row, delta < 0 ? row.MoveUpId : row.MoveDownId);
+        BringRosterRowIntoView(row);
     }
 
     private void RemoveClicked(object? sender, RoutedEventArgs args)
     {
-        if (sender is not Button { DataContext: RosterDraftRow row }) return;
+        if (_selected is not { } row) return;
+        RemoveDraftRow(row);
+        if (_selected is null) AddRosterStudent.Focus(NavigationMethod.Tab);
+        else BringRosterRowIntoView(_selected, _selected.NameEditorId);
+    }
+
+    private void RemoveDraftRow(RosterDraftRow row)
+    {
         int index = _rows.IndexOf(row);
         if (index < 0) return;
         _rows.RemoveAt(index);
         row.PropertyChanged -= RowChanged;
-        if (_compared == row) _compared = null;
+        if (_selected == row) SelectDraftRow(_rows.Count == 0 ? null : _rows[Math.Min(index, _rows.Count - 1)]);
         UpdateRowPositions();
-        if (_rows.Count == 0) AddRosterStudent.Focus(NavigationMethod.Tab);
-        else
-        {
-            var neighbor = _rows[Math.Min(index, _rows.Count - 1)];
-            BringRosterRowIntoView(neighbor, neighbor.NameEditorId);
-        }
     }
 
     private void ImportModeChanged(object? sender, SelectionChangedEventArgs args)
@@ -288,6 +346,7 @@ public sealed partial class ClassRosterWindow : Window
         {
             SetRows(RosterEditor.Import(RosterPasteText.Text ?? "", Rows(), replace: RosterImportMode.SelectedIndex == 1));
             RosterPasteText.Clear();
+            _importOpen = false;
             SetFeedback("已应用到草稿。预览并确认保存后才会更新学校名单。");
         }
         catch (ArgumentException error) { SetFeedback(error.Message, error: true); }
@@ -392,46 +451,69 @@ public sealed partial class ClassRosterWindow : Window
     private void SetCurrent(ClassRoster? current)
     {
         _current = current;
-        CurrentRosterRows.ItemsSource = current?.Students.Select((student, index) => new RosterCurrentRow(index + 1, student)).ToArray();
+        ShowComparison();
     }
 
-    private void CurrentSelectionChanged(object? sender, SelectionChangedEventArgs args) => HighlightCurrentStudent();
-
-    private void HighlightCurrentStudent()
+    private void ShowComparison(string? selectKey = null)
     {
-        if (_compared is not null) _compared.IsCompared = false;
-        _compared = CurrentRosterRows.SelectedItem is RosterCurrentRow { Student.Id: { } id }
-            ? _rows.FirstOrDefault(row => row.Id == id) : null;
-        if (_compared is { } match)
+        var rows = new List<RosterComparisonRow>();
+        if (_current is { } current)
         {
-            match.IsCompared = true;
-            BringRosterRowIntoView(match);
+            var draftById = _rows.Select((row, index) => (row, Position: index + 1))
+                .Where(entry => entry.row.Id is not null).ToDictionary(entry => entry.row.Id!, StringComparer.Ordinal);
+            var serverIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < current.Students.Count; i++)
+            {
+                var student = current.Students[i];
+                serverIds.Add(student.Id!);
+                draftById.TryGetValue(student.Id!, out var draft);
+                rows.Add(new(student.Id!, student, draft.row?.ToStudent(), i + 1, draft.row is null ? null : draft.Position));
+            }
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                var draft = _rows[i];
+                if (draft.Id is null || !serverIds.Contains(draft.Id))
+                    rows.Add(new(draft.Id ?? draft.NameEditorId, null, draft.ToStudent(), null, i + 1));
+            }
         }
-        Render();
+        var visible = rows.OrderByDescending(row => row.Different).ToArray();
+        CurrentRosterRows.ItemsSource = visible;
+        CurrentRosterRows.SelectedItem = visible.FirstOrDefault(row => row.Key == selectKey) ?? visible.FirstOrDefault(row => row.Different);
     }
+
+    private void CurrentSelectionChanged(object? sender, SelectionChangedEventArgs args) => Render();
 
     private void UseCurrentStudentClicked(object? sender, RoutedEventArgs args)
     {
-        if (_request is not null || CurrentRosterRows.SelectedItem is not RosterCurrentRow selected) return;
-        var student = selected.Student;
-        var existing = _rows.FirstOrDefault(row => row.Id == student.Id);
-        if (existing is not null)
+        if (_request is not null || _scopeChanged is not null || CurrentRosterRows.SelectedItem is not RosterComparisonRow selected) return;
+        var existing = _rows.FirstOrDefault(row => row.Id == selected.Key || row.NameEditorId == selected.Key);
+        if (selected.Server is not { } student)
+        {
+            if (existing is null) return;
+            RemoveDraftRow(existing);
+        }
+        else if (existing is not null)
         {
             existing.Name = student.Name;
             existing.StudentNumber = student.StudentNumber ?? "";
+            int position = Math.Min(selected.ServerPosition!.Value - 1, _rows.Count - 1);
+            _rows.Move(_rows.IndexOf(existing), position);
+            UpdateRowPositions();
         }
         else if (_rows.Count < RosterEditor.MaxStudents)
         {
-            AppendRow(student);
+            var added = AppendRow(student);
+            _rows.Move(_rows.IndexOf(added), Math.Min(selected.ServerPosition!.Value - 1, _rows.Count - 1));
             UpdateRowPositions();
-            HighlightCurrentStudent();
         }
         else
         {
             SetFeedback("草稿已达 120 人，请先核对并移出不再保留的记录。", error: true);
             return;
         }
-        SetFeedback("已将学校当前名单中的选中行用到草稿。");
+        ShowComparison(selected.Key);
+        CurrentRosterRows.Focus(NavigationMethod.Tab);
+        SetFeedback("已按服务器处理这位学生的草稿。名单尚未保存。");
     }
 
     private void AdoptRevisionClicked(object? sender, RoutedEventArgs args)
@@ -448,14 +530,18 @@ public sealed partial class ClassRosterWindow : Window
         _checkingRequired = false;
         _checkReason = null;
         _uncertainSubmission = _rawSubmittedDraft = null;
-        SetFeedback("已采用当前版本并保留草稿。再次预览时会以学校当前名单为准。");
         Render();
-        PreviewRosterButton.Focus();
+        if (IsDirty) PreviewClicked(sender, args);
+        else
+        {
+            SetFeedback("当前草稿和服务器一致，无需保存。");
+            CloseRosterButton.Focus(NavigationMethod.Tab);
+        }
     }
 
     private async void CopyDraftClicked(object? sender, RoutedEventArgs args)
     {
-        if (_baseline is null || Clipboard is not { } clipboard) return;
+        if (_baseline is null || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
         var draft = string.Join(Environment.NewLine, _rows.Select(row => $"{row.StudentNumber}\t{row.Name}"));
         try
         {
@@ -475,7 +561,7 @@ public sealed partial class ClassRosterWindow : Window
         else await LoadAsync(compare: false);
     }
 
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
+    private void CloseClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
 
     private void CloseOnEscape(object? sender, KeyEventArgs args)
     {
@@ -483,28 +569,29 @@ public sealed partial class ClassRosterWindow : Window
         args.Handled = true;
         if (_discard != DiscardAction.None) KeepEditingClicked(sender, args);
         else if (_preview is not null && !_saving) CancelReviewClicked(sender, args);
-        else Close();
+        else CloseRequested?.Invoke();
     }
 
-    private void ConfirmClose(object? sender, WindowClosingEventArgs args)
+    internal bool CanClose()
     {
-        if (_allowClose) return;
+        if (_allowClose) return true;
         if (_saving)
         {
-            args.Cancel = true;
             SetFeedback("正在保存，请等待学校返回结果。");
+            return false;
         }
-        else if (IsDirty)
+        if (IsDirty)
         {
-            args.Cancel = true;
             AskToDiscard(DiscardAction.Close);
+            return false;
         }
+        return true;
     }
 
     private void AskToDiscard(DiscardAction action)
     {
         _discard = action;
-        RosterDiscardWarning.Text = action == DiscardAction.Close ? "关闭窗口会丢弃未保存的名单草稿。" : "重新载入学校名单会替换未保存的草稿。";
+        RosterDiscardWarning.Text = action == DiscardAction.Close ? "离开此页会丢弃未保存的名单草稿。" : "重新载入学校名单会替换未保存的草稿。";
         Render();
         KeepRosterEditing.Focus();
     }
@@ -520,7 +607,11 @@ public sealed partial class ClassRosterWindow : Window
     {
         var action = _discard;
         _discard = DiscardAction.None;
-        if (action == DiscardAction.Close) CloseForScopeChange();
+        if (action == DiscardAction.Close)
+        {
+            _allowClose = true;
+            CloseRequested?.Invoke();
+        }
         else if (action == DiscardAction.Reload) await LoadAsync(compare: false);
     }
 
@@ -538,37 +629,51 @@ public sealed partial class ClassRosterWindow : Window
         bool busy = _request is not null;
         bool reviewing = _preview is not null;
         bool confirmingDiscard = _discard != DiscardAction.None;
-        RosterEditorPane.IsVisible = loaded && !reviewing;
-        bool readOnly = _baseline?.IsActive == false;
+        bool archived = _specifiedTerm?.TermStatus == "已归档";
+        bool readOnly = _baseline?.IsActive == false || archived && !_archiveEditing;
+        RosterEditorPane.IsVisible = loaded && !reviewing && !_checkingRequired;
         RosterEditorPane.IsEnabled = !busy;
         RosterContentHost.IsEnabled = !confirmingDiscard;
         RosterReviewPane.IsVisible = reviewing;
-        RosterCount.Text = readOnly ? $"学生名单 · {_rows.Count} 人" : $"草稿 · {_rows.Count} 人";
+        RosterCount.Text = !readOnly && IsDirty ? $"草稿 · {_rows.Count} 人" : $"学生名单 · {_rows.Count} 人";
         EmptyRosterDraft.IsVisible = _rows.Count == 0;
+        EmptyRosterDraft.Text = readOnly ? "此班名单为空。" : "暂无学生。可添加单行，或从 Excel 批量粘贴。";
         AddRosterStudent.IsVisible = !readOnly;
         AddRosterStudent.IsEnabled = !readOnly && _rows.Count < RosterEditor.MaxStudents;
+        RosterCorrectArchived.IsVisible = archived && !_archiveEditing && _baseline?.IsActive == true;
         ApplyRosterImport.IsEnabled = HasPaste;
         RosterRows.IsEnabled = !readOnly;
-        RosterImportPane.IsVisible = !readOnly && !_checkingRequired;
+        OpenRosterImport.IsVisible = !readOnly;
+        RosterImportPanel.IsVisible = _importOpen && !readOnly;
+        RosterSelectedActions.IsVisible = !readOnly && _selected is not null;
+        SelectedRosterStudent.Text = _selected is { } row
+            ? $"第 {row.Position} 行 · {row.Name} · 学号 {(row.StudentNumber.Length > 0 ? row.StudentNumber : "无")}" : "选择一位学生以调整或移出";
+        MoveRosterStudentUp.IsEnabled = _selected?.CanMoveUp == true;
+        MoveRosterStudentDown.IsEnabled = _selected?.CanMoveDown == true;
+        RemoveRosterStudent.IsEnabled = _selected is not null;
+        AutomationProperties.SetAutomationId(MoveRosterStudentUp, _selected?.MoveUpId);
+        AutomationProperties.SetAutomationId(MoveRosterStudentDown, _selected?.MoveDownId);
         RosterComparisonPane.IsVisible = _checkingRequired;
         RosterComparisonHint.Text = _current switch
         {
-            { Students.Count: 0 } => "学校当前名单为空。左侧保留你的草稿。",
             { } when _scopeChanged is not null => "可核对学校当前名单。请返回班级列表重新选择可编辑的班级。",
-            { } => $"学校当前有 {_current.Students.Count} 人。选中学生可定位草稿中的同一学生。",
+            { } => $"服务器 {_current.Students.Count} 人 · 草稿 {_rows.Count} 人 · {CurrentRosterRows.Items.OfType<RosterComparisonRow>().Count(row => row.Different)} 行不同",
             _ => "尚未核实当前名单。可重新核对或复制草稿。"
         };
         RecheckRosterButton.IsEnabled = !busy;
-        UseCurrentStudentButton.IsEnabled = !busy && CurrentRosterRows.SelectedItem is RosterCurrentRow;
+        var selected = CurrentRosterRows.SelectedItem as RosterComparisonRow;
+        UseCurrentStudentButton.Content = selected is { Server: null } ? "从草稿移出此行" : "此行采用服务器内容";
+        UseCurrentStudentButton.IsEnabled = !busy && _scopeChanged is null && selected?.Different == true;
         AdoptRosterRevisionButton.IsEnabled = !busy && _current is not null && _scopeChanged is null;
-        ReloadRosterButton.IsEnabled = !busy && !_permissionLost && !confirmingDiscard && !reviewing && _scopeChanged is null;
-        RosterDraftState.Text = loaded ? (IsDirty ? "有未保存的修改" : "草稿与当前版本一致") : null;
+        ReloadRosterButton.IsVisible = !_checkingRequired && !reviewing;
+        ReloadRosterButton.IsEnabled = !busy && !_permissionLost && !confirmingDiscard && _scopeChanged is null;
+        RosterDraftState.Text = loaded ? (readOnly ? "只读名单" : IsDirty ? "有未保存的修改" : "与学校当前名单一致") : null;
         RosterMainActions.IsVisible = !confirmingDiscard;
         RosterDiscardActions.IsVisible = confirmingDiscard;
-        CopyRosterDraftButton.IsVisible = loaded && !reviewing;
+        CopyRosterDraftButton.IsVisible = loaded && !readOnly && !reviewing;
         CopyRosterDraftButton.IsEnabled = !busy && _rows.Count > 0;
         CloseRosterButton.IsEnabled = !_saving;
-        PreviewRosterButton.IsVisible = loaded && !readOnly && !reviewing;
+        PreviewRosterButton.IsVisible = loaded && !readOnly && !reviewing && !_checkingRequired;
         PreviewRosterButton.IsEnabled = !busy && !_checkingRequired && IsDirty;
         CancelRosterReview.IsVisible = ConfirmRosterSave.IsVisible = reviewing;
         CancelRosterReview.IsEnabled = ConfirmRosterSave.IsEnabled = !busy;

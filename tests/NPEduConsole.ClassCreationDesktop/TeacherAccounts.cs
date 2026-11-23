@@ -128,7 +128,8 @@ internal static partial class Program
             main.Height = 480;
             await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "compact shell");
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
-            await Until(() => adminEntry.IsEffectivelyVisible, "teacher directory is visible in compact shell");
+            Click(Find<Button>(main, "OpenSchoolAffairsButton"));
+            await Until(() => adminEntry.IsEffectivelyVisible, "teacher directory is visible in school affairs");
             Click(adminEntry);
             accounts = await WindowOf<TeacherAccountsWindow>();
             directoryRows = Find<ListBox>(accounts, "TeacherAccountRows");
@@ -149,7 +150,19 @@ internal static partial class Program
             var confirm = Find<Button>(accounts, "ConfirmTeacherStatus");
             await Until(() => confirm.IsEffectivelyVisible && confirm.IsEffectivelyEnabled, "disable confirmation is visible");
             Check(StaffText(accounts, "TeacherStatusExplanation").Contains("现有会话会退出，任课和岗位仍保留"), "invalidate-session and retained-role consequences are explicit");
-            await Capture(accounts, output, "04-narrow-disable-confirmation");
+            var cancelStatus = Find<Button>(accounts, "CancelTeacherStatus");
+            await Until(() => cancelStatus.IsFocused, "disable confirmation starts on cancel");
+            cancelStatus.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter });
+            await Until(() => !confirm.IsEffectivelyVisible && Find<Button>(accounts, "ChangeTeacherStatus").IsFocused,
+                "Enter on cancel returns to the original action without disabling the account");
+            Check(StaffText(accounts, "TeacherDetailState") == "已启用", "cancel preserves the active teacher");
+            Click(Find<Button>(accounts, "ChangeTeacherStatus"));
+            await Until(() => cancelStatus.IsFocused, "reopening still starts on cancel");
+            cancelStatus.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Escape });
+            await Until(() => !confirm.IsEffectivelyVisible, "Escape leaves confirmation");
+            Click(Find<Button>(accounts, "ChangeTeacherStatus"));
+            await Until(() => cancelStatus.IsFocused, "an explicit choice is required to disable");
+            await Capture(accounts, output, "04-narrow-disable-confirmation", includeFrame: true);
             Click(confirm);
             await Until(() => StaffText(accounts, "TeacherDetailState") == "已停用" &&
                 Find<Button>(accounts, "CloseTeacherAccountsButton").IsEffectivelyEnabled, "directory confirms disabled");

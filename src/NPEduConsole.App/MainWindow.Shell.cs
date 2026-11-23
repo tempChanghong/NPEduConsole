@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using NPEduConsole.Core;
@@ -11,6 +12,8 @@ public sealed partial class MainWindow
 {
     private enum ShellPage { Overview, Classes, Devices, Screen, Audit }
 
+    private bool _schoolAffairsSelected;
+    private SchoolOverviewTerm? _overviewTerm;
     private ShellPage _page;
     private ShellPage _pageBeforeAudit;
     private string? _detailScreenId;
@@ -74,16 +77,72 @@ public sealed partial class MainWindow
         OpenHomeworkSettingsButton.IsVisible = scoped && _page == ShellPage.Classes;
         OpenOrganizationImportButton.IsVisible = scoped && _page == ShellPage.Classes;
         OpenScreenClassButton.IsVisible = screen && _classroom is not null;
-        OpenClassScreenDirectoryButton.IsVisible = scoped && _page == ShellPage.Classes && _classroom is { IsActive: true };
         OpenTeachingButton.IsVisible = OpenSubjectSetupButton.IsVisible =
             !screen && _classroom is { IsActive: true, TermId: not null };
         OpenClassRosterButton.IsVisible = !screen && _classroom?.IsActive != false;
         OpenClassMaintenanceButton.IsVisible = !screen && _classroom?.TermId is not null;
         UpdateClassLayout();
+        UpdateClassPane();
+    }
+
+    private void UpdateClassPane()
+    {
+        var showAffairs = _page == ShellPage.Classes && (_schoolAffairsSelected || _classroom is null);
+        ClassManagementWorkspace.IsVisible = !showAffairs;
+        SchoolAffairsPage.IsVisible = showAffairs;
+        OpenSchoolAffairsButton.Classes.Set("accent", showAffairs);
+        ClassPicker.Classes.Set("school-affairs", showAffairs);
+        OpenClassScreenDirectoryButton.IsVisible = _page == ShellPage.Classes && !_showClassStudy && _classroom?.IsActive == true;
+        SchoolAffairsScope.Text = _school?.Name;
+        ReturnToClassHomeButton.IsVisible = showAffairs && _classroom is not null;
+        RefreshButton.IsVisible = _page == ShellPage.Screen;
+        ReturnFromClassStudyButton.IsVisible = _page == ShellPage.Classes && _showClassStudy;
+        ClassReturnActions.IsVisible = RefreshButton.IsVisible || ReturnToSchoolOverviewButton.IsVisible ||
+            ReturnToDeviceDirectoryButton.IsVisible || ReturnFromClassStudyButton.IsVisible;
+    }
+
+    private void OpenSchoolAffairsClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_page != ShellPage.Classes || _school is null || _academicPages.Count != 0) return;
+        if (_showClassStudy)
+        {
+            _showClassStudy = false;
+            UpdateStudyWorkspace();
+        }
+        _schoolAffairsSelected = true;
+        UpdateClassPane();
+        SchoolAffairsScroll.Offset = default;
+        OpenTermPreparationButton.Focus();
+    }
+
+    private void ReturnToClassHomeClicked(object? sender, RoutedEventArgs e)
+    {
+        if (_page != ShellPage.Classes || _classroom is null || _academicPages.Count != 0) return;
+        _schoolAffairsSelected = false;
+        UpdateClassPane();
+        OpenClassMaintenanceButton.Focus();
+    }
+
+    private void ClassListTapped(object? sender, TappedEventArgs e)
+    {
+        if (_schoolAffairsSelected && e.Source is Visual item &&
+            item.FindAncestorOfType<ListBoxItem>(includeSelf: true) is not null)
+            ReturnToClassHomeClicked(sender, e);
+    }
+
+    private void ClassListKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (_schoolAffairsSelected && e.Key == Key.Enter && _classroom is not null)
+        {
+            e.Handled = true;
+            ReturnToClassHomeClicked(sender, e);
+        }
     }
 
     private void OverviewSnapshotChanged(SchoolOverview? snapshot, string status)
     {
+        _overviewTerm = snapshot?.School.Id == _school?.Id ? snapshot?.Term : null;
+        if (_page == ShellPage.Classes && !_showClassStudy) UpdateClassContext();
         ShellTermName.Text = snapshot?.Term?.Name ?? (snapshot is not null ? "暂无启用学期" : null);
         DeviceDirectory.SetSnapshot(snapshot, status);
         UpdateScreenEvidence();
@@ -139,7 +198,12 @@ public sealed partial class MainWindow
     private async Task OpenClassDirectoryAsync()
     {
         if (_school is not { } school || _client is null) return;
-        if (_page == ShellPage.Classes) return;
+        if (_page == ShellPage.Classes)
+        {
+            _schoolAffairsSelected = false;
+            UpdateClassPane();
+            return;
+        }
         bool interrupted = _overviewNavigation is not null;
         ChangePage(ShellPage.Classes);
         if (interrupted) await LoadSchoolAsync(school);
@@ -163,6 +227,7 @@ public sealed partial class MainWindow
         if (navigating) CancelRequest();
         _overviewJourney = false;
         _directoryReturnScreenId = _detailScreenId = null;
+        _schoolAffairsSelected = false;
         _showClassStudy = false;
         CloseClassAdmission();
         CloseScreenReplacement();

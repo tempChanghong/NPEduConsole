@@ -1,9 +1,7 @@
-<Window xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:NPEduConsole.App"
-        x:Class="NPEduConsole.App.TermClassManagementWindow"
-        Title="班级与名单" Width="1060" Height="700" MinWidth="650" MinHeight="380"
-        Background="{DynamicResource CanvasBrush}" WindowStartupLocation="CenterOwner">
+        x:Class="NPEduConsole.App.TermClassManagementView">
   <Border Background="{DynamicResource CanvasBrush}" Padding="16">
   <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
     <Border Classes="card" Padding="12">
@@ -46,7 +44,7 @@
             </StackPanel>
           </ScrollViewer>
           <WrapPanel Grid.Row="2" Orientation="Horizontal" ItemSpacing="8" LineSpacing="6">
-            <Button x:Name="StructureEditClass" Classes="action" Content="维护班级" Click="EditClassClicked"/>
+            <Button x:Name="StructureEditClass" Classes="action" Content="班级资料" Click="EditClassClicked"/>
             <Button x:Name="StructureClassTeaching" Classes="action" Content="教学安排与师资" Click="TeachingClicked"/>
             <Button x:Name="StructureRoster" Classes="action accent" Content="编辑名单" Click="RosterClicked"/>
           </WrapPanel>
@@ -56,4 +54,4 @@
     <Button x:Name="StructureClose" Grid.Row="3" Classes="action" Content="返回学期管理" HorizontalAlignment="Right" Click="CloseClicked"/>
   </Grid>
   </Border>
-</Window>
+</UserControl>

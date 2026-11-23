@@ -6,12 +6,13 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TermClassManagementWindow : Window
+public sealed partial class TermClassManagementView : UserControl
 {
     private readonly CancellationTokenSource _lifetime = new();
     private ConsoleClient? _client;
     private School? _school;
     private string _termId = "";
+    private string? _initialClass, _initialGrade;
     private TermClassStructure? _structure;
     private bool _closed, _loading, _changingGrade, _showDetail;
     private CancellationTokenSource? _rosterRead;
@@ -31,49 +32,56 @@ public sealed partial class TermClassManagementWindow : Window
         public ClassBatchSubmission? Batch;
     }
 
-    public TermClassManagementWindow()
+    public TermClassManagementView()
     {
         InitializeComponent();
         StructureDirectory.SelectionChanged += (_, _) => ShowSelection();
         StructureDirectory.OpenRequested += (_, _) => OpenSelection();
         SizeChanged += (_, _) => ApplyLayout();
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _rosterRead?.Cancel();
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
     }
 
-    internal TermClassManagementWindow(ConsoleClient client, School school, ManagedAcademicTerm term,
+    internal TermClassManagementView(ConsoleClient client, School school, ManagedAcademicTerm term,
         string? initialClass = null, string? initialGrade = null) : this()
     {
         _client = client;
         _school = school;
         _termId = term.Id;
+        _initialClass = initialClass;
+        _initialGrade = initialGrade;
+        _showDetail = initialClass is not null;
         var entries = Pending.GetOrCreateValue(client);
         var key = (school.Id, term.Id);
         if (!entries.TryGetValue(key, out _creations)) entries[key] = _creations = new();
         StructureTarget.Text = $"{school.Name} / {term.Name}";
         StructureActiveTerm.Text = "正在读取学期状态…";
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            await ReadAsync(initialClass, initialGrade);
-        };
         ShowSelection();
     }
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal Action? CloseRequested { get; set; }
+    internal Func<ClassMaintenanceView, Task<bool>> OpenMaintenance { get; init; } = null!;
+    internal Func<ClassRosterView, Task<bool>> OpenRoster { get; init; } = null!;
+    internal bool CanClose() => _closeChild is null;
+    private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
     private bool Narrow => Bounds.Width < 920;
     private string? SelectedGradeId => (StructureGrade.SelectedItem as GradeChoice)?.Id;
     private TermAdministrativeClass? CurrentClass => _structure?.Classes.FirstOrDefault(room => room.Id == StructureDirectory.Selected?.Id);
 
-    internal void CloseForScopeChange()
+    internal async Task StartAsync()
     {
+        await ReadAsync(_initialClass, _initialGrade);
+        if (_showDetail && CurrentClass is not null) RestoreFocus(StructureRoster);
+        else if (!_closed) StructureDirectory.RestoreFocus();
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
         _closeChild?.Invoke();
-        Close();
+        CancelRosterRead();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
     }
 
     private async Task ReadAsync(string? selectClass = null, string? selectGrade = null)
@@ -159,8 +167,7 @@ public sealed partial class TermClassManagementWindow : Window
         StructureClassName.Text = room?.Name ?? "选择一个行政班";
         StructureClassMeta.Text = room is null ? null :
             $"{room.GradeName} · {room.Code} · {(room.IsActive ? "启用中" : "已停用")} · {(room.IsStudentSelectable ? "允许" : "禁止")}学生自选";
-        StructureRoster.Content = room?.IsActive == false ? "查看名单" :
-            _structure?.Term.Status == "ARCHIVED" ? "更正名单" : "编辑名单";
+        StructureRoster.Content = room?.IsActive == false || _structure?.Term.Status == "ARCHIVED" ? "查看名单" : "学生名单";
         if (!_loading) _ = ReadRosterSummaryAsync(room);
         ApplyLayout();
     }
@@ -238,7 +245,7 @@ public sealed partial class TermClassManagementWindow : Window
 
     private void Access(ConsoleApiException error)
     {
-        if (error.StatusCode == 401) SessionExpired?.Invoke(error);
+        if (error.StatusCode is 401 or 403) SessionExpired?.Invoke(error);
         if (error.StatusCode == 403 && !_closed)
         {
             _structure = null;
@@ -251,7 +258,7 @@ public sealed partial class TermClassManagementWindow : Window
     private async void ReloadClicked(object? sender, RoutedEventArgs args) => await ReadAsync();
     private async void CreateGradeClicked(object? sender, RoutedEventArgs args) => await OpenCreationAsync(true);
     private async void CreateClassClicked(object? sender, RoutedEventArgs args) => await OpenCreationAsync(false);
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
+    private void CloseClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
 
     private async Task OpenCreationAsync(bool grade)
     {
@@ -290,14 +297,9 @@ public sealed partial class TermClassManagementWindow : Window
     private async void EditClassClicked(object? sender, RoutedEventArgs args)
     {
         if (_client is not { } client || _school is not { } school || _structure is not { } directory || CurrentClass is not { } room) return;
-        var classroom = new Classroom(room.Id, room.Name, room.GradeName, [])
-        {
-            TermId = room.TermId, GradeId = room.GradeId, Code = room.Code, IsActive = room.IsActive,
-        };
-        var window = new ClassMaintenanceWindow(client, school, classroom, directory.Creation);
-        window.SessionExpired += Access;
-        await ShowChildAsync(window, window.CloseForScopeChange);
-        if (!_closed) await ReadAsync(room.Id);
+        CancelRosterRead();
+        if (await OpenMaintenance(new ClassMaintenanceView(client, school, ClassroomOf(room), directory.Creation)) && !_closed)
+            await ReadAsync(room.Id);
         RestoreFocus(StructureEditClass);
     }
 
@@ -320,12 +322,14 @@ public sealed partial class TermClassManagementWindow : Window
     private async Task OpenRosterAsync(TermAdministrativeClass room)
     {
         if (_closed || _client is not { } client || _school is not { } school || _structure is not { } directory) return;
-        var window = new ClassRosterWindow(client, school.Id, room.Id, school.Name, room.Name, directory.Creation);
-        window.SessionExpired += Access;
-        await ShowChildAsync(window, window.CloseForScopeChange);
-        if (!_closed) await ReadAsync(room.Id);
+        CancelRosterRead();
+        if (await OpenRoster(new ClassRosterView(client, school, ClassroomOf(room), directory.Creation)) && !_closed)
+            await ReadAsync(room.Id);
         RestoreFocus(StructureRoster);
     }
+
+    private static Classroom ClassroomOf(TermAdministrativeClass room) => new(room.Id, room.Name, room.GradeName, [])
+        { TermId = room.TermId, GradeId = room.GradeId, Code = room.Code, IsActive = room.IsActive };
 
     private async Task ShowChildAsync(Window window, Action close)
     {
@@ -334,7 +338,7 @@ public sealed partial class TermClassManagementWindow : Window
         StructureColumns.IsEnabled = false;
         StructureReload.IsEnabled = false;
         CancelRosterRead();
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(HostWindow); }
         finally { _closeChild = null; }
     }
 }

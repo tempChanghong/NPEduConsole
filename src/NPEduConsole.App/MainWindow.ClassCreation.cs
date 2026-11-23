@@ -24,7 +24,7 @@ public sealed partial class MainWindow
 
     private async Task OpenClassCreationAsync(string? initialGradeTermId = null)
     {
-        if (_classCreationWindow is not null || _openingCreatedClass is not null || _classRosterWindow is not null ||
+        if (_classCreationWindow is not null || _openingCreatedClass is not null || _classRosterView is not null ||
             _client is not { } client || _school is not { } school) return;
         SetClassMaintenanceNotice(null);
         var window = new ClassCreationWindow(client, school, _unconfirmedClassCreations.GetValueOrDefault(school.Id),

@@ -19,7 +19,10 @@ public sealed partial class MainWindow
     private async void OpenGradeResponsibilityClicked(object? sender, RoutedEventArgs args)
     {
         if (_client is not { } client || _school is not { } school || _page != ShellPage.Classes || _staffWindow is not null || _staffGradeLookup is not null) return;
-        if (_classroom is { IsActive: true, GradeId: { } grade, TermId: { } term })
+        bool fromSchool = sender == SchoolGradeStaffButton;
+        var entry = fromSchool ? SchoolGradeStaffButton : OpenGradeResponsibilityButton;
+        SchoolAffairsNotice.IsVisible = false;
+        if (!fromSchool && _classroom is { IsActive: true, GradeId: { } grade, TermId: { } term })
         {
             await OpenAsync(term, grade);
             return;
@@ -31,7 +34,7 @@ public sealed partial class MainWindow
             if (!Current() || lookup.IsCancellationRequested) return;
             if (context.TermId is not { } currentTerm || context.Grades.Count == 0)
             {
-                SetWorkspaceMessage(context.TermId is null ? "暂无启用学期。请先在学校管理中核对学期。" : "当前学期还没有年级。请先创建年级。");
+                Notice(context.TermId is null ? "暂无启用学期。请先在学期管理中核对学期。" : "当前学期还没有年级。请先创建年级。");
                 return;
             }
             if (context.Grades.Count == 1) { await OpenAsync(currentTerm, context.Grades[0].Id); return; }
@@ -42,22 +45,29 @@ public sealed partial class MainWindow
                 item.Click += async (_, _) => await OpenAsync(currentTerm, row.Id);
                 menu.Items.Add(item);
             }
-            menu.ShowAt(OpenGradeResponsibilityButton);
+            menu.ShowAt(entry);
         }
         catch (OperationCanceledException) when (lookup.IsCancellationRequested) { }
         catch (ConsoleApiException error) when (Current() && !lookup.IsCancellationRequested)
         {
-            if (!ReturnToLoginIfExpired(error)) SetWorkspaceMessage(error.Message, isError: true);
+            if (!ReturnToLoginIfExpired(error)) Notice(error.Message);
         }
         catch (ConsoleApiException) { }
         finally { if (_staffGradeLookup == lookup) _staffGradeLookup = null; }
 
-        bool Current() => _client == client && _school == school && _page == ShellPage.Classes;
+        void Notice(string message)
+        {
+            if (!fromSchool) { SetWorkspaceMessage(message, isError: true); return; }
+            SchoolAffairsNotice.Text = message;
+            SchoolAffairsNotice.IsVisible = true;
+        }
+
+        bool Current() => _client == client && _school == school && _page == ShellPage.Classes && entry.IsEffectivelyVisible;
         async Task OpenAsync(string termId, string gradeId)
         {
             if (!Current()) return;
             await ShowStaffResponsibilitiesAsync(client, school, termId, "grades", gradeId, null);
-            if (Current() && _staffWindow is null) OpenGradeResponsibilityButton.Focus();
+            if (Current() && _staffWindow is null) entry.Focus();
         }
     }
 

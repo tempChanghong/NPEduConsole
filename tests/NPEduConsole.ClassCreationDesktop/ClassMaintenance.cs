@@ -30,6 +30,8 @@ internal static partial class Program
         {
             if (!reopen) VerifyClassDeactivationImpactView();
             var main = (MainWindow)desktop.MainWindow!;
+            main.Width = reopen ? 840 : 1160;
+            main.Height = reopen ? 480 : 780;
             var schools = Find<ComboBox>(main, "SchoolPicker");
             var classes = Find<ListBox>(main, "ClassPicker");
             var inactive = Find<CheckBox>(main, "InactiveClassesFilter");
@@ -41,7 +43,8 @@ internal static partial class Program
             Click(Find<Button>(main, "LoginButton"));
             await Until(() => schools.Items.Cast<School>().Any(school => school.Id == access.SchoolId), "authorized school");
             schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == access.SchoolId);
-            await Until(() => classes.ItemCount >= 2, "active school class list");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            await Until(() => classes.IsEffectivelyVisible && classes.ItemCount >= 2, "active school class list");
             if (reopen)
             {
                 Check(!classes.Items.Cast<Classroom>().Any(room => room.Id == access.ClassId), "Inactive class is absent from the normal list.");
@@ -71,14 +74,31 @@ internal static partial class Program
                 !Find<ProgressBar>(window, "MaintenanceProgress").IsVisible && !string.IsNullOrWhiteSpace(feedback.Text),
                 "class settings loaded");
             Check(save.IsEffectivelyVisible, "Could not load class settings: " + feedback.Text);
+            await Until(() => TopLevel.GetTopLevel(window) == main &&
+                Find<TextBlock>(window, "MaintenanceSchool").Text?.Contains("启用中") == true,
+                "the real main HWND shows the original class and active term");
+            await CaptureWithFrame(main, output, "00a-wide-class-edit");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "actual narrow class editing window");
+            Find<CheckBox>(window, "MaintenanceStudentSelectable").Focus();
+            Check(FitsBatchWindow(main, save), "the fixed save action remains accessible from the last class field");
+            await CaptureWithFrame(main, output, "00b-narrow-class-edit");
             var newName = "高二（1）班 · 已修正";
             name.Text = newName;
+            await PressScoped(window, "ReadDeactivationImpactButton");
+            await Until(() => feedback.IsEffectivelyVisible && feedback.Text?.Contains("未保存的班级修改") == true,
+                "a dirty form explains why it cannot start the stop review");
+            Click(Find<Button>(window, "CloseMaintenanceButton"));
+            await Until(() => Find<Button>(window, "KeepMaintenanceDraft").IsFocused, "return asks about the unsaved class name");
+            Click(Find<Button>(window, "KeepMaintenanceDraft"));
+            Check(name.Text == newName && name.IsFocused, "canceling return preserves the name draft and restores focus");
             code.Text = "G2-2";
             Find<CheckBox>(window, "MaintenanceStudentSelectable").IsChecked = false;
             Click(save);
             await Until(() => feedback.Text?.Contains("已有教学空间使用此代码") == true && save.IsEnabled, "duplicate code can be corrected locally");
             Check(code.Text == "G2-2" && name.Text == newName && code.IsFocused, "Code conflict preserves the draft and focuses code.");
-            await Capture(window, output, "01-code-conflict");
+            await CaptureWithFrame(main, output, "01-code-conflict");
 
             code.Text = "G2.DESK";
             Click(save);
@@ -89,7 +109,7 @@ internal static partial class Program
             await Until(() => Find<TextBlock>(window, "MaintenanceServerState").Text?.Contains("另一管理员最新名称") == true && save.IsEnabled,
                 "latest server data is shown beside the original draft");
             Check(name.Text == newName && code.Text == "G2.DESK", "Concurrent editor retains both draft fields.");
-            await Capture(window, output, "02-concurrent-server-value");
+            await CaptureWithFrame(main, output, "02-concurrent-server-value");
             Click(save);
             await Until(() => classes.SelectedItem is Classroom room && room.Id == access.ClassId && room.Name == newName &&
                 room.Screens.Any(screen => screen.Id == access.ScreenId), "rename reselects by original ID and keeps screen");
@@ -97,10 +117,10 @@ internal static partial class Program
 
             window = await OpenMaintenance();
             var summary = Find<ClassDeactivationImpactView>(window, "MaintenanceImpactSummary");
-            var preview = Find<Button>(window, "ReadDeactivationImpactButton");
             var confirm = Find<Button>(window, "ConfirmDeactivateButton");
-            await Until(() => preview.IsEffectivelyVisible, "deactivation action");
-            Click(preview);
+            await PressScoped(window, "ReadDeactivationImpactButton");
+            await Until(() => Find<StackPanel>(window, "MaintenanceImpactPanel").IsEffectivelyVisible,
+                "deactivation opens its own impact review");
             await Until(() => summary.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "无法读取停用影响") &&
                 Find<Button>(window, "RefreshImpactButton").IsVisible && !confirm.IsEnabled, "failed impact never looks like no relations or permits deactivation");
             await Capture(window, output, "03-impact-unavailable");
@@ -110,7 +130,9 @@ internal static partial class Program
                 "real preview shows bound screen and active notice");
             Check(Find<TextBlock>(window, "MaintenanceScreenEffect") is { IsEffectivelyVisible: true, Text: { } warning } &&
                 warning.Contains("重新配对"), "The existing native device authorization impact is disclosed before confirmation.");
-            await Capture(window, output, "04-impact-reviewed");
+            Check(Find<Button>(window, "CancelImpactButton").IsFocused && Find<TextBlock>(window, "ConfirmDeactivateLabel").Text?.Contains(newName) == true,
+                "impact focuses the safe return action and names the exact target in the stop button");
+            await CaptureWithFrame(main, output, "04-impact-reviewed");
             Click(confirm);
             await Until(() => Find<TextBlock>(window, "MaintenanceFeedback").Text?.Contains("关联已变化") == true &&
                 confirm.IsEnabled && SummaryContains("大屏绑定 2 台"), "stale preview is replaced and must be confirmed again");
@@ -125,23 +147,28 @@ internal static partial class Program
             bool SummaryContains(string text) => summary.GetVisualDescendants().OfType<TextBlock>()
                 .Any(item => item.IsEffectivelyVisible && item.Text?.Contains(text) == true);
             void SelectRoom() => classes.SelectedItem = classes.Items.Cast<Classroom>().Single(room => room.Id == access.ClassId);
-            async Task<ClassMaintenanceWindow> OpenMaintenance()
+            async Task<ClassMaintenanceView> OpenMaintenance()
             {
                 Click(entry);
-                await Until(() => desktop.Windows.OfType<ClassMaintenanceWindow>().Any(window => window.IsVisible), "class maintenance window opens from class details");
-                return desktop.Windows.OfType<ClassMaintenanceWindow>().Single();
+                return await AcademicPageAsync<ClassMaintenanceView>(main);
             }
             async Task VerifyRoster()
             {
                 Click(Find<Button>(main, "OpenClassRosterButton"));
-                await Until(() => desktop.Windows.OfType<ClassRosterWindow>().Any(window => window.IsVisible &&
-                    window.GetVisualDescendants().OfType<TextBox>().Any(field => field.Text == "原班模拟学生")), "original student roster is visible");
-                var roster = desktop.Windows.OfType<ClassRosterWindow>().Single();
-                if (reopen) await Capture(roster, output, "02-original-roster");
-                roster.Close();
+                var roster = await AcademicPageAsync<ClassRosterView>(main);
+                await Until(() => roster.GetVisualDescendants().OfType<TextBox>().Any(field => field.Text == "原班模拟学生"), "original student roster is visible");
+                if (reopen) await CaptureWithFrame(main, output, "02-original-roster");
+                Click(Find<Button>(roster, "CloseRosterButton"));
+                await Until(() => !roster.IsEffectivelyVisible && Find<Button>(main, "OpenClassRosterButton").IsFocused,
+                    "return restores focus on the same class roster button");
             }
         }
-        catch (Exception error) { Finish("FAIL: " + error, 1); }
+        catch (Exception error)
+        {
+            if (desktop.MainWindow is MainWindow main)
+                await CaptureWithFrame(main, output, "failure");
+            Finish("FAIL: " + error, 1);
+        }
 
         void Finish(string message, int exitCode)
         {
