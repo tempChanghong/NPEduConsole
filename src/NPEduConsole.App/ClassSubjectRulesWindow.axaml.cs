@@ -33,11 +33,9 @@ public sealed partial class ClassSubjectRulesWindow : Window
     private readonly Dictionary<string, bool> _lastRequirement = [];
     private readonly Dictionary<string, string> _overlaps = [];
     private readonly Dictionary<string, string> _differences = [];
-    private readonly Dictionary<string, CheckBox> _sourceChecks = [];
-    private readonly TermTeachingReviewView _reviewView = new(600);
-    private readonly ListBox _reviewRows;
     private ClassRuleSnapshot? _baseline;
     private ClassRulePreview? _preview;
+    private ClassRuleSourceReview? _sourceReview;
     private GradeTeachingPlanWindow? _resolver;
     private Window? _presetWindow;
     private bool _working, _closed, _forceClose, _filling, _archiveEditable, _scopeLost, _recoveryRead;
@@ -56,10 +54,6 @@ public sealed partial class ClassSubjectRulesWindow : Window
     public ClassSubjectRulesWindow()
     {
         InitializeComponent();
-        RulesReviewLines.Content = _reviewView;
-        _reviewRows = _reviewView.FindControl<ListBox>("TermTeachingReviewList")!;
-        _reviewRows.SelectionChanged += (_, _) => RenderReviewDetail();
-        _reviewRows.KeyDown += ReviewKeyDown;
         RulesMode.ItemsSource = Modes;
         RulesRequirement.ItemsSource = Requirements;
     }
@@ -80,6 +74,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
             if (!_closed) RulesFilter.Focus();
         };
         SizeChanged += (_, _) => Arrange();
+        KeyDown += WindowKeyDown;
         Closing += OnClosing;
         Closed += (_, _) => { _closed = true; _lifetime.Cancel(); _lifetime.Dispose(); };
         Render();
@@ -91,13 +86,6 @@ public sealed partial class ClassSubjectRulesWindow : Window
         _resolver?.CloseForScopeChange();
         _presetWindow?.Close();
         Close();
-    }
-
-    private void Arrange()
-    {
-        var compact = ClientSize.Width is > 0 and < 900;
-        RulesReview.ColumnDefinitions[0].Width = new(compact ? 6 : 3, GridUnitType.Star);
-        RulesReview.ColumnDefinitions[1].Width = new(compact ? 5 : 2, GridUnitType.Star);
     }
 
     private void OnClosing(object? sender, WindowClosingEventArgs args)
@@ -132,7 +120,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
             {
                 _scopeLost = true;
                 _baseline = null;
-                _preview = null;
+                DropReview();
                 _draft.Clear();
                 PendingOperations.Remove(PendingKey);
                 RefreshRows();
@@ -164,7 +152,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
 
     private void Bind(ClassRuleSnapshot current)
     {
-        _preview = null;
+        DropReview();
         _overlaps.Clear();
         _differences.Clear();
         _draft.Clear();
@@ -184,7 +172,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
     private void Merge(ClassRuleSnapshot current)
     {
         if (_baseline is not { } previous) { Bind(current); return; }
-        _preview = null;
+        DropReview();
         var before = previous.Rows.ToDictionary(row => row.SubjectId);
         var missing = _draft.Keys.Except(current.Rows.Select(row => row.SubjectId)).ToArray();
         _differences.Clear();
@@ -208,8 +196,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
         SetBaseline(current);
         if ((_overlaps.Keys.FirstOrDefault() ?? _differences.Keys.FirstOrDefault()) is { } changed)
         {
-            if (!RulesRows.Items.OfType<ClassRuleEditorLine>().Any(row => row.Id == changed)) RulesFilter.Text = "";
-            RefreshRows(changed);
+            SelectEditorSubject(changed);
         }
     }
 
@@ -217,7 +204,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
     {
         var selected = prefer ?? SelectedId;
         var filter = RulesFilter.Text?.Trim() ?? "";
-        var rows = (_baseline?.Rows ?? []).Where(row => row.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
+        var rows = (_baseline?.Rows ?? []).Where(row => row.SubjectId == _pinnedEditorSubject || row.Name.Contains(filter, StringComparison.OrdinalIgnoreCase) ||
             row.Code.Contains(filter, StringComparison.OrdinalIgnoreCase)).Select(row =>
         {
             var choice = _draft.GetValueOrDefault(row.SubjectId) ?? row.Choice;
@@ -232,6 +219,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
         RulesRows.SelectedItem = rows.FirstOrDefault(row => row.Id == selected) ?? rows.FirstOrDefault();
         _filling = false;
         RenderSelected();
+        ApplyPaneLayout();
     }
 
     private static string Describe(ClassRuleChoice? row) => row is null ? "目录中已无此科" :
@@ -273,7 +261,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
     {
         var row = _baseline?.Rows.FirstOrDefault(item => item.SubjectId == SelectedId);
         RulesSelected.IsVisible = row is not null;
-        if (row is null) return;
+        if (row is null) { RulesSelectedName.Text = "选择一门科目"; return; }
         var choice = _draft.GetValueOrDefault(row.SubjectId) ?? row.Choice;
         RulesSelectedName.Text = $"{row.Name}（{row.Code}）";
         RulesBefore.Text = $"学校当前　{Describe(row.Choice)}";
@@ -309,8 +297,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
         RulesEditArchive.IsVisible = !_currentEntry && _baseline is { Term.Status: "ARCHIVED", Classroom.IsActive: true } && !_archiveEditable;
         RulesEditArchive.IsEnabled = !_working && pending is null;
         RulesSave.IsVisible = reviewing && pending is null;
-        RulesSave.IsEnabled = CanEdit && _preview?.CanApply == true && _sourceChecks.Values.All(box => box.IsChecked == true) &&
-            (!_preview.ClearsClass || RulesClearCheck.IsChecked == true);
+        RulesSave.IsEnabled = CanConfirmReview;
         RulesClose.IsEnabled = !_working;
         RulesRecheck.IsVisible = pending is not null && !_scopeLost;
         RulesRetry.IsVisible = RulesRecheck.IsVisible && _recoveryRead;
@@ -318,6 +305,8 @@ public sealed partial class ClassSubjectRulesWindow : Window
         RulesOpenConflict.IsEnabled = !_working && !_scopeLost && pending is null;
         RulesConfirmBox.IsEnabled = pending is null && !_working;
         RenderSelected();
+        RenderReviewProgress();
+        ApplyPaneLayout();
     }
 
     private void Notice(string message, bool error = false)
@@ -327,8 +316,19 @@ public sealed partial class ClassSubjectRulesWindow : Window
         RulesNotice[!TextBlock.ForegroundProperty] = new DynamicResourceExtension(error ? "ErrorBrush" : "MutedBrush");
     }
 
-    private void FilterChanged(object? sender, TextChangedEventArgs args) { if (_client is not null) RefreshRows(); }
-    private void RowChanged(object? sender, SelectionChangedEventArgs args) { if (!_filling) RenderSelected(); }
+    private void FilterChanged(object? sender, TextChangedEventArgs args)
+    {
+        if (_client is null) return;
+        _pinnedEditorSubject = null;
+        RefreshRows();
+    }
+
+    private void RowChanged(object? sender, SelectionChangedEventArgs args)
+    {
+        if (_filling) return;
+        RenderSelected();
+        ApplyPaneLayout();
+    }
     private void ModeChanged(object? sender, SelectionChangedEventArgs args)
     {
         if (_filling || !CanEdit || SelectedId is not { } id || RulesMode.SelectedItem is not Option mode) return;
@@ -370,7 +370,8 @@ public sealed partial class ClassSubjectRulesWindow : Window
         if (_currentEntry || _baseline?.Term.Status != "ARCHIVED" || _working) return;
         _archiveEditable = true;
         Render();
-        RulesFilter.Focus();
+        if (_compact && _editorDetail) FocusEditor(reveal: true);
+        else RulesFilter.Focus();
     }
 
     private async void ReloadClicked(object? sender, RoutedEventArgs args) => await RunAsync(ReloadAsync);
@@ -380,8 +381,8 @@ public sealed partial class ClassSubjectRulesWindow : Window
 
     private void BackClicked(object? sender, RoutedEventArgs args)
     {
-        if (_reviewView.SelectedKey is { } key) RefreshRows(key);
-        _preview = null;
+        if (SelectedReview?.SubjectId is { } key) SelectEditorSubject(key);
+        DropReview();
         Render();
         FocusEditor();
     }

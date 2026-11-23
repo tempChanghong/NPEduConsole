@@ -1,5 +1,7 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
@@ -12,7 +14,8 @@ internal static partial class Program
 {
     private sealed record ClassRulesAccess(string Origin, string SchoolId, string SchoolCode, string Password,
         string SpringId, string ArchiveId, string PhysicsId, string ChineseId, string ChemistryId, string HistoryId, string BiologyId, string GeographyId,
-        string TeacherId, string EightId, string ArchiveEightId, string FallEightId, bool AllowClassRuleWrites);
+        string TeacherId, string EightId, string ArchiveEightId, string FallEightId, string A1Id, string A2Id, string InactivePhysicsId,
+        string ChemistryGroupId, string InactiveChemistryId, bool AllowClassRuleWrites);
 
     private static int StartClassRules(string path, string output)
     {
@@ -55,7 +58,7 @@ internal static partial class Program
                 "可辨别的目标学期和班级");
             await SelectRule(rules, access.PhysicsId);
             Check(Text(rules, "RulesRelations").Contains("物理 A1"), "原物理 A1 可核对");
-            await Capture(rules, output, "01-wide-spring-rules");
+            await CaptureWithFrame(rules, output, "01-wide-spring-rules");
             await ApplyPreset(0, ["RULE-PHY"], switchFromSingle: true);
             await CheckDraft(access.PhysicsId, "走班教学 · 必修");
             await CheckDraft(access.ChineseId, "随行政班 · 选修");
@@ -89,9 +92,9 @@ internal static partial class Program
             await PressScoped(rules, "RulesPreview");
             await Until(() => ButtonReady(rules, "RulesOpenConflict"), "有效随班任课阻止保存");
             Check(!ButtonReady(rules, "RulesSave") && Text(rules, "RulesReviewTitle").Contains("历史"), "定位历史任课冲突");
-            var review = (TermTeachingReviewView)Find<ContentControl>(rules, "RulesReviewLines").Content!;
-            var reviewList = Find<ListBox>(review, "TermTeachingReviewList");
-            await Until(() => review.SelectedKey == access.HistoryId && reviewList.IsKeyboardFocusWithin, "历史冲突行取得真实 Avalonia 键盘焦点");
+            var reviewList = Find<ListBox>(rules, "RulesReviewRows");
+            await Until(() => (reviewList.SelectedItem as ClassRuleReviewLine)?.SubjectId == access.HistoryId && reviewList.IsKeyboardFocusWithin,
+                "历史冲突行取得真实 Avalonia 键盘焦点");
             reviewList.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
             var resolver = await Opened<GradeTeachingPlanWindow>(exclude: plan);
             var existing = Find<ComboBox>(resolver, "PlanTeachingExisting");
@@ -104,33 +107,97 @@ internal static partial class Program
             await PressScoped(resolver, "PlanBack");
             await Until(() => ButtonReady(rules, "RulesPreview") && ButtonText(rules, "RulesPreview").Contains("3 科"), "重读后保留三科草稿");
 
-            rules.Width = 840;
-            rules.Height = 480;
-            await Until(() => rules.ClientSize is { Width: <= 845, Height: <= 485 }, "840×480 实际窗口");
+            var filter = Find<TextBox>(rules, "RulesFilter");
+            filter.Text = "RULE-PHY";
+            await SelectRule(rules, access.PhysicsId);
             await PressScoped(rules, "RulesPreview");
             var confirmations = Find<StackPanel>(rules, "RulesSourceChecks");
-            await CheckSources("物理 A1", "物理旧组");
+            await CheckSources(access.A1Id, access.InactivePhysicsId, "物理 A1", "物理旧组");
             Check(!ButtonReady(rules, "RulesSave"), "逐组确认前不可保存");
-            await Signal("swap");
+            var oldPhysics = SourceBox(access.A1Id);
+            await ClickRuleControlAsync(rules, oldPhysics);
+            await Until(() => oldPhysics.IsChecked == true, "实际点击第一条物理确认");
+            Check((reviewList.SelectedItem as ClassRuleReviewLine)?.SubjectId == access.PhysicsId && confirmations.IsEffectivelyVisible,
+                "点击确认没有触发科目导航");
+            SourceBox(access.InactivePhysicsId).IsChecked = true;
+            Check(!ButtonReady(rules, "RulesSave") && Text(rules, "RulesReviewSummary").Contains("化学 2 条来源待核对"),
+                "只核物理仍不可保存，底栏点出未核的化学");
+            Click(Find<Button>(rules, "RulesSave"));
+            await Signal("partially-reviewed");
+            await CaptureWithFrame(rules, output, "02a-wide-physics-chemistry-pending");
+
+            rules.Width = 840;
+            rules.Height = 480;
+            await Until(() => rules.ClientSize is { Width: <= 845, Height: <= 485 } && ButtonReady(rules, "RulesReturnReviewList"),
+                "840×480 缩窗保留正在核对的物理");
+            Check(!reviewList.IsEffectivelyVisible && SourceBox(access.A1Id).IsChecked == true &&
+                SourceBox(access.InactivePhysicsId).IsChecked == true, "缩窗仍在同一预览而且物理确认保留");
+            Console.WriteLine($"Desktop rule review: {rules.ClientSize.Width} × {rules.ClientSize.Height} client DIP, {rules.RenderScaling:P0} scaling.");
+            RaiseKey(Find<Button>(rules, "RulesReturnReviewList"), Key.Escape);
+            await Until(() => ReviewRowFocused(access.PhysicsId), "Escape 返回原物理行和键盘焦点");
+            var chemistryReview = reviewList.Items.OfType<ClassRuleReviewLine>().Single(row => row.SubjectId == access.ChemistryId);
+            reviewList.SelectedItem = chemistryReview;
+            Check(reviewList.IsEffectivelyVisible, "仅改变选中行不会自动钻入详情");
+            reviewList.ScrollIntoView(chemistryReview);
+            await Until(() => reviewList.ContainerFromItem(chemistryReview) is ListBoxItem, "化学行已实际呈现");
+            await ClickRuleControlAsync(rules, (ListBoxItem)reviewList.ContainerFromItem(chemistryReview)!);
+            await Until(() => ButtonReady(rules, "RulesReturnReviewList") && !reviewList.IsEffectivelyVisible, "鼠标单击已选化学即进入详情");
+            await CheckSources(access.ChemistryGroupId, access.InactiveChemistryId, "化学 C1", "化学旧组");
+            Check(!ButtonReady(rules, "RulesSave") && ConfirmedCount() == 0, "化学两条尚未确认");
+            RaiseKey(Find<Button>(rules, "RulesReturnReviewList"), Key.Escape);
+            await Until(() => ReviewRowFocused(access.ChemistryId), "化学返回原行");
+            reviewList.SelectedItem = reviewList.Items.OfType<ClassRuleReviewLine>().Single(row => row.SubjectId == access.PhysicsId);
+            RaiseKey(reviewList, Key.Enter);
+            await CheckSources(access.A1Id, access.InactivePhysicsId, "物理 A1", "物理旧组");
+            Check(ConfirmedCount() == 2, "去化学再返回物理，原两条仍已确认");
+            rules.Width = 1160;
+            rules.Height = 780;
+            await Until(() => rules.ClientSize.Width >= 1100 && reviewList.IsEffectivelyVisible && confirmations.IsEffectivelyVisible,
+                "放宽窗口后，科目列表和原物理详情同时可见");
+            Check((reviewList.SelectedItem as ClassRuleReviewLine)?.SubjectId == access.PhysicsId && ConfirmedCount() == 2,
+                "窄窗回到宽窗仍在同一预览，物理确认保留");
+            rules.Width = 840;
+            rules.Height = 480;
+            await Until(() => ButtonReady(rules, "RulesReturnReviewList") && !reviewList.IsEffectivelyVisible,
+                "再缩窗仍在原物理详情");
+            RaiseKey(Find<Button>(rules, "RulesReturnReviewList"), Key.F8);
+            await Until(() => (reviewList.SelectedItem as ClassRuleReviewLine)?.SubjectId == access.ChemistryId &&
+                confirmations.Children.OfType<CheckBox>().FirstOrDefault()?.IsFocused == true, "F8 跨科定位并聚焦第一条未确认来源");
+            foreach (var box in confirmations.Children.OfType<CheckBox>())
+            {
+                var lastLine = ((StackPanel)box.Content!).Children.OfType<TextBlock>().Last();
+                AssertInsideViewport(rules, Find<ScrollViewer>(rules, "RulesReviewScroll"), lastLine, "两条化学关系的保留来源班");
+            }
+            await CaptureWithFrame(rules, output, "02b-narrow-chemistry-only-pending");
             foreach (var box in confirmations.Children.OfType<CheckBox>()) box.IsChecked = true;
+            await Signal("swap");
             await PressScoped(rules, "RulesSave");
             await Until(() => Text(rules, "RulesNotice").Contains("零写入") && Text(rules, "RulesRelations").Contains("物理 A2"),
                 "等量换来源后定位旧 A1 和新 A2");
-            await Until(() => Find<ListBox>(rules, "RulesRows").IsKeyboardFocusWithin, "窄窗陈旧确认后将焦点交回受影响科目");
-            Check(Text(rules, "RulesRelations").Contains("物理 A1") && ButtonText(rules, "RulesPreview").Contains("3 科"),
-                "差异指向原来源与新来源，保留所有草稿");
+            await Until(() => Find<ComboBox>(rules, "RulesMode").IsFocused && ButtonReady(rules, "RulesReturnSubjects"),
+                "窄窗陈旧确认后直接聚焦物理编辑");
+            Check(Text(rules, "RulesRelations").Contains("物理 A1") && ButtonText(rules, "RulesPreview").Contains("3 科") && filter.Text == "RULE-PHY",
+                "差异指向原来源与新来源，保留三科草稿和原筛选");
             await Signal("stale");
-            await Capture(rules, output, "02-narrow-stale-specific-source");
+            await CaptureWithFrame(rules, output, "02-narrow-stale-specific-source");
 
             await PressScoped(rules, "RulesPreview");
-            await CheckSources("物理 A2", "物理旧组");
+            await PressScoped(rules, "RulesNextUnconfirmed");
+            await CheckSources(access.A2Id, access.InactivePhysicsId, "物理 A2", "物理旧组");
+            oldPhysics.IsChecked = false;
+            oldPhysics.IsChecked = true;
+            Check(ConfirmedCount() == 0 && !ButtonReady(rules, "RulesSave"), "新预览清空旧确认，旧控件迟到事件也不能确认");
             foreach (var box in confirmations.Children.OfType<CheckBox>()) box.IsChecked = true;
-            await Capture(rules, output, "03-narrow-confirm-exact-links");
+            await CaptureWithFrame(rules, output, "03-narrow-confirm-exact-links");
+            await PressScoped(rules, "RulesNextUnconfirmed");
+            await CheckSources(access.ChemistryGroupId, access.InactiveChemistryId, "化学 C1", "化学旧组");
+            Check(ConfirmedCount() == 0, "未改版的化学也必须重新核对新预览");
+            foreach (var box in confirmations.Children.OfType<CheckBox>()) box.IsChecked = true;
             await PressScoped(rules, "RulesSave");
             await Until(() => Text(rules, "RulesNotice").Contains("本账号的保存回执") && ButtonText(rules, "RulesPreview").Contains("0 科"),
                 "丢成功回包后只读找回本人结果");
             await Signal("saved");
-            await Capture(rules, output, "04-narrow-own-receipt");
+            await CaptureWithFrame(rules, output, "04-narrow-own-receipt");
             await PressScoped(rules, "RulesClose");
             await Until(() => !rules.IsVisible, "关闭整班规则");
             await PressScoped(plan, "PlanBack");
@@ -139,9 +206,30 @@ internal static partial class Program
             var (archivePlan, archiveRules) = await OpenRules(termWindow);
             await Until(() => Text(archiveRules, "RulesScope").Contains("归档授课学期") && ButtonReady(archiveRules, "RulesEditArchive"),
                 "归档学期先查看");
+            archiveRules.Width = 840;
+            archiveRules.Height = 480;
+            await Until(() => ButtonReady(archiveRules, "RulesOpenSubject"), "归档窄窗从科目列表进入详情");
             await SelectRule(archiveRules, access.ChineseId);
             Check(!Find<ComboBox>(archiveRules, "RulesRequirement").IsEffectivelyEnabled, "归档默认不得更正");
             await PressScoped(archiveRules, "RulesEditArchive");
+            SetMode(archiveRules, 2);
+            await PressScoped(archiveRules, "RulesPreview");
+            var clear = Find<CheckBox>(archiveRules, "RulesClearCheck");
+            var archiveReview = Find<ListBox>(archiveRules, "RulesReviewRows");
+            await Until(() => !ButtonReady(archiveRules, "RulesSave") &&
+                Text(archiveRules, "RulesReviewSummary") == "1 科调整 · 整班清空待确认" &&
+                Text(archiveRules, "RulesNotice").Contains("整班清空需要单独确认"),
+                "归档整班清空单独确认，不显示走班来源提示");
+            RaiseKey(archiveReview, Key.F8);
+            await Until(() => clear.IsEffectivelyVisible && clear.IsFocused && !archiveReview.IsEffectivelyVisible,
+                "F8 在窄窗单独聚焦整班清空确认");
+            await CaptureWithFrame(archiveRules, output, "04a-narrow-clear-confirmation");
+            clear.IsChecked = true;
+            Check(ButtonReady(archiveRules, "RulesSave"), "单独确认后整班清空才就绪");
+            await PressScoped(archiveRules, "RulesBack");
+            await Signal("clear-preview-only");
+            await SelectRule(archiveRules, access.ChineseId);
+            SetMode(archiveRules, 0);
             Find<ComboBox>(archiveRules, "RulesRequirement").SelectedIndex = 0;
             await PressScoped(archiveRules, "RulesPreview");
             await PressScoped(archiveRules, "RulesSave");
@@ -176,13 +264,19 @@ internal static partial class Program
             Console.WriteLine("PASS: Windows 整班规则、任课回跳、Edge 等量换来源、丢回包、归档更正与实际学生选课。");
             Environment.ExitCode = 0;
 
-            async Task CheckSources(string linked, string inactive)
+            int ConfirmedCount() => confirmations.Children.OfType<CheckBox>().Count(box => box.IsChecked == true);
+            CheckBox SourceBox(string id) => confirmations.Children.OfType<CheckBox>().Single(box => AutomationProperties.GetAutomationId(box) == "RulesSource-" + id);
+            bool ReviewRowFocused(string subjectId) => reviewList.IsEffectivelyVisible && reviewList.SelectedItem is ClassRuleReviewLine row &&
+                row.SubjectId == subjectId && reviewList.ContainerFromItem(row) is ListBoxItem {IsFocused: true};
+            async Task CheckSources(string activeId, string inactiveId, string linked, string inactive)
             {
-                await Until(() => confirmations.Children.OfType<CheckBox>().Select(box => (box.Content as TextBlock)?.Text).Any(
-                    text => text?.Contains(linked) == true), "回读 " + linked);
-                var labels = confirmations.Children.OfType<CheckBox>().Select(box => (box.Content as TextBlock)?.Text ?? "").ToArray();
-                Check(labels.Length == 2 && labels.Any(text => text.Contains(inactive) && text.Contains("已停用")) &&
-                    labels.All(text => text.Contains("高二（7）班")), "仅解除八班两条明确来源，七班原关系可见");
+                await Until(() => confirmations.IsEffectivelyVisible && confirmations.Children.OfType<CheckBox>()
+                    .Select(AutomationProperties.GetAutomationId).ToHashSet().SetEquals(new[] {"RulesSource-" + activeId, "RulesSource-" + inactiveId}),
+                    "按服务器真实编号仅显示本科两条来源 " + linked);
+                string Label(string id) => string.Join("\n", ((StackPanel)SourceBox(id).Content!).Children.OfType<TextBlock>().Select(text => text.Text));
+                Check(Label(activeId).Contains(linked) && Label(inactiveId).Contains(inactive) && Label(inactiveId).Contains("已停用") &&
+                    new[] {activeId, inactiveId}.All(id => Label(id).Contains("保留来源班：高二（7）班") && Label(id).Contains("解除来源班：高二（8）班")),
+                    "区分两条真实来源，七班保留，八班移出");
             }
             async Task CheckDraft(string subjectId, string expected)
             {
@@ -246,12 +340,43 @@ internal static partial class Program
         static async Task SelectRule(Window window, string id)
         {
             var rows = Find<ListBox>(window, "RulesRows");
+            if (ButtonReady(window, "RulesReturnSubjects")) await PressScoped(window, "RulesReturnSubjects");
             await Until(() => rows.Items.OfType<ClassRuleEditorLine>().Any(row => row.Id == id), "按学科 ID 定位");
             rows.SelectedItem = rows.Items.OfType<ClassRuleEditorLine>().Single(row => row.Id == id);
+            if (ButtonReady(window, "RulesOpenSubject")) await PressScoped(window, "RulesOpenSubject");
         }
+        static void RaiseKey(Control source, Key key) => source.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = key });
         static void SetMode(Window window, int index) => Find<ComboBox>(window, "RulesMode").SelectedIndex = index;
         static bool ButtonReady(Control window, string name) => Find<Button>(window, name) is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true };
         static string ButtonText(Control window, string name) => Find<Button>(window, name).Content?.ToString() ?? "";
         static string Text(Control window, string name) => Find<TextBlock>(window, name).Text ?? "";
+    }
+
+    private static async Task ClickRuleControlAsync(Window window, Control control)
+    {
+        var handle = window.TryGetPlatformHandle()?.Handle ?? throw new InvalidDataException("Expected the real Windows rules window.");
+        control.BringIntoView();
+        await Until(() => window.IsVisible && control.IsEffectivelyVisible && TopLevel.GetTopLevel(control) == window &&
+            control.Bounds.Width > 0 && control.Bounds.Height > 0, "native click targets the visible isolated rules window");
+        var screen = control.PointToScreen(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2));
+        var position = new RulePointer.Point(screen.X, screen.Y);
+        Check(RulePointer.ScreenToClient(handle, ref position) && RulePointer.GetClientRect(handle, out var bounds) &&
+            position.X >= 0 && position.Y >= 0 && position.X < bounds.Right && position.Y < bounds.Bottom,
+            "native test click is inside the isolated window client area");
+        nint point = position.Y << 16 | position.X;
+        Check(RulePointer.PostMessage(handle, 0x0200, 0, point) && RulePointer.PostMessage(handle, 0x0201, 1, point) &&
+            RulePointer.PostMessage(handle, 0x0202, 0, point), "deliver mouse move, press and release only to the isolated HWND");
+    }
+
+    private static class RulePointer
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Point(int x, int y) { internal int X = x, Y = y; }
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct Rect { internal int Left, Top, Right, Bottom; }
+
+        [DllImport("user32.dll")] internal static extern bool ScreenToClient(nint window, ref Point point);
+        [DllImport("user32.dll")] internal static extern bool GetClientRect(nint window, out Rect rect);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] internal static extern bool PostMessage(nint window, uint message, nuint state, nint point);
     }
 }

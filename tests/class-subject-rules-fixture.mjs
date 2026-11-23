@@ -19,15 +19,18 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
     ['RULE-BIO', '生物', 'ELECTIVE'],
     ['RULE-GEO', '地理', 'ELECTIVE'],
   ].map(([code, name, category]) => prisma.subject.create({data: {schoolId: school.id, code, name, category}})));
-  const [a1, a2, inactive] = await Promise.all([
+  const [a1, a2, inactive, c1, inactiveChemistry] = await Promise.all([
     group('RULE-A1', '物理 A1', true, [seven, eight]),
     group('RULE-A2', '物理 A2', true, [seven]),
     group('RULE-OLD', '物理旧组', false, [seven, eight]),
+    group('RULE-C1', '化学 C1', true, [seven, eight], chemistry),
+    group('RULE-COLD', '化学旧组', false, [seven, eight], chemistry),
   ]);
   const biologyGroup = await group('RULE-B1', '生物 B1', true, [eight], biology);
   await Promise.all([
     addRule(fall8, chinese, 'ADMIN_CLASS', true), addRule(archive8, chinese, 'ADMIN_CLASS', false),
     addRule(seven, physics, 'COURSE_GROUP', true), addRule(eight, physics, 'COURSE_GROUP', true),
+    addRule(seven, chemistry, 'COURSE_GROUP', false), addRule(eight, chemistry, 'COURSE_GROUP', false),
     addRule(eight, chinese, 'ADMIN_CLASS', false), addRule(eight, history, 'ADMIN_CLASS', true), addRule(eight, biology, 'COURSE_GROUP', true),
   ]);
   await prisma.workspaceMember.create({data: {workspaceId: eight.id, accountId: managerId, role: 'TEACHER'}});
@@ -45,6 +48,7 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
   const access = loginBody.data ?? loginBody;
   const endpoint = '/api/v2/admin/schools/' + school.id + '/administrative-classes/' + eight.id + '/subject-rules';
   let browser, site, savedId, ownReads = 0, applied = 0;
+  const springWrites = [], archiveWrites = [];
   const cases = [];
 
   function makeTerm(academicYear, semester, name, status) {
@@ -152,6 +156,7 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
         assert.equal(await window.getByRole('option', {name: '物理 A2', exact: true}).count(), 1);
         assert.equal(await window.getByRole('option', {name: '物理旧组', exact: true}).count(), 0);
         await window.getByRole('option', {name: '物理 A2', exact: true}).click();
+        await choose(/化学/, '我不修读该科');
       } else {
         assert.equal(await dialog.locator('.v-select').filter({hasText: /物理/}).count(), 0);
         if (term.id === spring.id) await choose(/生物/, '生物 B1');
@@ -170,15 +175,24 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
       assert.equal((await rule(eight, physics)).isCompulsory, true);
       assert.equal((await rule(eight, chinese)).isCompulsory, false);
       assert.equal(await rule(eight, geography), null);
-      assert.equal(await rule(eight, chemistry), null);
+      assert.deepEqual([(await rule(eight, chemistry)).deliveryMode, (await rule(eight, chemistry)).isCompulsory], ['COURSE_GROUP', false]);
       assert.equal(applied, 0);
+    }
+    else if (name === 'partially-reviewed') {
+      assert.deepEqual(springWrites, []);
+      assert.deepEqual(await sources(c1), [seven.id, eight.id].sort());
+      assert.deepEqual(await sources(a1), [seven.id, eight.id].sort());
     }
     else if (name === 'swap') await legacySwap();
     else if (name === 'stale') {
       assert.equal((await rule(eight, physics)).isCompulsory, true);
-      assert.equal(await rule(eight, chemistry), null);
+      assert.equal((await rule(eight, chemistry)).deliveryMode, 'COURSE_GROUP');
       assert.deepEqual(await sources(a2), [seven.id, eight.id].sort());
+      assert.deepEqual(await sources(inactive), [seven.id, eight.id].sort());
+      assert.deepEqual(await sources(c1), [seven.id, eight.id].sort());
+      assert.deepEqual(await sources(inactiveChemistry), [seven.id, eight.id].sort());
       assert.equal(applied, 0);
+      assert.deepEqual(springWrites.map(row => row.confirmedSourceIds), [[a1.id, inactive.id, c1.id, inactiveChemistry.id].sort()]);
     } else if (name === 'saved') {
       assert.equal(await rule(eight, physics), null);
       assert.equal((await rule(eight, chemistry)).deliveryMode, 'ADMIN_CLASS');
@@ -188,13 +202,22 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
       assert.equal((await rule(fall8, chinese)).isCompulsory, true);
       assert.deepEqual(await sources(a2), [seven.id]);
       assert.deepEqual(await sources(inactive), [seven.id]);
+      assert.deepEqual(await sources(c1), [seven.id]);
+      assert.deepEqual(await sources(inactiveChemistry), [seven.id]);
+      assert.equal((await rule(seven, chemistry)).isCompulsory, false);
       assert.equal((await rule(seven, physics)).isCompulsory, true);
       assert.equal((await prisma.teachingAssignment.findUniqueOrThrow({where: {id: teacher.id}})).isActive, false);
       assert.equal((await prisma.workspaceMember.findUniqueOrThrow({where: {workspaceId_accountId: {workspaceId: eight.id, accountId: managerId}}})).role, 'TEACHER');
       assert.ok(await prisma.publicationTarget.findFirst({where: {publicationId: publication.id, workspaceId: a1.id}}));
       assert.deepEqual([applied, ownReads], [1, 1]);
+      assert.deepEqual(springWrites.at(-1).confirmedSourceIds, [a2.id, inactive.id, c1.id, inactiveChemistry.id].sort());
+      assert.equal(springWrites.length, 2);
+    } else if (name === 'clear-preview-only') {
+      assert.deepEqual(archiveWrites, []);
+      assert.equal((await rule(archive8, chinese)).isCompulsory, false);
     } else if (name === 'archive') {
       assert.equal((await rule(archive8, chinese)).isCompulsory, true);
+      assert.deepEqual(archiveWrites, [false]);
       await legacySave();
     } else if (name === 'active') {
       await student(spring, seven, true);
@@ -215,6 +238,12 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
       const headers = {...req.headers};
       for (const key of ['host', 'connection', 'transfer-encoding', 'content-length']) delete headers[key];
       const requestBody = chunks.length ? Buffer.concat(chunks) : undefined;
+      if (req.method === 'PUT' && url.pathname === endpoint) {
+        const body = JSON.parse(requestBody);
+        springWrites.push({requestId: body.requestId, confirmedSourceIds: body.confirmedSourceIds.toSorted()});
+      }
+      if (req.method === 'PUT' && url.pathname.endsWith('/' + archive8.id + '/subject-rules'))
+        archiveWrites.push(JSON.parse(requestBody).confirmClear);
       const upstream = await fetch(url, {method: req.method, headers, body: requestBody, redirect: 'manual'});
       const responseBody = Buffer.from(await upstream.arrayBuffer());
       if (url.pathname === endpoint && req.method === 'PUT' && upstream.ok && JSON.parse(responseBody).data.state === 'APPLIED') {
@@ -242,13 +271,15 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
       await writeFile(config, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id, schoolCode: school.code,
         password: pin, springId: spring.id, archiveId: archive.id, physicsId: physics.id, chineseId: chinese.id, chemistryId: chemistry.id,
         historyId: history.id, biologyId: biology.id, geographyId: geography.id, teacherId: teacher.id, eightId: eight.id,
+        a1Id: a1.id, a2Id: a2.id, inactivePhysicsId: inactive.id, chemistryGroupId: c1.id, inactiveChemistryId: inactiveChemistry.id,
         archiveEightId: archive8.id, fallEightId: fall8.id,
         allowClassRuleWrites: true}), {mode: 0o600});
       await runDesktop(['--live-class-rules', config, evidence]);
     }});
-    assert.deepEqual(cases, ['start', 'presets', 'swap', 'stale', 'saved', 'archive', 'active']);
+    assert.deepEqual(cases, ['start', 'presets', 'partially-reviewed', 'swap', 'stale', 'saved', 'clear-preview-only', 'archive', 'active']);
     await writeFile(join(evidence, 'class-rules-result.json'), JSON.stringify({result: 'PASS', cases, applied, ownReads,
-      receiptId: savedId, sameNameClassIds: [fall8.id, eight.id, archive8.id], sourceIds: [a1.id, a2.id, inactive.id],
+      receiptId: savedId, springWrites, archiveWrites, sameNameClassIds: [fall8.id, eight.id, archive8.id],
+      sourceIds: [a1.id, a2.id, inactive.id, c1.id, inactiveChemistry.id],
       protectedPublication: publication.id}, null, 2));
   } finally {
     relay.closeAllConnections();

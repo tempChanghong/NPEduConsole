@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -8,9 +9,32 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
+public sealed class ClassRuleReviewLine(string? subjectId, string title, string before, string after, bool hasIssue)
+    : INotifyPropertyChanged
+{
+    public string? SubjectId { get; } = subjectId;
+    public string Title { get; } = title;
+    public string Before { get; } = before;
+    public string After { get; } = after;
+    public bool HasIssue { get; } = hasIssue;
+    public bool IsSubject => SubjectId is not null;
+    public string Status { get; private set; } = "";
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    internal void SetStatus(string status)
+    {
+        if (Status == status) return;
+        Status = status;
+        PropertyChanged?.Invoke(this, new(nameof(Status)));
+    }
+}
+
 public sealed partial class ClassSubjectRulesWindow
 {
     private ClassRuleChoice[] Choices => _baseline!.Rows.Select(row => _draft[row.SubjectId]).ToArray();
+    private ClassRuleReviewLine? SelectedReview => RulesReviewRows.SelectedItem as ClassRuleReviewLine;
+    private bool ShouldConfirmClear => _preview?.ClearsClass == true && RulesClearCheck.IsChecked != true;
+    private bool CanConfirmReview => CanEdit && _preview?.CanApply == true && _sourceReview is {RemainingCount: 0} && !ShouldConfirmClear;
 
     private async Task PreviewAsync()
     {
@@ -29,80 +53,152 @@ public sealed partial class ClassSubjectRulesWindow
     {
         Merge(current);
         Notice("这份预览已过期，本次零写入。请核对最新安排，保留的草稿需要重新预览。", true);
-        FocusEditor();
+        FocusEditor(reveal: _overlaps.Count > 0 || _differences.Count > 0);
     }
 
     private void ShowPreview(ClassRulePreview preview)
     {
+        DropReview();
         _preview = preview;
-        _sourceChecks.Clear();
-        _filling = true;
-        RulesSourceChecks.Children.Clear();
-        foreach (var removal in preview.Removals)
-        {
-            var box = new CheckBox
-            {
-                Content = new TextBlock
-                {
-                    Text = RemovalText(removal, preview.Current.Classroom.Name), TextWrapping = Avalonia.Media.TextWrapping.Wrap
-                }
-            };
-            box.IsCheckedChanged += ConfirmationChanged;
-            RulesSourceChecks.Children.Add(box);
-            _sourceChecks.Add(removal.GroupId, box);
-        }
-        RulesClearCheck.IsChecked = false;
-        RulesClearCheck.IsVisible = preview.ClearsClass;
-        _filling = false;
-        var rows = preview.Changes.Select(change =>
-        {
-            var before = preview.Current.Rows.First(row => row.SubjectId == change.SubjectId);
-            var issues = preview.Issues.Where(issue => issue.SubjectId == change.SubjectId);
-            return new TermTeachingReviewLine(before.SubjectId, $"{before.Name}（{before.Code}）", Describe(before.Choice),
-                Describe(change), string.Join("\n", issues.Select(issue => issue.Message)));
-        }).ToArray();
+        _sourceReview = new(preview);
+        var changes = preview.Changes.ToDictionary(row => row.SubjectId);
+        var blocked = preview.Issues.Select(issue => issue.SubjectId).ToHashSet();
+        var relevant = changes.Keys.Concat(blocked).Concat(preview.Notices.Select(issue => issue.SubjectId))
+            .Concat(preview.Removals.Select(row => row.SubjectId)).ToHashSet();
+        var rows = preview.Current.Rows.Where(row => relevant.Contains(row.SubjectId)).Select(row =>
+            new ClassRuleReviewLine(row.SubjectId, $"{row.Name}（{row.Code}）", Describe(row.Choice),
+                Describe(changes.GetValueOrDefault(row.SubjectId) ?? row.Choice), blocked.Contains(row.SubjectId))).ToList();
+        if (preview.ClearsClass) rows.Add(new(null, "整班清空", "", "", false));
         var firstBlock = preview.Issues.FirstOrDefault();
-        _reviewView.SetRows(rows, firstBlock?.SubjectId ?? SelectedId);
-        RenderReviewDetail();
+        RulesReviewRows.ItemsSource = rows;
+        RulesReviewRows.SelectedItem = rows.FirstOrDefault(row => row.SubjectId == (firstBlock?.SubjectId ?? SelectedId)) ?? rows.FirstOrDefault();
+        Render();
         if (preview.Issues.Length > 0)
-            Notice($"有 {preview.Issues.Select(issue => issue.SubjectId).Distinct().Count()} 科需先处理。", true);
-        else if (preview.Removals.Length > 0 || preview.ClearsClass)
-            Notice("请逐项核对右侧将解除的来源和整班变更。");
+            Notice($"有 {blocked.Count} 科需先处理。", true);
+        else if (preview.Removals.Length > 0)
+            Notice("请在对应科目核对将解除的来源。可用 F8 定位下个未核对项。");
+        else if (preview.ClearsClass)
+            Notice("整班清空需要单独确认。可用 F8 定位确认项。");
         else Notice("请核对逐科调整，再确认保存。");
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_closed || _preview != preview) return;
-            if (firstBlock is not null) _reviewView.FocusIssue(firstBlock.SubjectId);
-            else if (_reviewRows.SelectedItem is { } selected) FocusRow(_reviewRows, selected);
-        }, DispatcherPriority.Loaded);
+        if (_compact && firstBlock is not null) FocusReview();
+        else FocusList(RulesReviewRows);
     }
 
-    private static string RemovalText(ClassRuleRemoval row, string classroom) => $"从 {row.GroupName}（{row.GroupCode}）" +
-        (row.IsActive ? "" : " · 已停用") + $" 移除 {classroom}。其余来源：" +
-        JoinOrNone(row.RemainingSources.Select(source => $"{source.Name}（{source.Code}）"));
+    private void DropReview()
+    {
+        _preview = null;
+        _sourceReview = null;
+        _reviewDetail = false;
+        _filling = true;
+        RulesReviewRows.ItemsSource = null;
+        RulesSourceChecks.Children.Clear();
+        RulesClearCheck.IsChecked = false;
+        _filling = false;
+    }
+
+    private void ReviewRowChanged(object? sender, SelectionChangedEventArgs args)
+    {
+        if (_client is null || _filling) return;
+        RenderReviewDetail();
+        ApplyPaneLayout();
+    }
 
     private ClassRuleIssue? SelectedIssue => _preview?.Issues.Concat(_preview.Notices)
-        .FirstOrDefault(issue => issue.SubjectId == _reviewView.SelectedKey && issue.Action is "TEACHING" or "COURSE_GROUPS");
+        .FirstOrDefault(issue => issue.SubjectId == SelectedReview?.SubjectId && issue.Action is "TEACHING" or "COURSE_GROUPS");
 
     private void RenderReviewDetail()
     {
-        if (_preview is not { } preview) return;
-        var id = _reviewView.SelectedKey;
-        var row = preview.Current.Rows.FirstOrDefault(item => item.SubjectId == id);
-        RulesReviewTitle.Text = row is null ? "本次影响与确认" : $"{row.Name} · 本次影响与确认";
-        var reasons = preview.Issues.Concat(preview.Notices).Where(issue => issue.SubjectId == id).Select(issue => issue.Message).ToArray();
-        RulesReviewDetail.Text = reasons.Length > 0 ? string.Join("\n", reasons) :
-            preview.Removals.Length == 0 && !preview.ClearsClass ? "本次无需解除走班来源。" : "勾选已核对的关系后即可保存。";
+        RulesSourceChecks.Children.Clear();
+        RulesReviewScroll.Offset = default;
+        var line = SelectedReview;
+        if (_preview is not { } preview || _sourceReview is not { } review || line is null) return;
+        RulesReviewTitle.Text = line.Title;
+        RulesReviewValues.IsVisible = line.IsSubject;
+        RulesReviewBefore.Text = line.Before;
+        RulesReviewAfter.Text = line.After;
+        RulesClearCheck.IsVisible = !line.IsSubject && preview.ClearsClass;
         var action = SelectedIssue;
         RulesOpenConflict.IsVisible = action is not null && preview.Current.Classroom.GradeId is not null;
         RulesOpenConflict.Content = action?.Action == "TEACHING" ? "处理该科任课" : "办理走班教学班";
+        if (line.SubjectId is not { } id)
+        {
+            RulesReviewDetail.Text = $"保存后，{preview.Current.Classroom.Name}（{preview.Current.Classroom.Code}）不再开设任何科目。请单独确认。";
+            return;
+        }
+
+        var removals = review.ForSubject(id).ToArray();
+        var reasons = preview.Issues.Concat(preview.Notices).Where(issue => issue.SubjectId == id).Select(issue => issue.Message);
+        var summary = removals.Length == 0 ? "该科无需解除走班来源。" : $"该科有 {removals.Length} 条走班来源将解除，请逐项核对。";
+        RulesReviewDetail.Text = string.Join("\n", reasons.Append(summary));
+        foreach (var removal in removals)
+        {
+            var content = new StackPanel { Spacing = 3 };
+            var group = $"{removal.GroupName}（{removal.GroupCode}）" + (removal.IsActive ? "" : " · 已停用");
+            var remaining = JoinOrNone(removal.RemainingSources.Select(source => $"{source.Name}（{source.Code}）"));
+            content.Children.Add(new TextBlock { Text = group, Classes = { "label" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            content.Children.Add(new TextBlock { Text = $"解除来源班：{preview.Current.Classroom.Name}（{preview.Current.Classroom.Code}）", TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            content.Children.Add(new TextBlock { Text = $"保留来源班：{remaining}", Classes = { "muted" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap });
+            var box = new CheckBox { Content = content, Tag = removal.GroupId, IsChecked = review.IsConfirmed(id, removal.GroupId) };
+            box.Classes.Add("rule-confirmation");
+            AutomationProperties.SetName(box, $"已核对解除 {group} 的本班来源");
+            AutomationProperties.SetAutomationId(box, $"RulesSource-{removal.GroupId}");
+            box.IsCheckedChanged += (_, _) =>
+            {
+                if (_closed || _working || Pending is not null || _sourceReview != review || SelectedReview?.SubjectId != id) return;
+                review.SetConfirmed(id, removal.GroupId, box.IsChecked == true);
+                RenderReviewProgress();
+                RulesSave.IsEnabled = CanConfirmReview;
+            };
+            RulesSourceChecks.Children.Add(box);
+        }
+    }
+
+    private void RenderReviewProgress()
+    {
+        RulesReviewSummary.IsVisible = _preview is not null && _sourceReview is not null;
+        if (_preview is not { } preview || _sourceReview is not { } review)
+        {
+            RulesNextUnconfirmed.IsVisible = false;
+            return;
+        }
+        foreach (var line in RulesReviewRows.Items.OfType<ClassRuleReviewLine>())
+        {
+            var remaining = review.RemainingFor(line.SubjectId);
+            var status = !line.IsSubject ? (ShouldConfirmClear ? "待确认" : "已核对") :
+                remaining > 0 ? $"{remaining} 条来源待核对" :
+                review.ForSubject(line.SubjectId).Any() ? "来源已核对" : "";
+            if (line.HasIssue) status = status.Length == 0 ? "需先处理" : "需先处理 · " + status;
+            line.SetStatus(status);
+        }
+        var remainingSubjects = preview.Current.Rows.Where(row => review.RemainingFor(row.SubjectId) > 0).Take(2).ToArray();
+        var sources = remainingSubjects is [var subject] ? $"{subject.Name} {review.RemainingCount} 条来源待核对" :
+            review.RemainingCount > 0 ? $"{review.RemainingCount} 条来源待核对" : "来源已核对";
+        RulesReviewSummary.Text = $"{preview.Changes.Length} 科调整" +
+            (preview.Removals.Length > 0 ? $" · {sources}" : "") +
+            (preview.ClearsClass ? (ShouldConfirmClear ? " · 整班清空待确认" : " · 整班清空已核对") : "");
+        RulesNextUnconfirmed.IsVisible = Pending is null && (review.RemainingCount > 0 || ShouldConfirmClear);
+        RulesNextUnconfirmed.IsEnabled = !_working;
+    }
+
+    private void NextUnconfirmedClicked(object? sender, RoutedEventArgs args) => NextUnconfirmed();
+
+    private void NextUnconfirmed()
+    {
+        if (_working || Pending is not null || _sourceReview is not { } review) return;
+        var next = review.NextUnconfirmed(SelectedReview?.SubjectId);
+        if (next is null && !ShouldConfirmClear) return;
+        var line = RulesReviewRows.Items.OfType<ClassRuleReviewLine>().FirstOrDefault(row => row.SubjectId == next?.SubjectId);
+        if (line is null) return;
+        RulesReviewRows.SelectedItem = line;
+        FocusReview(next?.GroupId);
     }
 
     private async void ReviewKeyDown(object? sender, KeyEventArgs args)
     {
-        if (args.Key != Key.Enter || !RulesOpenConflict.IsEnabled || !RulesOpenConflict.IsVisible) return;
+        if (args.Key != Key.Enter || _working || SelectedReview is null) return;
         args.Handled = true;
-        await OpenConflictAsync();
+        if (!_compact && RulesOpenConflict.IsEffectivelyEnabled && RulesOpenConflict.IsEffectivelyVisible) await OpenConflictAsync();
+        else FocusReview();
     }
 
     private async void OpenConflictClicked(object? sender, RoutedEventArgs args) => await OpenConflictAsync();
@@ -117,32 +213,17 @@ public sealed partial class ClassSubjectRulesWindow
         finally { _resolver = null; }
         if (_closed) return;
         WorkspaceChanged |= window.WorkspaceChanged;
-        _preview = null;
+        DropReview();
         await RunAsync(ReloadAsync);
         if (_closed) return;
-        if (SelectedId != issue.SubjectId && _overlaps.Count == 0 && _differences.Count == 0) RefreshRows(issue.SubjectId);
-        FocusEditor();
-    }
-
-    private void FocusEditor() => Dispatcher.UIThread.Post(() =>
-    {
-        if (!_closed && RulesRows.SelectedItem is { } selected) FocusRow(RulesRows, selected);
-    }, DispatcherPriority.Loaded);
-
-    private static void FocusRow(ListBox list, object row)
-    {
-        list.ScrollIntoView(row);
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (list.ContainerFromItem(row) is Control control) control.Focus();
-            else list.Focus();
-        }, DispatcherPriority.Loaded);
+        if (SelectedId != issue.SubjectId && _overlaps.Count == 0 && _differences.Count == 0) SelectEditorSubject(issue.SubjectId);
+        FocusEditor(reveal: _compact);
     }
 
     private async void SaveClicked(object? sender, RoutedEventArgs args)
     {
-        if (!RulesSave.IsEnabled || _baseline is not { } baseline || _preview is not { } preview) return;
-        var operation = new Submission(baseline, Choices, _archiveEditable, preview, _sourceChecks.Keys.ToArray(),
+        if (!CanConfirmReview || _baseline is not { } baseline || _preview is not { } preview || _sourceReview is not { } review) return;
+        var operation = new Submission(baseline, Choices, _archiveEditable, preview, review.ConfirmedGroupIds(),
             RulesClearCheck.IsChecked == true, Guid.NewGuid());
         PendingOperations[PendingKey] = operation;
         await RunAsync(() => SaveAsync(operation));
