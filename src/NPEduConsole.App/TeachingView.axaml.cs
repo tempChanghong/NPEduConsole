@@ -10,16 +10,19 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TeachingWindow : Window
+public sealed partial class TeachingView : UserControl
 {
     private readonly ConsoleClient _client = null!;
     private readonly SubjectSetupFlow _subjectSetup = new();
     private readonly bool _courseGroup;
     private readonly School _school = null!;
     private readonly string _schoolId = "", _schoolName = "", _termId = "", _classId = "";
+    private readonly string? _entrySubjectId, _entryAccountId;
+    private readonly string? _termName;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, CheckBox> _choices = new(StringComparer.Ordinal);
     private string _action = "ASSIGN";
+    private string _className = "";
     private TeachingAssignment? _original;
     private TeacherAccountForm? _teacherForm;
     private (TeachingDraft Draft, TeachingPreview Preview)? _preview;
@@ -28,98 +31,135 @@ public sealed partial class TeachingWindow : Window
     private TeachingPending? _unconfirmed;
     private bool _busy, _closed, _submitting, _scopeUnavailable;
     private bool _binding = true;
+    private bool _draftChanged;
     public event Action<ConsoleApiException>? SessionExpired;
+    internal event Action<ConsoleApiException>? AuthorizationLost;
+    internal Action? CloseRequested { get; set; }
+    internal bool InWorkspace { get; }
+    private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
 
-    public TeachingWindow()
+    public TeachingView()
     {
         InitializeComponent();
         _binding = false;
     }
 
-    public TeachingWindow(ConsoleClient client, School school, string termId, string classId, string? subjectId, string? accountId = null, bool courseGroup = false) : this()
+    internal TeachingView(ConsoleClient client, School school, string termId, string classId, string? subjectId,
+        string? accountId = null, bool courseGroup = false, bool inWorkspace = false, string? termName = null) : this()
     {
         _client = client;
         _courseGroup = courseGroup;
-        if (courseGroup) TeachingHeading.Text = Title = "走班任课";
+        if (courseGroup) TeachingHeading.Text = "走班任课";
         _school = school;
         _schoolId = school.Id;
         _schoolName = school.Name;
         _termId = termId;
         _classId = classId;
+        _entrySubjectId = subjectId;
+        _entryAccountId = accountId;
+        _termName = termName;
+        InWorkspace = inWorkspace;
+        TeachingTeacherPicker.IsVisible = !inWorkspace;
+        OpenTeachingTeacherChoice.IsVisible = inWorkspace;
+        if (inWorkspace) TeachingTeacherCandidates.AddHandler(KeyDownEvent, CandidateKeyDown, RoutingStrategies.Tunnel);
         TeachingContext.Text = school.Name;
         if (PendingBySession.TryGetValue(client, out var saved))
             _unconfirmed = saved.GetValueOrDefault((_schoolId, _termId, _classId));
-        Opened += async (_, _) =>
+        SizeChanged += (_, _) => ArrangeTeacherChoice();
+        UpdateControls();
+    }
+
+    internal async Task StartAsync()
+    {
+        Control? entryFocus = null;
+        await RunAsync(async () =>
         {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            Control? entryFocus = null;
-            await RunAsync(async () =>
+            await ReadAsync(_unconfirmed?.Draft.SubjectId ?? _entrySubjectId);
+            if (!_closed && _entryAccountId is { } accountId && _unconfirmed is null)
             {
-                await ReadAsync(_unconfirmed?.Draft.SubjectId ?? subjectId);
-                if (!_closed && accountId is not null && _unconfirmed is null)
+                var existing = TeachingExistingPicker.Items.OfType<TeachingAssignment>().FirstOrDefault(row => row.AccountId == accountId);
+                if (existing is not null)
                 {
-                    var existing = TeachingExistingPicker.Items.OfType<TeachingAssignment>().FirstOrDefault(row => row.AccountId == accountId);
-                    if (existing is not null)
-                    {
-                        TeachingExistingPicker.SelectedItem = existing;
-                        entryFocus = TeachingExistingPicker;
-                    }
-                    else if (TeachingTeacherPicker.Items.OfType<TeachingTeacher>().FirstOrDefault(row => row.Id == accountId) is { } teacher)
-                    {
-                        TeachingTeacherPicker.SelectedItem = teacher;
-                        entryFocus = TeachingTeacherPicker;
-                    }
+                    TeachingExistingPicker.SelectedItem = existing;
+                    entryFocus = TeachingExistingPicker;
                 }
-                if (_closed || _unconfirmed is not { } pending) return;
-                TeachingFeedback.Text = "已恢复待核对的提交。请先读取服务器当前任课安排。";
-                ShowBeforeReadback(pending);
-            });
-            if (!_closed && _unconfirmed is not null) TeachingReadButton.Focus(NavigationMethod.Tab);
-            else if (!_closed) entryFocus?.Focus(NavigationMethod.Tab);
-        };
-        Closing += (_, args) => args.Cancel = _submitting && !_closed;
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
+                else if (TeachingTeacherPicker.Items.OfType<TeachingTeacher>().FirstOrDefault(row => row.Id == accountId) is { } teacher)
+                {
+                    TeachingTeacherPicker.SelectedItem = teacher;
+                    entryFocus = TeacherChoiceAnchor;
+                }
+            }
+            if (_closed || _unconfirmed is not { } pending) return;
+            TeachingFeedback.Text = "已恢复待核对的提交。请先读取服务器当前任课安排。";
+            ShowBeforeReadback(pending);
+        });
+        if (_closed) return;
+        if (_unconfirmed is null && InWorkspace) RestorePausedDraft();
+        if (_unconfirmed is not null) TeachingReadButton.Focus(NavigationMethod.Tab);
+        else (entryFocus ?? (InWorkspace ? TeacherChoiceAnchor : null))?.Focus(NavigationMethod.Tab);
     }
 
     private TeachingSubject? Subject => TeachingSubjectPicker.SelectedItem as TeachingSubject;
     private TeachingTeacher? Teacher => TeachingTeacherPicker.SelectedItem as TeachingTeacher;
     private string AssignmentPosition => TeachingPositionPicker.SelectedIndex == 1 ? "CO_TEACHER" : "PRIMARY";
 
-    private async Task ReadAsync(string? subjectId, bool announce = true)
+    private async Task ReadAsync(string? subjectId, bool announce = true, bool preserveDraft = false)
     {
+        string? priorSubject = Subject?.Id;
+        string priorAction = _action;
+        string? priorAssignment = _original?.Id;
+        int position = TeachingPositionPicker.SelectedIndex;
+        bool assignmentChanged = false;
+        string[] chosenPeers = preserveDraft ? _choices.Where(row => row.Value.IsChecked == true).Select(row => row.Key).ToArray() : [];
         var catalog = await _client.GetTeachingAsync(_schoolId, _termId, _classId, _lifetime.Token, _courseGroup);
         if (_closed) return;
         _scopeUnavailable = false;
+        _className = catalog.Classroom.Name;
         var teacherId = Teacher?.Id;
         _binding = true;
-        TeachingContext.Text = $"{_schoolName} · 当前学期 · {catalog.Classroom.Name}";
+        TeachingContext.Text = $"{_schoolName} · {_termName ?? "当前学期"} · {catalog.Classroom.Name}";
         TeachingTeacherPicker.ItemsSource = catalog.Teachers;
         TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(row => row.Id == teacherId);
         TeachingSubjectPicker.ItemsSource = catalog.Subjects;
         TeachingSubjectPicker.SelectedItem = subjectId is null ? catalog.Subjects.FirstOrDefault()
             : catalog.Subjects.FirstOrDefault(row => row.Id == subjectId);
-        _binding = false;
         BindSubject();
+        if (preserveDraft && priorSubject is not null && Subject?.Id == priorSubject)
+        {
+            if (priorAssignment is not null && TeachingExistingPicker.Items.OfType<TeachingAssignment>()
+                .FirstOrDefault(row => row.Id == priorAssignment) is { } assignment)
+            {
+                TeachingExistingPicker.SelectedItem = assignment;
+                SetOperation(priorAction, assignment);
+                TeachingTeacherPicker.SelectedItem = catalog.Teachers.FirstOrDefault(row => row.Id == teacherId);
+            }
+            else if (priorAssignment is not null)
+            {
+                assignmentChanged = true;
+                TeachingTeacherPicker.SelectedItem = null;
+            }
+            TeachingPositionPicker.SelectedIndex = position;
+            foreach (string classId in chosenPeers)
+                if (_choices.TryGetValue(classId, out var check)) check.IsChecked = true;
+        }
+        _binding = false;
         TeachingSubjectSetupButton.IsVisible = !_courseGroup && catalog.Subjects.Length == 0;
-        TeachingSubjectPicker.IsEnabled = !_courseGroup;
-        if (announce) TeachingFeedback.Text = catalog.Subjects.Length == 0 ? (_courseGroup ? "原教学班学科已变化，请返回核对。" : "该班暂无随行政班授课的科目。")
+        TeachingSubjectPicker.IsEnabled = !_courseGroup && (!InWorkspace || _entrySubjectId is null);
+        if (announce) TeachingFeedback.Text = assignmentChanged ? "原草稿对应的任课关系已变化。请核对当前任课，再选择要办理的操作。"
+            : catalog.Subjects.Length == 0 ? (_courseGroup ? "原教学班学科已变化，请返回核对。" : "该班暂无随行政班授课的科目。")
             : Subject is null ? "原待办的科目已变化，请核对当前班级的科目。"
             : catalog.Teachers.Length == 0 ? "暂无可分配的本校教师。" : "请选择教师和任课身份，先预览再提交。";
     }
 
     private void SubjectChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (!_binding) BindSubject();
+        if (!_binding) { MarkDraftChanged(); BindSubject(); }
     }
 
     private void BindSubject()
     {
         var subject = Subject;
+        TeachingChoiceContext.Text = $"{_className} · {subject?.Name}";
         var rows = subject?.Classes.First(row => row.Id == _classId).Assignments ?? [];
         TeachingExistingPicker.ItemsSource = rows;
         TeachingExistingPicker.IsVisible = rows.Length > 0;
@@ -131,7 +171,7 @@ public sealed partial class TeachingWindow : Window
         {
             var check = new CheckBox { Content = room.Name };
             AutomationProperties.SetAutomationId(check, "TeachingClass-" + room.Id);
-            check.IsCheckedChanged += (_, _) => ResetPreview();
+            check.IsCheckedChanged += (_, _) => { MarkDraftChanged(); ResetPreview(); };
             TeachingClassChoices.Children.Add(check);
             _choices.Add(room.Id, check);
         }
@@ -139,9 +179,9 @@ public sealed partial class TeachingWindow : Window
         UpdateControls();
     }
 
-    private void AddClicked(object? sender, RoutedEventArgs args) => SetOperation("ASSIGN");
-    private void ChangeClicked(object? sender, RoutedEventArgs args) => SetOperation("CHANGE", TeachingExistingPicker.SelectedItem as TeachingAssignment);
-    private void RemoveClicked(object? sender, RoutedEventArgs args) => SetOperation("REMOVE", TeachingExistingPicker.SelectedItem as TeachingAssignment);
+    private void AddClicked(object? sender, RoutedEventArgs args) { MarkDraftChanged(); SetOperation("ASSIGN"); }
+    private void ChangeClicked(object? sender, RoutedEventArgs args) { MarkDraftChanged(); SetOperation("CHANGE", TeachingExistingPicker.SelectedItem as TeachingAssignment); }
+    private void RemoveClicked(object? sender, RoutedEventArgs args) { MarkDraftChanged(); SetOperation("REMOVE", TeachingExistingPicker.SelectedItem as TeachingAssignment); }
     private void ExistingChanged(object? sender, SelectionChangedEventArgs args)
     {
         if (_binding) return;
@@ -174,7 +214,7 @@ public sealed partial class TeachingWindow : Window
 
     private void DraftChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (!_binding) ResetPreview();
+        if (!_binding) { MarkDraftChanged(); ResetPreview(); }
     }
 
     private void ResetPreview()
@@ -201,6 +241,8 @@ public sealed partial class TeachingWindow : Window
         TeachingPreviewButton.IsEnabled = editable && Draft() is not null;
         TeachingApplyButton.IsEnabled = editable && _preview is { Preview: { CanApply: true, HasChanges: true } };
         TeachingReadButton.IsEnabled = !_busy && !_closed;
+        OpenTeachingTeacherChoice.Content = Teacher?.ToString() ?? "选择教师";
+        OpenTeachingTeacherChoice.IsEnabled = editable && TeachingTeacherPicker.ItemCount > 0;
         TeachingSubjectSetupButton.IsEnabled = editable;
         TeachingNewTeacher.IsVisible = _action != "REMOVE";
         TeachingNewTeacher.IsEnabled = editable && Subject is not null;
@@ -265,6 +307,7 @@ public sealed partial class TeachingWindow : Window
                 return;
             }
             int changed = result.Rows.Count(row => row.State is "ADD" or "CHANGE" or "REMOVE");
+            _draftChanged = false;
             TeachingFeedback.Text = $"已保存 {changed} 个班的任课变化。";
             await RefreshAfterResultAsync(pending.Draft.SubjectId);
             if (!_closed) ShowRows(TeachingPreviewRow.Compare(result.Rows, new TeachingPending(pending.Draft, pending.Preview),
@@ -285,6 +328,7 @@ public sealed partial class TeachingWindow : Window
         TeachingFeedback.Text = confirmed ? "已核对，服务器当前安排与本次提交一致。"
             : "已核对，服务器当前安排与本次提交有差异。请检查下列实际安排。";
         if (confirmed) await RefreshAfterResultAsync(draft.SubjectId);
+        if (confirmed) _draftChanged = false;
         if (!_closed) ShowRows(observed, observed: true);
     }
 
@@ -344,11 +388,11 @@ public sealed partial class TeachingWindow : Window
     }
 
     private async void ReadClicked(object? sender, RoutedEventArgs args) =>
-        await RunAsync(() => _unconfirmed is not null ? VerifyAsync() : ReadAsync(Subject?.Id));
+        await RunAsync(() => _unconfirmed is not null ? VerifyAsync() : ReadAsync(Subject?.Id, preserveDraft: InWorkspace));
 
     private async void SubjectSetupClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
     {
-        await _subjectSetup.OpenAsync(this, _client, _school, _termId, _classId, [_classId], error => SessionExpired?.Invoke(error));
+        await _subjectSetup.OpenAsync(HostWindow, _client, _school, _termId, _classId, [_classId], error => SessionExpired?.Invoke(error));
         if (!_closed) await ReadAsync(null);
     });
 
@@ -362,7 +406,7 @@ public sealed partial class TeachingWindow : Window
             AllocationWorkspaceId = _classId
         };
         _teacherForm = form;
-        try { await form.ShowDialog(this); }
+        try { await form.ShowDialog(HostWindow); }
         finally { _teacherForm = null; }
         if (_closed || form.Receipt is null && !form.AllocationChanged) return;
         string? teacherId = form.Receipt?.Account.Id ?? form.AllocatedAccountId ?? Teacher?.Id;
@@ -383,7 +427,7 @@ public sealed partial class TeachingWindow : Window
         ResetPreview();
         TeachingFeedback.Text = Teacher is null ? completed + "。待认领邀请需等教师本人完成登录后才能选用。" :
             completed + "。原班级、科目及任课身份仍在，请预览并确认任课。";
-        Dispatcher.UIThread.Post(() => { if (!_closed) TeachingTeacherPicker.Focus(NavigationMethod.Tab); }, DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(() => { if (!_closed) TeacherChoiceAnchor.Focus(NavigationMethod.Tab); }, DispatcherPriority.Loaded);
     });
 
     private async Task<TeachingCatalog?> ReadAfterTeacherCreationAsync()
@@ -421,10 +465,32 @@ public sealed partial class TeachingWindow : Window
                 ResetPreview();
             }
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
+            else if (error.StatusCode == 403) AuthorizationLost?.Invoke(error);
         }
         finally { _busy = false; if (!_closed) UpdateControls(); }
     }
 
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
-    public void CloseForScopeChange() { _closed = true; _teacherForm?.CloseForScopeChange(); Close(); }
+    private void CloseClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
+
+    internal bool CanClose()
+    {
+        if (_submitting) return false;
+        if (!InWorkspace || !_draftChanged || _unconfirmed is not null) return true;
+        TeachingKeepDraft.IsVisible = Draft() is not null;
+        TeachingDiscard.IsVisible = true;
+        TeachingFeedback.Text = TeachingKeepDraft.IsVisible ? "任课草稿尚未保存。可在本次登录中保留原草稿，也可放弃返回。"
+            : "任课草稿尚未保存。可以继续办理，或放弃草稿后返回。";
+        (TeachingKeepDraft.IsVisible ? TeachingKeepDraft : TeachingDiscard).Focus(NavigationMethod.Tab);
+        return false;
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _lifetime.Cancel();
+        _teacherForm?.CloseForScopeChange();
+        _subjectSetup.Close();
+        _lifetime.Dispose();
+    }
 }

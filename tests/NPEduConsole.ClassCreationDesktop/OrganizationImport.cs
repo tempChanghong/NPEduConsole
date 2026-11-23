@@ -49,7 +49,7 @@ internal static partial class Program
             Click(classes);
 
             Click(Find<Button>(main, "OpenTermPreparationButton"));
-            var termManager = await WindowOf<TermPreparationWindow>();
+            var termManager = await AcademicPageAsync<TermPreparationView>(main);
             var terms = Find<ListBox>(termManager, "PreparedTerms");
             await Until(() => terms.Items.OfType<ManagedAcademicTerm>().Any(row => row.Id == access.DraftId), "existing draft shown in term manager");
             terms.SelectedItem = terms.Items.OfType<ManagedAcademicTerm>().Single(row => row.Id == access.DraftId);

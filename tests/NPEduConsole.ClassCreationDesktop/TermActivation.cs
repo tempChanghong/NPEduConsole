@@ -72,13 +72,13 @@ internal static partial class Program
             await Signal("confirm-no-write");
             await Capture(page, output, "03-stale-exact-binding");
 
-            page.Width = 840;
-            page.Height = 480;
-            await Until(() => page.ClientSize is {Width: <= 845, Height: <= 485}, "compact live Windows window");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is {Width: <= 845, Height: <= 485}, "compact live Windows window");
             Click(primary);
             await Until(() => cancel.IsFocused, "compact default focus stays on cancel");
             Check(primary.TranslatePoint(new Point(0, primary.Bounds.Height), page) is { } bottom &&
-                bottom.Y <= page.ClientSize.Height && Heading().Contains("3 台"), "compact confirmation retains main action and count");
+                bottom.Y <= page.Bounds.Height && Heading().Contains("3 台"), "compact confirmation retains main action and count");
             await Capture(page, output, "04-compact-confirmation");
             Click(primary);
             await Until(() => TermText(page, "TermNotice").Contains("启用回执待核对") && refresh.IsEffectivelyEnabled, "lost POST and failing first GET preserve pending request");
@@ -93,9 +93,9 @@ internal static partial class Program
             AssertStatus(access.SecondId, "REPAIR_REQUIRED");
             AssertStatus(access.UnmatchedId, "RETAINED_ORIGINAL");
             await Capture(page, output, "05-compact-result");
-            page.Width = 1160;
-            page.Height = 780;
-            await Until(() => page.ClientSize.Width >= 1100, "wide result");
+            main.Width = 1160;
+            main.Height = 780;
+            await Until(() => main.ClientSize.Width >= 1100, "wide result");
             await Capture(page, output, "06-wide-result");
 
             await Signal("before-repair");
@@ -151,10 +151,9 @@ internal static partial class Program
             finally { Finish(error.ToString(), 1); }
         }
 
-        async Task<TermPreparationWindow> WindowAsync()
+        async Task<TermPreparationView> WindowAsync()
         {
-            await Until(() => desktop.Windows.OfType<TermPreparationWindow>().Any(window => window.IsVisible), "real term window opens");
-            return desktop.Windows.OfType<TermPreparationWindow>().Single(window => window.IsVisible);
+            return await AcademicPageAsync<TermPreparationView>(main);
         }
 
         async Task Signal(string step)

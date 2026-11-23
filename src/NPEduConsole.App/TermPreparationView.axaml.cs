@@ -11,7 +11,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TermPreparationWindow : Window
+public sealed partial class TermPreparationView : UserControl
 {
     private enum Page { Directory, Create, Check, ActivationResult }
     private sealed record Operation(string SourceId, TermDraftSettings Target, TermDraftPreview Preview, Guid RequestId);
@@ -20,6 +20,7 @@ public sealed partial class TermPreparationWindow : Window
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly string? _initialDraftCheck;
     private TermPreparationCatalog? _catalog;
     private ManagedAcademicTerm? _activeTerm;
     private TermDraftPreview? _preview;
@@ -29,61 +30,53 @@ public sealed partial class TermPreparationWindow : Window
     private Page _page, _checkBack;
     private bool _busy, _closed, _writing, _binding, _dirty, _allowClose, _reviewed, _canRetry, _canEndCheck, _sourceUnavailable;
 
-    public TermPreparationWindow() => InitializeComponent();
+    public TermPreparationView() => InitializeComponent();
 
-    internal TermPreparationWindow(ConsoleClient client, School school, string? initialDraftCheck = null) : this()
+    internal TermPreparationView(ConsoleClient client, School school, string? initialDraftCheck = null) : this()
     {
         _client = client;
         _school = school;
+        _initialDraftCheck = initialDraftCheck;
         TermScope.Text = school.Name;
         SizeChanged += (_, _) => ApplyLayout();
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            await RunAsync(async () =>
-            {
-                if (PendingActivation is { } activation)
-                {
-                    _check = activation.Check;
-                    _reviewId = activation.Check.Term.Id;
-                    _activeTerm = _check.ActiveTerm;
-                    SetPage(Page.Check);
-                    ShowCheck();
-                    await VerifyActivationAsync(activation);
-                    return;
-                }
-                await LoadCatalogAsync();
-                if (_closed) return;
-                if (Pending is { } pending)
-                {
-                    StartEditor(pending.SourceId, pending.Target);
-                    ShowPreview(pending.Preview, false);
-                    await VerifyAsync(pending);
-                }
-                else if (initialDraftCheck is not null && _catalog?.Drafts.Any(row => row.Id == initialDraftCheck) == true)
-                {
-                    _checkBack = Page.Directory;
-                    await OpenCheckAsync(initialDraftCheck);
-                }
-                else Focus(PreparedTerms.ItemCount > 0 ? PreparedTerms : TermPrimary);
-            });
-        };
-        Closing += (_, args) =>
-        {
-            args.Cancel = !_allowClose && (_writing || (_page is Page.Create or Page.Check && _dirty && Pending is null));
-            if (args.Cancel && !_writing) OfferDiscard();
-        };
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
         Render();
+    }
+
+    internal async Task StartAsync()
+    {
+        await RunAsync(async () =>
+        {
+            if (PendingActivation is { } activation)
+            {
+                _check = activation.Check;
+                _reviewId = activation.Check.Term.Id;
+                _activeTerm = _check.ActiveTerm;
+                SetPage(Page.Check);
+                ShowCheck();
+                await VerifyActivationAsync(activation);
+                return;
+            }
+            await LoadCatalogAsync();
+            if (_closed) return;
+            if (Pending is { } pending)
+            {
+                StartEditor(pending.SourceId, pending.Target);
+                ShowPreview(pending.Preview, false);
+                await VerifyAsync(pending);
+            }
+            else if (_initialDraftCheck is not null && _catalog?.Drafts.Any(row => row.Id == _initialDraftCheck) == true)
+            {
+                _checkBack = Page.Directory;
+                await OpenCheckAsync(_initialDraftCheck);
+            }
+            else Focus(PreparedTerms.ItemCount > 0 ? PreparedTerms : TermPrimary);
+        });
     }
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<Window, ManagedAcademicTerm, Task<string?>>? OpenOrganizationImport { get; init; }
+    internal Action? CloseRequested { get; set; }
+    private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
     private Dictionary<string, Operation> Operations => PendingByClient.GetOrCreateValue(_client);
     private Operation? Pending => Operations.GetValueOrDefault(_school.Id);
     private ManagedAcademicTerm? SelectedTerm => PreparedTerms.SelectedItem as ManagedAcademicTerm;
@@ -106,7 +99,7 @@ public sealed partial class TermPreparationWindow : Window
 
     private void ApplyLayout()
     {
-        bool narrow = ClientSize.Width < 900;
+        bool narrow = Bounds.Width < 850;
         Arrange(TermDirectory, DraftTermsCard, narrow);
         Arrange(TermCreateView, TermReviewCard, narrow);
         Arrange(TermCheckIssues, TermRemindersCard, narrow);
@@ -271,7 +264,7 @@ public sealed partial class TermPreparationWindow : Window
         TermPreviewItems.IsVisible = items.Length > 0;
         TermPreviewItems.SelectedItem = items.FirstOrDefault(row => row.Details.Contains("来源班", StringComparison.Ordinal)) ?? items.FirstOrDefault();
         PreviewItemChanged(null, null!);
-        if (ClientSize.Width < 900) Dispatcher.UIThread.Post(() => { if (!_closed && _page == Page.Create) TermReviewCard.BringIntoView(); }, DispatcherPriority.Loaded);
+        if (Bounds.Width < 850) Dispatcher.UIThread.Post(() => { if (!_closed && _page == Page.Create) TermReviewCard.BringIntoView(); }, DispatcherPriority.Loaded);
     }
 
     private static string People(IEnumerable<TermDraftPerson> rows, Func<TermDraftPerson, string> role) =>
@@ -401,7 +394,7 @@ public sealed partial class TermPreparationWindow : Window
         if (_busy || term is null || term.Status is not ("DRAFT" or "ARCHIVED") || OpenOrganizationImport is not { } open) return;
         await RunAsync(async () =>
         {
-            var target = await open(this, term);
+            var target = await open(HostWindow, term);
             if (_closed) return;
             if (target is not null)
             {
@@ -656,7 +649,7 @@ public sealed partial class TermPreparationWindow : Window
             }
             if (!_closed) Notice(PendingActivation is not null ? $"启用回执待核对。{error.Message}" :
                 Pending is not null ? $"草稿回执待核对。{error.Message}" : error.Message, true);
-            if (error.StatusCode == 401) SessionExpired?.Invoke(error);
+            if (error.StatusCode is 401 or 403) SessionExpired?.Invoke(error);
         }
         finally { _busy = _writing = false; if (!_closed) Render(); }
     }
@@ -763,12 +756,25 @@ public sealed partial class TermPreparationWindow : Window
         }
     }, DispatcherPriority.Loaded);
 
-    internal void CloseForScopeChange()
+    internal bool CanClose()
     {
-        _allowClose = _closed = true;
+        if (_allowClose) return true;
+        if (_writing) return false;
+        if (_page is not (Page.Create or Page.Check) || !_dirty || Pending is not null) return true;
+        OfferDiscard();
+        return false;
+    }
+
+    internal void Close() => CloseRequested?.Invoke();
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _lifetime.Cancel();
         _termClassesWindow?.CloseForScopeChange();
         _termTeachingWindow?.CloseForScopeChange();
         _termStatusWindow?.CloseForScopeChange();
-        Close();
+        _lifetime.Dispose();
     }
 }

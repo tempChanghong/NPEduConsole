@@ -1,6 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:NPEduConsole.App" xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.MainWindow"
-        Title="NPEduConsole · 学校管理控制台" Width="1160" Height="780" MinWidth="720" MinHeight="480"
+        Title="NPEduConsole · 学校管理控制台" Width="1160" Height="780" MinWidth="720" MinHeight="450"
         Padding="0" WindowDecorationsTheme="{DynamicResource ConsoleIntegratedFrame}" WindowStartupLocation="CenterScreen">
   <Window.Styles>
     <Style Selector="Border.shell-top">
@@ -564,6 +564,7 @@
           <local:SchoolAuditView x:Name="SchoolAuditWorkspace" IsVisible="False" />
           <local:SchoolOverviewView x:Name="SchoolOverviewWorkspace" IsVisible="False" />
           <local:SchoolDeviceDirectoryView x:Name="DeviceDirectory" IsVisible="False" />
+          <Grid x:Name="AcademicWorkspace" IsVisible="False" />
         </Grid>
       </Grid>
     </Grid>

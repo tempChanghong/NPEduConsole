@@ -1,6 +1,5 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.TermDiagnosticsWindow"
-        Title="学期诊断" Width="1160" Height="780" MinWidth="705" MinHeight="450" WindowStartupLocation="CenterOwner">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.TermDiagnosticsView">
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <StackPanel Margin="16,10,16,2" Spacing="4">
       <TextBlock x:Name="DiagnosticsHeading" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap"/>
@@ -13,7 +12,7 @@
     </StackPanel>
     <local:SchoolOverviewView Grid.Row="1" x:Name="DiagnosticsOverview"/>
     <Border Grid.Row="2" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="14,5">
-      <Button Content="返回学期管理" Classes="action" Click="ReturnClicked"/>
+      <Button x:Name="ReturnTermDiagnostics" Content="返回学期管理" Classes="action" Click="ReturnClicked"/>
     </Border>
   </Grid>
-</Window>
+</UserControl>

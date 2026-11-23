@@ -1,7 +1,6 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.TermPreparationWindow"
-        Title="学期管理" Width="1160" Height="780" MinWidth="665" MinHeight="450" WindowStartupLocation="CenterOwner">
-  <Window.Styles>
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.TermPreparationView">
+  <UserControl.Styles>
     <Style Selector="TextBlock.term-notice.error">
       <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
     </Style>
@@ -16,7 +15,7 @@
       <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
       <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
     </Style>
-  </Window.Styles>
+  </UserControl.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,10">
       <StackPanel Spacing="4">
@@ -249,4 +248,4 @@
       </Grid>
     </Border>
   </Grid>
-</Window>
+</UserControl>

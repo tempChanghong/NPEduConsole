@@ -52,20 +52,23 @@ public sealed partial class MainWindow
     private void UpdateShellPage()
     {
         bool scoped = _school is not null && _client is not null;
+        bool academicPage = _academicPages.Count > 0;
         SchoolSelectionNotice.IsVisible = !scoped;
-        SchoolOverviewWorkspace.IsVisible = scoped && _showSchoolOverview;
-        SchoolAuditWorkspace.IsVisible = scoped && _showSchoolAudit;
-        ClassWorkspaceLayout.IsVisible = scoped && _page is ShellPage.Classes or ShellPage.Screen;
-        DeviceDirectory.IsVisible = scoped && _page == ShellPage.Devices;
+        SchoolOverviewWorkspace.IsVisible = scoped && !academicPage && _showSchoolOverview;
+        SchoolAuditWorkspace.IsVisible = scoped && !academicPage && _showSchoolAudit;
+        ClassWorkspaceLayout.IsVisible = scoped && !academicPage && _page is ShellPage.Classes or ShellPage.Screen;
+        DeviceDirectory.IsVisible = scoped && !academicPage && _page == ShellPage.Devices;
+        AcademicWorkspace.IsVisible = academicPage;
         SchoolAuditWorkspace.SetScope(SchoolAuditWorkspace.IsVisible ? _client : null, SchoolAuditWorkspace.IsVisible ? _school : null);
         SchoolOverviewWorkspace.SetScope(_client, _school);
         ReturnToSchoolOverviewButton.IsVisible = _overviewJourney && ClassWorkspaceLayout.IsVisible;
         ReturnToDeviceDirectoryButton.IsVisible = _directoryReturnScreenId is not null && ClassWorkspaceLayout.IsVisible;
         OpenSchoolOverviewButton.IsEnabled = OpenClassWorkspaceButton.IsEnabled = OpenDeviceDirectoryButton.IsEnabled =
-            OpenSchoolAuditButton.IsEnabled = OpenSchoolManagementAccountsButton.IsEnabled = scoped;
-        OpenSchoolServerStatusButton.IsEnabled = _client is not null;
-        OpenSchoolTransferButton.IsEnabled = scoped;
-        ObjectPicker.IsEnabled = scoped;
+            OpenSchoolAuditButton.IsEnabled = scoped;
+        OpenSchoolManagementAccountsButton.IsEnabled = scoped && !academicPage;
+        OpenSchoolServerStatusButton.IsEnabled = _client is not null && !academicPage;
+        OpenSchoolTransferButton.IsEnabled = scoped && !academicPage;
+        ObjectPicker.IsEnabled = scoped && !academicPage;
         OpenSchoolOverviewButton.Classes.Set("current", _showSchoolOverview && scoped);
         OpenClassWorkspaceButton.Classes.Set("current", _page == ShellPage.Classes);
         OpenDeviceDirectoryButton.Classes.Set("current", _page is ShellPage.Devices or ShellPage.Screen);
@@ -112,7 +115,10 @@ public sealed partial class MainWindow
         ObjectPicker.SetCatalog(items, message);
     }
 
-    private async void OpenClassWorkspaceClicked(object? sender, RoutedEventArgs args) => await OpenClassDirectoryAsync();
+    private async void OpenClassWorkspaceClicked(object? sender, RoutedEventArgs args)
+    {
+        if (LeaveAcademicWorkspace()) await OpenClassDirectoryAsync();
+    }
 
     private void OpenScreenClassClicked(object? sender, RoutedEventArgs args)
     {
@@ -147,7 +153,7 @@ public sealed partial class MainWindow
 
     private async void OpenDeviceDirectoryClicked(object? sender, RoutedEventArgs args)
     {
-        if (_school is null || _client is not { } client) return;
+        if (_school is null || _client is not { } client || !LeaveAcademicWorkspace()) return;
         var school = _school;
         string? priorScreen = _directoryReturnScreenId;
         ChangePage(ShellPage.Devices);

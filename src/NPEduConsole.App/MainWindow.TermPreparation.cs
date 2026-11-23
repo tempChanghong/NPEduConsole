@@ -5,7 +5,7 @@ namespace NPEduConsole.App;
 
 public sealed partial class MainWindow
 {
-    private TermPreparationWindow? _termPreparationWindow;
+    private TermPreparationView? _termPreparationView;
 
     private async void OpenTermPreparationClicked(object? sender, RoutedEventArgs args)
     {
@@ -16,25 +16,30 @@ public sealed partial class MainWindow
 
     private async Task ShowTermPreparationAsync(ConsoleClient client, School school, Action? beforeNavigate = null, string? initialDraftCheck = null)
     {
-        if (_termPreparationWindow is not null || _client != client || _school != school) return;
-        var window = new TermPreparationWindow(client, school, initialDraftCheck)
+        if (_termPreparationView is not null || _client != client || _school != school) return;
+        var view = new TermPreparationView(client, school, initialDraftCheck)
         {
-            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
+            SessionExpired = error => AcademicScopeUnavailable(error, client, school),
             OpenPlacement = (owner, termId, bindingId) => ShowTermScreenPlacementAsync(owner, client, school, termId, bindingId),
             OpenOrganizationImport = (owner, term) => ShowOrganizationImportAsync(owner, client, school, term.Id, term.Status == "ARCHIVED" ? term : null),
             OpenTermDiagnostics = (owner, term) => ShowTermDiagnosticsAsync(owner, client, school, term)
         };
-        _termPreparationWindow = window;
-        window.Closed += Release;
-        try { await window.ShowDialog(this); }
+        _termPreparationView = view;
+        view.CloseRequested = () => ReturnFromAcademicPage(view);
+        bool returned;
+        try
+        {
+            var exit = PushAcademicPage(view, view.CanClose, EndView);
+            await view.StartAsync();
+            returned = await exit;
+        }
         finally
         {
-            window.Closed -= Release;
-            Release(null, EventArgs.Empty);
+            if (_termPreparationView == view) _termPreparationView = null;
         }
-        if (_client != client || _school != school || !window.ActivationObserved) return;
+        if (!returned || _client != client || _school != school || _termPreparationView is not null || !view.ActivationObserved) return;
         SetInactiveClassesFilter(false);
-        if (window.ActivationDestination is { } target)
+        if (view.ActivationDestination is { } target)
         {
             beforeNavigate?.Invoke();
             await OpenTermResultDestinationAsync(client, school, target);
@@ -46,18 +51,19 @@ public sealed partial class MainWindow
                 await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
         }
 
-        void Release(object? sender, EventArgs args)
+        void EndView()
         {
-            if (_termPreparationWindow == window) _termPreparationWindow = null;
+            if (_termPreparationView == view) _termPreparationView = null;
+            view.End();
         }
+
     }
 
     private void CloseTermPreparation()
     {
         CloseTermScreenPlacement();
-        CloseTermDiagnostics();
-        var window = _termPreparationWindow;
-        _termPreparationWindow = null;
-        window?.CloseForScopeChange();
+        _termDiagnostics = null;
+        _termPreparationView = null;
+        CloseAcademicWorkspace();
     }
 }

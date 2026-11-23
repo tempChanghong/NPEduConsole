@@ -2,6 +2,7 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -38,10 +39,12 @@ public sealed partial class SchoolOverviewView : UserControl
     private IReadOnlyList<Classroom> _classLinks = [];
     private bool _showQueue;
     private Func<Button, bool>? _returnTarget;
+    private string? _returnTaskId;
     private Vector _returnOffset;
     private Vector _returnQueueOffset;
 
     public event Action<ConsoleApiException>? SessionExpired;
+    internal event Action<ConsoleApiException>? AuthorizationLost;
     public event Action<SchoolOverview, SchoolOverviewTask>? TaskRequested;
     public event Action<SchoolOverview?, string>? SnapshotChanged;
     public event Action? ClassDirectoryRequested;
@@ -65,6 +68,7 @@ public sealed partial class SchoolOverviewView : UserControl
         OverviewContent.Margin = termId is null ? new Thickness(25, 20, 25, 24) : new Thickness(16, 8, 16, 12);
         ArrangeSpotlights();
         _returnTarget = null;
+        _returnTaskId = null;
         _returnOffset = _returnQueueOffset = default;
         OverviewTaskFilter.SelectedIndex = 0;
         OverviewScroll.Offset = default;
@@ -117,6 +121,11 @@ public sealed partial class SchoolOverviewView : UserControl
         {
             if (_request != request) return;
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
+            else if (error.StatusCode == 403 && _termId is not null)
+            {
+                SetReadState("学期诊断不可用", "当前账号已无本校管理权限。");
+                AuthorizationLost?.Invoke(error);
+            }
             else SetReadState("学校状态待核对", error.StatusCode is 404 or 426
                 ? (_termId is null ? "当前 KV 未提供学校总览。仍可从班级与教务查看已授权班级。" :
                     "所选学期不可用，或当前 KV 尚未提供指定学期诊断。可返回学期目录核对。")
@@ -235,15 +244,17 @@ public sealed partial class SchoolOverviewView : UserControl
     private void TaskClicked(object? sender, RoutedEventArgs args)
     {
         if (_snapshot is not { } snapshot || sender is not Button { Tag: OverviewTaskItem item }) return;
-        RememberReturn(button => AutomationProperties.GetAutomationId(button) == item.AutomationId);
+        string id = item.AutomationId;
+        RememberReturn(button => AutomationProperties.GetAutomationId(button) == id, id);
         TaskRequested?.Invoke(snapshot, item.Task);
     }
 
     internal void ForgetReturnTarget() => RememberReturn(null);
 
-    private void RememberReturn(Func<Button, bool>? match)
+    private void RememberReturn(Func<Button, bool>? match, string? taskId = null)
     {
         _returnTarget = match;
+        _returnTaskId = taskId;
         _returnOffset = OverviewScroll.Offset;
         _returnQueueOffset = OverviewTasksList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault()?.Offset ?? default;
     }
@@ -254,13 +265,23 @@ public sealed partial class SchoolOverviewView : UserControl
         OverviewScroll.Offset = _returnOffset;
         if (OverviewTasksList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is { } scroll)
             scroll.Offset = _returnQueueOffset;
+        if (_showQueue && _returnTaskId is { } id && OverviewTasksList.Items.OfType<OverviewTaskItem>()
+            .FirstOrDefault(item => item.AutomationId == id) is { } row)
+        {
+            OverviewTasksList.SelectedItem = row;
+            OverviewTasksList.ScrollIntoView(row);
+        }
         Dispatcher.UIThread.Post(() =>
         {
             if (!Shows(overview) || !IsEffectivelyVisible) return;
             var target = _returnTarget is { } match ? this.GetVisualDescendants().OfType<Button>()
                 .FirstOrDefault(button => button.IsEffectivelyVisible && match(button)) : null;
-            if (target is not null) target.Focus();
-            else if (_showQueue && OverviewQueue.IsEffectivelyVisible) OverviewTaskFilter.Focus();
+            if (target is not null)
+            {
+                target.BringIntoView();
+                if (target.Focus(NavigationMethod.Tab)) return;
+            }
+            if (_showQueue && OverviewQueue.IsEffectivelyVisible) OverviewTaskFilter.Focus();
             else if (ShowAllOverviewButton.IsEffectivelyVisible) ShowAllOverviewButton.Focus();
             else RefreshSchoolOverviewButton.Focus();
         }, DispatcherPriority.Background);

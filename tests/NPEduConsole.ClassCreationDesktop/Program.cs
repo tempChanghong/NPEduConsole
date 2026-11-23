@@ -272,8 +272,17 @@ internal static partial class Program
         }
     }
 
-    private static T Find<T>(Control root, string name) where T : Control => root.FindControl<T>(name) ?? throw new InvalidDataException(name);
+    private static T Find<T>(Control root, string name) where T : Control =>
+        (root is TeachingWindow { Content: TeachingView view } ? view : root).FindControl<T>(name) ?? throw new InvalidDataException(name);
     private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+    private static async Task<T> AcademicPageAsync<T>(MainWindow main) where T : UserControl
+    {
+        await Until(() => main.GetVisualDescendants().OfType<T>().Any(view => view.IsEffectivelyVisible), typeof(T).Name + " visible in the main window");
+        return main.GetVisualDescendants().OfType<T>().Single(view => view.IsEffectivelyVisible);
+    }
+
+    private static Task Capture(UserControl view, string output, string name) => Capture((Window)TopLevel.GetTopLevel(view)!, output, name);
 
     private static async Task Capture(Window target, string output, string name)
     {

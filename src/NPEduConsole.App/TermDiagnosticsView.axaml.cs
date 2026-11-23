@@ -5,29 +5,28 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TermDiagnosticsWindow : Window
+public sealed partial class TermDiagnosticsView : UserControl
 {
+    private readonly ConsoleClient _client = null!;
+    private readonly School _school = null!;
+    private readonly ManagedAcademicTerm _term = null!;
     private bool _closed, _navigating;
-    internal Func<Window, SchoolOverview, SchoolOverviewTask, Task<bool>>? OpenTask { get; init; }
-    internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal Func<SchoolOverview, SchoolOverviewTask, Task<bool>>? OpenTask { get; set; }
+    internal Action<ConsoleApiException>? ScopeUnavailable { get; init; }
+    internal Action? CloseRequested { get; set; }
+    internal Action? CloseLegacyDialog { get; set; }
 
-    public TermDiagnosticsWindow() => InitializeComponent();
+    public TermDiagnosticsView() => InitializeComponent();
 
-    internal TermDiagnosticsWindow(ConsoleClient client, School school, ManagedAcademicTerm term) : this()
+    internal TermDiagnosticsView(ConsoleClient client, School school, ManagedAcademicTerm term) : this()
     {
+        _client = client;
+        _school = school;
+        _term = term;
         DiagnosticsHeading.Text = $"{school.Name} · {term.Name}（{term.StatusText}）";
         DiagnosticsActiveTerm.Text = "正在读取全校启用学期。";
-        Opened += (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            DiagnosticsOverview.SetScope(client, school, term.Id);
-        };
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            DiagnosticsOverview.SetScope(null, null);
-        };
-        DiagnosticsOverview.SessionExpired += error => SessionExpired?.Invoke(error);
+        DiagnosticsOverview.SessionExpired += error => ScopeUnavailable?.Invoke(error);
+        DiagnosticsOverview.AuthorizationLost += error => ScopeUnavailable?.Invoke(error);
         DiagnosticsOverview.SnapshotChanged += (snapshot, notice) => RenderScope(snapshot, school, term, notice);
         DiagnosticsOverview.TaskRequested += async (snapshot, task) =>
         {
@@ -35,7 +34,7 @@ public sealed partial class TermDiagnosticsWindow : Window
             _navigating = true;
             try
             {
-                if (await open(this, snapshot, task))
+                if (await open(snapshot, task))
                 {
                     if (!_closed) await DiagnosticsOverview.RefreshAsync(restoreTask: true);
                 }
@@ -47,6 +46,15 @@ public sealed partial class TermDiagnosticsWindow : Window
             }
             finally { _navigating = false; }
         };
+    }
+
+    internal void Start() => DiagnosticsOverview.SetScope(_client, _school, _term.Id);
+
+    internal void End()
+    {
+        _closed = true;
+        CloseLegacyDialog?.Invoke();
+        DiagnosticsOverview.SetScope(null, null);
     }
 
     private void RenderScope(SchoolOverview? overview, School school, ManagedAcademicTerm term, string notice)
@@ -76,5 +84,5 @@ public sealed partial class TermDiagnosticsWindow : Window
 
     private static TextBlock Row(string text) => new() {Text = text, TextWrapping = TextWrapping.Wrap};
     private static string Time(DateTimeOffset? value) => value?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "无可核对时间";
-    private void ReturnClicked(object? sender, RoutedEventArgs args) => Close();
+    private void ReturnClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
 }

@@ -171,14 +171,13 @@ internal static partial class Program
             schools.SelectedItem = schools.Items.Cast<School>().Single(row => row.Id == access.SchoolId);
         }
 
-        async Task<TermPreparationWindow> OpenHistoryAsync()
+        async Task<TermPreparationView> OpenHistoryAsync()
         {
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
             var entry = Find<Button>(main, "OpenTermPreparationButton");
             await Until(() => entry.IsEffectivelyVisible && entry.IsEffectivelyEnabled, "term directory action");
             Click(entry);
-            await Until(() => desktop.Windows.OfType<TermPreparationWindow>().Any(row => row.IsVisible), "term window opens normally");
-            var page = desktop.Windows.OfType<TermPreparationWindow>().Single(row => row.IsVisible);
+            var page = await AcademicPageAsync<TermPreparationView>(main);
             var latest = Find<Button>(page, "TermLatestActivation");
             await Until(() => latest.IsEffectivelyVisible && latest.IsEffectivelyEnabled, "server supplies own historical receipt");
             Click(latest);

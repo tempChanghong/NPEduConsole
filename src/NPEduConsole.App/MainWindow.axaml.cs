@@ -197,9 +197,17 @@ public sealed partial class MainWindow : Window
     {
         if (!_settingSelection && _client is not null)
         {
+            if (!CanLeaveAcademicWorkspace())
+            {
+                _settingSelection = true;
+                SchoolPicker.SelectedItem = _school;
+                _settingSelection = false;
+                return;
+            }
             _showClassStudy = false;
             _page = ShellPage.Overview;
             var school = SchoolPicker.SelectedItem as School;
+            if (_school is { } previous && previous != school) TeachingView.ForgetPausedDrafts(_client, previous);
             CloseSchoolSubjects();
             CloseStaffResponsibilities();
             CloseStaffReview();
@@ -522,11 +530,15 @@ public sealed partial class MainWindow : Window
         else await LoadSchoolAsync(_school, _classroom?.Id, _device);
     }
 
-    private async void LogoutClicked(object? sender, RoutedEventArgs args) => await SignOutAsync();
+    private async void LogoutClicked(object? sender, RoutedEventArgs args)
+    {
+        if (CanLeaveAcademicWorkspace()) await SignOutAsync();
+    }
 
     private async void OnClosing(object? sender, WindowClosingEventArgs args)
     {
         if (_allowClose) return;
+        if (!CanLeaveAcademicWorkspace()) { args.Cancel = true; return; }
         if (_desktopLogin is not null || _closingBrowserLogin)
         {
             args.Cancel = true;
@@ -679,6 +691,7 @@ public sealed partial class MainWindow : Window
 
     private void SchoolAuditClicked(object? sender, RoutedEventArgs args)
     {
+        if (!LeaveAcademicWorkspace()) return;
         if (_showSchoolAudit)
         {
             _page = _pageBeforeAudit;

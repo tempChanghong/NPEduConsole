@@ -72,7 +72,7 @@ internal static partial class Program
             var primary = Find<Button>(page, "TermPrimary");
             await Until(() => primary.IsEffectivelyVisible && primary.IsEffectivelyEnabled &&
                 TermText(page, "TermScope").Contains(access.TermName), "reads the server actual active term");
-            Check(page.ClientSize.Width >= 1100 && Grid.GetColumn(Find<Border>(page, "DraftTermsCard")) == 1, "wide directory is parallel");
+            Check(main.ClientSize.Width >= 1100 && Grid.GetColumn(Find<Border>(page, "DraftTermsCard")) == 1, "wide directory is parallel");
             await Capture(page, output, "02-wide-active-and-drafts");
             Click(primary);
             Find<TextBox>(page, "TermDraftYear").Text = "2027";
@@ -132,9 +132,9 @@ internal static partial class Program
             search.BringIntoView();
             await Capture(page, output, "05-wide-two-bindings-and-receipt");
 
-            page.Width = 840;
-            page.Height = 480;
-            await Until(() => page.ClientSize is {Width: <= 845, Height: <= 485}, "actual narrow dialog measured");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is {Width: <= 845, Height: <= 485}, "actual narrow dialog measured");
             await Signal("change-draft");
             var refresh = Find<Button>(page, "TermRefresh");
             Click(refresh);
@@ -188,10 +188,9 @@ internal static partial class Program
             finally { Finish(error.ToString(), 1); }
         }
 
-        async Task<TermPreparationWindow> WindowAsync()
+        async Task<TermPreparationView> WindowAsync()
         {
-            await Until(() => desktop.Windows.OfType<TermPreparationWindow>().Any(row => row.IsVisible), "term management opens");
-            return desktop.Windows.OfType<TermPreparationWindow>().Single(row => row.IsVisible);
+            return await AcademicPageAsync<TermPreparationView>(main);
         }
 
         async Task Signal(string step)
@@ -207,5 +206,5 @@ internal static partial class Program
         }
     }
 
-    private static string TermText(Window window, string control) => Find<TextBlock>(window, control).Text ?? "";
+    private static string TermText(Control window, string control) => Find<TextBlock>(window, control).Text ?? "";
 }

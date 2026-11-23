@@ -18,12 +18,13 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
   const subject = await prisma.subject.create({data: {schoolId: school.id, code: 'PILOT-PHY', name: '物理', category: 'CORE'}});
   const createRoom = (grade, code, name) => prisma.workspace.create({
     data: {termId: grade.termId, gradeId: grade.id, code, name, type: 'ADMIN_CLASS'}});
-  const [current, historic, second] = await Promise.all([
+  const [current, historic, second, peer] = await Promise.all([
     createRoom(activeGrade, 'G2-C08', '高二（8）班'),
     createRoom(archivedGrade, 'G2-C08', '高二（8）班'),
     createRoom(archivedGrade, 'G2-C07', '高二（7）班'),
+    createRoom(activeGrade, 'G2-C09', '高二（9）班'),
   ]);
-  await prisma.administrativeClassSubject.createMany({data: [current, historic].map(room => ({administrativeClassId: room.id,
+  await prisma.administrativeClassSubject.createMany({data: [current, historic, peer].map(room => ({administrativeClassId: room.id,
     subjectId: subject.id, deliveryMode: 'ADMIN_CLASS', isCompulsory: true}))});
   const actor = await prisma.account.create({data: {name: '同邮箱已有教师', email: 'pilot-existing@example.test',
     provider: 'hly', providerId: 'retirement-pilot-teacher', providerData: {email: 'pilot-existing@example.test', email_verified: true}}});
@@ -46,8 +47,12 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
 
   const marks = [];
   let legacyOverview = false;
+  let holdOverview = false;
+  let releaseOverview;
+  let recordedWrite = 0;
   const upstream = new URL(origin);
   const base = '/api/v2/admin/schools/' + school.id;
+  const teachingPath = `${base}/current-term/administrative-classes/${current.id}/teaching-assignments`;
   const scopePath = `${base}/teacher-allocation/archived/${archive.id}/grades/${archivedGrade.id}`;
   const revokePath = (workspace, invitation) => `${scopePath}/workspaces/${workspace.id}/invitations/${invitation.id}`;
   const snapshot = invitation => ({termUpdatedAt: archive.updatedAt.toISOString(), invitationUpdatedAt: invitation.updatedAt.toISOString(),
@@ -61,6 +66,17 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
   }
   const login = username => api('/accounts/local/login', {method: 'POST', body: {schoolCode: school.code, username, password: pin}});
   const {access_token: token} = await login('admin');
+  const manager = await prisma.account.findUniqueOrThrow({where: {id: managerId}});
+  const localAccount = async (username, name, role) => {
+    const account = await prisma.account.create({data: {provider: 'school-local', providerId: `${school.code}:${username}`,
+      name, localUsername: username, localPasswordHash: manager.localPasswordHash, providerData: {schoolCode: school.code}}});
+    await prisma.schoolMember.create({data: {schoolId: school.id, accountId: account.id, role}});
+    return account;
+  };
+  const candidate = await localAccount('pilot-teacher-a', '林老师', 'VIEWER');
+  const peerTeacher = await localAccount('pilot-teacher-b', '林老师', 'VIEWER');
+  const manager2 = await localAccount('pilot-admin-2', '另一位管理员', 'ADMIN');
+  const {access_token: token2} = await login(manager2.localUsername);
   const readInvite = id => prisma.workspaceMemberInvite.findUnique({where: {id}});
   const relay = createServer(async (req, res) => {
     if (req.method === 'POST' && req.url.startsWith('/__pilot/')) {
@@ -77,6 +93,30 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
         } else if (mark === 'oauth-invitation-only') {
           assert.equal(await prisma.workspaceMemberInvite.count({where: {workspaceId: current.id, normalizedEmail: 'pilot-new@example.test'}}), 1);
           assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: current.id}}), 0);
+        } else if (mark === 'add-peer-assignment') {
+          await api(base + '/teaching-assignments', {method: 'PUT', token: token2,
+            body: {workspaceId: peer.id, subjectId: subject.id, accountId: peerTeacher.id, position: 'PRIMARY'}});
+        } else if (mark === 'stale-no-write') {
+          assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: current.id}}), 0);
+        } else if (mark === 'assignment-readback-confirmed') {
+          assert.equal(recordedWrite, 1);
+          const rows = await prisma.teachingAssignment.findMany({where: {subjectId: subject.id}, orderBy: {workspaceId: 'asc'}});
+          assert.equal(rows.length, 2);
+          assert.equal(rows.find(row => row.workspaceId === current.id)?.accountId, candidate.id);
+          assert.equal(rows.find(row => row.workspaceId === peer.id)?.accountId, peerTeacher.id);
+        } else if (mark === 'hold-overview') {
+          holdOverview = true;
+        } else if (mark === 'await-held-overview') {
+          const until = Date.now() + 4000;
+          while (!releaseOverview && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 30));
+          assert.ok(releaseOverview, 'verified that original school produced the now-stale response');
+        } else if (mark === 'release-overview') {
+          assert.ok(releaseOverview);
+          releaseOverview();
+          releaseOverview = null;
+        } else if (mark === 'revoke-teaching-scope' || mark === 'restore-teaching-scope') {
+          await prisma.schoolMember.update({where: {schoolId_accountId: {schoolId: school.id, accountId: managerId}},
+            data: {role: mark.startsWith('revoke') ? 'VIEWER' : 'ADMIN'}});
         } else throw new Error('Unknown pilot checkpoint');
         marks.push(mark);
         res.writeHead(204).end();
@@ -86,6 +126,25 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
     const targetUrl = new URL(req.url, upstream);
     if (legacyOverview && targetUrl.pathname.endsWith('/management-overview')) targetUrl.searchParams.delete('desktop');
     const forwarded = request(targetUrl, {method: req.method, headers: {...req.headers, host: upstream.host}}, reply => {
+      if (holdOverview && targetUrl.pathname === base + '/management-overview' && targetUrl.searchParams.get('termId') === active.id) {
+        holdOverview = false;
+        const chunks = [];
+        reply.on('data', chunk => chunks.push(chunk));
+        reply.on('end', () => { releaseOverview = () => { res.writeHead(reply.statusCode, reply.headers); res.end(Buffer.concat(chunks)); }; });
+        return;
+      }
+      if (req.method === 'POST' && targetUrl.pathname === teachingPath && reply.statusCode === 200) {
+        const chunks = [];
+        reply.on('data', chunk => chunks.push(chunk));
+        reply.on('end', () => {
+          const body = Buffer.concat(chunks);
+          if (JSON.parse(body).data.state === 'APPLIED') {
+            recordedWrite++;
+            res.destroy();
+          } else { res.writeHead(reply.statusCode, reply.headers); res.end(body); }
+        });
+        return;
+      }
       res.writeHead(reply.statusCode, reply.headers);
       reply.pipe(res);
     });
@@ -97,7 +156,8 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
     const desktopFixture = join(directory, 'entry-pilot-desktop.json');
     await writeFile(desktopFixture, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id, schoolCode: school.code,
       password: pin, archivedTermId: archive.id, activeTermId: active.id, archivedClassId: historic.id, activeClassId: current.id,
-      subjectId: subject.id, inviteId: target.id, raceInviteId: race.id, emptySchoolId: empty.id, auditDate, auditId}));
+      subjectId: subject.id, peerId: peer.id, teacherId: candidate.id, inviteId: target.id, raceInviteId: race.id,
+      emptySchoolId: empty.id, auditDate, auditId}));
     const exact = await api(base + '/management-overview?desktop=1&termId=' + archive.id, {token});
     assert.equal(exact.term.id, archive.id);
     assert.equal(exact.activeTerm.id, active.id);
@@ -106,8 +166,8 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
     const main = await api(base + '/management-overview/current?staffReview=1&courseGroupActions=1', {token});
     assert.equal(main.term.id, active.id);
     assert.ok(main.tasks.every(row => row.classId !== historic.id));
+    await runDesktop(['--live-entry-retirement-pilot', desktopFixture, evidence]);
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (browser, url) => {
-      await runDesktop(['--live-entry-retirement-pilot', desktopFixture, evidence]);
       const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: 'block', acceptDownloads: true,
         timezoneId: 'Asia/Shanghai'});
       try {

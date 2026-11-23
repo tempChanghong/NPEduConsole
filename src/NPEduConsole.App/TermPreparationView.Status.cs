@@ -4,7 +4,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TermPreparationWindow
+public sealed partial class TermPreparationView
 {
     private TermStatusWindow? _termStatusWindow;
     private TermClassManagementWindow? _termClassesWindow;
@@ -84,7 +84,7 @@ public sealed partial class TermPreparationWindow
         if (_busy || _closed || SelectedTerm is not { } term || OpenTermDiagnostics is not { } open) return;
         await RunAsync(async () =>
         {
-            await open(this, term);
+            await open(HostWindow, term);
             if (!_closed) await LoadCatalogAsync();
         });
         if (!_closed) Focus(TermViewDiagnostics);
@@ -105,7 +105,7 @@ public sealed partial class TermPreparationWindow
         var window = new GradeTeachingPlanWindow(_client, _school, null, null, null, term.Id) { SessionExpired = SessionExpired };
         _termTeachingWindow = window;
         TermManageTeaching.IsEnabled = TermPrepareTeaching.IsEnabled = false;
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(HostWindow); }
         finally { _termTeachingWindow = null; }
         if (_closed) return;
         if (_page == Page.Check && window.WorkspaceChanged) await RunAsync(() => ReadCheckAsync(term.Id));
@@ -119,7 +119,7 @@ public sealed partial class TermPreparationWindow
         var window = new TermClassManagementWindow(_client, _school, term) { SessionExpired = SessionExpired };
         _termClassesWindow = window;
         TermManageClasses.IsEnabled = TermPrepareClasses.IsEnabled = false;
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(HostWindow); }
         finally { _termClassesWindow = null; }
         if (_closed) return;
         await RunAsync(_page == Page.Check ? () => ReadCheckAsync(term.Id) : LoadCatalogAsync);
@@ -151,7 +151,7 @@ public sealed partial class TermPreparationWindow
             OpenPlacement = OpenPlacement,
         };
         _termStatusWindow = view;
-        try { await view.ShowDialog(this); }
+        try { await view.ShowDialog(HostWindow); }
         finally { if (_termStatusWindow == view) _termStatusWindow = null; }
         if (_closed) return;
         if (view.ObservedWrite) ActivationObserved = true;

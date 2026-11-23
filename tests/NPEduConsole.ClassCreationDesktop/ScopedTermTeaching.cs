@@ -43,7 +43,7 @@ internal static partial class Program
             await PressScoped(main, "OpenClassWorkspaceButton");
             await Signal("before");
             await PressScoped(main, "OpenTermPreparationButton");
-            var terms = await WindowOf<TermPreparationWindow>();
+            var terms = await AcademicPageAsync<TermPreparationView>(main);
             var termList = Find<ListBox>(terms, "PreparedTerms");
             await Until(() => termList.Items.OfType<ManagedAcademicTerm>().Count() == 3, "三学期到达界面");
             SelectTerm(access.SpringId);

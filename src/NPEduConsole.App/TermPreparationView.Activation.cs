@@ -5,7 +5,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TermPreparationWindow
+public sealed partial class TermPreparationView
 {
     private sealed record ActivationRequest(TermPreparationCheck Check, Guid RequestId);
     internal sealed record ScreenDestination(string ClassId, string ScreenId, string TermId, bool NeedsPairing);
@@ -192,7 +192,7 @@ public sealed partial class TermPreparationWindow
             {
                 await RunAsync(async () =>
                 {
-                    var target = await open(this, activation.Term.Id, row.BindingId);
+                    var target = await open(HostWindow, activation.Term.Id, row.BindingId);
                     if (_closed) return;
                     if (target is not null)
                     {

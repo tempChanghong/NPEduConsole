@@ -1,7 +1,6 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.TeachingWindow" Title="行政班任课"
-        Width="1160" Height="780" MinWidth="740" MinHeight="480" WindowStartupLocation="CenterOwner">
-  <Window.Styles>
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.TeachingView">
+  <UserControl.Styles>
     <Style Selector="Border.teaching-row">
       <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
       <Setter Property="BorderThickness" Value="0,0,0,1" />
@@ -24,7 +23,16 @@
       <Setter Property="MinHeight" Value="30" />
       <Setter Property="Padding" Value="8,4" />
     </Style>
-  </Window.Styles>
+    <Style Selector="ListBox.teacher-candidates ListBoxItem">
+      <Setter Property="Padding" Value="0"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="ListBox.teacher-candidates ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentTintBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
+      <Setter Property="BorderThickness" Value="3,0,0,0"/>
+    </Style>
+  </UserControl.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,12">
       <StackPanel Spacing="3">
@@ -32,7 +40,8 @@
         <TextBlock x:Name="TeachingContext" Classes="muted" MaxLines="1" TextTrimming="CharacterEllipsis"/>
       </StackPanel>
     </Border>
-    <Grid Grid.Row="1" ColumnDefinitions="305,*" ColumnSpacing="12" Margin="20,12">
+    <Grid x:Name="TeachingContentArea" Grid.Row="1" ColumnDefinitions="*,Auto">
+    <Grid x:Name="TeachingWorkspaceBody" ColumnDefinitions="305,*" ColumnSpacing="12" Margin="20,12">
       <Border Classes="card" ClipToBounds="True">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
           <StackPanel Margin="12,10" Spacing="10">
@@ -60,6 +69,8 @@
                   <TextBlock Text="本校教师" Classes="label"/>
                   <ComboBox x:Name="TeachingTeacherPicker" SelectionChanged="DraftChanged" HorizontalAlignment="Stretch"
                             AutomationProperties.Name="本校教师"/>
+                  <Button x:Name="OpenTeachingTeacherChoice" Classes="action" Content="选择教师" IsVisible="False"
+                          HorizontalAlignment="Stretch" AutomationProperties.Name="选择本校教师" Click="OpenTeacherChoiceClicked"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Spacing="4">
                   <TextBlock Text="任课身份" Classes="label"/>
@@ -122,11 +133,48 @@
         </Border>
       </Grid>
     </Grid>
+    <Grid x:Name="TeachingTeacherChoiceLayer" Grid.Column="1" IsVisible="False">
+      <Border x:Name="TeachingTeacherChoice" Classes="card" Padding="14,10" KeyboardNavigation.TabNavigation="Cycle"
+              KeyDown="TeacherChoiceKeyDown">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="7">
+          <StackPanel Spacing="3">
+            <TextBlock Text="选择本校教师" Classes="label" FontSize="18"/>
+            <TextBlock x:Name="TeachingChoiceContext" Classes="muted" />
+          </StackPanel>
+          <TextBox x:Name="TeachingTeacherSearch" Grid.Row="1" Classes="search-field" PlaceholderText="搜索姓名或账号"
+                   AutomationProperties.Name="搜索本校教师" TextChanged="TeacherSearchChanged"/>
+          <ListBox x:Name="TeachingTeacherCandidates" Grid.Row="2" Classes="teacher-candidates" Background="Transparent"
+                   Focusable="True" AutomationProperties.Name="本校教师列表"
+                   SelectionChanged="TeacherCandidateChanged" DoubleTapped="TeacherCandidateTapped">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="local:TeachingTeacherCandidate">
+                <Border Padding="10,6" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1"
+                        AutomationProperties.Name="{Binding AccessibleName}">
+                  <StackPanel Spacing="2">
+                    <TextBlock Text="{Binding Teacher.Name}" Classes="label"/>
+                    <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="12"/>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+          <TextBlock x:Name="TeachingTeacherEmpty" Grid.Row="2" Classes="muted" IsVisible="False"
+                     Text="未找到符合条件的本校教师。" IsHitTestVisible="False" Margin="8"/>
+          <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="7" HorizontalAlignment="Right">
+            <Button Classes="action" Content="取消选择" Click="CancelTeacherChoiceClicked"/>
+            <Button x:Name="UseTeachingTeacher" Classes="action accent" Content="使用所选教师" IsEnabled="False" Click="UseTeacherClicked"/>
+          </StackPanel>
+        </Grid>
+      </Border>
+    </Grid>
+    </Grid>
     <Border x:Name="TeachingWorkspaceActions" Grid.Row="2" Background="{DynamicResource SurfaceBrush}"
             BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,8">
       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
         <WrapPanel ItemSpacing="7" LineSpacing="4">
           <Button x:Name="CloseTeachingButton" Content="返回" Classes="action" Click="CloseClicked"/>
+          <Button x:Name="TeachingKeepDraft" Content="保留草稿并返回" Classes="action" IsVisible="False" Click="PauseTeachingClicked"/>
+          <Button x:Name="TeachingDiscard" Content="放弃草稿并返回" Classes="action" IsVisible="False" Click="DiscardTeachingClicked"/>
           <Button x:Name="TeachingReadButton" Classes="action" Content="刷新安排" Click="ReadClicked"/>
         </WrapPanel>
         <TextBlock x:Name="TeachingTargetCount" Grid.Column="1" Classes="muted" VerticalAlignment="Center"/>
@@ -137,4 +185,4 @@
       </Grid>
     </Border>
   </Grid>
-</Window>
+</UserControl>

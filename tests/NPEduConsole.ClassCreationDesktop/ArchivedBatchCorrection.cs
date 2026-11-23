@@ -47,7 +47,7 @@ internal static partial class Program
             await Until(() => classes.IsEffectivelyEnabled && classes.IsEffectivelyVisible, "class workspace available");
             Click(classes);
             Click(Find<Button>(main, "OpenTermPreparationButton"));
-            var terms = await WindowOf<TermPreparationWindow>();
+            var terms = await AcademicPageAsync<TermPreparationView>(main);
             var list = Find<ListBox>(terms, "PreparedTerms");
             await Until(() => list.Items.OfType<ManagedAcademicTerm>().Any(row => row.Id == access.ArchivedTermId), "archived term listed");
             list.SelectedItem = list.Items.OfType<ManagedAcademicTerm>().Single(row => row.Id == access.ArchivedTermId);

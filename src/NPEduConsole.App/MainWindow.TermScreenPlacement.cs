@@ -7,7 +7,7 @@ public sealed partial class MainWindow
 {
     private TermScreenPlacementWindow? _termScreenPlacementWindow;
 
-    private async Task<TermPreparationWindow.ScreenDestination?> ShowTermScreenPlacementAsync(
+    private async Task<TermPreparationView.ScreenDestination?> ShowTermScreenPlacementAsync(
         Window owner, ConsoleClient client, School school, string termId, string bindingId)
     {
         if (_termScreenPlacementWindow is not null || _client != client || _school != school) return null;
@@ -31,7 +31,7 @@ public sealed partial class MainWindow
         placement?.CloseForScopeChange();
     }
 
-    private async Task OpenTermResultDestinationAsync(ConsoleClient client, School school, TermPreparationWindow.ScreenDestination target)
+    private async Task OpenTermResultDestinationAsync(ConsoleClient client, School school, TermPreparationView.ScreenDestination target)
     {
         if (_showSchoolOverview)
         {

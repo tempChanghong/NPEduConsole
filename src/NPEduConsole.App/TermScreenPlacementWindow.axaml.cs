@@ -24,7 +24,7 @@ public sealed partial class TermScreenPlacementWindow : Window
     private TermScreenCandidate? Selected => PlacementCandidates.SelectedItem as TermScreenCandidate;
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
-    internal TermPreparationWindow.ScreenDestination? Destination { get; private set; }
+    internal TermPreparationView.ScreenDestination? Destination { get; private set; }
 
     public TermScreenPlacementWindow() => InitializeComponent();
 

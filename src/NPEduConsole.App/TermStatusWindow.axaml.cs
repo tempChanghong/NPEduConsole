@@ -54,10 +54,10 @@ public sealed partial class TermStatusWindow : Window
     private Dictionary<string, Operation> PendingOperations => Operations.GetOrCreateValue(_client);
     private Operation? Pending => PendingOperations.GetValueOrDefault(_school.Id);
     internal Action<ConsoleApiException>? AuthorizationLost { get; init; }
-    internal Func<Window, string, string, Task<TermPreparationWindow.ScreenDestination?>>? OpenPlacement { get; init; }
+    internal Func<Window, string, string, Task<TermPreparationView.ScreenDestination?>>? OpenPlacement { get; init; }
     internal bool ObservedWrite { get; private set; }
     internal string? ResultTermId => _result?.Receipt.Term.Id;
-    internal TermPreparationWindow.ScreenDestination? Destination { get; private set; }
+    internal TermPreparationView.ScreenDestination? Destination { get; private set; }
 
     internal void CloseForScopeChange()
     {

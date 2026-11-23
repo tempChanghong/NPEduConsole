@@ -89,8 +89,8 @@ internal static partial class Program
             await Result(state, "已归档");
             await CloseStatus(state, "ARCHIVED");
 
-            directory.Width = 840;
-            directory.Height = 480;
+            main.Width = 840;
+            main.Height = 480;
             Click(Find<Button>(directory, "TermPrimary"));
             await Until(() => Text(directory, "TermDraftSource").Contains("已归档") && Text(directory, "TermDraftSource").Contains(access.TermName),
                 "无启用学期，原 ID 归档历史作为草稿来源");
@@ -223,13 +223,12 @@ internal static partial class Program
 
             void SelectSchool(string id) => schools.SelectedItem = schools.Items.Cast<School>().Single(row => row.Id == id);
             void SelectTerm(string id) => list.SelectedItem = list.Items.Cast<ManagedAcademicTerm>().Single(row => row.Id == id);
-            async Task<TermPreparationWindow> OpenDirectory()
+            async Task<TermPreparationView> OpenDirectory()
             {
                 var entry = Find<Button>(main, "OpenTermPreparationButton");
                 await Until(() => entry.IsEffectivelyVisible && entry.IsEffectivelyEnabled, "现有学期管理入口");
                 Click(entry);
-                await Until(() => desktop.Windows.OfType<TermPreparationWindow>().Any(window => window.IsVisible), "打开实际学期窗口");
-                return desktop.Windows.OfType<TermPreparationWindow>().Single(window => window.IsVisible);
+                return await AcademicPageAsync<TermPreparationView>(main);
             }
             async Task<TermStatusWindow> OpenMore(string name)
             {
@@ -289,6 +288,6 @@ internal static partial class Program
             finally { Console.Error.WriteLine(error); desktop.Shutdown(1); }
         }
 
-        static string Text(Window window, string name) => Find<TextBlock>(window, name).Text ?? "";
+        static string Text(Control window, string name) => Find<TextBlock>(window, name).Text ?? "";
     }
 }

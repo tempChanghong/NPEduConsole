@@ -46,7 +46,7 @@ internal static partial class Program
             await Signal("start");
 
             await PressScoped(main, "OpenTermPreparationButton");
-            var termWindow = await Opened<TermPreparationWindow>();
+            var termWindow = await AcademicPageAsync<TermPreparationView>(main);
             var termList = Find<ListBox>(termWindow, "PreparedTerms");
             await Until(() => termList.Items.OfType<ManagedAcademicTerm>().Any(row => row.Id == access.SpringId), "加载草稿学期");
             SelectTerm(access.SpringId);
@@ -210,7 +210,7 @@ internal static partial class Program
                 Click(apply);
                 await Until(() => !modal.IsVisible, "应用预设后回到整班规则");
             }
-            async Task<(GradeTeachingPlanWindow, ClassSubjectRulesWindow)> OpenRules(TermPreparationWindow owner)
+            async Task<(GradeTeachingPlanWindow, ClassSubjectRulesWindow)> OpenRules(TermPreparationView owner)
             {
                 await PressScoped(owner, "TermManageTeaching");
                 var parent = await Opened<GradeTeachingPlanWindow>();
@@ -250,8 +250,8 @@ internal static partial class Program
             rows.SelectedItem = rows.Items.OfType<ClassRuleEditorLine>().Single(row => row.Id == id);
         }
         static void SetMode(Window window, int index) => Find<ComboBox>(window, "RulesMode").SelectedIndex = index;
-        static bool ButtonReady(Window window, string name) => Find<Button>(window, name) is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true };
-        static string ButtonText(Window window, string name) => Find<Button>(window, name).Content?.ToString() ?? "";
-        static string Text(Window window, string name) => Find<TextBlock>(window, name).Text ?? "";
+        static bool ButtonReady(Control window, string name) => Find<Button>(window, name) is { IsEffectivelyEnabled: true, IsEffectivelyVisible: true };
+        static string ButtonText(Control window, string name) => Find<Button>(window, name).Content?.ToString() ?? "";
+        static string Text(Control window, string name) => Find<TextBlock>(window, name).Text ?? "";
     }
 }
