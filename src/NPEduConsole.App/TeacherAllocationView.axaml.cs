@@ -8,9 +8,11 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TeacherAllocationWindow : Window
+public sealed partial class TeacherAllocationView : UserControl
 {
-    private sealed record PendingRequest(TeacherAllocationDraft Draft, TeacherAllocationPreview Preview, Guid Id);
+    private sealed record PendingRequest(string SchoolId, string ScopeLabel, TeacherAllocationDraft Draft,
+        TeacherAllocationPreview Preview, Guid Id);
+    internal enum Stage { Edit, Review, ByTeacher, BySpace, Receipt }
     private sealed record TermOption(OrganizationTerm? Term)
     {
         public override string ToString() => Term?.ToString() ?? "无指定学期 · 只建账号";
@@ -19,10 +21,10 @@ public sealed partial class TeacherAllocationWindow : Window
     {
         public override string ToString() => Grade?.ToString() ?? "查看整个学期";
     }
-    private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<string, PendingRequest>> Requests = new();
+    private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<Guid, PendingRequest>> Requests = new();
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
-    private readonly bool _archivedCorrection;
+    private readonly bool _archivedCorrection, _fixedScope;
     private readonly string? _initialTermId, _initialGradeId, _initialWorkspaceId;
     private readonly CancellationTokenSource _lifetime = new();
     private TeacherAllocationCatalog? _catalog;
@@ -35,35 +37,60 @@ public sealed partial class TeacherAllocationWindow : Window
     private bool PinMode => !_archivedCorrection && Mode == "LOCAL_PIN";
     private bool CanEdit => !_busy && Pending is null && _catalog is not null && !_rescope;
     private OrganizationTerm? Term => _catalog?.Terms.FirstOrDefault(row => row.Id == _catalog.TermId);
-    private string PendingKey => _archivedCorrection ? $"{_school.Id}:{_initialTermId}:{_initialGradeId}" : _school.Id;
-    private Dictionary<string, PendingRequest> SessionRequests => Requests.GetOrCreateValue(_client);
-    internal static bool HasOtherPendingTarget(ConsoleClient client, string schoolId, string termId, string gradeId) =>
-        Requests.TryGetValue(client, out var requests) && requests.TryGetValue(schoolId, out var pending) &&
-        (pending.Draft.TermId != termId || pending.Draft.GradeId != gradeId);
+    private Dictionary<Guid, PendingRequest> SessionRequests => Requests.GetOrCreateValue(_client);
+    private PendingRequest? Pending { get; set; }
+    private bool HasUnresolvedTarget => _catalog is not null && Requests.TryGetValue(_client, out var requests) &&
+        requests.Values.Any(request => MatchesTarget(request, _catalog.TermId, _catalog.GradeId, _archivedCorrection));
+    private Stage _stage;
+    internal Stage DisplayedStage => _stage;
+    internal bool ReturningWithDraft => _dirty && !_allowClose && Pending is null;
+    internal Guid? RecoveryId { get; init; }
+    internal Func<Guid, string?, string?, bool, Task>? OpenPendingRequest { get; set; }
+    internal Func<Task>? OpenTeaching { get; set; }
+    internal Action? CloseRequested { get; set; }
+    private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
 
-    private PendingRequest? Pending => SessionRequests.GetValueOrDefault(PendingKey);
-    internal Action<ConsoleApiException>? SessionExpired { get; init; }
-    internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }
-    internal Uri? LegacyWebLink { get; init; }
-    internal string? AllocatedAccountId => _lastReceipt?.Teachers.Length == 1 ? _lastReceipt.Teachers[0].AccountId : null;
-    internal string? InitialInvitationId { get; init; }
+    internal static void EndSession(ConsoleClient client) => Requests.Remove(client);
+
+    internal static void ForgetPending(ConsoleClient client, string schoolId)
+    {
+        if (!Requests.TryGetValue(client, out var requests)) return;
+        foreach (var request in requests.Values.Where(row => row.SchoolId == schoolId).ToArray()) requests.Remove(request.Id);
+    }
+
+    private bool MatchesTarget(PendingRequest request, string? term, string? grade, bool archived) =>
+        request.SchoolId == _school.Id && request.Draft.TermId == term && request.Draft.GradeId == grade &&
+        request.Draft.ArchivedCorrection == archived;
+
+    private void ClearPending(PendingRequest request)
+    {
+        SessionRequests.Remove(request.Id);
+        if (Pending?.Id == request.Id) Pending = null;
+    }
+
+    internal Action<ConsoleApiException>? SessionExpired { get; set; }
+    internal Func<Window, Task<bool>>? OpenSchoolProfile { get; set; }
+    internal Uri? LegacyWebLink { get; set; }
+    internal string? AllocatedAccountId { get; private set; }
+    internal string? InitialInvitationId { get; set; }
     internal bool AccessChanged { get; private set; }
     internal (string TermId, string WorkspaceId, string? SubjectId, string AccountId, bool IsGroup)? TeachingTarget { get; private set; }
 
-    public TeacherAllocationWindow() => InitializeComponent();
+    public TeacherAllocationView() => InitializeComponent();
 
-    internal TeacherAllocationWindow(ConsoleClient client, School school, string? termId, string? gradeId,
-        bool archivedCorrection = false, string? initialWorkspaceId = null) : this()
+    internal TeacherAllocationView(ConsoleClient client, School school, string? termId, string? gradeId,
+        bool archivedCorrection = false, string? initialWorkspaceId = null, bool fixedScope = false) : this()
     {
         _client = client;
         _school = school;
         _archivedCorrection = archivedCorrection;
+        _fixedScope = fixedScope || archivedCorrection || initialWorkspaceId is not null;
         _initialTermId = termId;
         _initialGradeId = gradeId;
         _initialWorkspaceId = initialWorkspaceId;
         if (_archivedCorrection)
         {
-            Title = AllocationHeading.Text = "归档学期 · 教师访问";
+            AllocationHeading.Text = "归档学期 · 教师访问";
             AllocationJson.IsVisible = AllocationPaste.IsVisible = AllocationAddTeacher.IsVisible = false;
             AllocationPreviewButton.Content = "预览访问变化";
             AllocationApprove.Content = "我已核对该学期的直接访问变化";
@@ -72,51 +99,76 @@ public sealed partial class TeacherAllocationWindow : Window
         AllocationFilter.ItemsSource = new[] { "全部", "新增", "修改或移除", "阻断与待复核", "一致" };
         AllocationFilter.SelectedIndex = 0;
         SizeChanged += (_, _) => ArrangeAllocationLayout();
-        Opened += async (_, _) =>
-        {
-            AllocationSchoolProfile.IsVisible = OpenSchoolProfile is not null;
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            ArrangeAllocationLayout();
-            await RunAsync(async () =>
-            {
-                if (Pending is not { } request)
-                {
-                    await LoadAsync(termId, gradeId);
-                    if (!_closed && _archivedCorrection)
-                        Status("仅为已有本校教师维护这个历史年级的直接访问。任课、职责和其他访问分别核对。");
-                    if (!_closed && InitialInvitationId is { } invitation) FocusInvitation(invitation);
-                    return;
-                }
-                try { await LoadAsync(request.Draft.TermId, request.Draft.GradeId, request.Draft.TermId is null); }
-                catch (ConsoleApiException error) when (IsScopeError(error))
-                {
-                    if (_archivedCorrection) _rescope = true;
-                    else await LoadAsync(null, null);
-                }
-                if (_closed) return;
-                SetTable(request.Draft.Teachers, dirty: false);
-                await VerifyAsync(request);
-            });
-        };
-        Closing += (_, args) =>
-        {
-            args.Cancel = !_allowClose && (_writing || _dirty && !_discard && Pending is null);
-            if (args.Cancel && !_writing)
-            {
-                _discard = true;
-                AllocationClose.Content = "放弃草稿并返回";
-                Status("还有未保存的教师表。再次确认返回可放弃，继续编辑可保留。");
-            }
-        };
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _archiveInvitationConfirmation?.Close();
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-            foreach (var row in _teachers) row.Pin = "";
-        };
+        AddHandler(KeyDownEvent, AllocationKeyDown, RoutingStrategies.Tunnel);
         Render();
+    }
+
+    internal Task StartAsync() => RunAsync(async () =>
+    {
+        var pending = RecoveryId is { } id
+            ? SessionRequests.GetValueOrDefault(id) : null;
+        if (RecoveryId is not null && (pending is null || !MatchesTarget(pending, _initialTermId, _initialGradeId, _archivedCorrection)))
+        {
+            _rescope = true;
+            Status("这笔分配已结束核对。请返回原页。");
+            return;
+        }
+
+        if (pending is not null) Pending = pending;
+        try { await LoadAsync(_initialTermId, _initialGradeId, pending?.Draft.TermId is null && pending is not null); }
+        catch (ConsoleApiException error) when (pending is not null && !_closed &&
+            (IsScopeError(error) || error.StatusCode is 0 or 404 or 408 or >= 500))
+        {
+            _rescope = true;
+        }
+        if (_closed) return;
+        if (pending is not null)
+        {
+            SetTable(pending.Draft.Teachers, dirty: false);
+            await VerifyAsync(pending);
+            return;
+        }
+        if (_archivedCorrection)
+            Status("仅为已有本校教师维护这个历史年级的直接访问。任课、职责和其他访问分别核对。");
+        if (InitialInvitationId is { } invitation) FocusInvitation(invitation);
+        else FocusLater(AllocationTerm.IsEnabled ? AllocationTerm : AllocationTeachers);
+    });
+
+    internal bool CanClose()
+    {
+        if (_writing) return false;
+        if (!ReturningWithDraft) return true;
+        _discard = true;
+        Status("还有未保存的教师表。可继续编辑，或放弃草稿后返回。");
+        Render();
+        FocusLater(AllocationKeepEditing);
+        return false;
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _archiveInvitationConfirmation?.Close();
+        _pasteDialog?.Close();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        foreach (var row in _teachers) row.Pin = "";
+        foreach (var box in _allocationFields.Values.OfType<TextBox>().Where(box => box.PasswordChar != '\0')) box.Clear();
+        _teachers.Clear();
+        _allocationFields.Clear();
+        _catalog = null;
+        _reviewRows = [];
+        _preview = null;
+        _lastReceipt = null;
+        Pending = null;
+        AllocationTerm.ItemsSource = AllocationGrade.ItemsSource = AllocationExisting.ItemsSource = null;
+        AllocationTeachers.ItemsSource = AllocationDifferences.ItemsSource = AllocationReceiptRows.ItemsSource = null;
+        AllocationDirectoryTeachers.ItemsSource = AllocationDirectorySpaces.ItemsSource = null;
+        AllocationTeacherDetails.Children.Clear();
+        AllocationSpaceDetails.Children.Clear();
+        AllocationAccessRows.Children.Clear();
+        AllocationPendingActions.Children.Clear();
     }
 
     private async Task LoadAsync(string? termId, string? gradeId, bool accountsOnly = false)
@@ -153,20 +205,26 @@ public sealed partial class TeacherAllocationWindow : Window
 
     private async void TermChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (_archivedCorrection || _initialWorkspaceId is not null || _binding || _busy || Pending is not null || AllocationTerm.SelectedItem is not TermOption target ||
+        if (_closed || _fixedScope || _binding || _busy || Pending is not null || AllocationTerm.SelectedItem is not TermOption target ||
             !_rescope && target.Term?.Id == _catalog?.TermId) return;
         await ChangeScopeAsync(target.Term?.Id, null, target.Term is null);
     }
 
     private async void GradeChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (_archivedCorrection || _binding || _busy || Pending is not null || AllocationGrade.SelectedItem is not GradeOption target ||
+        if (_closed || _fixedScope || _binding || _busy || Pending is not null || AllocationGrade.SelectedItem is not GradeOption target ||
             Term is not { } term || target.Grade?.Id == _catalog?.GradeId) return;
         await ChangeScopeAsync(term.Id, target.Grade?.Id, false);
     }
 
     private async Task ChangeScopeAsync(string? termId, string? gradeId, bool accountsOnly)
     {
+        if (_dirty && !_rescope)
+        {
+            RestoreScopeSelection();
+            Status("请先保存或放弃当前教师表，再切换办理范围。");
+            return;
+        }
         ClearReview();
         await RunAsync(async () =>
         {
@@ -175,6 +233,11 @@ public sealed partial class TeacherAllocationWindow : Window
             _rescope = false;
             if (_dirty) Status("已保留教师草稿。请按新目标核对每条班级访问。");
         });
+        RestoreScopeSelection();
+    }
+
+    private void RestoreScopeSelection()
+    {
         if (_closed || _catalog is null || _rescope) return;
         _binding = true;
         AllocationTerm.SelectedItem = ((TermOption[])AllocationTerm.ItemsSource!).First(row => row.Term?.Id == _catalog.TermId);
@@ -203,7 +266,7 @@ public sealed partial class TeacherAllocationWindow : Window
         if (OpenSchoolProfile is not { } open || Pending is not null) return;
         await RunAsync(async () =>
         {
-            if (!await open(this) || _closed) return;
+            if (!await open(HostWindow) || _closed) return;
             ClearReview();
             await LoadAsync(_catalog?.TermId, _catalog?.GradeId, _catalog is {TermId: null});
             Status("学校登录方式已重新核对，原教师表保留。请重新预览草稿。");
@@ -226,7 +289,7 @@ public sealed partial class TeacherAllocationWindow : Window
         _fileTarget = file?.Target;
         _rejectedTarget = null;
         SetTable(rows, dirty: true);
-        AllocationTabs.SelectedIndex = 0;
+        SetStage(Stage.Edit);
         Status("已载入教师表。确认前会按当前所选学期校验每个教学空间。");
     }
 
@@ -261,10 +324,10 @@ public sealed partial class TeacherAllocationWindow : Window
 
     private async void OpenJsonClicked(object? sender, RoutedEventArgs args)
     {
-        if (!CanEdit) return;
+        if (!CanEdit || TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
         await RunAsync(async () =>
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions {Title = "打开旧教师分配 JSON",
+            var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions {Title = "打开旧教师分配 JSON",
                 AllowMultiple = false, FileTypeFilter = [new("教师分配 JSON") {Patterns = ["*.json"]}]});
             if (files.Count != 1 || _closed) return;
             await using var stream = await files[0].OpenReadAsync();
@@ -289,7 +352,7 @@ public sealed partial class TeacherAllocationWindow : Window
 
     private void Edited()
     {
-        if (_binding) return;
+        if (_binding || _closed) return;
         if (_preview is not null) Status("教师表已修改，请重新预览。");
         _dirty = true;
         _discard = false;
@@ -320,6 +383,7 @@ public sealed partial class TeacherAllocationWindow : Window
     private void ShowReview(TeacherAllocationPreview review, string[] changed, TeacherAllocationPreview? previous = null)
     {
         _preview = review;
+        _locatedIssueKey = null;
         var prior = previous?.Changes.ToDictionary(row => row.Key);
         _reviewRows = review.Changes.Select(row =>
         {
@@ -337,27 +401,27 @@ public sealed partial class TeacherAllocationWindow : Window
                 .Select(row => row with {NeedsReview = true, After = null, Message = "此项原预览依据已变化，请重新核对。"});
             _reviewRows = [.. _reviewRows, .. oldRows];
         }
+        _reviewRows = _reviewRows.Select(WithReviewIdentity).ToArray();
         AllocationApprove.IsChecked = false;
-        AllocationFilter.SelectedIndex = _reviewRows.Any(row => row.Action == "BLOCK" || row.NeedsReview) ? 3 : 0;
-        AllocationTabs.SelectedIndex = 1;
+        AllocationFilter.SelectedIndex = 0;
+        SetStage(Stage.Review);
         ShowFilteredReview();
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!_closed && AllocationTabs.SelectedIndex == 1 && AllocationDifferences.SelectedItem is { } row &&
-                AllocationDifferences.ContainerFromItem(row) is Control cell) cell.Focus(NavigationMethod.Tab);
-        }, DispatcherPriority.Loaded);
+        if (AllocationDifferences.Items.OfType<AllocationDifference>().FirstOrDefault(row => row.NeedsReview || row.Action == "BLOCK") is { } issue)
+            AllocationDifferences.SelectedItem = issue;
+        FocusSelected(AllocationDifferences);
     }
 
     private void ShowFilteredReview()
     {
         var filter = AllocationFilter.SelectedIndex;
+        var previous = (AllocationDifferences.SelectedItem as AllocationDifference)?.Key;
         var rows = _reviewRows.Where(row => filter switch
         {
             1 => row.Action == "ADD", 2 => row.Action is "CHANGE" or "REMOVE", 3 => row.Action == "BLOCK" || row.NeedsReview,
             4 => row.Action == "KEEP", _ => !_archivedCorrection || row.Action != "KEEP" || row.WorkspaceId is not null
         }).ToArray();
         AllocationDifferences.ItemsSource = rows;
-        AllocationDifferences.SelectedIndex = rows.Length == 0 ? -1 : 0;
+        AllocationDifferences.SelectedItem = rows.FirstOrDefault(row => row.Key == previous) ?? rows.FirstOrDefault();
         AllocationLocate.IsEnabled = rows.Length > 0;
         var stale = _reviewRows.Count(row => row.NeedsReview);
         AllocationCounts.Text = $"新增 {_reviewRows.Count(row => row.Action == "ADD")} · 变更 {_reviewRows.Count(row => row.Action is "CHANGE" or "REMOVE")} · 阻断 {_reviewRows.Count(row => row.Action == "BLOCK")}" +
@@ -371,10 +435,11 @@ public sealed partial class TeacherAllocationWindow : Window
             await SubmitAsync(pending, pending.Draft);
             return;
         }
-        if (!CanEdit || HasDocumentConflict || !_reviewed || AllocationApprove.IsChecked != true || _preview is not {CanApply: true} review) return;
+        if (_stage != Stage.Review || !CanEdit || HasUnresolvedTarget || HasDocumentConflict || !_reviewed || AllocationApprove.IsChecked != true || _preview is not {CanApply: true} review) return;
         var draft = Draft();
-        var request = new PendingRequest(draft.WithoutPins(), review, Guid.NewGuid());
-        SessionRequests[PendingKey] = request;
+        var request = new PendingRequest(_school.Id, AllocationScope.Text ?? _school.Name, draft.WithoutPins(), review, Guid.NewGuid());
+        SessionRequests.Add(request.Id, request);
+        Pending = request;
         await SubmitAsync(request, draft);
     }
 
@@ -395,12 +460,12 @@ public sealed partial class TeacherAllocationWindow : Window
         }
         catch (ConsoleApiException)
         {
-            SessionRequests.Remove(PendingKey);
+            ClearPending(request);
             _reviewed = false;
             throw;
         }
         if (_closed) return;
-        SessionRequests.Remove(PendingKey);
+        ClearPending(request);
         if (result.Receipt is { } receipt) await ShowReceiptAsync(receipt, recovered: false);
         else if (result.Preview is { } observed)
         {
@@ -433,7 +498,7 @@ public sealed partial class TeacherAllocationWindow : Window
         }
         else
         {
-            SessionRequests.Remove(PendingKey);
+            ClearPending(request);
             await ShowReceiptAsync(receipt, recovered: true);
         }
     }
@@ -445,6 +510,9 @@ public sealed partial class TeacherAllocationWindow : Window
         ClearPins();
         ClearReview();
         _lastReceipt = receipt;
+        AllocatedAccountId = receipt.Teachers.Length == 1 ? receipt.Teachers[0].AccountId : null;
+        ShowReceiptRows(receipt);
+        SetStage(Stage.Receipt);
         try { await LoadAsync(receipt.TermId, receipt.GradeId, receipt.TermId is null); }
         catch (ConsoleApiException error)
         {
@@ -453,10 +521,8 @@ public sealed partial class TeacherAllocationWindow : Window
             return;
         }
         if (_closed) return;
-        AllocationTabs.SelectedIndex = 2;
-        if (receipt.Teachers.FirstOrDefault() is { } first)
-            AllocationDirectoryTeachers.SelectedItem = AllocationDirectoryTeachers.Items.OfType<DirectoryPerson>().FirstOrDefault(row =>
-                first.AccountId is not null ? row.Id == first.AccountId : first.Email == row.Email);
+        ShowReceiptRows(receipt);
+        FocusLater(AllocationReceiptRows);
         var accounts = receipt.Teachers.Count(row => row.Created);
         var access = receipt.Teachers.Sum(row => row.Access.Length);
         var confirmation = recovered ? "已从服务器找回原回执" : "服务器已确认";
@@ -476,30 +542,35 @@ public sealed partial class TeacherAllocationWindow : Window
         _writing = writing;
         Render();
         try { await action(); }
-        catch (OperationCanceledException) when (_closed) { }
+        catch (Exception error) when (_closed && error is OperationCanceledException or ConsoleApiException or IOException) { }
         catch (ConsoleApiException error) when (!_closed && IsScopeError(error))
         {
             ClearReview();
             _rescope = true;
-            try { if (!_archivedCorrection) await LoadAsync(null, null); }
+            try { if (!_fixedScope) await LoadAsync(null, null); }
             catch (ConsoleApiException loadError) { SessionExpired?.Invoke(loadError); }
             if (!_closed)
             {
                 _binding = true;
-                if (!_archivedCorrection) AllocationTerm.SelectedIndex = -1;
+                if (!_fixedScope) AllocationTerm.SelectedIndex = -1;
                 _binding = false;
-                Status(error.Message + (_archivedCorrection ? " 草稿已保留，请返回学期目录核对。" :
+                Status(error.Message + (_fixedScope ? " 草稿已保留，请返回原入口核对目标。" :
                     " 草稿已保留，请重新选择目标再预览。"));
             }
         }
         catch (ConsoleApiException error) when (!_closed)
         {
-            if (_archivedCorrection && error.StatusCode == 403)
+            if (error.StatusCode == 403)
             {
+                ForgetPending(_client, _school.Id);
+                Pending = null;
                 _rescope = true;
                 _catalog = null;
                 _lastReceipt = null;
                 ClearReview();
+                SetTable([], dirty: false);
+                _dirty = false;
+                AllocationReceiptRows.ItemsSource = null;
                 RefreshExisting();
                 RebuildDirectories();
             }
@@ -524,49 +595,88 @@ public sealed partial class TeacherAllocationWindow : Window
 
     private void Render()
     {
-        if (AllocationStatus is null) return;
+        if (AllocationStatus is null || _client is null || _closed) return;
         var edit = CanEdit;
         var pending = Pending is not null;
-        AllocationTerm.IsEnabled = !_archivedCorrection && _initialWorkspaceId is null && !_busy && !pending && _catalog is not null;
+        bool editing = _stage == Stage.Edit;
+        bool reviewing = _stage == Stage.Review;
+        bool directory = _stage is Stage.ByTeacher or Stage.BySpace;
+        bool showDirectories = !pending && !_discard && !_busy && !reviewing && _catalog is not null;
+        AllocationStageLabel.Text = _stage switch
+        {
+            Stage.Review => "核对差异", Stage.Receipt => "分配结果",
+            Stage.ByTeacher => "按教师查", Stage.BySpace => "按班查", _ => "录入教师表"
+        };
+        AllocationEditLayout.IsVisible = editing && !pending;
+        AllocationReviewLayout.IsVisible = reviewing && !pending;
+        AllocationTeacherDirectoryLayout.IsVisible = _stage == Stage.ByTeacher && !pending;
+        AllocationSpaceDirectoryLayout.IsVisible = _stage == Stage.BySpace && !pending;
+        AllocationReceiptLayout.IsVisible = _stage == Stage.Receipt && !pending;
+        AllocationTargetFields.IsVisible = editing && !pending;
+        AllocationTerm.IsEnabled = !_fixedScope && !_busy && !pending && _catalog is not null;
         AllocationGrade.IsEnabled = AllocationTerm.IsEnabled && Term is not null && !_rescope;
-        AllocationRefresh.IsEnabled = !_busy && !pending;
-        AllocationJson.IsEnabled = AllocationPaste.IsEnabled = AllocationTeacherTable.IsEnabled = AllocationAccessEditor.IsEnabled = edit;
-        AllocationPreviewButton.IsVisible = !pending && !AllocationLegacyWeb.IsVisible;
+        AllocationRefresh.IsVisible = !pending && !_discard && (directory || _rescope || _catalog is null);
+        AllocationRefresh.IsEnabled = !_busy;
+        AllocationJson.IsEnabled = AllocationPaste.IsEnabled = AllocationTeacherTable.IsEnabled = AllocationAccessEditor.IsEnabled = edit && !_discard;
         var differences = (_rejectedTarget ?? _fileTarget) is { } target ? TargetDifferences(target) : [];
         var conflict = HasDocumentConflict;
-        AllocationTargetNotice.IsVisible = conflict;
+        AllocationTargetNotice.IsVisible = editing && conflict && !pending;
         AllocationTargetDetails.Text = differences.Length > 0 ? string.Join("\n", differences) + "\n请换文件，或调整所选目标后重新打开。" :
             "目标已匹配。请重新打开刚才的文件，或保留原草稿。";
         AllocationKeepTable.IsVisible = _rejectedTarget is not null;
         AllocationKeepTable.IsEnabled = edit;
+        AllocationPreviewButton.IsVisible = !pending && !_discard && !AllocationLegacyWeb.IsVisible && (editing || reviewing && !_reviewed);
+        AllocationPreviewButton.Content = editing ? "预览分配" : "重新预览";
         AllocationPreviewButton.IsEnabled = edit && !conflict && _teachers.Count > 0;
+        AllocationApprove.IsVisible = _reviewed;
         AllocationApprove.IsEnabled = edit && !conflict && _reviewed;
-        AllocationSave.IsEnabled = !_busy && (pending ? _retryMissingReceipt : edit && !conflict && _reviewed && AllocationApprove.IsChecked == true);
-        if (_archivedCorrection)
-        {
-            AllocationSave.IsVisible = !pending || _retryMissingReceipt;
-            AllocationSave.Content = pending ? "按原编号重试" : $"确认访问变更 {_reviewRows.Count(row => row.Action is "ADD" or "CHANGE" or "REMOVE")} 项";
-        }
+        AllocationSave.IsVisible = !_discard && (pending ? _retryMissingReceipt : reviewing && _reviewed);
+        AllocationSave.IsEnabled = !_busy && (pending ? _retryMissingReceipt :
+            edit && !HasUnresolvedTarget && !conflict && _reviewed && AllocationApprove.IsChecked == true);
+        AllocationSave.Content = pending ? "按原编号重试" : _archivedCorrection
+            ? $"确认访问变更 {_reviewRows.Count(row => row.Action is "ADD" or "CHANGE" or "REMOVE")} 项" : "确认保存";
         AllocationVerify.IsVisible = pending;
         AllocationVerify.IsEnabled = !_busy;
+        AllocationClose.IsVisible = !_discard;
         AllocationClose.IsEnabled = !_writing;
+        AllocationKeepEditing.IsVisible = AllocationDiscard.IsVisible = _discard;
+        AllocationEdit.IsVisible = !_discard && !pending && !editing && _catalog is not null;
+        AllocationBackToReview.IsVisible = !_discard && !pending && editing && _preview is not null;
+        AllocationBackToReceipt.IsVisible = showDirectories && directory && _lastReceipt is not null;
+        AllocationByTeacher.IsVisible = showDirectories && _stage != Stage.ByTeacher;
+        AllocationBySpace.IsVisible = showDirectories && _stage != Stage.BySpace;
+        AllocationSchoolProfile.IsVisible = !_discard && !pending && editing && OpenSchoolProfile is not null;
         AllocationFooter.Text = $"{_teachers.Count} 位教师 · {_teachers.Sum(row => row.Access.Count)} 项分配";
+        RenderReceiptActions();
+        UpdatePendingActions();
     }
 
     private bool HasDocumentConflict => _rejectedTarget is not null || _fileTarget is { } target && TargetDifferences(target).Length > 0;
 
-    private void Status(string text) { AllocationStatus.Text = text; ToolTip.SetTip(AllocationStatus, text); }
-    private void TabChanged(object? sender, SelectionChangedEventArgs args)
+    private void Status(string text)
     {
-        if (_client is null || !ReferenceEquals(args.Source, AllocationTabs)) return;
-        if (AllocationTabs.SelectedIndex == 0) RebuildAccessEditor();
+        AllocationStatus.Text = text;
+        AllocationStatus.IsVisible = !string.IsNullOrWhiteSpace(text);
+        ToolTip.SetTip(AllocationStatus, text);
     }
     private void FilterChanged(object? sender, SelectionChangedEventArgs args) { if (_client is not null) ShowFilteredReview(); }
     private void ApprovalChanged(object? sender, RoutedEventArgs args) { if (_client is not null) Render(); }
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
+    private void CloseClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
+    private void KeepEditingClicked(object? sender, RoutedEventArgs args)
+    {
+        _discard = false;
+        Status("");
+        Render();
+        FocusLater(AllocationClose);
+    }
+    private void DiscardClicked(object? sender, RoutedEventArgs args)
+    {
+        _allowClose = true;
+        CloseRequested?.Invoke();
+    }
+
     private void OpenLegacyWebClicked(object? sender, RoutedEventArgs args)
     {
         if (LegacyWebLink is { } link && !SchoolAdminBrowser.Open(link)) Status("浏览器未能打开，请从旧网页的「教师分配」继续。");
     }
-    internal void CloseForScopeChange() { _allowClose = true; Close(); }
 }

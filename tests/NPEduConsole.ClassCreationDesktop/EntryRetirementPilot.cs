@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation;
@@ -93,26 +92,27 @@ internal static partial class Program
             grade.SelectedItem = grade.Items.Cast<object>().Single(item => item.ToString()!.Contains("高二（G2）"));
             await Until(() => Find<Button>(org, "OrgTeacherAllocation").IsEffectivelyEnabled, "selected grade access action ready");
             Click(Find<Button>(org, "OrgTeacherAllocation"));
-            var allocation = await WindowOf<TeacherAllocationWindow>();
-            allocation.Width = 840;
-            allocation.Height = 480;
-            await Until(() => Find<TextBlock>(allocation, "AllocationScope").Text!.Contains("历史秋季"), "history teacher access opened");
-            Find<TabControl>(allocation, "AllocationTabs").SelectedIndex = 3;
-            var spaces = Find<ListBox>(allocation, "AllocationDirectorySpaces");
+            var archiveAllocation = await AcademicPageAsync<TeacherAllocationView>(main);
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => Find<TextBlock>(archiveAllocation, "AllocationScope").Text!.Contains("历史秋季"), "history teacher access opened");
+            await PressScoped(archiveAllocation, "AllocationBySpace");
+            var spaces = Find<ListBox>(archiveAllocation, "AllocationDirectorySpaces");
             spaces.SelectedItem = spaces.Items.OfType<AllocationWorkspace>().Single(room => room.Id == access.ArchivedClassId);
+            await PressScoped(archiveAllocation, "AllocationOpenSpaceDetails");
             Click(await InvitationButton(access.InviteId));
             var target = await ConfirmWindow();
             await Capture(target, output, "03-narrow-invitation-confirmation");
             Click(target.GetVisualDescendants().OfType<Button>().Single(btn => Equals(btn.Content, "确认撤回这条邀请")));
-            await Until(() => Find<TextBlock>(allocation, "AllocationStatus").Text!.Contains("服务器已确认撤回"), "only selected invitation confirmed");
+            await Until(() => Find<TextBlock>(archiveAllocation, "AllocationStatus").Text!.Contains("服务器已确认撤回"), "only selected invitation confirmed");
             await Signal("only-target-revoked");
             Click(await InvitationButton(access.RaceInviteId));
             target = await ConfirmWindow();
             await Signal("claim-before-confirm");
             Click(target.GetVisualDescendants().OfType<Button>().Single(btn => Equals(btn.Content, "确认撤回这条邀请")));
-            await Until(() => Find<TextBlock>(allocation, "AllocationStatus").Text!.Contains("已被认领"), "claim wins without false revoke");
-            await Capture(allocation, output, "04-narrow-invitation-claimed");
-            allocation.Close();
+            await Until(() => Find<TextBlock>(archiveAllocation, "AllocationStatus").Text!.Contains("已被认领"), "claim wins without false revoke");
+            await CaptureWithFrame(main, output, "04-narrow-invitation-claimed");
+            await PressScoped(archiveAllocation, "AllocationClose");
             await PressScoped(org, "OrgClose");
             await Until(() => terms.IsEffectivelyEnabled, "invitation workflow returns to term directory");
 
@@ -132,16 +132,15 @@ internal static partial class Program
             var emailEntry = Find<Button>(form, "TeacherFormAllocation");
             await Until(() => emailEntry.IsEffectivelyVisible && emailEntry.IsEnabled, "OAuth school form has desktop allocation");
             Click(emailEntry);
-            allocation = await WindowOf<TeacherAllocationWindow>();
-            await Until(() => Find<TextBlock>(allocation, "AllocationScope").Text!.Contains("现用春季"), "OAuth workbench retains original term");
-            var load = typeof(TeacherAllocationWindow).GetMethod("LoadAllocationText", BindingFlags.Instance | BindingFlags.NonPublic)!;
-            load.Invoke(allocation, ["""{"assignments":[{"email":"pilot-new@example.test","role":"VIEWER","workspaceCodes":["G2-C08"]}]}""", true]);
-            Click(Find<Button>(allocation, "AllocationPreviewButton"));
-            var approve = Find<CheckBox>(allocation, "AllocationApprove");
+            var allocation = await WindowOf<TeacherAllocationWindow>();
+            await Until(() => Find<TextBlock>(allocation.View, "AllocationScope").Text!.Contains("现用春季"), "OAuth workbench retains original term");
+            allocation.View.LoadAllocationText("""{"assignments":[{"email":"pilot-new@example.test","role":"VIEWER","workspaceCodes":["G2-C08"]}]}""", legacy: true);
+            Click(Find<Button>(allocation.View, "AllocationPreviewButton"));
+            var approve = Find<CheckBox>(allocation.View, "AllocationApprove");
             await Until(() => approve.IsEffectivelyEnabled, "actual email invitation preview");
             approve.IsChecked = true;
-            Click(Find<Button>(allocation, "AllocationSave"));
-            await Until(() => Find<TextBlock>(allocation, "AllocationStatus").Text!.Contains("服务器已确认"), "ordinary invitation saved separately");
+            Click(Find<Button>(allocation.View, "AllocationSave"));
+            await Until(() => Find<TextBlock>(allocation.View, "AllocationStatus").Text!.Contains("服务器已确认"), "ordinary invitation saved separately");
             await Capture(allocation, output, "05-oauth-assignment-workbench");
             allocation.Close();
             await Until(() => !form.IsVisible && Find<Button>(teaching, "TeachingReadButton").IsEffectivelyEnabled, "return to exact assignment form");
@@ -305,9 +304,9 @@ internal static partial class Program
             }
             async Task<Button> InvitationButton(string id)
             {
-                await Until(() => allocation.GetVisualDescendants().OfType<Button>().Any(btn =>
+                await Until(() => archiveAllocation.GetVisualDescendants().OfType<Button>().Any(btn =>
                     btn.IsEffectivelyVisible && AutomationProperties.GetAutomationId(btn) == "RevokeArchivedInvitation-" + id), "exact invitation action");
-                return allocation.GetVisualDescendants().OfType<Button>().First(btn =>
+                return archiveAllocation.GetVisualDescendants().OfType<Button>().First(btn =>
                     btn.IsEffectivelyVisible && AutomationProperties.GetAutomationId(btn) == "RevokeArchivedInvitation-" + id);
             }
 

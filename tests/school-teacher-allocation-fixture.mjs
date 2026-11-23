@@ -9,6 +9,11 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   await mkdir(evidence, {recursive: true});
   const {school, term, other, pin, managerId} = fixture;
   const teacher = await prisma.account.findFirstOrThrow({where: {localUsername: 'viewer', schoolMemberships: {some: {schoolId: school.id}}}});
+  for (const username of ['peer-a', 'peer-b']) {
+    const peer = await prisma.account.create({data: {provider: 'school-local', providerId: school.code + ':' + username,
+      localUsername: username, name: '同名示例教师', providerData: {schoolCode: school.code}}});
+    await prisma.schoolMember.create({data: {schoolId: school.id, accountId: peer.id, role: 'VIEWER'}});
+  }
   const grade = await prisma.grade.findFirstOrThrow({where: {termId: term.id, code: 'G2'}});
   const draft = await prisma.academicTerm.create({data: {schoolId: school.id, academicYear: 2027, semester: 1,
     name: '开学准备草稿', status: 'DRAFT'}});
@@ -26,7 +31,7 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   const room = (targetTerm, targetGrade, code, name, type = 'ADMIN_CLASS', subjectId = null) =>
     prisma.workspace.create({data: {termId: targetTerm.id, gradeId: targetGrade.id, code, name, type, subjectId}});
   const [seven, eight, a1, draftSeven, draftEight, oauthSeven, oauthEight] = await Promise.all([
-    room(term, grade, 'G2-C07', '高二（07）班'), room(term, grade, 'G2-C08', '高二（08）班'),
+    room(term, grade, 'G2-C07', '高二（07）班'), room(term, grade, 'G2-C08', '高二（08）班 · 物理实验与走班教学支持'),
     room(term, grade, 'G2-PHY-A1', '物理 A1', 'COURSE_GROUP', physics.id),
     room(draft, draftGrade, 'G2-C07', '高二（07）班草稿'), room(draft, draftGrade, 'G2-C08', '高二（08）班草稿'),
     room(oauthTerm, oauthGrade, 'G2-C07', '邮箱高二七班'), room(oauthTerm, oauthGrade, 'G2-C08', '邮箱高二八班'),
@@ -62,7 +67,8 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   const path = schoolId => '/api/v2/admin/schools/' + schoolId + '/teacher-allocation';
   const primaryPath = path(school.id), oauthPath = path(oauthSchool.id);
   const inviteEmail = 'claim-teacher@example.invalid', revokeEmail = 'revoke-teacher@example.invalid';
-  const state = {steps: [], stale: 0, lost: false, receiptReads: 0, oauthCodes: []};
+  const state = {steps: [], stale: 0, lost: false, receiptReads: 0, draftReads: [], oauthCodes: []};
+  let draftReceipt;
   let browser, frontend;
   const probe = await isolatedIdentityProvider(fromKv, origin);
   const myWorkspaces = (token, targetTerm) => api('/api/v2/me/workspaces' + (targetTerm ? '?termId=' + targetTerm : ''), {token});
@@ -113,9 +119,20 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
 
   async function checkpoint(step) {
     switch (step) {
-    case 'draft-access': {
+    case 'draft-pending':
+    case 'draft-isolated-from-active':
+      assert.ok(draftReceipt);
+      assert.deepEqual(state.draftReads, [draftReceipt.requestId]);
+      assert.equal(await prisma.schoolTeacherAllocationReceipt.count({where: {schoolId: school.id, requestId: draftReceipt.requestId}}), 1);
       assert.equal((await findMember(draftEight)).role, 'ASSISTANT');
-      assert.equal((await findMember(eight)).role, 'VIEWER');
+      assert.equal(await findTeacher('new-physics'), null);
+      break;
+    case 'draft-access': {
+      assert.deepEqual(state.draftReads, [draftReceipt.requestId, draftReceipt.requestId]);
+      await api(primaryPath + '/receipts/' + draftReceipt.requestId, {token: browserManager.access_token, status: 404});
+      await api(oauthPath + '/receipts/' + draftReceipt.requestId, {token: manager.access_token, status: 404});
+      assert.equal((await findMember(draftEight)).role, 'ASSISTANT');
+      assert.equal((await findMember(eight)).role, 'ASSISTANT');
       const visible = await myWorkspaces(originalSession, draft.id);
       assert.ok(visible.some(row => row.workspace.id === draftEight.id));
       assert.equal((await prisma.academicTerm.findUniqueOrThrow({where: {id: draft.id}})).status, 'DRAFT');
@@ -152,6 +169,9 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       await localLogin('viewer', pin);
       break;
     }
+    case 'teaching-return':
+      assert.deepEqual(await prisma.teachingAssignment.findMany({where: {workspace: {termId: term.id}}}), teachingBefore);
+      break;
     case 'duty-only':
       assert.equal(await findMember(seven), null);
       assert.ok((await myWorkspaces(originalSession)).some(row => row.workspace.id === seven.id &&
@@ -189,7 +209,13 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       catch (error) { console.error(error); res.writeHead(500).end(); }
       return;
     }
-    if (req.method === 'GET' && req.url.startsWith(primaryPath + '/receipts/')) state.receiptReads++;
+    if (req.method === 'GET' && req.url.startsWith(primaryPath + '/receipts/')) {
+      const id = new URL(req.url, upstreamOrigin).pathname.split('/').at(-1);
+      if (id === draftReceipt?.requestId) {
+        state.draftReads.push(id);
+        if (state.draftReads.length === 1) { res.writeHead(502).end(); return; }
+      } else state.receiptReads++;
+    }
     const upstream = request(new URL(req.url, upstreamOrigin), {method: req.method, headers: {...req.headers, host: upstreamOrigin.host}}, reply => {
       if (req.method !== 'POST' || req.url !== primaryPath || reply.statusCode !== 200) {
         res.writeHead(reply.statusCode, reply.headers); reply.pipe(res);
@@ -200,7 +226,13 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       reply.on('end', () => {
         const response = Buffer.concat(chunks), result = JSON.parse(response).data;
         if (result?.state === 'STALE') state.stale++;
+        if (result?.state === 'APPLIED' && result.receipt.termId === draft.id && !draftReceipt) {
+          draftReceipt = result.receipt;
+          res.destroy();
+          return;
+        }
         if (!state.lost && result?.state === 'APPLIED' && result.receipt.termStatus === 'ACTIVE') {
+          assert.ok(!JSON.stringify(result.receipt).includes(newPin) && !JSON.stringify(result.receipt).includes(ignoredPin));
           state.lost = true;
           res.destroy();
           return;
@@ -228,14 +260,15 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       ]}))
     ]);
     await writeFile(desktopAccess, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id,
-      schoolCode: school.code, password: pin, draftId: draft.id,
+      schoolCode: school.code, password: pin, draftId: draft.id, activeId: term.id, groupId: a1.id,
       oauthSchoolId: oauthSchool.id, newPin, ignoredPin, inviteEmail, revokeEmail, wrongTermFile, wrongSchoolFile, matchingFile,
       allowAllocationWrites: true}), {mode: 0o600});
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (b, webOrigin) => {
       browser = b; frontend = webOrigin;
       await runDesktop(['--live-teacher-allocation', desktopAccess, evidence]);
     }});
-    assert.deepEqual(state.steps, ['draft-access', 'document-scope-zero', 'legacy-remove', 'stale-zero', 'primary-applied', 'duty-only', 'invitation-pending', 'oauth-complete']);
+    assert.deepEqual(state.steps, ['draft-pending', 'draft-isolated-from-active', 'document-scope-zero', 'legacy-remove',
+      'stale-zero', 'primary-applied', 'teaching-return', 'duty-only', 'draft-access', 'invitation-pending', 'oauth-complete']);
     await writeFile(join(evidence, 'teacher-allocation-cross-end.json'), JSON.stringify({passed: true, ...state,
       sharedLocalLogin: true, originalLocalSession: 'valid', retainedDuty: 'HEAD_TEACHER', unchangedTeachingRows: teachingBefore.length,
       oauthProvider: 'loopback HLY fixture, real KV OAuth callback and browser-bound exchange routes'}, null, 2));

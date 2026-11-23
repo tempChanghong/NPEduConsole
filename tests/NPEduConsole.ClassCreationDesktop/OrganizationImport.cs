@@ -227,7 +227,7 @@ internal static partial class Program
             await Signal("current-applied");
             await CaptureWithFrame(main, output, "07-current-receipt");
             await PressScoped(active, "OrgTeacherAllocation");
-            var allocation = await TaskWindow<TeacherAllocationWindow>();
+            var allocation = await AcademicPageAsync<TeacherAllocationView>(main);
             await Until(() => Find<TextBlock>(allocation, "AllocationScope").Text?.Contains("秋季学期") == true,
                 "organization receipt opens teacher allocation in the exact active term");
             Check(Find<ComboBox>(allocation, "AllocationGrade").SelectedItem?.ToString()?.Contains("G2") == true,
@@ -289,12 +289,6 @@ internal static partial class Program
             Console.Error.WriteLine(error);
             try { await CaptureWithFrame(main, output, "desktop-organization-failure"); } catch { }
             desktop.Shutdown(1);
-        }
-
-        async Task<T> TaskWindow<T>() where T : Window
-        {
-            await Until(() => desktop.Windows.OfType<T>().Any(row => row.IsVisible), typeof(T).Name + " is visible");
-            return desktop.Windows.OfType<T>().Single(row => row.IsVisible);
         }
 
         async Task Signal(string mark)

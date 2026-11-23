@@ -97,13 +97,7 @@ public sealed partial class MainWindow
         async Task OpenTeachersAsync(string term, string grade, string? workspace)
         {
             if (!ShowsAcademicPage(view) || !await view.HasCurrentTargetAsync(term, grade) || !ShowsAcademicPage(view)) return;
-            if (!archived && TeacherAllocationWindow.HasOtherPendingTarget(client, school.Id, term, grade))
-            {
-                view.NavigationNotice("另一个学期或年级的教师分配仍待核对。请从教师账号的「批量导入与分配」核对那笔请求。");
-                return;
-            }
-            await ShowTeacherAllocationAsync(this, client, school, term, grade, archived, workspace,
-                error => AcademicScopeUnavailable(error, client, school));
+            await ShowTeacherAllocationPageAsync(client, school, term, grade, archived, workspace);
         }
     }
 

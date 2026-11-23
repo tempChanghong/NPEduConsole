@@ -625,7 +625,11 @@ public sealed partial class MainWindow : Window
 
     private void ResetSession()
     {
-        if (_client is { } endingClient) OrganizationImportView.EndSession(endingClient);
+        if (_client is { } endingClient)
+        {
+            OrganizationImportView.EndSession(endingClient);
+            TeacherAllocationView.EndSession(endingClient);
+        }
         CancelRequest();
         ResetSchoolServerStatus();
         CloseClassRoster();

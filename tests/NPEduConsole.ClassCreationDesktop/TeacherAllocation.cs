@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Automation;
@@ -13,7 +12,7 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record TeacherAllocationAccess(string Origin, string SchoolId, string SchoolCode, string Password,
-        string DraftId, string OauthSchoolId, string NewPin, string IgnoredPin,
+        string DraftId, string ActiveId, string GroupId, string OauthSchoolId, string NewPin, string IgnoredPin,
         string InviteEmail, string RevokeEmail, string WrongTermFile, string WrongSchoolFile, string MatchingFile, bool AllowAllocationWrites);
 
     private static int StartTeacherAllocation(string fixture, string output)
@@ -59,7 +58,7 @@ internal static partial class Program
             var handoff = Find<Button>(organization, "OrgTeacherAllocation");
             await Until(() => handoff.IsEffectivelyVisible && handoff.IsEnabled, "server organization receipt offers teacher allocation");
             Click(handoff);
-            var window = await WindowOf<TeacherAllocationWindow>();
+            var window = await AcademicPageAsync<TeacherAllocationView>(main);
             var allocationScope = Find<TextBlock>(window, "AllocationScope");
             await Until(() => allocationScope.Text?.Contains("开学准备草稿") == true && allocationScope.Text.Contains("高二"),
                 "organization receipt supplies draft term and grade");
@@ -67,21 +66,57 @@ internal static partial class Program
                 "selected server grade displays high school code");
             Load(window, """{"assignments":[{"username":"viewer","name":"viewer","role":"ASSISTANT","workspaceCodes":["G2-C08"]}]}""");
             await Preview(window, () => Differences(window).Any(row => row.Action == "ADD" && row.Workspace?.Contains("草稿") == true));
-            await Save(window, () => Status(window).Contains("分配属于草稿学期"));
-            await Signal("draft-access");
-            await Capture(window, output, "01-draft-handoff-and-access");
-            Click(Find<Button>(window, "AllocationClose"));
-            await Until(() => !window.IsVisible && main.IsEnabled && Find<Button>(organization, "OrgTeacherAllocation").IsFocused,
-                "returned to original draft organization result");
+            await Save(window, () => Find<Button>(window, "AllocationVerify").IsEffectivelyVisible &&
+                Status(window).Contains("暂不可读"));
+            await Signal("draft-pending");
+            await CaptureWithFrame(main, output, "01-draft-handoff-and-pending");
+            await PressScoped(window, "AllocationClose");
+            await Until(() => !window.IsEffectivelyVisible && Find<Button>(organization, "OrgTeacherAllocation").IsFocused,
+                "closing an unresolved draft allocation restores the exact organization receipt");
             await PressScoped(organization, "OrgClose");
 
-            var (accountWindow, active) = await OpenTeacherBulk();
-            window = active;
-            await Until(() => Find<Button>(window, "AllocationJson").IsEnabled && Find<TextBlock>(window, "AllocationScope").Text!.Contains("秋季学期"),
-                "teacher account bulk entry defaults to active term");
-            window.Width = 840;
-            window.Height = 480;
-            await Until(() => window.ClientSize is {Width: <= 845, Height: <= 485}, "narrow allocation workbench");
+            await SelectSchool(access.OauthSchoolId);
+            var (otherDirectory, otherWorkbench) = await OpenTeacherBulk();
+            await Until(() => Find<TextBlock>(otherWorkbench.View, "AllocationScope").Text?.Contains("OAuth 邮箱") == true,
+                "the other school loaded while the original school still has a pending receipt");
+            Check(!Find<WrapPanel>(otherWorkbench.View, "AllocationPendingActions").IsVisible,
+                "the original pending draft is not exposed at another school");
+            await PressScoped(otherWorkbench.View, "AllocationClose");
+            await Until(() => otherDirectory.IsEnabled, "other directory restores");
+            otherDirectory.Close();
+            await SelectSchool(access.SchoolId);
+
+            await PressScoped(main, "OpenOrganizationImportButton");
+            var activeOrganization = await AcademicPageAsync<OrganizationImportView>(main);
+            await Until(() => Find<ComboBox>(activeOrganization, "OrgTerm").SelectedItem is OrganizationTerm term && term.Id == access.ActiveId &&
+                Find<Button>(activeOrganization, "OrgOpenFile").IsEffectivelyEnabled, "active organization page ready");
+            activeOrganization.LoadOrganizationText("""{"grade":{"code":"G2","name":"高二"},"subjects":[],"administrativeClasses":[{"code":"G2-C15","name":"高二（15）班","subjectRules":{}}]}""");
+            await PressScoped(activeOrganization, "OrgPreview");
+            var activeApproval = Find<CheckBox>(activeOrganization, "OrgApprove");
+            await Until(() => activeApproval.IsEffectivelyEnabled, "active organization result preview ready");
+            activeApproval.IsChecked = true;
+            await PressScoped(activeOrganization, "OrgSave");
+            await PressScoped(activeOrganization, "OrgTeacherAllocation");
+            window = await AcademicPageAsync<TeacherAllocationView>(main);
+            await Until(() => Find<Button>(window, "AllocationJson").IsEffectivelyEnabled && Find<TextBlock>(window, "AllocationScope").Text!.Contains("秋季学期"),
+                "active organization receipt opens its own allocation");
+            Check(TopLevel.GetTopLevel(window) == main && !Find<ComboBox>(window, "AllocationTerm").IsEnabled &&
+                !Find<ComboBox>(window, "AllocationGrade").IsEnabled && !Find<WrapPanel>(window, "AllocationPendingActions").IsVisible,
+                "main HWND and fixed current term and grade, with another term's pending receipt isolated");
+            await Signal("draft-isolated-from-active");
+            await PressScoped(window, "AllocationByTeacher");
+            var search = Find<TextBox>(window, "AllocationTeacherSearch");
+            search.Text = "同名示例教师";
+            var people = Find<ListBox>(window, "AllocationDirectoryTeachers");
+            await Until(() => people.ItemCount == 2, "same-name query has filtered the directory");
+            var sameName = people.Items.Cast<object>().Select(row => row.ToString()).ToArray();
+            Check(sameName.Length == 2 && sameName.Any(row => row!.Contains("peer-a")) && sameName.Any(row => row!.Contains("peer-b")),
+                "same-name teachers are distinguished by their actual short accounts");
+            await CaptureWithFrame(main, output, "01a-wide-same-name-teachers");
+            await PressScoped(window, "AllocationEdit");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is {Width: <= 845, Height: <= 485}, "narrow main workbench");
             string ActiveTable(string pin) => "短账号\t姓名\t初始 PIN\t班级代码\t角色\n" +
                 $"new-physics\t陈老师\t{pin}\tG2-C07,G2-PHY-A1\t教师\nviewer\tviewer\t{access.IgnoredPin}\tG2-C08\t助教";
             await Paste(window, ActiveTable("abc"));
@@ -93,7 +128,7 @@ internal static partial class Program
                 Find<TextBlock>(window, "AllocationFooter").Text!.Contains("2 位教师") &&
                 !Find<Button>(window, "AllocationPreviewButton").IsEnabled && !Find<Button>(window, "AllocationSave").IsEnabled,
                 "an old term file keeps the active term and the unchanged original table and blocks writes");
-            await Capture(window, output, "09-native-file-old-term-rejected");
+            await CaptureWithFrame(main, output, "09-native-file-old-term-rejected");
             await OpenLegacyFile(window, access.WrongSchoolFile);
             Check(target.Text!.Contains("所选 示范中学／文件声明编号 " + access.OauthSchoolId) &&
                 !Find<Button>(window, "AllocationPreviewButton").IsEnabled, "another school's declaration blocks before preview");
@@ -109,25 +144,79 @@ internal static partial class Program
             pinCell.Text = access.NewPin;
             await Preview(window, () => Differences(window).Any(row => row.Message?.Contains("旧 PIN 已忽略") == true) &&
                 Differences(window).Any(row => row.Workspace?.Contains("08") == true && row.Current == "只读" && row.After == "助教"));
-            await Capture(window, output, "02-narrow-pin-ignored-and-role-preview");
+            await CaptureWithFrame(main, output, "02-narrow-pin-ignored-and-role-preview");
             await Signal("legacy-remove");
             await Save(window, () => Status(window).Contains("零写入") && Differences(window).Any(row => row.NeedsReview &&
                 row.Workspace?.Contains("08") == true && row.Message?.Contains("预览时 只读，现为 无记录") == true));
             await Signal("stale-zero");
-            await Capture(window, output, "03-narrow-eighth-stale");
+            var conflict = Differences(window).Single(row => row.Workspace?.Contains("G2-C08") == true && row.NeedsReview);
+            Check(conflict.BeforeText == "无直接访问" && conflict.AfterText == "助教", "the verified lack of a direct role appears as such");
+            list.SelectedItem = conflict;
+            await VerifyConflictGeometry(conflict, narrow: true);
+            await CaptureWithFrame(main, output, "03-narrow-eighth-stale");
+            main.Width = 1160;
+            main.Height = 780;
+            await Until(() => main.ClientSize.Width >= 1150, "return to wide size with the same issue");
+            await VerifyConflictGeometry(conflict, narrow: false);
+            await CaptureWithFrame(main, output, "03a-wide-eighth-stale");
 
-            window.Width = 1160;
-            window.Height = 780;
+            async Task VerifyConflictGeometry(AllocationDifference row, bool narrow)
+            {
+                list.ScrollIntoView(row);
+                await Until(() =>
+                {
+                    if (!ReferenceEquals(list.SelectedItem, row) || list.ContainerFromItem(row) is not ListBoxItem container) return false;
+                    var text = container.GetVisualDescendants().OfType<TextBlock>().Where(item => item.IsEffectivelyVisible).ToArray();
+                    var current = narrow ? "现在　" + row.BeforeText : row.BeforeText;
+                    var after = narrow ? "提交后　" + row.AfterText : row.AfterText;
+                    return text.Any(item => item.Text == current && item.Bounds.Height > 0) &&
+                        text.Any(item => item.Text == after && item.Bounds.Height > 0) &&
+                        list.GetVisualDescendants().OfType<ListBoxItem>().Count(item => item.IsEffectivelyVisible &&
+                            item.TranslatePoint(new Point(0, item.Bounds.Height), list) is { } bottom && bottom.Y <= list.Bounds.Height + 1) >= 3 &&
+                        !Find<Button>(window, "AllocationJson").IsEffectivelyVisible &&
+                        Find<Button>(window, "AllocationPreviewButton").IsEffectivelyVisible;
+                }, "selected conflict shows both values on the same row, two neighboring rows and the stage action");
+            }
+
             await Preview(window, () => Find<CheckBox>(window, "AllocationApprove").IsEnabled);
             await Save(window, () => Status(window).Contains("找回原回执"));
             await Signal("primary-applied");
-            await Capture(window, output, "04-wide-teacher-results");
-
+            await CaptureWithFrame(main, output, "04-wide-teacher-results");
+            var receiptRows = Find<ListBox>(window, "AllocationReceiptRows");
+            receiptRows.SelectedItem = receiptRows.Items.Cast<object>().Single(row =>
+                row.ToString()!.Contains("new-physics") && row.ToString()!.Contains("G2-PHY-A1"));
+            Check(receiptRows.Items.Cast<object>().All(row => !row.ToString()!.Contains(access.NewPin) && !row.ToString()!.Contains(access.IgnoredPin)),
+                "receipt rows contain no initial or ignored PIN");
+            await PressScoped(window, "AllocationBySpace");
+            Find<TextBox>(window, "AllocationSpaceSearch").Text = "G2-C07";
+            var filteredSpaces = Find<ListBox>(window, "AllocationDirectorySpaces");
+            await Until(() => filteredSpaces.ItemCount == 1 &&
+                filteredSpaces.Items.OfType<AllocationWorkspace>().First().Code == "G2-C07", "another space is filtered");
+            await PressScoped(window, "AllocationBackToReceipt");
+            await PressScoped(window, "AllocationReceiptSpace");
+            Check((filteredSpaces.SelectedItem as AllocationWorkspace)?.Id == access.GroupId,
+                "one click opens the exact receipt space even if a previous query hid it");
+            await PressScoped(window, "AllocationBackToReceipt");
+            await PressScoped(window, "AllocationReceiptTeaching");
+            var teaching = await AcademicPageAsync<TeachingView>(main);
+            await Until(() => Find<TextBlock>(teaching, "TeachingContext").Text?.Contains("物理 A1") == true &&
+                Find<ComboBox>(teaching, "TeachingTeacherPicker").SelectedItem is TeachingTeacher {Username: "new-physics"},
+                "opened the confirmed course group and exact teacher in the main HWND");
+            Check(TopLevel.GetTopLevel(teaching) == main, "assignment uses the original main HWND");
+            await CaptureWithFrame(main, output, "08-continue-to-course-group-teaching");
+            await PressScoped(teaching, "CloseTeachingButton");
+            await PressScoped(teaching, "TeachingKeepDraft");
+            await Until(() => Find<Button>(window, "AllocationReceiptTeaching").IsFocused &&
+                receiptRows.SelectedItem?.ToString()?.Contains("G2-PHY-A1") == true,
+                "returned to the original selected receipt row and action");
+            await Signal("teaching-return");
+            await PressScoped(window, "AllocationEdit");
             await Paste(window, ActiveTable(access.NewPin));
             await Preview(window, () => Status(window).Contains("无需重复保存") &&
                 Differences(window).Any(row => row.Message?.Contains("旧 PIN 已忽略") == true));
             Check(!Find<Button>(window, "AllocationSave").IsEnabled, "consistent legacy table cannot be submitted repeatedly");
-            Find<TabControl>(window, "AllocationTabs").SelectedIndex = 3;
+            await PressScoped(window, "AllocationEdit");
+            await PressScoped(window, "AllocationBySpace");
             var spaceList = Find<ListBox>(window, "AllocationDirectorySpaces");
             spaceList.SelectedItem = spaceList.Items.OfType<AllocationWorkspace>().Single(row => row.Code == "G2-C07");
             var spaceDetails = Find<StackPanel>(window, "AllocationSpaceDetails");
@@ -135,29 +224,44 @@ internal static partial class Program
                 card.GetVisualDescendants().OfType<TextBlock>().Any(row => row.Text?.Contains("viewer（viewer）") == true));
             Click(focused.GetVisualDescendants().OfType<Button>().Single(row => Equals(row.Content, "把移除加入教师表")));
             await Preview(window, () => Differences(window).Any(row => row.Action == "REMOVE" && row.Message?.Contains("班主任") == true));
-            await Capture(window, output, "05-removing-direct-keeps-head-teacher");
+            await CaptureWithFrame(main, output, "05-removing-direct-keeps-head-teacher");
             await Save(window, () => Status(window).Contains("服务器已确认"));
             await Signal("duty-only");
-            var teacherDirectory = Find<ListBox>(window, "AllocationDirectoryTeachers");
-            teacherDirectory.SelectedItem = teacherDirectory.Items.Cast<object>().Single(row => row.ToString()!.Contains("new-physics"));
-            var a1 = Find<StackPanel>(window, "AllocationTeacherDetails").Children.OfType<Border>().Single(card =>
-                card.GetVisualDescendants().OfType<TextBlock>().Any(row => row.Text?.Contains("物理 A1") == true));
-            Click(a1.GetVisualDescendants().OfType<Button>().Single(row => Equals(row.Content, "继续分配任课")));
-            var teaching = await WindowOf<TeachingWindow>();
-            await Until(() => Find<TextBlock>(teaching, "TeachingContext").Text?.Contains("物理 A1") == true &&
-                Find<ComboBox>(teaching, "TeachingTeacherPicker").SelectedItem is TeachingTeacher {Username: "new-physics"},
-                "continued to the confirmed teacher and course group without writing a teaching assignment");
-            await Capture(teaching, output, "08-continue-to-course-group-teaching");
-            Click(Find<Button>(teaching, "CloseTeachingButton"));
-            await Until(() => !window.IsVisible && accountWindow.IsEnabled, "teacher accounts refreshed after allocation");
-            accountWindow.Close();
-            await Until(() => !accountWindow.IsVisible && main.IsEnabled, "close local teacher list");
+            await PressScoped(window, "AllocationClose");
+            await Until(() => Find<Button>(activeOrganization, "OrgTeacherAllocation").IsFocused &&
+                Find<ListBox>(activeOrganization, "OrgReceiptClasses").SelectedItem?.ToString()?.Contains("G2-C15") == true,
+                "active organization receipt restores its selected original row and focus");
+            await PressScoped(activeOrganization, "OrgClose");
+
+            var (accounts, regular) = await OpenTeacherBulk();
+            var regularView = regular.View;
+            await Until(() => Find<TextBlock>(regularView, "AllocationScope").Text?.Contains("秋季学期") == true,
+                "regular account entry remains available");
+            var pending = Find<WrapPanel>(regularView, "AllocationPendingActions");
+            await Until(() => pending.Children.OfType<Button>().Any(button => button.Content?.ToString()?.Contains("开学准备草稿") == true),
+                "a distinct button exposes the original other-term pending request");
+            Click(pending.Children.OfType<Button>().Single());
+            await Until(() => desktop.Windows.OfType<TeacherAllocationWindow>().Any(candidate => candidate != regular &&
+                candidate.IsVisible && candidate.View.DisplayedStage == TeacherAllocationView.Stage.Receipt),
+                "explicit pending request opens the exact draft receipt");
+            var recovered = desktop.Windows.OfType<TeacherAllocationWindow>().Single(candidate => candidate != regular && candidate.IsVisible);
+            await Until(() => Status(recovered.View).Contains("找回原回执") && Find<TextBlock>(recovered.View, "AllocationScope").Text!.Contains("开学准备草稿"),
+                "server readback retains the original draft term");
+            await Signal("draft-access");
+            await PressScoped(recovered.View, "AllocationClose");
+            await Until(() => !recovered.IsVisible && regular.IsEnabled && Find<TextBlock>(regularView, "AllocationScope").Text!.Contains("秋季学期"),
+                "recovery leaves the original regular term unchanged");
+            await PressScoped(regularView, "AllocationClose");
+            await Until(() => accounts.IsEnabled, "teacher directory restores after workbench");
+            accounts.Close();
+            await Until(() => main.IsEnabled, "regular teacher directory closes");
 
             await SelectSchool(access.OauthSchoolId);
             var (oauthAccounts, oauth) = await OpenTeacherBulk();
-            window = oauth;
+            window = oauth.View;
             await Until(() => Find<Button>(window, "AllocationJson").IsEnabled && Find<TextBlock>(window, "AllocationScope").Text!.Contains("OAuth 邮箱"),
                 "email school does not ask for a personal PIN");
+            Check(!Find<WrapPanel>(window, "AllocationPendingActions").IsVisible, "a different school has no original school receipts");
             Load(window, JsonSerializer.Serialize(new {assignments = new[]
             {
                 new {email = access.InviteEmail, role = "TEACHER", workspaceCodes = new[] {"G2-C07"}},
@@ -166,23 +270,28 @@ internal static partial class Program
             await Preview(window, () => Differences(window).Count(row => row.Action == "ADD" && row.After?.Contains("待认领") == true) == 2);
             await Save(window, () => Status(window).Contains("服务器已确认"));
             await Signal("invitation-pending");
-            Find<TabControl>(window, "AllocationTabs").SelectedIndex = 3;
+            var invitations = Find<ListBox>(window, "AllocationReceiptRows");
+            invitations.SelectedItem = invitations.Items.Cast<object>().Single(row => row.ToString()!.Contains(access.InviteEmail));
+            await PressScoped(window, "AllocationReceiptPerson");
+            await Until(() => window.DisplayedStage == TeacherAllocationView.Stage.BySpace &&
+                (Find<ListBox>(window, "AllocationDirectorySpaces").SelectedItem as AllocationWorkspace)?.Code == "G2-C07",
+                "an email-only receipt opens its specific invitation and space");
             spaceList = Find<ListBox>(window, "AllocationDirectorySpaces");
             spaceList.SelectedItem = spaceList.Items.OfType<AllocationWorkspace>().Single(row => row.Code == "G2-C08");
             var revoke = Find<StackPanel>(window, "AllocationSpaceDetails").GetVisualDescendants().OfType<Button>()
                 .Single(row => Equals(row.Content, "把撤回加入教师表"));
             Click(revoke);
             await Preview(window, () => Differences(window).Any(row => row.Action == "REMOVE" && row.After?.Contains("撤回") == true));
-            await Capture(window, output, "06-revoke-one-email-invitation");
+            await Capture(oauth, output, "06-revoke-one-email-invitation");
             await Save(window, () => Status(window).Contains("服务器已确认"));
             await Signal("oauth-complete");
-            Click(Find<Button>(window, "AllocationRefresh"));
+            await PressScoped(window, "AllocationBySpace");
+            await PressScoped(window, "AllocationRefresh");
             await Until(() => Status(window).Contains("重新读取"), "after real OAuth callback and exchange, re-read actual invitation state");
-            Find<TabControl>(window, "AllocationTabs").SelectedIndex = 3;
             spaceList.SelectedItem = spaceList.Items.OfType<AllocationWorkspace>().Single(row => row.Code == "G2-C07");
             await Until(() => Find<StackPanel>(window, "AllocationSpaceDetails").GetVisualDescendants().OfType<TextBlock>()
                 .Any(row => row.Text == "邮箱已认领"), "only the verified, redeemed invitation is marked claimed");
-            await Capture(window, output, "07-email-claimed-live");
+            await Capture(oauth, output, "07-email-claimed-live");
             Console.WriteLine("PASS: Windows teacher allocation from both entry points, masked input, stale and lost replies, duties and invitations.");
             desktop.Shutdown(0);
         }
@@ -217,9 +326,9 @@ internal static partial class Program
             return (owner, await WindowOf<TeacherAllocationWindow>());
         }
 
-        async Task Paste(TeacherAllocationWindow window, string tabSeparated)
+        async Task Paste(TeacherAllocationView window, string tabSeparated)
         {
-            var clipboard = window.Clipboard ?? throw new InvalidOperationException("Windows clipboard unavailable.");
+            var clipboard = TopLevel.GetTopLevel(window)?.Clipboard ?? throw new InvalidOperationException("Windows clipboard unavailable.");
             // This fixture supplies disposable credentials through the actual Excel paste action.
             await clipboard.SetTextAsync(tabSeparated);
             try
@@ -236,7 +345,7 @@ internal static partial class Program
             }
         }
 
-        async Task OpenLegacyFile(TeacherAllocationWindow window, string file)
+        async Task OpenLegacyFile(TeacherAllocationView window, string file)
         {
             Console.WriteLine($"Select fixture in Windows picker: {file}");
             var button = Find<Button>(window, "AllocationJson");
@@ -245,17 +354,16 @@ internal static partial class Program
             while (!button.IsEnabled) await Task.Delay(50, timeout.Token);
         }
 
-        async Task Preview(TeacherAllocationWindow window, Func<bool> ready)
+        async Task Preview(TeacherAllocationView window, Func<bool> ready)
         {
-            Click(Find<Button>(window, "AllocationPreviewButton"));
-            await Until(() => Find<TabControl>(window, "AllocationTabs").SelectedIndex == 1 &&
-                Find<Button>(window, "AllocationPreviewButton").IsEnabled && ready(), "server preview is ready");
+            await PressScoped(window, "AllocationPreviewButton");
+            await Until(() => window.DisplayedStage == TeacherAllocationView.Stage.Review && ready(), "server preview is ready");
         }
 
-        async Task Save(TeacherAllocationWindow window, Func<bool> ready)
+        async Task Save(TeacherAllocationView window, Func<bool> ready)
         {
             Find<CheckBox>(window, "AllocationApprove").IsChecked = true;
-            Click(Find<Button>(window, "AllocationSave"));
+            await PressScoped(window, "AllocationSave");
             await Until(() => Find<Button>(window, "AllocationClose").IsEnabled && ready(), "server result is visible");
         }
 
@@ -271,12 +379,11 @@ internal static partial class Program
             Check(response.IsSuccessStatusCode, "isolated checkpoint: " + mark);
         }
 
-        static string Status(TeacherAllocationWindow window) => Find<TextBlock>(window, "AllocationStatus").Text ?? "";
-        static IEnumerable<AllocationDifference> Differences(TeacherAllocationWindow window) =>
+        static string Status(TeacherAllocationView window) => Find<TextBlock>(window, "AllocationStatus").Text ?? "";
+        static IEnumerable<AllocationDifference> Differences(TeacherAllocationView window) =>
             Find<ListBox>(window, "AllocationDifferences").Items.OfType<AllocationDifference>();
-        static void Load(TeacherAllocationWindow window, string document) =>
-            typeof(TeacherAllocationWindow).GetMethod("LoadAllocationText", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(window, [document, true]);
+        static void Load(TeacherAllocationView window, string document) => window.LoadAllocationText(document, legacy: true);
+
     }
 
 }

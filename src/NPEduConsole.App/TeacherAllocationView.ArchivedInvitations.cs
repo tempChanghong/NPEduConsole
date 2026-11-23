@@ -8,7 +8,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TeacherAllocationWindow
+public sealed partial class TeacherAllocationView
 {
     private Window? _archiveInvitationConfirmation;
 
@@ -46,7 +46,7 @@ public sealed partial class TeacherAllocationWindow
         };
         _archiveInvitationConfirmation = confirmation;
         bool approved;
-        try { approved = await confirmation.ShowDialog<bool>(this); }
+        try { approved = await confirmation.ShowDialog<bool>(HostWindow); }
         finally { _archiveInvitationConfirmation = null; }
         if (!approved || _closed || !ReferenceEquals(_catalog, catalog)) return;
 
@@ -81,8 +81,8 @@ public sealed partial class TeacherAllocationWindow
             if (current is not null) FocusInvitation(current.Id);
             else Dispatcher.UIThread.Post(() =>
             {
-                if (!_closed && AllocationTabs.SelectedIndex == 3) AllocationDirectorySpaces.Focus();
-                else if (!_closed && AllocationTabs.SelectedIndex == 2) AllocationDirectoryTeachers.Focus();
+                if (!_closed && _stage == Stage.BySpace) AllocationDirectorySpaces.Focus();
+                else if (!_closed && _stage == Stage.ByTeacher) AllocationDirectoryTeachers.Focus();
             }, DispatcherPriority.Loaded);
         }, writing: true);
     }

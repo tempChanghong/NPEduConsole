@@ -13,26 +13,25 @@ using NPEduConsole.Core;
 namespace NPEduConsole.App;
 
 // 窄窗布局：教师表与班级访问详情同一位置切换，列表和编辑器都不重挂。
-// 差异行在窄窗只留状态／教师／教学空间（加原因）；「现在 → 提交后」只在选中行底部、且要有值。
-public sealed partial class TeacherAllocationWindow : Window
+// 窄窗的前后权限跟随选中差异行一起滚动。
+public sealed partial class TeacherAllocationView
 {
     private const double CompactWidth = 940;
-    private const int BlockingFilter = 3;
 
     private bool _compact;
     private bool _compactDetail;
     private bool _arranged;
     private bool _lastDetail;
     private bool _hooked;
-    private int _lastTab = -1;
+    private string? _locatedIssueKey;
     private IDataTemplate? _wideDifferenceTemplate;
 
     private void ArrangeAllocationLayout(bool force = false)
     {
-        if (_closed) return;
+        if (_closed || _client is null) return;
         HookCompactBehaviour();
 
-        var compact = ClientSize.Width > 0 && ClientSize.Width < CompactWidth;
+        var compact = Bounds.Width > 0 && Bounds.Width < CompactWidth;
         if (!compact) _compactDetail = false;
         var detail = compact && _compactDetail;
         if (!force && _arranged && compact == _compact && detail == _lastDetail) return;
@@ -55,6 +54,10 @@ public sealed partial class TeacherAllocationWindow : Window
 
         Classes.Set("allocation-compact", compact);
         ArrangeAllocationDifferences(compact);
+        ArrangeDirectory(compact, AllocationTeacherDirectoryLayout, AllocationTeacherDirectoryList,
+            AllocationTeacherDirectoryDetail, AllocationOpenTeacherDetails, AllocationBackFromTeacherDetails);
+        ArrangeDirectory(compact, AllocationSpaceDirectoryLayout, AllocationSpaceDirectoryList,
+            AllocationSpaceDirectoryDetail, AllocationOpenSpaceDetails, AllocationBackFromSpaceDetails);
 
         _compact = compact;
         _lastDetail = detail;
@@ -76,7 +79,7 @@ public sealed partial class TeacherAllocationWindow : Window
             columns[4].Width = compact ? new GridLength(0) : new GridLength(1.6, GridUnitType.Star);
         }
         SwapDifferenceTemplate(compact);
-        UpdateCompactComparison();
+
     }
 
     private void SwapDifferenceTemplate(bool compact)
@@ -99,18 +102,14 @@ public sealed partial class TeacherAllocationWindow : Window
     {
         var grid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("1*,1.4*,1.4*"),
-            RowDefinitions = new RowDefinitions("Auto,Auto"),
+            ColumnDefinitions = new ColumnDefinitions("76,1.4*,1.4*"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
             ColumnSpacing = 6,
             RowSpacing = 2,
-            Margin = new Thickness(3, 2, 3, 2),
+            Margin = new Thickness(7, 4, 7, 4),
         };
-        var state = new TextBlock
-        {
-            Text = row?.ActionLabel ?? "",
-            Classes = { "label" },
-            VerticalAlignment = VerticalAlignment.Top,
-        };
+        var state = new TextBlock { Text = row?.ActionLabel ?? "", Classes = { "label", "allocation-review-state" } };
+        state.Classes.Set("stale", row?.NeedsReview == true);
         var teacher = new TextBlock { Text = row?.Teacher ?? "", TextWrapping = TextWrapping.Wrap };
         var scope = new TextBlock { Text = row?.Scope ?? "", TextWrapping = TextWrapping.Wrap };
         var message = new TextBlock
@@ -118,8 +117,6 @@ public sealed partial class TeacherAllocationWindow : Window
             Text = row?.Message ?? "",
             Classes = { "muted" },
             TextWrapping = TextWrapping.Wrap,
-            MaxLines = 2,
-            TextTrimming = TextTrimming.CharacterEllipsis,
             IsVisible = !string.IsNullOrWhiteSpace(row?.Message),
         };
         Grid.SetColumn(teacher, 1);
@@ -130,55 +127,87 @@ public sealed partial class TeacherAllocationWindow : Window
         grid.Children.Add(teacher);
         grid.Children.Add(scope);
         grid.Children.Add(message);
+        if (row is not null && (row.Current is not null || row.After is not null))
+        {
+            var values = new StackPanel
+            {
+                Classes = { "allocation-inline-values" },
+                Children =
+                {
+                    Description("现在　" + row.BeforeText),
+                    Description("提交后　" + row.AfterText)
+                }
+            };
+            Grid.SetRow(values, 2);
+            Grid.SetColumn(values, 1);
+            Grid.SetColumnSpan(values, 2);
+            grid.Children.Add(values);
+        }
         return grid;
     }
 
-    private void AllocationDifferenceSelected(object? sender, SelectionChangedEventArgs args)
+    private void AllocationKeyDown(object? sender, KeyEventArgs args)
     {
-        if (_closed) return;
-        UpdateCompactComparison();
-    }
-
-    private void AllocationDifferenceKeyDown(object? sender, KeyEventArgs args)
-    {
-        if (_closed) return;
-        switch (args.Key)
+        if (_closed || _busy || _discard) return;
+        if (_stage is Stage.ByTeacher or Stage.BySpace)
         {
-            case Key.Enter:
-                if (AllocationDifferences.SelectedItem is AllocationDifference chosen)
+            if (!_compact) return;
+            if (args.Key == Key.Escape && _showDirectoryDetail)
+            {
+                DirectoryListClicked(null, args);
+                args.Handled = true;
+            }
+            else if (args.Key == Key.Enter && !_showDirectoryDetail)
+            {
+                if (_stage == Stage.ByTeacher && AllocationDirectoryTeachers.IsKeyboardFocusWithin)
                 {
+                    OpenTeacherDetailsClicked(null, args);
                     args.Handled = true;
-                    FocusAllocationIssue(chosen);
-                    UpdateCompactComparison();
                 }
-                break;
-            case Key.F8:
-                args.Handled = JumpToBlockingAllocation();
-                break;
+                else if (_stage == Stage.BySpace && AllocationDirectorySpaces.IsKeyboardFocusWithin)
+                {
+                    OpenSpaceDetailsClicked(null, args);
+                    args.Handled = true;
+                }
+            }
+            return;
+        }
+        if (_stage != Stage.Review) return;
+        if (args.Key == Key.F8)
+        {
+            args.Handled = JumpToBlockingAllocation();
+        }
+        else if (args.Key == Key.Enter && AllocationDifferences.IsKeyboardFocusWithin &&
+                 AllocationDifferences.SelectedItem is AllocationDifference chosen)
+        {
+            FocusAllocationIssue(chosen);
+            args.Handled = true;
         }
     }
 
-    private void UpdateCompactComparison()
+    private void ArrangeDirectory(bool compact, Grid layout, Grid list, Grid detail, Button open, Button back)
     {
-        var row = AllocationDifferences.SelectedItem as AllocationDifference;
-        var hasValues = row is not null && (row.Current is not null || row.After is not null);
-        var detail = hasValues ? $"现在：{row!.BeforeText}　→　提交后：{row.AfterText}" : "";
-        AllocationCompactComparison.Text = detail;
-        AllocationCompactComparison.IsVisible = _compact && detail.Length > 0;
-        AutomationProperties.SetName(AllocationCompactComparison, row is null
-            ? "所选差异"
-            : detail.Length > 0 ? $"{row.Teacher}：{detail}" : $"{row.Teacher} {row.ActionLabel}");
+        list.IsVisible = !compact || !_showDirectoryDetail;
+        detail.IsVisible = !compact || _showDirectoryDetail;
+        layout.ColumnDefinitions[1].Width = compact ? new GridLength(0) : new GridLength(3, GridUnitType.Star);
+        layout.ColumnSpacing = compact ? 0 : 9;
+        Grid.SetColumn(detail, compact ? 0 : 1);
+        open.IsVisible = compact && !_showDirectoryDetail;
+        back.IsVisible = compact && _showDirectoryDetail;
     }
 
     private bool JumpToBlockingAllocation()
     {
-        var target = _reviewRows.FirstOrDefault(item => item.Action == "BLOCK" || item.NeedsReview);
-        if (target is null) return false;
-        if (AllocationFilter.SelectedIndex != BlockingFilter) AllocationFilter.SelectedIndex = BlockingFilter;
+        var issues = _reviewRows.Where(item => item.Action == "BLOCK" || item.NeedsReview).ToArray();
+        if (issues.Length == 0) return false;
+        var last = Array.FindIndex(issues, item => item.Key == _locatedIssueKey);
+        var target = last < 0 && AllocationDifferences.SelectedItem is AllocationDifference selected && issues.Contains(selected)
+            ? selected : issues[(last + 1) % issues.Length];
+        if (!AllocationDifferences.Items.Contains(target)) AllocationFilter.SelectedIndex = 0;
         AllocationDifferences.SelectedItem = target;
         if (!ReferenceEquals(AllocationDifferences.SelectedItem, target)) return false;
         FocusAllocationIssue(target);
-        UpdateCompactComparison();
+
         return true;
     }
 
@@ -214,7 +243,7 @@ public sealed partial class TeacherAllocationWindow : Window
             ArrangeAllocationLayout(force: true);
             return;
         }
-        if (AllocationTabs.SelectedIndex != 0) AllocationTabs.SelectedIndex = 0;
+        if (_stage != Stage.Edit) SetStage(Stage.Edit);
         if (_compactDetail) return;
         _compactDetail = true;
         ArrangeAllocationLayout(force: true);
@@ -269,21 +298,7 @@ public sealed partial class TeacherAllocationWindow : Window
     {
         if (_hooked) return;
         _hooked = true;
-        AutomationProperties.SetLiveSetting(AllocationCompactComparison, AutomationLiveSetting.Polite);
         AllocationTeachers.SelectionChanged += (_, _) => SyncOpenEditorButton();
-        AllocationTabs.SelectionChanged += (_, _) => TrackAllocationTab();
-    }
-
-    // 窄窗开着详情时切到别的 Tab，详情要收起。
-    private void TrackAllocationTab()
-    {
-        var index = AllocationTabs.SelectedIndex;
-        if (index == _lastTab) return;
-        _lastTab = index;
-        if (_closed || !_compact || !_compactDetail) return;
-        if (index == 0) return;
-        _compactDetail = false;
-        ArrangeAllocationLayout(force: true);
     }
 
     private void AnnounceAllocationPanes()

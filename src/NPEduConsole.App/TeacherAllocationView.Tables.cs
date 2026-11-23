@@ -11,7 +11,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TeacherAllocationWindow
+public sealed partial class TeacherAllocationView
 {
     private sealed class TeacherRow(AllocationTeacher value)
     {
@@ -34,6 +34,7 @@ public sealed partial class TeacherAllocationWindow
     private readonly List<TeacherRow> _teachers = [];
     private readonly Dictionary<string, Control> _allocationFields = new();
     private bool _buildingRows;
+    private Window? _pasteDialog;
     private TeacherRow? SelectedTeacher => AllocationTeachers.SelectedIndex is var index && index >= 0 && index < _teachers.Count ?
         _teachers[index] : null;
     private static readonly string[] RoleValues = ["TEACHER", "ASSISTANT", "VIEWER"];
@@ -322,13 +323,14 @@ public sealed partial class TeacherAllocationWindow
     private void FocusAllocationIssue(AllocationDifference row)
     {
         if (!CanEdit) return;
+        _locatedIssueKey = row.Key;
+        SetStage(Stage.Edit);
         var match = Regex.Match(row.Path, @"^(teachers\[(\d+)\])");
         if (!match.Success || !int.TryParse(match.Groups[2].Value, out var index) || index >= _teachers.Count)
         {
-            AllocationTerm.Focus(NavigationMethod.Tab);
+            FocusLater(AllocationTerm.IsEnabled ? AllocationTerm : AllocationExisting);
             return;
         }
-        AllocationTabs.SelectedIndex = 0;
         AllocationTeachers.SelectedIndex = index;
         if (_archivedCorrection && row.Path.EndsWith(".accountId", StringComparison.Ordinal))
         {
@@ -338,6 +340,25 @@ public sealed partial class TeacherAllocationWindow
         else if (row.Path.Contains(".access", StringComparison.Ordinal) || row.Path.EndsWith(".confirmSameName", StringComparison.Ordinal))
             RevealAllocationAccess();
         FocusAllocationField(row.Path, match.Groups[1].Value);
+    }
+
+    private AllocationDifference WithReviewIdentity(AllocationDifference row)
+    {
+        var match = Regex.Match(row.Path, @"^teachers\[(\d+)\]");
+        if (match.Success && int.TryParse(match.Groups[1].Value, out var index) && index < _teachers.Count)
+        {
+            var teacher = _teachers[index];
+            var identity = string.IsNullOrWhiteSpace(teacher.Identity) ? teacher.AccountId : teacher.Identity.Trim();
+            if (!string.IsNullOrEmpty(identity) && row.Teacher != identity)
+                row = row with { Teacher = $"{row.Teacher}（{identity}）" };
+        }
+        if (row.WorkspaceId is { } id && _catalog?.Workspaces.FirstOrDefault(workspace => workspace.Id == id) is { } room)
+        {
+            row = row with { Workspace = room.ToString() };
+            if (!EmailMode && row.Action == "ADD" && row.Current is null)
+                row = row with { Current = "无直接访问" };
+        }
+        return row;
     }
 
     private void FocusAllocationField(string path, string? fallback = null)
@@ -377,6 +398,7 @@ public sealed partial class TeacherAllocationWindow
             try
             {
                 var text = dialog.Clipboard is { } clipboard ? await clipboard.TryGetTextAsync() : null;
+                if (_closed) return;
                 if (text is null) throw new ArgumentException("剪贴板中没有可读取的 Excel 列。");
                 LoadAllocationText(text, legacy: false);
                 dialog.Close();
@@ -385,7 +407,9 @@ public sealed partial class TeacherAllocationWindow
             catch (InvalidOperationException) { error.Text = "暂时无法读取剪贴板，请重新复制。"; }
             finally { read.IsEnabled = true; }
         };
-        await dialog.ShowDialog(this);
+        _pasteDialog = dialog;
+        try { await dialog.ShowDialog(HostWindow); }
+        finally { _pasteDialog = null; }
         if (!_closed) AllocationPaste.Focus(NavigationMethod.Tab);
     }
 }

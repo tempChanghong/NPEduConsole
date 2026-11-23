@@ -134,9 +134,9 @@ internal static partial class Program
             results.SelectedItem = results.Items.Cast<object>().Single(item => item.ToString()!.Contains("A1"));
             Click(Find<Button>(org, "OrgTeacherAllocation"));
 
-            var teacher = await WindowOf<TeacherAllocationWindow>();
-            teacher.Width = 840;
-            teacher.Height = 480;
+            var teacher = await AcademicPageAsync<TeacherAllocationView>(main);
+            main.Width = 840;
+            main.Height = 480;
             var existing = Find<ComboBox>(teacher, "AllocationExisting");
             await Until(() => existing.Items.OfType<AllocationAccount>().Any(row => row.Id == access.TeacherId), "existing teacher by account ID");
             Check(!Find<Button>(teacher, "AllocationJson").IsVisible && !Find<Button>(teacher, "AllocationAddTeacher").IsVisible &&
@@ -156,13 +156,13 @@ internal static partial class Program
             await Until(() => Find<ListBox>(teacher, "AllocationTeachers").IsEffectivelyVisible &&
                 teacher.GetVisualDescendants().OfType<TextBox>().Any(input => input.IsFocused && input.IsReadOnly),
                 "teacher identity conflict restores the narrow table and focuses the read-only account");
-            await Capture(teacher, output, "04a-narrow-teacher-identity-focus");
+            await CaptureWithFrame(main, output, "04a-narrow-teacher-identity-focus");
             await Signal("enable-teacher-for-review");
             Click(Find<Button>(teacher, "AllocationPreviewButton"));
             var approvedAccess = Find<CheckBox>(teacher, "AllocationApprove");
             await Until(() => approvedAccess.IsEffectivelyEnabled && Find<ListBox>(teacher, "AllocationDifferences").Items.OfType<AllocationDifference>()
                 .Any(row => row.WorkspaceId == access.GroupId && row.After == "只读"), "only historic A1 has a direct read-only grant");
-            await Capture(teacher, output, "04-narrow-teacher-preview");
+            await CaptureWithFrame(main, output, "04-narrow-teacher-preview");
             approvedAccess.IsChecked = true;
             Click(Find<Button>(teacher, "AllocationSave"));
             await Until(() => Equals(Find<Button>(teacher, "AllocationSave").Content, "按原编号重试") &&
@@ -170,9 +170,9 @@ internal static partial class Program
             Click(Find<Button>(teacher, "AllocationSave"));
             await Until(() => Find<TextBlock>(teacher, "AllocationStatus").Text!.Contains("找回原回执"), "lost response resolves independent access receipt");
             await Signal("both-complete");
-            teacher.Width = 1160;
-            teacher.Height = 780;
-            await Capture(teacher, output, "05-wide-teacher-receipt");
+            main.Width = 1160;
+            main.Height = 780;
+            await CaptureWithFrame(main, output, "05-wide-teacher-receipt");
             await PressScoped(teacher, "AllocationClose");
             await Until(() => Find<Button>(org, "OrgTeacherAllocation").IsFocused &&
                 results.SelectedItem?.ToString()?.Contains("A1") == true, "return to the exact historical receipt and row");
@@ -187,11 +187,6 @@ internal static partial class Program
             desktop.Shutdown(1);
         }
 
-        async Task<T> WindowOf<T>() where T : Window
-        {
-            await Until(() => desktop.Windows.OfType<T>().Any(row => row.IsVisible), typeof(T).Name + " visible");
-            return desktop.Windows.OfType<T>().Single(row => row.IsVisible);
-        }
         async Task Signal(string mark)
         {
             using var response = await control.PostAsync("/__archive/" + mark, null);

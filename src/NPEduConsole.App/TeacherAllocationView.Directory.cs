@@ -8,13 +8,14 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TeacherAllocationWindow
+public sealed partial class TeacherAllocationView
 {
     private sealed record DirectoryPerson(string? Id, string Name, string? Username, string? Email, bool Disabled, bool Manageable)
     {
         public override string ToString() => $"{Name}（{Username ?? Email ?? Id}）{(Disabled ? " · 已停用" : "")}";
     }
     private TeacherAllocationReceipt? _lastReceipt;
+    private string _appliedTeacherQuery = "", _appliedSpaceQuery = "";
 
     private void FocusInvitation(string invitationId)
     {
@@ -24,7 +25,9 @@ public sealed partial class TeacherAllocationWindow
             Status("这条邀请已不存在或已经超出当前范围，请返回刷新名单。");
             return;
         }
-        AllocationTabs.SelectedIndex = 3;
+        AllocationSpaceSearch.Clear();
+        RebuildDirectories();
+        SetStage(Stage.BySpace, showDirectoryDetail: true);
         AllocationDirectorySpaces.SelectedItem = AllocationDirectorySpaces.Items.OfType<AllocationWorkspace>()
             .SingleOrDefault(room => room.Id == invitation.WorkspaceId);
         Dispatcher.UIThread.Post(() =>
@@ -38,11 +41,15 @@ public sealed partial class TeacherAllocationWindow
 
     private void DirectorySearchChanged(object? sender, TextChangedEventArgs args)
     {
-        if (_client is not null) RebuildDirectories();
+        if (_client is null || _closed) return;
+        if ((AllocationTeacherSearch.Text?.Trim() ?? "") != _appliedTeacherQuery ||
+            (AllocationSpaceSearch.Text?.Trim() ?? "") != _appliedSpaceQuery) RebuildDirectories();
     }
 
     private void RebuildDirectories()
     {
+        _appliedTeacherQuery = AllocationTeacherSearch.Text?.Trim() ?? "";
+        _appliedSpaceQuery = AllocationSpaceSearch.Text?.Trim() ?? "";
         if (_catalog is not { } data)
         {
             AllocationDirectoryTeachers.ItemsSource = null;
@@ -61,14 +68,12 @@ public sealed partial class TeacherAllocationWindow
             if (people.Any(row => string.Equals(row.Email, email, StringComparison.OrdinalIgnoreCase))) continue;
             people.Add(new(null, "邮箱邀请", null, email, false, true));
         }
-        var teacherQuery = AllocationTeacherSearch.Text?.Trim() ?? "";
-        AllocationDirectoryTeachers.ItemsSource = people.Where(row => row.ToString().Contains(teacherQuery, StringComparison.OrdinalIgnoreCase)).ToArray();
+        AllocationDirectoryTeachers.ItemsSource = people.Where(row => row.ToString().Contains(_appliedTeacherQuery, StringComparison.OrdinalIgnoreCase)).ToArray();
         AllocationDirectoryTeachers.SelectedItem = AllocationDirectoryTeachers.Items.OfType<DirectoryPerson>().FirstOrDefault(row =>
             picked?.Id is not null ? row.Id == picked.Id : picked is not null && row.Email == picked.Email)
             ?? AllocationDirectoryTeachers.Items.OfType<DirectoryPerson>().FirstOrDefault();
 
-        var spaceQuery = AllocationSpaceSearch.Text?.Trim() ?? "";
-        AllocationDirectorySpaces.ItemsSource = data.Workspaces.Where(row => row.ToString().Contains(spaceQuery, StringComparison.OrdinalIgnoreCase)).ToArray();
+        AllocationDirectorySpaces.ItemsSource = data.Workspaces.Where(row => row.ToString().Contains(_appliedSpaceQuery, StringComparison.OrdinalIgnoreCase)).ToArray();
         AllocationDirectorySpaces.SelectedItem = AllocationDirectorySpaces.Items.OfType<AllocationWorkspace>().FirstOrDefault(row => row.Id == board?.Id)
             ?? AllocationDirectorySpaces.Items.OfType<AllocationWorkspace>().FirstOrDefault();
         RenderTeacherDirectory();
@@ -77,12 +82,16 @@ public sealed partial class TeacherAllocationWindow
 
     private void DirectoryPersonChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (ReferenceEquals(args.Source, AllocationDirectoryTeachers)) RenderTeacherDirectory();
+        if (_closed || !ReferenceEquals(args.Source, AllocationDirectoryTeachers)) return;
+        RenderTeacherDirectory();
+        AllocationOpenTeacherDetails.IsEnabled = AllocationDirectoryTeachers.SelectedItem is not null;
     }
 
     private void DirectorySpaceChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (ReferenceEquals(args.Source, AllocationDirectorySpaces)) RenderSpaceDirectory();
+        if (_closed || !ReferenceEquals(args.Source, AllocationDirectorySpaces)) return;
+        RenderSpaceDirectory();
+        AllocationOpenSpaceDetails.IsEnabled = AllocationDirectorySpaces.SelectedItem is not null;
     }
 
     private void RenderTeacherDirectory()
@@ -198,17 +207,7 @@ public sealed partial class TeacherAllocationWindow
             (member is not null || duties.Length > 0 || assignments.Length > 0))
         {
             var teach = new Button {Content = _archivedCorrection ? "查看历史任课" : "继续分配任课", Classes = { "action" }};
-            teach.Click += (_, _) =>
-            {
-                if (_busy || _dirty || Pending is not null)
-                {
-                    Status("请先保存或核对教师表中的访问变更。");
-                    return;
-                }
-                TeachingTarget = (term.Id, room.Id, room.SubjectId, id, room.IsGroup);
-                _allowClose = true;
-                Close();
-            };
+            teach.Click += async (_, _) => await ContinueTeachingAsync(term, room, id, teach);
             actions.Children.Add(teach);
         }
         if (actions.Children.Count > 0) content.Children.Add(actions);
@@ -222,7 +221,7 @@ public sealed partial class TeacherAllocationWindow
         row.Access.RemoveAll(item => item.WorkspaceId == change.WorkspaceId || item.WorkspaceCode == change.WorkspaceCode);
         row.Access.Add(change);
         RebuildEditors();
-        AllocationTabs.SelectedIndex = 0;
+        SetStage(Stage.Edit);
         AllocationTeachers.SelectedIndex = _teachers.IndexOf(row);
         RevealAllocationAccess();
         FocusAllocationField($"teachers[{AllocationTeachers.SelectedIndex}].access[{row.Access.Count - 1}]");
