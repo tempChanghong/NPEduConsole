@@ -1,3 +1,4 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -11,7 +12,7 @@ namespace NPEduConsole.App;
 //   · 宽窗始终两栏（3*:2*），窄窗只留一栏（*:0），列宽原地改，不重挂控件；
 //   · 窄窗要么显示班级列表，要么显示本班详情，靠 StudyDetailPane 的列位与可见性切换；
 //   · StudyRooms 与它的 SelectedItem 在整个切换过程中始终是同一个实例；
-//   · 进入详情把焦点交给详情首个按钮，返回把焦点还给列表里的同一个容器。
+//   · 返回入口不随详情滚动，离开详情把焦点还给原班级。
 public sealed partial class SchoolStudyWindow : Window
 {
     private const double CompactWidth = 900;
@@ -45,7 +46,18 @@ public sealed partial class SchoolStudyWindow : Window
         StudyRoomPane.IsVisible = !detail;
         StudyDetailPane.IsVisible = !compact || detail;
         StudyRoomOpenButton.IsVisible = compact && !detail;
-        StudyRoomBackButton.IsVisible = detail;
+        StudyWeekNavigation.IsVisible = StudyDays.IsVisible = !detail;
+        StudyRoomDate.IsVisible = StudyRoomBackButton.IsVisible = detail;
+        SchoolStudyClose.Content = detail ? "退出学校自习" : "返回";
+        StudyCalendarContent.RowSpacing = detail ? 0 : 8;
+        StudyDetailPane.Padding = detail ? new Thickness(12, 8) : new Thickness(12);
+
+        StudyDetailActions.ColumnDefinitions[1].Width = compact ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
+        StudyDetailActions.ColumnSpacing = compact ? 0 : 8;
+        StudyDetailActions.RowSpacing = compact ? 6 : 0;
+        Grid.SetColumn(StudyEvidenceActions, compact ? 0 : 1);
+        Grid.SetRow(StudyEvidenceActions, compact ? 1 : 0);
+        StudySettingsActions.Columns = StudyRecordsActions.Columns = compact ? 3 : 1;
 
         _compact = compact;
         _lastDetail = detail;
@@ -60,12 +72,11 @@ public sealed partial class SchoolStudyWindow : Window
         if (_closed || !_compact || _compactDetail || Room is null) return;
         _compactDetail = true;
         ArrangeStudyWindow(force: true);
+        StudyDetailScroll.Offset = default;
         Dispatcher.UIThread.Post(() =>
         {
-            if (_closed || !_compactDetail) return;
-            if (StudyEditClassButton.IsEffectivelyVisible && StudyEditClassButton.IsEffectivelyEnabled)
-                StudyEditClassButton.Focus(NavigationMethod.Tab);
-            else if (StudyRoomBackButton.IsEffectivelyVisible) StudyRoomBackButton.Focus(NavigationMethod.Tab);
+            if (!_closed && _compactDetail && StudyRoomBackButton.IsEffectivelyVisible)
+                StudyRoomBackButton.Focus(NavigationMethod.Tab);
         }, DispatcherPriority.Loaded);
     }
 
@@ -83,15 +94,19 @@ public sealed partial class SchoolStudyWindow : Window
         var item = StudyRooms.SelectedItem;
         Dispatcher.UIThread.Post(() =>
         {
-            if (_closed || _compactDetail) return;
-            if (item is not null && StudyRooms.ContainerFromItem(item) is Control container)
+            if (_closed || _compactDetail || !ReferenceEquals(StudyRooms.SelectedItem, item)) return;
+            if (item is null)
             {
-                container.BringIntoView();
-                if (container.IsEffectivelyVisible && container.IsEffectivelyEnabled) container.Focus(NavigationMethod.Tab);
+                StudyRooms.Focus(NavigationMethod.Tab);
                 return;
             }
-            StudyRooms.BringIntoView();
-            StudyRooms.Focus(NavigationMethod.Tab);
+            StudyRooms.ScrollIntoView(item);
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_closed || _compactDetail || !ReferenceEquals(StudyRooms.SelectedItem, item)) return;
+                if (StudyRooms.ContainerFromItem(item) is Control container && container.Focus(NavigationMethod.Tab)) return;
+                StudyRooms.Focus(NavigationMethod.Tab);
+            }, DispatcherPriority.Background);
         }, DispatcherPriority.Loaded);
     }
 
@@ -99,6 +114,7 @@ public sealed partial class SchoolStudyWindow : Window
     {
         var title = StudyRoomTitle.Text?.Trim();
         var name = string.IsNullOrEmpty(title) ? "本班详情" : title;
+        StudyRoomDate.Text = _date.ToString("M 月 d 日 dddd", CultureInfo.GetCultureInfo("zh-CN")) + " · 学校时间";
         AutomationProperties.SetName(StudyRoomBackButton, $"返回当天班级列表 · {name}");
         AutomationProperties.SetName(StudyRoomOpenButton, string.IsNullOrEmpty(title) ? "打开本班详情" : $"打开 {name} 的详情");
     }

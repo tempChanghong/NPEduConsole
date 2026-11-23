@@ -74,6 +74,8 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
   const pgRows = () => prisma.$queryRaw`SELECT "targetType", "targetId", revision, policy FROM "NpepStudySetting" WHERE "schoolId"=${school.id}`;
   const gradeRow = async () => (await pgRows()).find(row => row.targetType === 'GRADE' && row.targetId === grade.id);
   const seatQuery = '?termId=' + term.id + '&classId=' + seven.id;
+  const seatingAttempts = [], seatingReadIds = [];
+  let dropNextSeatWrite = false, droppedSeatRequest;
   let holdSeatRead = true, corruptSeatRead = true;
   const seatReadStarted = Promise.withResolvers(), seatReadCancelled = Promise.withResolvers();
   async function checkNative(mark) {
@@ -115,10 +117,21 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
       assert.equal(day(nine).source, 'Disabled');
       assert.equal(day(nine).dates[0].daily.windows.length, 0);
       assert.ok(lostSchedule && studyReceiptReads === 1);
+    } else if (step === 'seat-draft-observed') {
+      assert.deepEqual(seatingAttempts, []);
+      assert.equal((await api(seatingPath + seatQuery, {version: '0.14'})).current.revision, 0);
     } else if (step === 'start-native') {
       native = runNative([join(evidence, 'native'), '--live-school-study-seating', nativePath]);
       native.catch(error => { nativeFailure = error; });
       await checkNative('old-open');
+    } else if (step === 'drop-next-seat-write') {
+      dropNextSeatWrite = true;
+    } else if (step === 'seat-retry-navigation-only') {
+      assert.ok(droppedSeatRequest);
+      assert.deepEqual(seatingAttempts.slice(1), [droppedSeatRequest]);
+      assert.deepEqual(seatingReadIds, Array(4).fill(droppedSeatRequest));
+      assert.equal((await api(seatingPath + seatQuery, {version: '0.14'})).current.revision, 1);
+      await api(seatingPath + '/requests/' + droppedSeatRequest + seatQuery, {version: '0.14', status: 404});
     } else if (step === 'old-in-use') {
       await checkNative('old-while-new-downloaded');
       const current = await api(seatingPath + seatQuery, {version: '0.14'});
@@ -128,7 +141,13 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
       assert.ok(live.downloaded && live.fresh && live.visible && live.revision === 1 && !live.current);
       assert.ok(current.bindings.some(row => row.bindingId === back.binding.id && row.deviceId === back.device.id));
       assert.ok(!current.receipts.some(row => row.bindingId === back.binding.id));
-      assert.ok(lostSeat && seatingReceiptReads === 1);
+      assert.ok(lostSeat && seatingReceiptReads === 5);
+      assert.deepEqual(seatingAttempts.slice(1), [droppedSeatRequest, droppedSeatRequest]);
+      assert.deepEqual(seatingReadIds, Array(5).fill(droppedSeatRequest));
+      const recovered = await api(seatingPath + '/requests/' + droppedSeatRequest + seatQuery, {version: '0.14'});
+      assert.equal(recovered.revision, 2);
+      assert.equal(recovered.hash, current.current.hash);
+      assert.equal(current.versions.filter(row => row.revision === 2).length, 1);
     } else if (step === 'allow-close') allowedClose = true;
     else if (step === 'new-in-use') await checkNative('new-open');
     else if (step === 'withdrawn') await checkNative('withdrawn');
@@ -162,6 +181,17 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
     const studySave = req.method === 'POST' && req.url === studyPath;
     const seatSave = req.method === 'POST' && req.url === seatingPath;
     const seatRead = req.method === 'GET' && req.url === seatingPath + seatQuery;
+    if (seatSave) {
+      const requestId = req.headers['x-request-id'];
+      seatingAttempts.push(requestId);
+      if (dropNextSeatWrite) {
+        dropNextSeatWrite = false;
+        droppedSeatRequest = requestId;
+        for await (const chunk of req) { /* Drain the synthetic upload without forwarding it. */ }
+        res.destroy();
+        return;
+      }
+    }
     if (holdSeatRead && seatRead) {
       holdSeatRead = false;
       seatReadStarted.resolve();
@@ -169,7 +199,10 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
       return;
     }
     if (req.method === 'GET' && req.url.startsWith(studyPath + '/requests/')) studyReceiptReads++;
-    if (req.method === 'GET' && req.url.startsWith(seatingPath + '/requests/')) seatingReceiptReads++;
+    if (req.method === 'GET' && req.url.startsWith(seatingPath + '/requests/')) {
+      seatingReceiptReads++;
+      seatingReadIds.push(new URL(req.url, origin).pathname.split('/').at(-1));
+    }
     const endpoint = new URL(req.url, origin);
     const forwarded = request(endpoint, {method: req.method, headers: {...req.headers, host: endpoint.host}}, response => {
       const injectBadReceipt = seatRead && corruptSeatRead;
@@ -224,10 +257,12 @@ export async function verifySchoolStudy({prisma, origin, fixture, fromKv, direct
     {mode: 0o600});
     await runDesktop(['--live-school-study', desktopPath, join(evidence, 'console')]);
     await native;
-    assert.deepEqual(checkpoints, ['web-change', 'stale', 'schedule-applied', 'seat-read-started', 'seat-read-cancelled', 'start-native', 'old-in-use', 'allow-close',
+    assert.deepEqual(checkpoints, ['web-change', 'stale', 'schedule-applied', 'seat-read-started', 'seat-read-cancelled', 'seat-draft-observed',
+      'start-native', 'drop-next-seat-write', 'seat-retry-navigation-only', 'old-in-use', 'allow-close',
       'new-in-use', 'withdrawn', 'restored', 'restored-inheritance']);
     await writeFile(join(evidence, 'cross-end-result.json'), JSON.stringify({passed: true, checkpoints, native: [...marks],
-      date, room: seven.id, front: front.binding.id, rear: back.binding.id, studyReceiptReads, seatingReceiptReads}, null, 2));
+      date, room: seven.id, front: front.binding.id, rear: back.binding.id, studyReceiptReads, seatingReceiptReads,
+      droppedSeatRequest, seatingAttempts, seatingReadIds}, null, 2));
     console.log('PASS: actual Windows Console + Edge legacy editing + PostgreSQL + NPEduTools Host and WPF seating observation.');
   } finally {
     server.closeAllConnections();

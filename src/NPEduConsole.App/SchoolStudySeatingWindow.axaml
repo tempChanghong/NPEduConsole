@@ -10,8 +10,8 @@
     </Border>
     <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="7" Margin="13,8">
       <TextBlock x:Name="SeatFeedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
-      <TabControl x:Name="SeatTabs" Grid.Row="1">
-        <TabItem Header="预览与发布">
+      <TabControl x:Name="SeatTabs" Grid.Row="1" SelectedIndex="0" SelectionChanged="SeatTabChanged">
+        <TabItem x:Name="SeatPreviewTab" Header="预览与发布">
           <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="7">
             <WrapPanel ItemSpacing="6" LineSpacing="5">
               <Button x:Name="SeatChoose" Classes="action" Click="ChooseFile" Content="选取图片"/>
@@ -57,9 +57,10 @@
         <WrapPanel ItemSpacing="6" LineSpacing="4">
           <Button x:Name="SeatClose" Classes="action" Content="返回" Click="CloseSeat"/>
           <Button x:Name="SeatRefresh" Classes="action" Content="刷新学校与大屏" Click="RefreshSeat"/>
-          <Button x:Name="SeatCheck" Classes="action" Content="核对本次发布" Click="CheckPending" IsVisible="False"/>
+          <Button x:Name="SeatCheck" Classes="action" Content="核对原操作回执" Click="CheckPending" IsVisible="False"/>
+          <Button x:Name="SeatRetryInPreview" Classes="action" Content="回预览核对原操作" Click="OpenRetryPreview" IsVisible="False"/>
         </WrapPanel>
-        <Button x:Name="SeatSave" Grid.Column="1" Classes="action accent" Content="确认发布" Click="Save"/>
+        <Button x:Name="SeatSave" Grid.Column="1" Classes="action accent" Content="确认发布" Click="Save" IsVisible="False"/>
       </Grid>
     </Border>
   </Grid>

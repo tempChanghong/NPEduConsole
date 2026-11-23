@@ -33,6 +33,46 @@
   <Style Selector="Button">
     <Setter Property="VerticalContentAlignment" Value="Center"/>
   </Style>
+  <Style Selector="CalendarDatePicker.study-date">
+    <Setter Property="MinHeight" Value="40"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+  </Style>
+  <Style Selector="CalendarDatePicker.study-date /template/ Border#Background">
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource FieldEdgeBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+  </Style>
+  <Style Selector="CalendarDatePicker.study-date:pointerover:not(:disabled) /template/ Border#Background">
+    <Setter Property="BorderBrush" Value="{DynamicResource MutedBrush}"/>
+  </Style>
+  <Style Selector="CalendarDatePicker.study-date:focus-within /template/ Border#Background">
+    <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
+    <Setter Property="BorderThickness" Value="2"/>
+  </Style>
+  <Style Selector="CalendarDatePicker.study-date /template/ TextBox#PART_TextBox">
+    <Setter Property="MinHeight" Value="0"/>
+    <Setter Property="Padding" Value="10,4,2,4"/>
+  </Style>
+  <Style Selector="CalendarDatePicker.study-date /template/ Button#PART_Button">
+    <Setter Property="Width" Value="36"/>
+    <Setter Property="Margin" Value="0,2,2,2"/>
+    <Setter Property="AutomationProperties.Name" Value="打开日历"/>
+    <Setter Property="Foreground" Value="{DynamicResource InkBrush}"/>
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border x:Name="CalendarButtonSurface" Background="Transparent" CornerRadius="6">
+          <Path Width="16" Height="16" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                Stroke="{TemplateBinding Foreground}" StrokeThickness="1.5" StrokeLineCap="Round" StrokeJoin="Round"
+                Data="M3,4 L17,4 L17,17 L3,17 Z M6,2 L6,6 M14,2 L14,6 M3,8 L17,8"/>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </Style>
+  <Style Selector="CalendarDatePicker.study-date /template/ Button#PART_Button:pointerover /template/ Border#CalendarButtonSurface">
+    <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
+  </Style>
   <Style Selector="DatePicker[IsVisible=True] /template/ TextBlock#PART_YearTextBlock, DatePicker[IsVisible=True] /template/ TextBlock#PART_MonthTextBlock, DatePicker[IsVisible=True] /template/ TextBlock#PART_DayTextBlock">
     <Setter Property="VerticalAlignment" Value="Center"/>
     <Setter Property="Padding" Value="6,3"/>

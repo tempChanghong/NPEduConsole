@@ -23,7 +23,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
     {
         public override string ToString() => $"版本 {Version.Revision} · {(Version.Hash is null ? "撤回" : Version.Restorable ? "有图像" : "仅保留记录")}";
     }
-    private sealed record Operation(StudySeatingEdit Edit, Guid Id);
+    private sealed record Operation(StudySeatingEdit Edit, Guid Id, byte[]? Preview);
     private sealed record ConfigurationEvidence(StudyEvidenceReceipt? Receipt, string? Error);
     private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<StudyEvidenceScope, Operation>> PendingSaves = new();
     private readonly CancellationTokenSource _lifetime = new();
@@ -56,7 +56,14 @@ public sealed partial class SchoolStudySeatingWindow : Window
             BatchWorkspaceWindow.FitSchoolWindow(this);
             await RunAsync(async () =>
             {
-                if (Pending is { } operation) { await VerifyAsync(operation); return; }
+                if (Pending is { } operation)
+                {
+                    SeatPublished.Text = "本班座位图的原操作回执待核对。";
+                    ShowPendingPreview(operation);
+                    await VerifyAsync(operation);
+                    if (!_closed && Pending is not null) await LoadAsync(preserve: true);
+                    return;
+                }
                 await LoadAsync();
             });
         };
@@ -81,6 +88,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
     private Dictionary<StudyEvidenceScope, Operation> Operations => PendingSaves.GetOrCreateValue(_client);
     private Operation? Pending => Operations.GetValueOrDefault(_scope);
     private History? SelectedHistory => SeatVersions.SelectedItem as History;
+    private bool PreviewSelected => SeatTabs.SelectedItem == SeatPreviewTab;
 
     private async Task LoadAsync(bool preserve = false)
     {
@@ -100,7 +108,8 @@ public sealed partial class SchoolStudySeatingWindow : Window
         SeatVersions.ItemsSource = result.Versions.Select(item => new History(item)).ToArray();
         SeatVersions.SelectedItem = null;
         _filling = false;
-        if (_draft is not null) SetImage(_draftPreview, _draft.Action == "withdraw" ? "待确认撤回当前座位图" : "保留的发布草稿");
+        if (Pending is { } operation) ShowPendingPreview(operation);
+        else if (_draft is not null) SetImage(_draftPreview, _draft.Action == "withdraw" ? "待确认撤回当前座位图" : "保留的发布草稿");
         else await ReadImageAsync(current);
         if (_closed) return;
         RenderDevices();
@@ -256,6 +265,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
 
     private async void Save(object? sender, RoutedEventArgs args)
     {
+        if (_closed || _busy || !PreviewSelected) return;
         if (Pending is { } previous)
         {
             if (_retry) await RunAsync(() => SubmitAsync(previous));
@@ -270,7 +280,7 @@ public sealed partial class SchoolStudySeatingWindow : Window
             UpdateControls();
             return;
         }
-        var operation = new Operation(edit, Guid.NewGuid());
+        var operation = new Operation(edit, Guid.NewGuid(), _draftPreview);
         Operations[_scope] = operation;
         await RunAsync(() => SubmitAsync(operation));
     }
@@ -289,7 +299,13 @@ public sealed partial class SchoolStudySeatingWindow : Window
         {
             if (_closed) return;
             Operations.Remove(_scope);
-            if (error.Code == "SEATING_CHANGED") { _needsReview = true; await LoadAsync(preserve: true); }
+            if (error.Code == "SEATING_CHANGED")
+            {
+                _draft = operation.Edit;
+                _draftPreview = operation.Preview;
+                _needsReview = true;
+                await LoadAsync(preserve: true);
+            }
             if (!_closed) SeatFeedback.Text = error.Message;
         }
     }
@@ -312,10 +328,40 @@ public sealed partial class SchoolStudySeatingWindow : Window
     private async Task VerifyAsync(Operation operation)
     {
         _retry = false;
+        SeatFeedback.Text = "正在按原编号核对本次操作…";
         var result = await _client.ReadSchoolSeatingSaveAsync(operation.Edit, operation.Id, _lifetime.Token);
         if (_closed) return;
         if (result is not null) await SavedAsync(result);
-        else { _retry = true; SeatFeedback.Text = "服务器暂未找到本次回执。可重新核对，或按原编号重试。"; }
+        else
+        {
+            _retry = true;
+            ShowPendingPreview(operation);
+            SeatFeedback.Text = "服务器暂未找到本次回执。可继续核对，或在「预览与发布」中查看原操作并确认重试。";
+        }
+    }
+
+    private void ShowPendingPreview(Operation operation)
+    {
+        var action = operation.Edit.Action switch
+        {
+            "withdraw" => "撤回座位图",
+            "restore" => $"重新发布历史版本 {operation.Edit.RestoreRevision}",
+            _ => "发布新座位图"
+        };
+        var baseline = operation.Edit.Revision == 0 ? "原先尚未发布" : $"原学校版本 {operation.Edit.Revision}";
+        SetImage(operation.Preview, $"原操作：{action} · {baseline}");
+    }
+
+    private void SeatTabChanged(object? sender, SelectionChangedEventArgs args)
+    {
+        if (ReferenceEquals(args.Source, SeatTabs)) UpdateControls();
+    }
+
+    private void OpenRetryPreview(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || !_retry || Pending is null) return;
+        SeatTabs.SelectedItem = SeatPreviewTab;
+        SeatSave.Focus();
     }
 
     private async void CheckPending(object? sender, RoutedEventArgs args)
@@ -325,13 +371,9 @@ public sealed partial class SchoolStudySeatingWindow : Window
 
     private async void RefreshSeat(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
     {
-        if (Pending is { } operation) await VerifyAsync(operation);
-        else
-        {
-            int? revision = _draft?.Revision;
-            await LoadAsync(preserve: true);
-            if (!_closed && revision is not null && _snapshot?.Current.Revision != revision) _needsReview = true;
-        }
+        int? revision = _draft?.Revision;
+        await LoadAsync(preserve: true);
+        if (!_closed && Pending is null && revision is not null && _snapshot?.Current.Revision != revision) _needsReview = true;
     });
 
     private async void CancelDraft(object? sender, RoutedEventArgs args) => await RunAsync(() => LoadAsync());
@@ -423,17 +465,21 @@ public sealed partial class SchoolStudySeatingWindow : Window
     private void UpdateControls()
     {
         if (_client is null) return;
-        bool editable = !_busy && _snapshot is not null && Pending is null;
+        var pending = Pending;
+        bool editable = !_busy && _snapshot is not null && pending is null;
         SeatChoose.IsEnabled = SeatVersions.IsEnabled = editable;
         SeatUseCurrent.IsEnabled = editable && (SelectedHistory is not null || _draft is not null);
         SeatRestore.IsEnabled = editable && SelectedHistory?.Version.Restorable == true;
         SeatWithdraw.IsEnabled = editable && _snapshot?.Current.Hash is not null;
         SeatRefresh.IsEnabled = SeatDevices.IsEnabled = !_busy;
         SeatClose.IsEnabled = !_sending;
-        SeatCheck.IsVisible = Pending is not null;
+        SeatCheck.IsVisible = pending is not null;
         SeatCheck.IsEnabled = !_busy;
-        SeatSave.IsEnabled = !_busy && (Pending is not null ? _retry : editable && _draft is not null);
-        SeatSave.Content = Pending is not null ? "按原编号重试" : _needsReview ? "采用当前版本" :
+        SeatRetryInPreview.IsVisible = !PreviewSelected && pending is not null && _retry;
+        SeatRetryInPreview.IsEnabled = !_busy;
+        SeatSave.IsVisible = PreviewSelected && (pending is not null ? _retry : _draft is not null);
+        SeatSave.IsEnabled = SeatSave.IsVisible && !_busy && (pending is not null || editable);
+        SeatSave.Content = pending is not null ? "确认按原编号重试" : _needsReview ? "采用当前版本" :
             _draft?.Action switch {"withdraw" => "确认撤回", "restore" => "确认重新发布", _ => "确认发布"};
     }
 
