@@ -3,6 +3,16 @@
         Title="NPEduConsole · 学校管理控制台" Width="1160" Height="780" MinWidth="720" MinHeight="450"
         Padding="0" WindowDecorationsTheme="{DynamicResource ConsoleIntegratedFrame}" WindowStartupLocation="CenterScreen">
   <Window.Styles>
+    <Style Selector="ScrollViewer#LoginView TextBox">
+      <Setter Property="MinHeight" Value="42"/>
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
+    </Style>
+    <Style Selector="Button.server-link">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="9,5"/>
+    </Style>
     <Style Selector="Border.shell-top">
       <Setter Property="Padding" Value="16,0"/>
     </Style>
@@ -89,32 +99,22 @@
                   Content="运维诊断" Click="OpenServerStatusClicked" />
         </Grid>
       </Border>
-      <ScrollViewer x:Name="LoginView" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid x:Name="LoginColumns" ColumnDefinitions="0.95*,1.05*" MaxWidth="955" Margin="28,27" VerticalAlignment="Center">
-          <Border x:Name="LoginBrand" CornerRadius="17,0,0,17" ClipToBounds="True" Background="{DynamicResource OverviewBannerBrush}">
-            <Grid>
-              <Viewbox Width="238" Height="152" HorizontalAlignment="Right" VerticalAlignment="Bottom" Opacity=".20" IsHitTestVisible="False">
-                <Canvas Width="238" Height="152" ClipToBounds="True">
-                  <Path Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.3"
-                        Data="M-4,147 C65,153 147,141 173,87 C192,49 196,24 248,1 M7,161 C94,163 156,150 184,92 C206,47 214,32 248,17 M46,166 C110,168 170,154 197,98 C214,62 228,45 251,34" />
-                </Canvas>
+      <ScrollViewer x:Name="LoginView" Grid.Row="1" Background="{DynamicResource LoginCanvasBrush}"
+                    VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="LoginForm" MaxWidth="416" Margin="28,32" Spacing="17" VerticalAlignment="Center">
+            <TextBlock Text="管理员登录" FontSize="30" FontWeight="SemiBold" Margin="0,0,0,3"/>
+            <Grid x:Name="KnownServerRow" IsVisible="False" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9">
+              <Viewbox Width="17" Height="17" VerticalAlignment="Center">
+                <Path Classes="shell-glyph" Data="{StaticResource ServerGlyph}"/>
               </Viewbox>
-              <StackPanel VerticalAlignment="Center" Margin="36,30" Spacing="14">
-                <Image Source="/Assets/Branding/npeduconsole-256.png" Width="168" Height="168" HorizontalAlignment="Left" />
-                <TextBlock Text="学校管理控制台" FontSize="32" FontWeight="SemiBold" TextWrapping="Wrap" />
-                <TextBlock Text="学校总览、班级与教务、教室设备" Classes="muted" FontSize="15" />
-              </StackPanel>
+              <TextBlock x:Name="KnownServerAddress" Grid.Column="1" VerticalAlignment="Center"
+                         Classes="muted" TextWrapping="Wrap" />
+              <Button x:Name="ChangeLoginServer" Grid.Column="2" Content="更换" Click="ChangeLoginServerClicked"
+                      Classes="server-link" AutomationProperties.Name="更换服务地址"/>
             </Grid>
-          </Border>
-          <Border x:Name="LoginCard" Grid.Column="1" Classes="card" CornerRadius="0,17,17,0" Padding="36,28">
-          <StackPanel x:Name="LoginForm" MaxWidth="440" Spacing="16" VerticalAlignment="Center">
-            <StackPanel Spacing="7" Margin="0,0,0,6">
-              <TextBlock Text="管理员登录" FontSize="27" FontWeight="SemiBold" />
-            </StackPanel>
             <local:FormField x:Name="ServerField" Header="服务地址">
               <TextBox x:Name="ServerAddress" PlaceholderText="https://school.example.edu" AutomationProperties.Name="服务地址" />
             </local:FormField>
-            <local:DesktopOAuthLoginView x:Name="BrowserLogin" IsVisible="False" />
             <Grid x:Name="LocalSchoolLoginFields" ColumnDefinitions="*,16,*">
               <local:FormField x:Name="SchoolField" Header="学校代码">
                 <TextBox x:Name="SchoolCode" AutomationProperties.Name="学校代码" />
@@ -130,8 +130,9 @@
               <TextBlock x:Name="LoginMessage" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
             </Border>
             <ProgressBar x:Name="LoginProgress" IsVisible="False" IsIndeterminate="True" Height="4" />
-            <Button x:Name="LoginButton" Classes="action accent" Content="使用本地账号登录" Click="LoginClicked"
+            <Button x:Name="LoginButton" Classes="action accent" MinHeight="42" Content="登录" Click="LoginClicked"
                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" Margin="0,4,0,0" />
+            <local:DesktopOAuthLoginView x:Name="BrowserLogin" IsVisible="False" />
             <StackPanel x:Name="LoginSetupOptions" IsVisible="False" Spacing="7">
               <TextBlock x:Name="LoginSetupNotice" Classes="muted" TextWrapping="Wrap"/>
               <WrapPanel ItemSpacing="7" LineSpacing="5">
@@ -140,10 +141,8 @@
                 <Button x:Name="ResumeSchoolSetup" Classes="action" Content="继续初始化" Click="ResumeSetupClicked"/>
               </WrapPanel>
             </StackPanel>
-          </StackPanel>
-        </Border>
-      </Grid>
-    </ScrollViewer>
+        </StackPanel>
+      </ScrollViewer>
 
     </Grid>
     <Grid x:Name="Workspace" ColumnDefinitions="184,*" IsVisible="False" SizeChanged="ShellSizeChanged">

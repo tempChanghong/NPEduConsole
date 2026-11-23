@@ -53,7 +53,7 @@ public static class ConsoleHighContrast
     private static ResourceDictionary Palette(Color surface, Color ink, Color selected, Color onSelected)
     {
         var result = new ResourceDictionary();
-        Set(surface, "FrameBrush", "FieldBrush", "CanvasBrush", "SidebarBrush", "SurfaceBrush", "ScrollRailBrush", "AccentTintBrush", "AccentSoftBrush", "OverviewBannerBrush",
+        Set(surface, "LoginCanvasBrush", "FrameBrush", "FieldBrush", "CanvasBrush", "SidebarBrush", "SurfaceBrush", "ScrollRailBrush", "AccentTintBrush", "AccentSoftBrush", "OverviewBannerBrush",
             "ErrorTintBrush", "WarningTintBrush", "SuccessTintBrush", "ComboBoxBackground",
             "ComboBoxDropDownBackground", "ComboBoxBackgroundPointerOver", "ComboBoxBackgroundPressed",
             "ComboBoxItemBackgroundPointerOver", "ComboBoxItemBackgroundPressed", "ComboBoxItemBackgroundSelected",

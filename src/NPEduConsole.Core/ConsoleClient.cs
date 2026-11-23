@@ -60,7 +60,7 @@ public sealed partial class ConsoleClient : IDisposable
         };
     }
 
-    internal static Uri NormalizeKvAddress(string serverAddress)
+    public static Uri NormalizeKvAddress(string serverAddress)
     {
         if (!Uri.TryCreate(serverAddress.Trim(), UriKind.Absolute, out var address)
             || !IsTrustedTransport(address) || address.UserInfo.Length > 0

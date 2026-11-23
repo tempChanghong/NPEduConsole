@@ -37,7 +37,6 @@ public sealed partial class SchoolOverviewView : UserControl
     private CancellationTokenSource? _request;
     private SchoolOverview? _snapshot;
     private IReadOnlyList<Classroom> _classLinks = [];
-    private bool _showQueue;
     private Func<Button, bool>? _returnTarget;
     private string? _returnTaskId;
     private Vector _returnOffset;
@@ -60,13 +59,10 @@ public sealed partial class SchoolOverviewView : UserControl
         _termId = termId;
         _request?.Cancel();
         _request = null;
-        _showQueue = termId is not null;
         OverviewTitle.Text = termId is null ? "学校总览" : "学期诊断";
         OverviewTitle.FontSize = termId is null ? 29 : 19;
         RefreshSchoolOverviewButton.Content = termId is null ? "刷新总览" : "刷新诊断";
-        OverviewBackdrop.IsVisible = termId is null;
         OverviewContent.Margin = termId is null ? new Thickness(25, 20, 25, 24) : new Thickness(16, 8, 16, 12);
-        ArrangeSpotlights();
         _returnTarget = null;
         _returnTaskId = null;
         _returnOffset = _returnQueueOffset = default;
@@ -108,7 +104,6 @@ public sealed partial class SchoolOverviewView : UserControl
             OverviewFeedback.Text = $"核对时间 {Time(overview.GeneratedAt)}" +
                 (overview.Legacy ? " · 旧 KV 仅提供部分办理入口" : "");
             OverviewResults.IsVisible = true;
-            ShowAllOverviewButton.IsVisible = _termId is null && overview.Tasks.Count > 0;
             OverviewClassLink.IsVisible = !overview.Scoped && overview.Term is not null;
             RenderClassLinks();
             RenderTasks();
@@ -148,9 +143,8 @@ public sealed partial class SchoolOverviewView : UserControl
         OverviewHeadline.Text = heading;
         OverviewCounts.Text = null;
         OverviewFeedback.Text = message;
-        OverviewProgress.IsVisible = OverviewResults.IsVisible = ShowAllOverviewButton.IsVisible = false;
+        OverviewProgress.IsVisible = OverviewResults.IsVisible = false;
         OverviewTasksList.ItemsSource = null;
-        EducationTask.Content = DeviceTask.Content = null;
         SnapshotChanged?.Invoke(null, message);
     }
 
@@ -175,17 +169,8 @@ public sealed partial class SchoolOverviewView : UserControl
     {
         if (_snapshot is not { } snapshot) return;
         var tasks = snapshot.Tasks.Select(TaskRow).ToArray();
-        var education = tasks.FirstOrDefault(row => row.Task.Source != "SCREEN");
-        var device = tasks.FirstOrDefault(row => row.Task.Source == "SCREEN");
-        EducationTask.Content = education;
-        DeviceTask.Content = device;
-        EducationSpotlight.IsVisible = education is not null;
-        DeviceSpotlight.IsVisible = device is not null;
-        ArrangeSpotlights();
-        Spotlights.IsVisible = !_showQueue && tasks.Length > 0;
-        OverviewQueue.IsVisible = _showQueue && tasks.Length > 0;
-        ShowAllOverviewButton.Content = _showQueue ? "收起全部待办" : "查看全部待办";
-        var filtered = !_showQueue ? [] : tasks.Where(row => OverviewTaskFilter.SelectedIndex switch
+        OverviewQueue.IsVisible = tasks.Length > 0;
+        var filtered = tasks.Where(row => OverviewTaskFilter.SelectedIndex switch
         {
             1 => row.Task.Source is "TERM" or "TEACHING",
             2 => row.Task.Source == "SCREEN",
@@ -193,40 +178,10 @@ public sealed partial class SchoolOverviewView : UserControl
             _ => true
         }).ToArray();
         OverviewTasksList.ItemsSource = filtered;
-        OverviewNoTasks.IsVisible = _showQueue && filtered.Length == 0;
-    }
-
-    private void OverviewSizeChanged(object? sender, SizeChangedEventArgs args) => ArrangeSpotlights();
-
-    private void ArrangeSpotlights()
-    {
-        bool compact = Bounds.Width < 710;
-        bool shortWindow = Bounds.Height > 0 && Bounds.Height < 510;
-        bool scoped = _termId is not null;
-        OverviewHero.Margin = scoped ? new Thickness(14, 8) : new Thickness(20, shortWindow ? 10 : 17);
-        OverviewHeadline.FontSize = scoped ? 18 : shortWindow ? 26 : 32;
-        OverviewIllustration.MaxHeight = shortWindow ? 92 : 142;
-        OverviewIllustration.IsVisible = !scoped && Bounds.Width >= 560;
-        OverviewHero.ColumnDefinitions[0].Width = new GridLength(OverviewIllustration.IsVisible ? (Bounds.Width < 820 ? 102 : 156) : 0);
-        bool pair = EducationSpotlight.IsVisible && DeviceSpotlight.IsVisible;
-        Spotlights.ColumnDefinitions[1].Width = compact || !pair ? new GridLength(0) : GridLength.Star;
-        Grid.SetColumn(DeviceSpotlight, compact || !pair ? 0 : 1);
-        Grid.SetRow(DeviceSpotlight, compact && pair ? 1 : 0);
+        OverviewNoTasks.IsVisible = filtered.Length == 0;
     }
 
     private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RefreshAsync();
-
-    private void ShowAllClicked(object? sender, RoutedEventArgs args)
-    {
-        _showQueue = !_showQueue;
-        RenderTasks();
-        if (_showQueue)
-            Dispatcher.UIThread.Post(() =>
-            {
-                OverviewQueue.BringIntoView();
-                OverviewTaskFilter.Focus();
-            }, DispatcherPriority.Loaded);
-    }
 
     private void FilterChanged(object? sender, SelectionChangedEventArgs args) => RenderTasks();
 
@@ -265,7 +220,7 @@ public sealed partial class SchoolOverviewView : UserControl
         OverviewScroll.Offset = _returnOffset;
         if (OverviewTasksList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() is { } scroll)
             scroll.Offset = _returnQueueOffset;
-        if (_showQueue && _returnTaskId is { } id && OverviewTasksList.Items.OfType<OverviewTaskItem>()
+        if (_returnTaskId is { } id && OverviewTasksList.Items.OfType<OverviewTaskItem>()
             .FirstOrDefault(item => item.AutomationId == id) is { } row)
         {
             OverviewTasksList.SelectedItem = row;
@@ -281,8 +236,7 @@ public sealed partial class SchoolOverviewView : UserControl
                 target.BringIntoView();
                 if (target.Focus(NavigationMethod.Tab)) return;
             }
-            if (_showQueue && OverviewQueue.IsEffectivelyVisible) OverviewTaskFilter.Focus();
-            else if (ShowAllOverviewButton.IsEffectivelyVisible) ShowAllOverviewButton.Focus();
+            if (OverviewQueue.IsEffectivelyVisible) OverviewTaskFilter.Focus();
             else RefreshSchoolOverviewButton.Focus();
         }, DispatcherPriority.Background);
     }

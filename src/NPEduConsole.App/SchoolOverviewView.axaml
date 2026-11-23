@@ -1,43 +1,23 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:core="using:NPEduConsole.Core" xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolOverviewView"
-             SizeChanged="OverviewSizeChanged">
+             xmlns:core="using:NPEduConsole.Core" xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.SchoolOverviewView">
   <UserControl.Resources>
-    <DataTemplate x:Key="SpotlightTemplate" x:DataType="local:OverviewTaskItem">
-      <StackPanel Spacing="6">
-        <TextBlock Text="{Binding Evidence}" Classes="muted" FontSize="12" />
-        <TextBlock Text="{Binding Message}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" />
-        <Button Classes="spotlight-link" Tag="{Binding}" Margin="0,3,0,0"
-                AutomationProperties.Name="{Binding ActionLabel}" AutomationProperties.AutomationId="{Binding AutomationId}" IsVisible="{Binding CanOpen}"
-                Click="TaskClicked">
-          <StackPanel Orientation="Horizontal" Spacing="7">
-            <TextBlock Text="{Binding ActionLabel}" VerticalAlignment="Center" />
-            <Viewbox Width="16" Height="16">
-              <Path Classes="shell-glyph" Data="{StaticResource ForwardGlyph}" Stroke="{DynamicResource AccentStrongBrush}" />
-            </Viewbox>
-          </StackPanel>
-        </Button>
-      </StackPanel>
-    </DataTemplate>
     <DataTemplate x:Key="TaskRowTemplate" x:DataType="local:OverviewTaskItem">
-      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="13" Margin="8,6">
-        <StackPanel Spacing="4" VerticalAlignment="Center">
-          <TextBlock Text="{Binding Message}" Classes="label" />
-          <TextBlock Text="{Binding Evidence}" Classes="muted" FontSize="12" />
-        </StackPanel>
-        <Button Grid.Column="1" Tag="{Binding}" Content="{Binding ActionLabel}" Classes="action"
-                AutomationProperties.AutomationId="{Binding AutomationId}" IsVisible="{Binding CanOpen}" Click="TaskClicked" VerticalAlignment="Center" />
-      </Grid>
+      <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource LineBrush}" Padding="2,8">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="18">
+          <StackPanel Spacing="4" VerticalAlignment="Center">
+            <TextBlock Text="{Binding Message}" FontSize="15" Classes="label" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Evidence}" Classes="muted" FontSize="12" />
+          </StackPanel>
+          <Button Grid.Column="1" Tag="{Binding}" Content="{Binding ActionLabel}" Classes="action"
+                  AutomationProperties.AutomationId="{Binding AutomationId}" IsVisible="{Binding CanOpen}" Click="TaskClicked" VerticalAlignment="Center" />
+        </Grid>
+      </Border>
     </DataTemplate>
   </UserControl.Resources>
   <UserControl.Styles>
-    <Style Selector="Button.spotlight-link">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="Padding" Value="3,4" />
-      <Setter Property="MinHeight" Value="30" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="HorizontalAlignment" Value="Left" />
+    <Style Selector="ListBox#OverviewTasksList > ListBoxItem">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+      <Setter Property="Padding" Value="8,0"/>
     </Style>
     <Style Selector="Button.class-link">
       <Setter Property="Background" Value="{DynamicResource CanvasBrush}" />
@@ -58,58 +38,24 @@
         <Button x:Name="RefreshSchoolOverviewButton" Grid.Column="1" Content="刷新总览" Classes="action"
                 Click="RefreshClicked" VerticalAlignment="Center" />
       </Grid>
-      <Border Background="{DynamicResource OverviewBannerBrush}" CornerRadius="18" ClipToBounds="True"
-              BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
-        <Grid>
-          <Viewbox x:Name="OverviewBackdrop" Width="220" Height="156" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                   IsHitTestVisible="False" Opacity="0.15">
-            <Canvas Width="220" Height="156" ClipToBounds="True">
-              <Path Stroke="{DynamicResource AccentBrush}" StrokeThickness="1.4"
-                    Data="M27,167 C72,133 115,145 141,114 C171,79 152,41 228,12 M57,170 C89,148 128,153 157,118 C185,84 170,51 230,25 M88,173 C113,158 143,158 171,122 C197,91 186,64 233,38" />
-            </Canvas>
-          </Viewbox>
-          <Grid x:Name="OverviewHero" ColumnDefinitions="168,*" Margin="20,17" ColumnSpacing="12">
-            <StackPanel Grid.Column="1" Spacing="7" VerticalAlignment="Center">
-              <TextBlock x:Name="OverviewHeadline" FontSize="32" FontWeight="SemiBold" TextWrapping="Wrap" />
-              <TextBlock x:Name="OverviewCounts" FontSize="14" Classes="muted" />
-              <TextBlock x:Name="OverviewFeedback" FontSize="13" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-              <Button x:Name="ShowAllOverviewButton" Content="查看全部待办" Click="ShowAllClicked" Classes="action accent"
-                      HorizontalAlignment="Left" Margin="0,3,0,0" IsVisible="False" />
-              <ProgressBar x:Name="OverviewProgress" IsVisible="False" Height="3" IsIndeterminate="True" MaxWidth="250"
-                           HorizontalAlignment="Left" />
-            </StackPanel>
-            <Viewbox x:Name="OverviewIllustration" MaxHeight="142" IsHitTestVisible="False">
-              <Canvas Width="160" Height="142">
-                <Ellipse Width="148" Height="114" Canvas.Left="4" Canvas.Top="21">
-                  <Ellipse.Fill>
-                    <RadialGradientBrush>
-                      <GradientStop Color="#7870ADE6" Offset="0" />
-                      <GradientStop Color="#0070ADE6" Offset="1" />
-                    </RadialGradientBrush>
-                  </Ellipse.Fill>
-                </Ellipse>
-                <Image Source="/Assets/Branding/npeduconsole-256.png" Width="131" Height="131"
-                       Canvas.Left="8" Canvas.Top="1" />
-              </Canvas>
-            </Viewbox>
-          </Grid>
-        </Grid>
+      <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+              BorderThickness="1" CornerRadius="9" Padding="12,8">
+        <StackPanel Spacing="3">
+          <WrapPanel ItemSpacing="14" LineSpacing="3" VerticalAlignment="Center">
+            <TextBlock x:Name="OverviewHeadline" Classes="label" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            <TextBlock x:Name="OverviewCounts" Classes="muted" FontSize="13" VerticalAlignment="Center"/>
+            <TextBlock x:Name="OverviewFeedback" Classes="muted" FontSize="13" VerticalAlignment="Center"
+                       TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+          </WrapPanel>
+          <ProgressBar x:Name="OverviewProgress" IsVisible="False" Height="3" IsIndeterminate="True"/>
+        </StackPanel>
       </Border>
       <TextBlock x:Name="OverviewNavigationFeedback" Classes="muted" IsVisible="False" AutomationProperties.LiveSetting="Polite" />
       <StackPanel x:Name="OverviewResults" Spacing="14" IsVisible="False">
-        <TextBlock Text="管理待办" FontSize="19" FontWeight="SemiBold" Margin="0,3,0,-5" IsVisible="{Binding IsVisible, ElementName=Spotlights}" />
-        <Grid x:Name="Spotlights" ColumnDefinitions="*,*" ColumnSpacing="12" RowSpacing="9" RowDefinitions="Auto,Auto">
-          <Border x:Name="EducationSpotlight" Padding="17,13" CornerRadius="12" Background="{DynamicResource AccentTintBrush}">
-            <ContentControl x:Name="EducationTask" ContentTemplate="{StaticResource SpotlightTemplate}" />
-          </Border>
-          <Border x:Name="DeviceSpotlight" Grid.Column="1" Padding="17,13" CornerRadius="12" Background="{DynamicResource WarningTintBrush}">
-            <ContentControl x:Name="DeviceTask" ContentTemplate="{StaticResource SpotlightTemplate}" />
-          </Border>
-        </Grid>
         <Border x:Name="OverviewQueue" Classes="card" Padding="11" IsVisible="False">
           <StackPanel Spacing="7">
             <Grid ColumnDefinitions="*,175" Margin="9,2">
-              <TextBlock Text="全部待办" FontSize="19" FontWeight="SemiBold" VerticalAlignment="Center" />
+              <TextBlock Text="待办理" FontSize="19" FontWeight="SemiBold" VerticalAlignment="Center" />
               <ComboBox x:Name="OverviewTaskFilter" Grid.Column="1" SelectedIndex="0" SelectionChanged="FilterChanged"
                         HorizontalAlignment="Stretch" AutomationProperties.Name="待办筛选">
                 <ComboBoxItem Content="全部类别" />
@@ -119,7 +65,7 @@
               </ComboBox>
             </Grid>
             <TextBlock x:Name="OverviewNoTasks" Text="此分类暂无待办。" Classes="muted" Margin="9" IsVisible="False" />
-            <ListBox x:Name="OverviewTasksList" Classes="object-list" Background="Transparent" MaxHeight="420"
+            <ListBox x:Name="OverviewTasksList" Background="Transparent" MaxHeight="420"
                      ItemTemplate="{StaticResource TaskRowTemplate}" AutomationProperties.Name="学校待办" />
           </StackPanel>
         </Border>

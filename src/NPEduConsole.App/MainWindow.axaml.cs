@@ -30,8 +30,11 @@ public sealed partial class MainWindow : Window
 
     private sealed record DeviceSelection(string ScreenId, string ScreenName, Device Device);
 
-    public MainWindow()
+    public MainWindow() : this(null) { }
+
+    internal MainWindow(string? lastServerFile)
     {
+        _lastServerFile = lastServerFile;
         InitializeComponent();
         SchoolPicker.ItemTemplate = new FuncDataTemplate<School>((school, _) =>
             new TextBlock { Text = school?.ManagementRole switch
@@ -89,6 +92,8 @@ public sealed partial class MainWindow : Window
         Activated += (_, _) => RefreshAfterWebOverviewTask();
         LoginView.AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         ServerAddress.TextChanged += (_, _) => _ = RefreshSetupEntryAsync();
+        RestoreLoginServer();
+        Opened += (_, _) => (KnownServerRow.IsVisible ? SchoolCode : ServerAddress).Focus();
         _ = RefreshSetupEntryAsync();
         Closing += OnClosing;
     }
@@ -109,8 +114,19 @@ public sealed partial class MainWindow : Window
 
     private async void OnLoginKeyDown(object? sender, KeyEventArgs args)
     {
-        if (args.Key != Key.Enter || !LoginView.IsVisible || !LoginButton.IsEffectivelyEnabled ||
-            args.Source != SchoolCode && args.Source != Username && args.Source != Password) return;
+        if (args.Key != Key.Enter || !LoginView.IsVisible || !LoginButton.IsEffectivelyEnabled) return;
+        if (args.Source == ServerAddress)
+        {
+            args.Handled = true;
+            try
+            {
+                ShowKnownLoginServer(ConsoleClient.NormalizeKvAddress(ServerAddress.Text ?? ""));
+                SchoolCode.Focus();
+            }
+            catch (ConsoleApiException error) { ServerField.ReportError(error.Message); }
+            return;
+        }
+        if (args.Source != SchoolCode && args.Source != Username && args.Source != Password) return;
         args.Handled = true;
         await LoginAsync();
     }
@@ -152,7 +168,11 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception error) when (IsServiceError(error))
         {
-            if (IsCurrent(request)) SetLoginMessage(ServiceMessage(error));
+            if (IsCurrent(request))
+            {
+                if (candidate is null) ServerField.ReportError(ServiceMessage(error));
+                else SetLoginMessage(ServiceMessage(error));
+            }
         }
         finally
         {
@@ -172,6 +192,8 @@ public sealed partial class MainWindow : Window
     private void ShowSignedIn(ConsoleClient candidate, IReadOnlyList<School> schools, string accountName)
     {
         _client = candidate;
+        ShowKnownLoginServer(candidate.ServerUri);
+        RememberLoginServer(candidate.ServerUri);
         StopBrowserDiscovery();
         _settingSelection = true;
         SchoolPicker.ItemsSource = schools;
@@ -583,6 +605,7 @@ public sealed partial class MainWindow : Window
                 _allowClose = true;
                 Dispatcher.UIThread.Post(Close);
             }
+            else (string.IsNullOrEmpty(Username.Text) ? Username : Password).Focus();
         }
     }
 
@@ -765,9 +788,9 @@ public sealed partial class MainWindow : Window
     {
         LoginButton.IsEnabled = ServerAddress.IsEnabled = SchoolCode.IsEnabled = Username.IsEnabled = Password.IsEnabled = !busy;
         BrowserLogin.IsEnabled = !busy || _desktopLogin is not null;
-        OpenServerStatusButton.IsEnabled = !busy;
+        ChangeLoginServer.IsEnabled = OpenServerStatusButton.IsEnabled = !busy;
         LoginProgress.IsVisible = busy;
-        LoginButton.Content = busy ? (_signingOut ? "正在退出…" : "正在登录…") : "使用本地账号登录";
+        LoginButton.Content = busy ? (_signingOut ? "正在退出…" : "正在登录…") : "登录";
     }
 
     private void SetLoginMessage(string message)

@@ -47,7 +47,6 @@ internal static partial class Program
             await Until(() => schools.Items.OfType<School>().Any(school => school.Id == access.SchoolId), "学校已授权");
             schools.SelectedItem = schools.Items.OfType<School>().Single(school => school.Id == access.SchoolId);
             var overview = Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace");
-            await PressScoped(overview, "ShowAllOverviewButton");
             var tasks = Find<ListBox>(overview, "OverviewTasksList");
             await Until(() => tasks.Items.OfType<OverviewTaskItem>().Any(row => row.Task.ClassId == access.FallEightId &&
                 row.Task.AccountId == access.TeacherId && row.Task.Code == classIssue), "总览对应当前学期八班的提醒");

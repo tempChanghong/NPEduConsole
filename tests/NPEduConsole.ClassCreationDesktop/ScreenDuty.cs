@@ -42,10 +42,8 @@ internal static partial class Program
             await Until(() => schools.Items.OfType<School>().Any(row => row.Id == access.SchoolId), "authorized school available");
             schools.SelectedItem = schools.Items.OfType<School>().Single(row => row.Id == access.SchoolId);
             var overview = Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace");
-            var showTasks = overview.FindControl<Button>("ShowAllOverviewButton")!;
-            await Until(() => showTasks.IsEffectivelyVisible, "school overview rendered");
-            Click(showTasks);
             var filter = overview.FindControl<ComboBox>("OverviewTaskFilter")!;
+            await Until(() => filter.IsEffectivelyVisible, "school overview queue rendered");
             filter.SelectedIndex = 2;
             var tasks = overview.FindControl<ListBox>("OverviewTasksList")!;
             await Until(() => tasks.Items.OfType<OverviewTaskItem>().Any(row => row.Task.Code == "SCREEN_WEB_ACCOUNT_REQUIRED" &&

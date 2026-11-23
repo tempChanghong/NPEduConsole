@@ -30,15 +30,9 @@ public sealed partial class MainWindow
 
     private void ApplyLoginLayout(Size size)
     {
-        bool compact = size.Width < 860;
-        bool shortWindow = size.Height < 575;
-        LoginColumns.Margin = new Thickness(28, shortWindow ? 10 : 27);
-        LoginForm.Spacing = shortWindow ? 9 : 16;
-        LoginCard.Padding = new Thickness(36, shortWindow ? 11 : 28);
-        LoginBrand.IsVisible = !compact;
-        LoginColumns.ColumnDefinitions[0].Width = compact ? new GridLength(0) : new GridLength(.95, GridUnitType.Star);
-        LoginColumns.MaxWidth = compact ? 550 : 955;
-        LoginCard.CornerRadius = compact ? new CornerRadius(17) : new CornerRadius(0, 17, 17, 0);
+        bool compact = size.Height < 575;
+        LoginForm.Margin = new Thickness(28, compact ? 14 : 32);
+        LoginForm.Spacing = compact ? 10 : 17;
     }
 
     private void UpdateClassLayout()

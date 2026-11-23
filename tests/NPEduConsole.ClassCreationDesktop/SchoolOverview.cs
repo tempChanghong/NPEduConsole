@@ -24,12 +24,13 @@ internal static partial class Program
             ?? throw new InvalidDataException("Missing school overview fixture.");
         Check(access.AllowOverviewTestWrites && IsLoopback(access.Origin), "Use the loopback overview fixture.");
         Directory.CreateDirectory(output);
-        return AppBuilder.Configure<ConsoleApplication>().UsePlatformDetect()
-            .AfterSetup(builder => Dispatcher.UIThread.Post(() => { _ = VerifyOverviewAsync(access, output); }))
+        var lastServerFile = Path.Combine(Path.GetFullPath(output), $"preferences-{Guid.NewGuid():N}", "last-server.txt");
+        return AppBuilder.Configure(() => new ConsoleApplication { LastServerFile = lastServerFile }).UsePlatformDetect()
+            .AfterSetup(builder => Dispatcher.UIThread.Post(() => { _ = VerifyOverviewAsync(access, output, lastServerFile); }))
             .StartWithClassicDesktopLifetime([]);
     }
 
-    private static async Task VerifyOverviewAsync(OverviewAccess access, string output)
+    private static async Task VerifyOverviewAsync(OverviewAccess access, string output, string lastServerFile)
     {
         var desktop = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
         var main = (MainWindow)desktop.MainWindow!;
@@ -49,7 +50,6 @@ internal static partial class Program
         var nativeRecord = Find<ContentControl>(main, "ScreenNativeEvidence");
         var browserRecord = Find<ContentControl>(main, "ScreenBrowserEvidence");
         var refresh = View<Button>("RefreshSchoolOverviewButton");
-        var showTasks = View<Button>("ShowAllOverviewButton");
         var filter = View<ComboBox>("OverviewTaskFilter");
         var overviewNav = Find<Button>(main, "OpenSchoolOverviewButton");
         var classesNav = Find<Button>(main, "OpenClassWorkspaceButton");
@@ -59,6 +59,7 @@ internal static partial class Program
         using var control = new HttpClient {BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(8)};
         try
         {
+            Check(((ConsoleApplication)Application.Current!).LastServerFile == lastServerFile, "fixture preference location selected");
             Application.Current!.RequestedThemeVariant = ThemeVariant.Light;
             await Capture(main, output, "00-login");
             main.Width = 840;
@@ -72,16 +73,43 @@ internal static partial class Program
             Find<TextBox>(main, "ServerAddress").Text = access.Origin;
             Find<TextBox>(main, "SchoolCode").Text = access.SchoolCode;
             Find<TextBox>(main, "Username").Text = access.Username;
-            Find<TextBox>(main, "Password").Text = access.Password;
-            Click(Find<Button>(main, "LoginButton"));
+            var password = Find<TextBox>(main, "Password");
+            password.Text = "invalid-fixture-password";
+            Click(loginButton);
+            await Until(() => Find<Border>(main, "LoginFeedback").IsEffectivelyVisible && password.IsFocused,
+                "a rejected local login leaves focus on the empty password");
+            Check(password.Text is null or "" && !File.Exists(lastServerFile), "failed login stores no address or password");
+            password.Text = access.Password;
+            Click(loginButton);
             await Until(() => schools.ItemCount == 2, "both authorized fixture schools");
             Check(!view.IsEffectivelyVisible, "multi-school login waits for the administrator to select a school");
+            var confirmedAddress = ConsoleClient.NormalizeKvAddress(access.Origin);
+            Check(File.ReadAllText(lastServerFile) == confirmedAddress.AbsoluteUri, "only the confirmed service address is remembered");
+            var reopened = new MainWindow(lastServerFile) { Width = 840, Height = 480 };
+            reopened.Show(main);
+            try
+            {
+                var changeServer = Find<Button>(reopened, "ChangeLoginServer");
+                await Until(() => changeServer.IsEffectivelyVisible && reopened.Bounds.Width > 0, "known server row after reopening");
+                await Capture(reopened, output, "00b-returning-login", includeFrame: true);
+                Check(Find<TextBlock>(reopened, "KnownServerAddress").Text == confirmedAddress.AbsoluteUri.TrimEnd('/'),
+                    "returning login displays the exact confirmed address");
+                Check(!Find<FormField>(reopened, "ServerField").IsEffectivelyVisible, "returning login address is collapsed");
+                Check(string.IsNullOrEmpty(Find<TextBox>(reopened, "Username").Text), "account name was not retained");
+                Check(string.IsNullOrEmpty(Find<TextBox>(reopened, "Password").Text), "password was not retained");
+                Find<TextBox>(reopened, "Password").Text = "discard-on-change";
+                Click(changeServer);
+                await Until(() => Find<TextBox>(reopened, "ServerAddress").IsFocused &&
+                    string.IsNullOrEmpty(Find<TextBox>(reopened, "Password").Text),
+                    "changing server returns focus to its editor and clears the password");
+            }
+            finally { reopened.Close(); main.Activate(); }
             await Capture(main, output, "00-select-school");
             SelectSchool(access.SchoolId);
-            await Until(() => view.IsEffectivelyVisible && showTasks.IsEffectivelyVisible, "overview opens by default");
+            await Until(() => view.IsEffectivelyVisible && tasks.IsEffectivelyVisible, "overview opens by default");
             var classLinks = View<ItemsControl>("OverviewClassLinks");
             await Until(() => classLinks.Items.Cast<Classroom>().Any(room => room.Id == access.ClassEightId), "overview links current-term classes");
-            await Capture(main, output, "01-school-overview");
+            await Capture(main, output, "01-school-overview", includeFrame: true);
             var classShortcut = classLinks.GetVisualDescendants().OfType<Button>().Single(button =>
                 button.Tag is Classroom room && room.Id == access.ClassEightId);
             Click(classShortcut);
@@ -106,12 +134,15 @@ internal static partial class Program
             await Until(() => !picker.IsOpen && IsOnlyScreenVisible(access.WaitingScreenId) && goBack.IsEffectivelyVisible,
                 "Enter routes from global search to the exact screen and remembers the overview");
             Click(goBack);
-            await Until(() => showTasks.IsEffectivelyVisible, "overview reloads after returning from global search");
-            Click(showTasks);
+            await Until(() => tasks.IsEffectivelyVisible, "overview reloads after returning from global search");
             await Until(() => view.IsEffectivelyVisible && Has("ADMIN_CLASS_WITHOUT_SCREEN", access.ClassSevenId) &&
                 Has("SCREEN_AWAITING_PAIRING", screen: access.WaitingScreenId), "overview opens by default with two exact targets");
-            Check(!tasks.Items.Cast<OverviewTaskItem>().Any(row => row.Task.ScreenId == access.ReadyScreenId) &&
-                Has("SCREEN_REPAIR_REQUIRED", screen: access.RestoredScreenId), "reported screen is clear and restored binding needs re-pairing");
+            Check(screens.Items.Cast<OverviewScreenItem>().Any(row => row.ScreenId == access.ReadyScreenId &&
+                row.Native is { State: "REPORTED", HasRecord: true }) &&
+                !Has("SCREEN_AWAITING_REPORT", screen: access.ReadyScreenId) &&
+                Has("SCREEN_WEB_ACCOUNT_REQUIRED", screen: access.ReadyScreenId) &&
+                Has("SCREEN_REPAIR_REQUIRED", screen: access.RestoredScreenId),
+                "reported native screen still needs a browser account while the restored binding needs native re-pairing");
             Check(screens.Items.Cast<OverviewScreenItem>().Count(row => row.Title.Contains("（8）")) == 2 &&
                 screens.Items.Cast<OverviewScreenItem>().All(row => !row.Title.Contains("往届")), "the archived same-code screen is isolated");
             await Capture(main, output, "01-classroom-tasks");
@@ -217,8 +248,10 @@ internal static partial class Program
                 "roster returns focus without clearing the class filter");
             var teacherEntry = Find<Button>(main, "OpenTeachingButton");
             Click(teacherEntry);
-            await Until(() => desktop.Windows.OfType<TeachingWindow>().Any(w => w.IsVisible), "teaching opens from the same class");
-            desktop.Windows.OfType<TeachingWindow>().Single().Close();
+            var teaching = await AcademicPageAsync<TeachingView>(main);
+            Check(ReferenceEquals(TopLevel.GetTopLevel(teaching), main), "teaching opens in the same window from the same class");
+            Click(Find<Button>(teaching, "CloseTeachingButton"));
+            await Until(() => teacherEntry.IsFocused, "return restores focus to class teaching entry");
             await Until(() => teacherEntry.IsFocused && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId,
                 "teaching returns to the same class and its action");
             var study = Find<Button>(main, "OpenClassStudyButton");
@@ -332,8 +365,7 @@ internal static partial class Program
                 "switching schools resets the inactive filter and clears the open picker immediately");
             Check(nativeFilter.SelectedIndex == 0 && browserFilter.SelectedIndex == 0 && string.IsNullOrEmpty(deviceSearch.Text),
                 "switching schools clears both device filters and the previous school's search");
-            await Until(() => showTasks.IsEffectivelyVisible, "the new school overview finishes loading");
-            Click(showTasks);
+            await Until(() => tasks.IsEffectivelyVisible, "the new school overview finishes loading");
             await Until(() => Has("NO_ACTIVE_TERM"), "the new school explains no active term");
             await Command("release");
             await Task.Delay(220);
@@ -359,11 +391,16 @@ internal static partial class Program
                 Find<Button>(setup, "OpenClassBatchButton").IsEnabled, "class task offers the existing single and batch flows");
             setup.Close();
             SelectSchool(access.SchoolId);
-            await Until(() => showTasks.IsEffectivelyVisible, "restore the original school before the compact-window check");
+            await Until(() => tasks.IsEffectivelyVisible, "restore the original school before the compact-window check");
             main.Width = 840;
             main.Height = 480;
             await Until(() => Find<Grid>(main, "Workspace").Classes.Contains("compact"), "condense side navigation in a small window");
-            await Capture(main, output, "09-compact-overview");
+            var firstTask = tasks.Items.OfType<OverviewTaskItem>().First(row => row.CanOpen);
+            await Until(() => tasks.GetVisualDescendants().OfType<Button>().Any(button =>
+                button.Tag is OverviewTaskItem item && item.AutomationId == firstTask.AutomationId && button.IsEffectivelyVisible &&
+                button.TranslatePoint(default, main) is { } pos && pos.Y >= 0 && pos.Y + button.Bounds.Height <= main.Bounds.Height),
+                "the first task's action fits in the compact overview without expanding or scrolling");
+            await Capture(main, output, "09-compact-overview", includeFrame: true);
             Click(classesNav);
             await Until(() => classes.Items.Cast<Classroom>().Any(room => room.Id == access.ClassEightId), "the original classes finish loading");
             classes.SelectedItem = classes.Items.Cast<Classroom>().Single(room => room.Id == access.ClassEightId);

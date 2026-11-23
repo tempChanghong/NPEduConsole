@@ -284,10 +284,10 @@ internal static partial class Program
 
     private static Task Capture(UserControl view, string output, string name) => Capture((Window)TopLevel.GetTopLevel(view)!, output, name);
 
-    private static async Task Capture(Window target, string output, string name)
+    private static async Task Capture(Window target, string output, string name, bool includeFrame = false)
     {
         await Task.Delay(120);
-        var root = (Control)target.Content!;
+        var root = includeFrame ? target.GetVisualAncestors().LastOrDefault() ?? target : (Control)target.Content!;
         using var image = new RenderTargetBitmap(new PixelSize((int)root.Bounds.Width, (int)root.Bounds.Height));
         image.Render(root);
         image.Save(Path.Combine(output, name + ".png"), new PngBitmapEncoderOptions());

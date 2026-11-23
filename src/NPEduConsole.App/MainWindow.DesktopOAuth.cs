@@ -50,8 +50,8 @@ public sealed partial class MainWindow
         _browserProvidersAddress = null;
         var address = ServerAddress.Text?.Trim() ?? "";
         if (_client is not null || _desktopLogin is not null || !LoginView.IsVisible) return;
-        BrowserLogin.IsVisible = address.Length != 0;
-        if (!BrowserLogin.IsVisible) return;
+        BrowserLogin.IsVisible = false;
+        if (address.Length == 0) return;
 
         using var read = new CancellationTokenSource();
         _browserDiscovery = read;
@@ -64,11 +64,13 @@ public sealed partial class MainWindow
             if (!ReferenceEquals(_browserDiscovery, read)) return;
             _browserProviders = providers;
             _browserProvidersAddress = address;
-            BrowserLogin.SetAvailability(providers, providers.Count == 0 ? "此服务器未配置浏览器登录。" : null);
+            BrowserLogin.SetAvailability(providers);
+            BrowserLogin.IsVisible = providers.Count > 0;
         }
         catch (ConsoleApiException error) when (ReferenceEquals(_browserDiscovery, read))
         {
             var message = error.StatusCode is 404 or 426 ? error.Message : "暂时无法读取浏览器登录方式。可重试，或使用本地账号。";
+            BrowserLogin.IsVisible = error.StatusCode != 0;
             BrowserLogin.SetAvailability([], message, canRefresh: error.StatusCode is not (404 or 426));
         }
         catch (Exception error) when (IsServiceError(error) && !ReferenceEquals(_browserDiscovery, read)) { }
@@ -154,7 +156,7 @@ public sealed partial class MainWindow
     private void ShowBrowserLoginStage(bool waiting)
     {
         SetLoginBusy(waiting);
-        ServerAddress.IsEnabled = true;
+        ChangeLoginServer.IsEnabled = ServerAddress.IsEnabled = true;
         LocalSchoolLoginFields.IsVisible = LocalPasswordLoginFields.IsVisible = LoginButton.IsVisible = !waiting;
     }
 

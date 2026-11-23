@@ -8,6 +8,10 @@
       <x:Double x:Key="TextControlPlaceholderOpacity">1</x:Double>
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Light">
+          <LinearGradientBrush x:Key="LoginCanvasBrush" StartPoint="0%,100%" EndPoint="78%,28%">
+            <GradientStop Offset="0" Color="#EAF2FA"/>
+            <GradientStop Offset=".68" Color="#FCFDFE"/>
+          </LinearGradientBrush>
           <SolidColorBrush x:Key="FrameBrush">#EFF3F7</SolidColorBrush>
           <SolidColorBrush x:Key="FieldBrush">#F5F7FA</SolidColorBrush>
           <SolidColorBrush x:Key="FieldEdgeBrush">#AAB8C6</SolidColorBrush>
@@ -56,6 +60,10 @@
           <SolidColorBrush x:Key="ComboBoxItemBorderBrushSelectedPressed">#2668B2</SolidColorBrush>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
+          <LinearGradientBrush x:Key="LoginCanvasBrush" StartPoint="0%,100%" EndPoint="78%,28%">
+            <GradientStop Offset="0" Color="#212D37"/>
+            <GradientStop Offset=".68" Color="#1B1F24"/>
+          </LinearGradientBrush>
           <SolidColorBrush x:Key="FrameBrush">#242A31</SolidColorBrush>
           <SolidColorBrush x:Key="FieldBrush">#252C34</SolidColorBrush>
           <SolidColorBrush x:Key="FieldEdgeBrush">#65778A</SolidColorBrush>
