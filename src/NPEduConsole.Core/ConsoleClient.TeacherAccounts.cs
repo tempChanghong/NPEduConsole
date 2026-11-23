@@ -22,14 +22,14 @@ public sealed record ManagedTeacherAccount(string Id, string Name, string Userna
 }
 
 public sealed record TeacherAccountDirectory(string SchoolId, string Mode, IReadOnlyList<ManagedTeacherAccount> Accounts,
-    string? ActiveTermId = null, string? AdminUrl = null)
+    string? ActiveTermId = null, string? AdminUrl = null, string? SchoolCode = null)
 {
     internal Guid SessionId { get; init; }
     public bool SupportsLocalWrites => Mode is "LOCAL_PIN" or "SHARED_PASSWORD";
     public bool UsesPin => Mode == "LOCAL_PIN";
 }
 
-public sealed record TeacherAccountReceipt(Guid RequestId, string Action, ManagedTeacherAccount Account);
+public sealed record TeacherAccountReceipt(Guid RequestId, string Action, ManagedTeacherAccount Account, bool PinApplied = false);
 
 public sealed partial class ConsoleClient
 {
@@ -69,7 +69,7 @@ public sealed partial class ConsoleClient
     }
 
     public async Task<TeacherAccountReceipt> CreateTeacherAccountAsync(TeacherAccountDirectory directory, string username, string name,
-        string? pin, Guid requestId, CancellationToken ct)
+        string? pin, Guid requestId, CancellationToken ct, bool requestPinDelivery = false)
     {
         var session = TeacherAccountSession(directory);
         username = username.Trim().ToLowerInvariant();
@@ -80,7 +80,7 @@ public sealed partial class ConsoleClient
         if (name.Length is < 1 or > 64) throw TeacherAccountError(422, "INVALID_ACCOUNT_NAME");
         ValidateTeacherPin(pin, directory.UsesPin);
         object body = pin is null ? new { requestId, expectedMode = directory.Mode, username, name } :
-            new { requestId, expectedMode = directory.Mode, username, name, pin };
+            new { requestId, expectedMode = directory.Mode, username, name, pin, requestPinDelivery };
         var result = await RequestAsync<TeacherAccountReceipt>(HttpMethod.Post, TeacherAccountsPath(directory.SchoolId), session.Token, ct, body: body);
         CheckCreationSession(session, ct);
         ValidateTeacherReceipt(result, requestId, "CREATE");
@@ -89,7 +89,7 @@ public sealed partial class ConsoleClient
     }
 
     public async Task<TeacherAccountReceipt> UpdateTeacherAccountAsync(TeacherAccountDirectory directory, string accountId, string action,
-        string? pin, Guid requestId, CancellationToken ct)
+        string? pin, Guid requestId, CancellationToken ct, bool requestPinDelivery = false)
     {
         var session = TeacherAccountSession(directory);
         var baseline = directory.Accounts.SingleOrDefault(account => account.Id == accountId) ?? throw TeacherAccountError(404, "TEACHER_ACCOUNT_NOT_FOUND");
@@ -97,7 +97,7 @@ public sealed partial class ConsoleClient
         if (!directory.SupportsLocalWrites || action == "RESET_PIN" && !directory.UsesPin) throw TeacherAccountError(409, "TEACHER_MODE_UNSUPPORTED");
         ValidateTeacherPin(pin, action == "RESET_PIN");
         object body = pin is null ? new { requestId, expectedMode = directory.Mode, expectedVersion = baseline.Version, action } :
-            new { requestId, expectedMode = directory.Mode, expectedVersion = baseline.Version, action, pin };
+            new { requestId, expectedMode = directory.Mode, expectedVersion = baseline.Version, action, pin, requestPinDelivery };
         var result = await RequestAsync<TeacherAccountReceipt>(HttpMethod.Patch, $"{TeacherAccountsPath(directory.SchoolId)}/{Segment(accountId)}",
             session.Token, ct, body: body);
         CheckCreationSession(session, ct);

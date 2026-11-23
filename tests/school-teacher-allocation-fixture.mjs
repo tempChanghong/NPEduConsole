@@ -70,6 +70,7 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   const state = {steps: [], stale: 0, lost: false, receiptReads: 0, draftReads: [], oauthCodes: []};
   let draftReceipt;
   let dropNextPinnedWrite = false, droppedPinnedId, retryPinnedReceipt;
+  let holdNextCreate = false, heldCreate, racedReceipt;
   let dropNextRoleChange = false, droppedRoleChangeId;
   const droppedPinnedReads = [], droppedRoleChangeReads = [];
   let browser, frontend;
@@ -202,6 +203,20 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       assert.deepEqual((await myWorkspaces(signedIn.access_token)).map(row => row.workspace.id), [seven.id]);
       break;
     }
+    case 'hold-late-create':
+      holdNextCreate = true;
+      break;
+    case 'apply-late-original':
+      assert.ok(heldCreate);
+      assert.equal(await findTeacher('race-office'), null);
+      racedReceipt = (await api(primaryPath, {method: 'POST', token: heldCreate.token, body: heldCreate.body})).receipt;
+      heldCreate = null;
+      break;
+    case 'replay-cannot-deliver':
+      assert.equal(await prisma.schoolTeacherAllocationReceipt.count({where: {schoolId: school.id, requestId: racedReceipt.requestId}}), 1);
+      assert.equal((await localLogin('race-office', newPin)).account.id, racedReceipt.teachers[0].accountId);
+      await localLogin('race-office', ignoredPin, school.code, 401);
+      break;
     case 'drop-next-role-change':
       dropNextRoleChange = true;
       break;
@@ -249,11 +264,12 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       catch (error) { console.error(error); res.writeHead(500).end(); }
       return;
     }
-    if ((dropNextPinnedWrite || dropNextRoleChange) && req.method === 'POST' && req.url === primaryPath) {
+    if ((dropNextPinnedWrite || dropNextRoleChange || holdNextCreate) && req.method === 'POST' && req.url === primaryPath) {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const original = JSON.parse(Buffer.concat(chunks));
-      if (dropNextPinnedWrite) droppedPinnedId = original.requestId;
+      if (holdNextCreate) { heldCreate = {body: original, token: req.headers.authorization.slice(7)}; holdNextCreate = false; }
+      else if (dropNextPinnedWrite) droppedPinnedId = original.requestId;
       else droppedRoleChangeId = original.requestId;
       dropNextPinnedWrite = dropNextRoleChange = false;
       res.destroy();
@@ -323,7 +339,7 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
     }});
     assert.deepEqual(state.steps, ['draft-pending', 'draft-isolated-from-active', 'document-scope-zero', 'legacy-remove',
       'stale-zero', 'primary-applied', 'teaching-return', 'duty-only', 'drop-next-pinned-write', 'pinned-write-never-arrived',
-      'cancelled-pinned-retry', 'pinned-retry-applied', 'drop-next-role-change', 'change-role-scope-before-retry',
+      'cancelled-pinned-retry', 'pinned-retry-applied', 'hold-late-create', 'apply-late-original', 'replay-cannot-deliver', 'drop-next-role-change', 'change-role-scope-before-retry',
       'stale-retry-left-role-untouched', 'draft-access', 'invitation-pending', 'oauth-complete']);
     await writeFile(join(evidence, 'teacher-allocation-cross-end.json'), JSON.stringify({passed: true, ...state,
       discardedInitialPost: droppedPinnedId, discardedInitialPostReceiptReads: droppedPinnedReads,

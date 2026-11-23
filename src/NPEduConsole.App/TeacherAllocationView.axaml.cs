@@ -29,6 +29,8 @@ public sealed partial class TeacherAllocationView : UserControl
     private readonly CancellationTokenSource _lifetime = new();
     private TeacherAllocationCatalog? _catalog;
     private TeacherAllocationDocumentTarget? _fileTarget, _rejectedTarget;
+    private string? _unsupportedFile;
+    private readonly Dictionary<string, InitialPinDelivery<int>> _deliveries = new(StringComparer.Ordinal);
     private TeacherAllocationPreview? _preview;
     private AllocationDifference[] _reviewRows = [];
     private bool _busy, _writing, _binding, _closed, _allowClose, _discard, _dirty, _reviewed, _rescope, _retryMissingReceipt;
@@ -98,6 +100,7 @@ public sealed partial class TeacherAllocationView : UserControl
         AllocationScope.Text = school.Name;
         AllocationFilter.ItemsSource = new[] { "全部", "新增", "修改或移除", "阻断与待复核", "一致" };
         AllocationFilter.SelectedIndex = 0;
+        DetachedFromVisualTree += (_, _) => _deliveries.Clear();
         SizeChanged += (_, _) => ArrangeAllocationLayout();
         AddHandler(KeyDownEvent, AllocationKeyDown, RoutingStrategies.Tunnel);
         Render();
@@ -149,6 +152,7 @@ public sealed partial class TeacherAllocationView : UserControl
     {
         if (_closed) return;
         _closed = true;
+        _deliveries.Clear();
         _archiveInvitationConfirmation?.Close();
         _pasteDialog?.Close();
         _retryPinDialog?.Close();
@@ -226,6 +230,7 @@ public sealed partial class TeacherAllocationView : UserControl
             Status("请先保存或放弃当前教师表，再切换办理范围。");
             return;
         }
+        _deliveries.Clear();
         ClearReview();
         await RunAsync(async () =>
         {
@@ -277,7 +282,18 @@ public sealed partial class TeacherAllocationView : UserControl
 
     internal void LoadAllocationText(string text, bool legacy)
     {
-        var file = legacy ? TeacherAllocationDocumentReader.ReadLegacy(text, Mode) : null;
+        TeacherAllocationDocument? file;
+        try { file = legacy ? TeacherAllocationDocumentReader.ReadLegacy(text, Mode) : null; }
+        catch (StaffConfigurationFileException error)
+        {
+            _unsupportedFile = error.Message;
+            _rejectedTarget = null;
+            ClearReview();
+            Status("未导入此文件，原教师表已保留。");
+            Render();
+            return;
+        }
+        _unsupportedFile = null;
         if (file is not null && TargetDifferences(file.Target).Length > 0)
         {
             _rejectedTarget = file.Target;
@@ -318,6 +334,7 @@ public sealed partial class TeacherAllocationView : UserControl
 
     private void KeepAllocationTableClicked(object? sender, RoutedEventArgs args)
     {
+        _unsupportedFile = null;
         _rejectedTarget = null;
         Status("已保留打开文件前的教师表，请按当前目标重新预览。");
         Render();
@@ -467,7 +484,19 @@ public sealed partial class TeacherAllocationView : UserControl
         }
         if (_closed) return;
         ClearPending(request);
-        if (result.Receipt is { } receipt) await ShowReceiptAsync(receipt, recovered: false);
+        if (result.Receipt is { } receipt)
+        {
+            _deliveries.Clear();
+            if (draft.Mode == "LOCAL_PIN" && !draft.ArchivedCorrection && result.AppliedPins is { } applied)
+                for (var i = 0; i < receipt.Teachers.Length; i++)
+                {
+                    var row = receipt.Teachers[i];
+                    if (row is {Created: true, AccountId: { } id, Username: { } username} && draft.Teachers[i].Pin is { } pin &&
+                        applied.FirstOrDefault(item => item.AccountId == id) is {Version: >= 0} proof)
+                        _deliveries[id] = new(id, username, pin, proof.Version);
+                }
+            await ShowReceiptAsync(receipt, recovered: false);
+        }
         else if (result.Preview is { } observed)
         {
             _reviewed = false;
@@ -507,6 +536,7 @@ public sealed partial class TeacherAllocationView : UserControl
 
     private async Task ShowReceiptAsync(TeacherAllocationReceipt receipt, bool recovered)
     {
+        if (recovered) _deliveries.Clear();
         AccessChanged = true;
         _dirty = false;
         ClearPins();
@@ -518,6 +548,7 @@ public sealed partial class TeacherAllocationView : UserControl
         try { await LoadAsync(receipt.TermId, receipt.GradeId, receipt.TermId is null); }
         catch (ConsoleApiException error)
         {
+            _deliveries.Clear();
             SessionExpired?.Invoke(error);
             if (!_closed) Status("服务器已确认成功；当前目录暂未刷新。请重读实际账号和访问。");
             return;
@@ -562,6 +593,7 @@ public sealed partial class TeacherAllocationView : UserControl
         }
         catch (ConsoleApiException error) when (!_closed)
         {
+            if (error.StatusCode is 401 or 403) _deliveries.Clear();
             if (error.StatusCode == 403)
             {
                 ForgetPending(_client, _school.Id);
@@ -623,9 +655,9 @@ public sealed partial class TeacherAllocationView : UserControl
         var differences = (_rejectedTarget ?? _fileTarget) is { } target ? TargetDifferences(target) : [];
         var conflict = HasDocumentConflict;
         AllocationTargetNotice.IsVisible = editing && conflict && !pending;
-        AllocationTargetDetails.Text = differences.Length > 0 ? string.Join("\n", differences) + "\n请换文件，或调整所选目标后重新打开。" :
-            "目标已匹配。请重新打开刚才的文件，或保留原草稿。";
-        AllocationKeepTable.IsVisible = _rejectedTarget is not null;
+        AllocationTargetDetails.Text = _unsupportedFile ?? (differences.Length > 0 ? string.Join("\n", differences) + "\n请换文件，或调整所选目标后重新打开。" :
+            "目标已匹配。请重新打开刚才的文件，或保留原草稿。");
+        AllocationKeepTable.IsVisible = _rejectedTarget is not null || _unsupportedFile is not null;
         AllocationKeepTable.IsEnabled = edit;
         AllocationPreviewButton.IsVisible = !pending && !_discard && !AllocationLegacyWeb.IsVisible && (editing || reviewing && !_reviewed);
         AllocationPreviewButton.Content = editing ? "预览分配" : "重新预览";
@@ -653,7 +685,7 @@ public sealed partial class TeacherAllocationView : UserControl
         UpdatePendingActions();
     }
 
-    private bool HasDocumentConflict => _rejectedTarget is not null || _fileTarget is { } target && TargetDifferences(target).Length > 0;
+    private bool HasDocumentConflict => _unsupportedFile is not null || _rejectedTarget is not null || _fileTarget is { } target && TargetDifferences(target).Length > 0;
 
     private void Status(string text)
     {

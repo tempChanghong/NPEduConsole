@@ -166,10 +166,14 @@
         </Grid>
       </Grid>
       <Grid x:Name="AllocationReceiptLayout" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="6">
-        <TextBlock x:Name="AllocationReceiptSummary" Classes="label" TextWrapping="Wrap"/>
+        <StackPanel><TextBlock x:Name="AllocationReceiptSummary" Classes="label" TextWrapping="Wrap"/>
+          <TextBlock x:Name="AllocationPinHint" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
+        </StackPanel>
         <ListBox Grid.Row="1" x:Name="AllocationReceiptRows" Classes="object-list" Background="Transparent"
                  AutomationProperties.Name="本次分配回执" SelectionChanged="ReceiptRowSelected"/>
         <WrapPanel Grid.Row="2" ItemSpacing="6" LineSpacing="4">
+          <Button x:Name="AllocationCopyPin" IsVisible="False" Classes="action" Content="复制本次 PIN" Click="DeliverPinClicked"/>
+          <Button x:Name="AllocationSavePin" IsVisible="False" Classes="action" Content="另存本次 PIN" Click="DeliverPinClicked"/>
           <Button x:Name="AllocationReceiptPerson" Classes="action" Content="查看该教师" Click="ReceiptPersonClicked"/>
           <Button x:Name="AllocationReceiptSpace" Classes="action" Content="查看该教学空间" Click="ReceiptSpaceClicked"/>
           <Button x:Name="AllocationReceiptTeaching" Classes="action accent" Content="继续分配任课" Click="ReceiptTeachingClicked"/>

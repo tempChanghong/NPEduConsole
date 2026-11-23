@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using NPEduConsole.Core;
 
@@ -18,6 +19,8 @@ public sealed partial class TeacherAccountForm : Window
     private readonly string _createLabel = "创建教师";
     private readonly CancellationTokenSource _lifetime = new();
     private TeacherAccountDirectory? _directory;
+    private InitialPinDelivery<string>? _delivery;
+    internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectPinFile { private get; set; }
     private TeacherAllocationWindow? _allocationWindow;
     private Guid? _abandonedRequest, _missingReceipt;
     private bool _closed, _busy, _writing, _retryAllowed, _accessLost;
@@ -50,6 +53,7 @@ public sealed partial class TeacherAccountForm : Window
         Closed += (_, _) =>
         {
             _closed = true;
+            _delivery = null;
             _allocationWindow?.CloseForScopeChange();
             TeacherFormPin.Clear();
             _lifetime.Cancel();
@@ -124,12 +128,17 @@ public sealed partial class TeacherAccountForm : Window
         bool modeAllows = _resetId is null ? _directory?.SupportsLocalWrites == true :
             _directory?.UsesPin == true && _directory.Accounts.Any(account => account.Id == _resetId);
         var pending = Pending;
-        bool allowWork = !_accessLost;
+        bool allowWork = !_accessLost && Receipt is null;
+        TeacherDeliveryActions.IsVisible = Receipt is not null && _delivery is not null && !_accessLost;
+        TeacherDeliveryActions.IsEnabled = !_busy;
+        if (Receipt is not null) TeacherFormClose.Content = "完成并返回";
         TeacherFormCard.IsVisible = allowWork && (modeAllows || pending is not null);
         TeacherIdentityFields.IsVisible = _resetId is null;
         TeacherIdentityFields.IsEnabled = !_busy && pending is null;
         TeacherPinField.IsVisible = allowWork && _directory?.UsesPin == true && (pending is null || _retryAllowed);
         TeacherPinField.IsEnabled = !_busy && modeAllows;
+        TeacherWantDelivery.IsVisible = _directory?.SchoolCode is {Length: > 0};
+        TeacherFormPinHint.Text = TeacherWantDelivery.IsVisible ? "用于教师本人登录。可按需交付本次 PIN。" : "用于教师本人登录。升级 KV 后可在此交付本次 PIN。";
         TeacherFormAllocation.IsVisible = allowWork && _resetId is null && _directory?.Mode == "OAUTH_EMAIL";
         TeacherFormAllocation.IsEnabled = !_busy && _allocationWindow is null;
         TeacherFormCheck.IsVisible = allowWork && (pending is not null || _directory is null);
@@ -161,6 +170,7 @@ public sealed partial class TeacherAccountForm : Window
         { FieldError(TeacherFormPinError, TeacherFormPin, "个人 PIN 需为 4 至 8 位数字。"); return; }
         TeacherFormPin.Clear();
         bool wasPending = intent is not null;
+        bool handoff = pin is not null && TeacherWantDelivery.IsChecked == true;
         intent ??= new(Guid.NewGuid(), directory, username, name);
         Operations[OperationKey] = intent;
         _abandonedRequest = null;
@@ -175,8 +185,10 @@ public sealed partial class TeacherAccountForm : Window
             try
             {
                 result = _resetId is null
-                    ? await _client.CreateTeacherAccountAsync(intent.Baseline, intent.Username, intent.Name, pin, intent.RequestId, _lifetime.Token)
-                    : await _client.UpdateTeacherAccountAsync(intent.Baseline, _resetId, Action, pin, intent.RequestId, _lifetime.Token);
+                    ? await _client.CreateTeacherAccountAsync(intent.Baseline, intent.Username, intent.Name, pin, intent.RequestId, _lifetime.Token, handoff)
+                    : await _client.UpdateTeacherAccountAsync(intent.Baseline, _resetId, Action, pin, intent.RequestId, _lifetime.Token, handoff);
+                if (!_closed && handoff && pin is not null && result.PinApplied && directory.SchoolCode is {Length: > 0})
+                    _delivery = new(result.Account.Id, result.Account.Username, pin, result.Account.Version);
             }
             catch (ConsoleApiException error) when (Uncertain(error))
             {
@@ -239,9 +251,34 @@ public sealed partial class TeacherAccountForm : Window
         if (_resetId is null ? receipt.Account.Username != intent.Username : receipt.Account.Id != _resetId)
             throw new ConsoleApiException(0, "回执与原账号不一致，请重新核对目录。");
         Operations.Remove(OperationKey);
-        Receipt = receipt;
+        Receipt = receipt with { PinApplied = false };
         _writing = false;
-        Close();
+        if (TeacherWantDelivery.IsChecked != true) { Close(); return; }
+        TeacherFormScope.Text = $"{_school.Name} · {receipt.Account.Display}";
+        Status(_delivery is null ? "服务器已确认办理。当前没有可交付的 PIN，如需新 PIN 可在账号目录重置。" :
+            "本次 PIN 已生效。可复制或另存一次，返回后清除。");
+        Focus(TeacherFormClose);
+    }
+
+    private async void DeliverPinClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || _closed || _delivery is not { } delivery || _directory?.SchoolCode is not { Length: > 0 } code) return;
+        await RunAsync(async () =>
+        {
+            async Task<bool> Verify()
+            {
+                var now = await _client.GetTeacherAccountsAsync(_school.Id, _lifetime.Token);
+                if (!_closed && _delivery == delivery && now.SchoolCode == code && now.UsesPin &&
+                    now.Accounts.Any(row => !row.Disabled && row.Id == delivery.Id && row.Username == delivery.Username &&
+                        row.Version == delivery.Version)) return true;
+                _delivery = null;
+                return false;
+            }
+            bool save = sender == TeacherSavePin;
+            if (!await delivery.DeliverAsync(this, save, _school.Name, code, "教师短账号", Verify, _lifetime.Token, SelectPinFile)) return;
+            _delivery = null;
+            if (!_closed) Status(save ? "已另存这位教师的账号与 PIN。" : "已将这位教师的账号与 PIN 复制到剪贴板。");
+        });
     }
 
     private async void CheckClicked(object? sender, RoutedEventArgs args) =>
@@ -276,12 +313,13 @@ public sealed partial class TeacherAccountForm : Window
         catch (ConsoleApiException error)
         {
             if (_closed) return;
-            if (error.StatusCode is 401 or 403) _directory = null;
+            if (error.StatusCode is 401 or 403) { _directory = null; _delivery = null; }
             if (error.StatusCode == 403) _accessLost = true;
             if (error.Code == "SNAPSHOT_CHANGED") _directory = null;
             Status(Pending is null ? error.Message : $"操作回执待核对。{error.Message}", error: true);
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
         }
+        catch (ArgumentException error) when (!_closed) { Status(error.Message, error: true); }
         finally { _busy = _writing = false; if (!_closed) Render(); }
     }
 

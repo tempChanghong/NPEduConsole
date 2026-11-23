@@ -319,6 +319,15 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
         assert.ok(records.some(row => row.name === '八班新增屏' && row.loginCode.toLowerCase() === 'duty-extra' && row.id !== rear.id));
         break;
       }
+      case 'rotate-during-handoff': {
+        const extra = await prisma.classroomScreenBinding.findFirstOrThrow({where: {schoolId: school.id, loginCode: 'DUTY-EXTRA'}});
+        const body = {action: 'RESET_PIN', bindingId: extra.id};
+        const preview = await api(duty + '/preview', {token: legacy, method: 'POST', body});
+        await api(duty, {token: legacy, method: 'POST', body: {...body, expectedVersion: preview.version,
+          requestId: randomUUID(), pin: resetPin}});
+        assert.ok((await binding(extra.id)).credentialVersion > extra.credentialVersion);
+        break;
+      }
       default: throw new Error('Unknown screen-duty fixture checkpoint');
     }
     steps.push(step);
@@ -382,7 +391,8 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
         throw error;
       } finally { releaseReload?.(); }
     }});
-    assert.equal(steps.length, 18);
+    assert.equal(steps.length, 19);
+    assert.equal(steps.at(-1), 'rotate-during-handoff');
     const [finalFront, finalRear] = await Promise.all([device(front.id), device(rear.id)]);
     await writeFile(join(evidence, 'screen-duty-cross-end.json'), JSON.stringify({passed: true, steps, commands,
       screens: {

@@ -28,6 +28,7 @@ public sealed partial class ScreenDutyWindow : Window
     private ScreenDutyPreview? _preview;
     private ScreenDutyPlan? _plan;
     private string? _bindingId, _action, _commandType, _commandId, _defaultClass;
+    private InitialPinDelivery<int>? _delivery;
     private Control? _anchor;
     private bool _closed, _busy, _writing, _unavailable, _commandsExpanded, _directoryView, _applyingScope, _directoryInitialized, _canRetry;
     public bool Changed { get; private set; }
@@ -74,6 +75,7 @@ public sealed partial class ScreenDutyWindow : Window
         Closed += (_, _) =>
         {
             _closed = true;
+            _delivery = null;
             _poll.Stop();
             DutyPin.Text = "";
             DutyRetryPin.Text = "";
@@ -95,6 +97,7 @@ public sealed partial class ScreenDutyWindow : Window
         if (_closed) return;
         _catalog = data;
         _detail = _directoryView ? null : data.Screens.SingleOrDefault(item => item.Id == _bindingId);
+        if (!CurrentPinMatches(_detail, _delivery)) _delivery = null;
         if (_unavailable) Notice("已重新核对服务器状态。");
         _unavailable = false;
         if (_directoryView && !_directoryInitialized)
@@ -234,6 +237,7 @@ public sealed partial class ScreenDutyWindow : Window
     private void Begin(string action, Control? anchor, string? target = null, string? command = null)
     {
         if (_closed || _unavailable || Pending is not null) return;
+        _delivery = null;
         _action = action;
         _anchor = anchor;
         _commandType = command;
@@ -373,7 +377,11 @@ public sealed partial class ScreenDutyWindow : Window
                 }
                 throw;
             }
-            if (!_closed) await AcceptReceiptAsync(receipt, false);
+            if (_closed) return;
+            var username = intent.Plan.LoginCode ?? intent.Preview.Screen?.LoginCode;
+            _delivery = pin is not null && username is not null && receipt.AppliedPinVersion is >= 0 and { } version
+                ? new(receipt.BindingId, username, pin, version) : null;
+            await AcceptReceiptAsync(receipt, false);
         }, writing: true);
     }
 
@@ -426,8 +434,14 @@ public sealed partial class ScreenDutyWindow : Window
         catch (ConsoleApiException error)
         {
             _unavailable = true;
+            _delivery = null;
             SessionExpired?.Invoke(error);
             if (!_closed) Notice("服务器已确认保存。最新状态暂不可读，请点核对最新状态。", true);
+            return;
+        }
+        if (!_closed && NeedsPin(receipt.Action) && _delivery is null)
+        {
+            Notice((recovered ? "已找回本人原回执。" : "服务器已确认办理。") + "本页没有可交付的 PIN。如需新的网页 PIN，可为本屏重置。");
             return;
         }
         if (!_closed) Notice(recovered ? "已找回服务器确认的原回执。" :
@@ -463,6 +477,7 @@ public sealed partial class ScreenDutyWindow : Window
         }
         else if (Pending is null && !_directoryView && _fromDirectory)
         {
+            _delivery = null;
             _directoryView = true;
             _commandsExpanded = false;
             _commandId = null;
@@ -500,12 +515,14 @@ public sealed partial class ScreenDutyWindow : Window
         catch (ConsoleApiException error)
         {
             if (_closed) return;
+            _delivery = null;
             SessionExpired?.Invoke(error);
             if (_closed) return;
             if (_action is null || quiet) _unavailable = true;
             Notice(error is {StatusCode: 404, Code: null or "NOT_FOUND"} ? "当前 KV 不支持大屏账号与值守，请更新服务或使用原网页入口。" :
                 quiet || _unavailable ? $"读取失败，状态待核对。{error.Message}" : error.Message, true);
         }
+        catch (ArgumentException error) when (!_closed) { Notice(error.Message, true); }
         finally
         {
             _busy = _writing = false;
@@ -515,6 +532,9 @@ public sealed partial class ScreenDutyWindow : Window
 
     private void Render()
     {
+        var canDeliver = CurrentPinMatches(_detail, _delivery) && !_directoryView && !_unavailable;
+        DutyHandoffActions.IsVisible = DutyCopyPin.IsVisible = DutySavePin.IsVisible = canDeliver;
+        DutyCopyPin.IsEnabled = DutySavePin.IsEnabled = !_busy;
         var pending = Pending is not null;
         var editing = _action is not null && _preview is null && !pending;
         var canAct = !_busy && !_unavailable && !pending && _detail?.Room.Active == true;

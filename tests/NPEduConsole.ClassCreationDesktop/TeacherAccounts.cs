@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using NPEduConsole.App;
@@ -83,7 +84,12 @@ internal static partial class Program
             Find<TextBox>(create, "TeacherFormName").Text = "王老师";
             Find<TextBox>(create, "TeacherFormUsername").Text = access.TeacherUsername;
             pin.Text = access.TeacherPin;
+            Find<CheckBox>(create, "TeacherWantDelivery").IsChecked = true;
             Click(save);
+            await Until(() => create.Receipt is not null && StaffText(create, "TeacherFormNotice").Contains("没有可交付"),
+                "lost successful create recovers the account without an initial PIN to deliver");
+            Check(!Find<WrapPanel>(create, "TeacherDeliveryActions").IsVisible, "recovered create has no clipboard or export");
+            Click(Find<Button>(create, "TeacherFormClose"));
             var teachers = Find<ComboBox>(teaching, "TeachingTeacherPicker");
             await Until(() => !create.IsVisible && teachers.SelectedItem is TeachingTeacher teacher &&
                 teacher.Username == access.TeacherUsername && teachers.IsEffectivelyEnabled, "lost create response recovered by exact server receipt");
@@ -239,7 +245,26 @@ internal static partial class Program
             Find<TextBox>(form, "TeacherFormName").Text = name;
             Find<TextBox>(form, "TeacherFormUsername").Text = username;
             Find<TextBox>(form, "TeacherFormPin").Text = access.TeacherPin;
+            var oneTeacherHandoff = username == "no-term-teacher";
+            Find<CheckBox>(form, "TeacherWantDelivery").IsChecked = oneTeacherHandoff;
             Click(submit);
+            if (oneTeacherHandoff)
+            {
+                var button = Find<Button>(form, "TeacherSavePin");
+                await Until(() => button.IsEffectivelyVisible && button.IsEffectivelyEnabled, "single-teacher handoff is ready");
+                var file = Path.Combine(output, "temporary-single-teacher.txt");
+                await File.WriteAllTextAsync(file, "");
+                try
+                {
+                    form.SelectPinFile = _ => form.StorageProvider.TryGetFileFromPathAsync(new Uri(file));
+                    Click(button);
+                    await Until(() => StaffText(form, "TeacherFormNotice").Contains("已另存"), "single-teacher PIN delivered");
+                    var saved = await File.ReadAllTextAsync(file);
+                    Check(saved.Contains(username) && saved.EndsWith("PIN " + access.TeacherPin), "single-teacher delivery uses the confirmed new account");
+                }
+                finally { File.Delete(file); }
+                Click(Find<Button>(form, "TeacherFormClose"));
+            }
             await Until(() => !form.IsVisible && form.Receipt?.Account.Username == username, "confirmed " + username);
         }
 

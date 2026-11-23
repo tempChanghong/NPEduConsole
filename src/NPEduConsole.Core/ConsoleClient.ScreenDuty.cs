@@ -13,18 +13,18 @@ public sealed record ScreenDutyCommand(string Id, string Type, string State, Dat
 public sealed record ScreenDutyDetail(string Id, string Name, string? LoginCode, bool HasPin, bool Active, bool BrowserBound, ScreenDutyRoom Room,
     string BrowserState, DateTimeOffset? FirstLoginAt, DateTimeOffset? HeartbeatAt, DateTimeOffset? PreviousHeartbeatAt,
     int? PendingUploads, bool SyncProblem, string NativeState, DateTimeOffset? NativeReportedAt, DateTimeOffset? NativePairedAt,
-    ScreenDutyCommand[] Commands)
+    ScreenDutyCommand[] Commands, int? CredentialVersion = null)
 {
     public string Display => $"{Room.Label} · {Name} · {Id}{(Active ? "" : " · 已停用")}";
 }
-public sealed record ScreenDutyCatalog(string SchoolId, string? TermId, ScreenDutyRoom[] Rooms, ScreenDutyDetail[] Screens);
+public sealed record ScreenDutyCatalog(string SchoolId, string? TermId, ScreenDutyRoom[] Rooms, ScreenDutyDetail[] Screens, string? SchoolCode = null);
 public sealed record ScreenDutyPlan(string Action, string? BindingId = null, string? ClassId = null, string? Name = null,
     string? LoginCode = null, string? CommandType = null);
 public sealed record ScreenDutyPeer(string Id, string Name, bool Active);
 public sealed record ScreenDutyImpact(string Browser, string Native);
 public sealed record ScreenDutyPreview(string Version, string Action, ScreenDutyBinding? Screen, ScreenDutyRoom? Target,
     ScreenDutyPeer[] TargetScreens, ScreenDutyImpact Impact);
-public sealed record ScreenDutyReceipt(Guid RequestId, string Action, string BindingId, string? CommandId);
+public sealed record ScreenDutyReceipt(Guid RequestId, string Action, string BindingId, string? CommandId, int? AppliedPinVersion = null);
 
 public sealed partial class ConsoleClient
 {
@@ -82,7 +82,7 @@ public sealed partial class ConsoleClient
         CheckScreenDutyPreview(plan, preview);
         var session = CurrentSession;
         var receipt = await RequestAsync<ScreenDutyReceipt>(HttpMethod.Post, ScreenDutyPath(schoolId), session.Token, ct,
-            body: new {plan.Action, plan.BindingId, plan.ClassId, plan.Name, plan.LoginCode, plan.CommandType, pin, requestId, expectedVersion = preview.Version});
+            body: new {plan.Action, plan.BindingId, plan.ClassId, plan.Name, plan.LoginCode, plan.CommandType, pin, requestId, requestPinDelivery = pin is not null, expectedVersion = preview.Version});
         CheckCreationSession(session, ct);
         CheckScreenDutyReceipt(plan, requestId, receipt);
         return receipt;

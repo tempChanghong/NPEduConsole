@@ -6,6 +6,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Threading;
+using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
 using NPEduConsole.App;
 using NPEduConsole.Core;
@@ -122,6 +123,15 @@ internal static partial class Program
             await Paste(window, ActiveTable("abc"));
             var term = Find<ComboBox>(window, "AllocationTerm").SelectedItem;
             var target = Find<TextBlock>(window, "AllocationTargetDetails");
+            window.LoadAllocationText("""{"teachers":[{"username":"test","teachingAssignments":[],"responsibilities":{}}]}""", legacy: true);
+            Check(target.IsEffectivelyVisible && target.Text!.Contains("完整师资配置") &&
+                !Find<Button>(window, "AllocationPreviewButton").IsEnabled && Find<TextBlock>(window, "AllocationFooter").Text!.Contains("2 位教师"),
+                "the combined staff file cannot replace the original table or drop its duties");
+            window.LoadAllocationText("""{"assignments":[{"username":"mixed","teachingAssignments":[]}]}""", legacy: true);
+            Check(!Find<Button>(window, "AllocationPreviewButton").IsEnabled, "mixed-format rows cannot silently lose teaching assignments");
+            window.LoadAllocationText("""{"assignments":[{"username":"mixed"}],"responsibilities":{"classLeaderships":[]}}""", legacy: true);
+            Check(!Find<Button>(window, "AllocationPreviewButton").IsEnabled, "a mixed-format document cannot discard its school duties");
+            await CaptureWithFrame(main, output, "12-full-staff-file-keeps-table");
             await OpenLegacyFile(window, access.WrongTermFile);
             Check(target.IsEffectivelyVisible && target.Text!.Contains("所选 秋季学期／文件声明 开学准备草稿") &&
                 ReferenceEquals(term, Find<ComboBox>(window, "AllocationTerm").SelectedItem) &&
@@ -180,6 +190,8 @@ internal static partial class Program
 
             await Preview(window, () => Find<CheckBox>(window, "AllocationApprove").IsEnabled);
             await Save(window, () => Status(window).Contains("找回原回执"));
+            Check(!Find<Button>(window, "AllocationSavePin").IsVisible && !Find<Button>(window, "AllocationCopyPin").IsVisible,
+                "a recovered receipt cannot deliver a PIN");
             await Signal("primary-applied");
             await CaptureWithFrame(main, output, "04-wide-teacher-results");
             var receiptRows = Find<ListBox>(window, "AllocationReceiptRows");
@@ -261,10 +273,40 @@ internal static partial class Program
             Click(retryDialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "按原编号重试")));
             await Until(() => window.DisplayedStage == TeacherAllocationView.Stage.Receipt && Status(window).Contains("服务器已确认"),
                 "the original local-account request completed");
+            var handoffFile = Path.Combine(output, "temporary-teacher-handoff.txt");
+            await File.WriteAllTextAsync(handoffFile, "");
+            try
+            {
+                window.SelectPinFile = _ => main.StorageProvider.TryGetFileFromPathAsync(new Uri(handoffFile));
+                await PressScoped(window, "AllocationSavePin");
+                await Until(() => Status(window).Contains("已另存"), "the fresh applied PIN was delivered once");
+                var savedHandoff = await File.ReadAllTextAsync(handoffFile);
+                Check(savedHandoff.Contains("retry-office") && savedHandoff.Contains(access.SchoolCode) &&
+                    savedHandoff.EndsWith("PIN " + access.NewPin) && !Find<Button>(window, "AllocationCopyPin").IsVisible,
+                    "saved handoff identifies the correct school, account and exact applied PIN");
+            }
+            finally { File.Delete(handoffFile); }
             await Signal("pinned-retry-applied");
             await PressScoped(window, "AllocationClose");
             window = await AcademicPageAsync<TeacherAllocationView>(main);
             if (window.DisplayedStage != TeacherAllocationView.Stage.Edit) await PressScoped(window, "AllocationEdit");
+            await Paste(window, "race-office\t迟到教师\t" + access.NewPin + "\tG2-C07\t教师");
+            await Preview(window, () => Find<CheckBox>(window, "AllocationApprove").IsEffectivelyEnabled);
+            await Signal("hold-late-create");
+            await Save(window, () => Status(window).Contains("暂未找到"));
+            await PressScoped(window, "AllocationSave");
+            await Until(() => desktop.Windows.Any(dialog => dialog.IsVisible && dialog.Title == "确认原请求的初始 PIN"), "late request re-entry");
+            retryDialog = desktop.Windows.Single(dialog => dialog.IsVisible && dialog.Title == "确认原请求的初始 PIN");
+            await Signal("apply-late-original");
+            retryDialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.PasswordChar != '\0').Text = access.IgnoredPin;
+            Click(retryDialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "按原编号重试")));
+            await Until(() => window.DisplayedStage == TeacherAllocationView.Stage.Receipt && Status(window).Contains("服务器已确认"),
+                "idempotent replay returns the original teacher");
+            Check(!Find<Button>(window, "AllocationCopyPin").IsVisible && !Find<Button>(window, "AllocationSavePin").IsVisible &&
+                (Find<TextBlock>(window, "AllocationPinHint").Text ?? "").Contains("没有可再次交付"), "a replay never delivers the retyped PIN");
+            await CaptureWithFrame(main, output, "13-late-original-no-pin-delivery");
+            await Signal("replay-cannot-deliver");
+            await PressScoped(window, "AllocationEdit");
             await Paste(window, "retry-office\t断线重试教师\t\tG2-C08\t助教");
             await Preview(window, () => Find<CheckBox>(window, "AllocationApprove").IsEffectivelyEnabled);
             await Signal("drop-next-role-change");

@@ -4,6 +4,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
+using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
 using NPEduConsole.App;
 using NPEduConsole.Core;
@@ -67,6 +68,21 @@ internal static partial class Program
             await Review(window);
             Check(Label(window, "DutyReviewNative").Contains("可继续使用"), "in-place setup preserves native pairing");
             await Submit(window);
+            var handoffFile = Path.Combine(output, "temporary-screen-handoff.txt");
+            await File.WriteAllTextAsync(handoffFile, "");
+            try
+            {
+                window.SelectPinFile = _ => window.StorageProvider.TryGetFileFromPathAsync(new Uri(handoffFile));
+                await Until(() => Find<Button>(window, "DutySavePin").IsEffectivelyEnabled && Find<Button>(window, "DutySavePin").IsVisible,
+                    "fresh screen configuration offers only its own web PIN");
+                Click(Find<Button>(window, "DutySavePin"));
+                await Until(() => Label(window, "DutyNotice").Contains("已另存"), "screen handoff completed");
+                var text = await File.ReadAllTextAsync(handoffFile);
+                Check(text.Contains(access.SchoolCode) && text.Contains("duty-rear", StringComparison.OrdinalIgnoreCase) &&
+                    text.EndsWith("PIN " + access.Pin) && !Find<Button>(window, "DutyCopyPin").IsVisible,
+                    "saved the intended binding's web account and original PIN exactly once");
+            }
+            finally { File.Delete(handoffFile); }
             await Signal("configured");
             await Refresh(window);
             Check(Label(window, "BrowserDutyEvidence").Contains("DUTY-REAR") &&
@@ -186,6 +202,20 @@ internal static partial class Program
             await Until(() => Label(window, "DutyNotice").Contains("服务器已确认"), "same request creates once after its first attempt never reached KV");
             await Signal("another-created");
             await Capture(window, output, "07-new-separate-screen");
+            await File.WriteAllTextAsync(handoffFile, "保留原文件");
+            try
+            {
+                window.SelectPinFile = async _ =>
+                {
+                    await Signal("rotate-during-handoff");
+                    return await window.StorageProvider.TryGetFileFromPathAsync(new Uri(handoffFile));
+                };
+                Click(Find<Button>(window, "DutySavePin"));
+                await Until(() => Label(window, "DutyNotice").Contains("已经变化") && !Find<Button>(window, "DutySavePin").IsVisible,
+                    "changing the credential during file selection withdraws the delivery");
+                Check(await File.ReadAllTextAsync(handoffFile) == "保留原文件", "a stale PIN never replaces the destination file");
+            }
+            finally { File.Delete(handoffFile); }
             desktop.Shutdown(0);
         }
         catch (Exception error)

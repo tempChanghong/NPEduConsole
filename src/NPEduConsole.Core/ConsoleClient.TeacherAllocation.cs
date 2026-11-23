@@ -68,11 +68,20 @@ public sealed partial class ConsoleClient
         var session = CurrentSession;
         var data = await RequestAsync<TeacherAllocationResult>(HttpMethod.Post, TeacherAllocationPath(school), session.Token, ct, body: new
         {
-            draft.Mode, draft.TermId, draft.TermStatus, draft.GradeId, draft.Teachers, draft.ArchivedCorrection, requestId,
+            draft.Mode, draft.TermId, draft.TermStatus, draft.GradeId, draft.Teachers, draft.ArchivedCorrection, requestId, RequestPinDelivery = draft.Mode == "LOCAL_PIN" && !draft.ArchivedCorrection,
             ExpectedVersion = preview.Version, ExpectedEvidence = preview.Evidence
         });
         CheckCreationSession(session, ct);
-        if (data.State == "APPLIED" && data.Receipt is { } receipt) VerifyAllocationReceipt(receipt, draft, requestId);
+        if (data.State == "APPLIED" && data.Receipt is { } receipt)
+        {
+            VerifyAllocationReceipt(receipt, draft, requestId);
+            if (data.AppliedPins is { } proofs &&
+                (draft.Mode != "LOCAL_PIN" || draft.ArchivedCorrection ||
+                    proofs.Any(item => item.Version < 0) ||
+                    !proofs.Select(item => item.AccountId).Order().SequenceEqual(receipt.Teachers
+                        .Where(row => row.Created).Select(row => row.AccountId).Order())))
+                throw InvalidResponse();
+        }
         else if (data.State is "STALE" or "BLOCKED" && data.Preview is { } current)
         {
             if (data.State == "STALE" && data.ChangedKeys is null) throw InvalidResponse();

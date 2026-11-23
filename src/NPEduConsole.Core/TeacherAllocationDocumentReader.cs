@@ -6,6 +6,8 @@ namespace NPEduConsole.Core;
 public sealed record TeacherAllocationDocumentTarget(string? SchoolId, string? TermId, string? GradeId);
 public sealed record TeacherAllocationDocument(TeacherAllocationDocumentTarget Target, AllocationTeacher[] Teachers);
 
+public sealed class StaffConfigurationFileException() : ArgumentException("这是完整师资配置，包含任课、岗位或凭据设置。网页首次初始化期间可整包导入。已开通的学校可从总览「开学配置」分别办理账号、任课与岗位。");
+
 public static class TeacherAllocationDocumentReader
 {
     public static TeacherAllocationDocument ReadLegacy(string text, string mode)
@@ -16,9 +18,13 @@ public static class TeacherAllocationDocumentReader
             using var document = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 16 });
             var root = document.RootElement;
             var isArray = root.ValueKind == JsonValueKind.Array;
+            if (root.ValueKind == JsonValueKind.Object && (root.TryGetProperty("teachers", out _) || HasStaffConfiguration(root)))
+                throw new StaffConfigurationFileException();
             var target = isArray ? new TeacherAllocationDocumentTarget(null, null, null) :
                 new(TargetId(root, "schoolId"), TargetId(root, "termId"), TargetId(root, "gradeId"));
             var assignments = isArray ? root : root.GetProperty("assignments");
+            if (assignments.ValueKind == JsonValueKind.Array && assignments.EnumerateArray().Any(HasStaffConfiguration))
+                throw new StaffConfigurationFileException();
             var rows = assignments.EnumerateArray().Select(row =>
             {
                 var key = Value(row, mode == "OAUTH_EMAIL" ? "email" : "username");
@@ -34,6 +40,9 @@ public static class TeacherAllocationDocumentReader
             throw new ArgumentException("无法读取旧教师分配 JSON，请核对 assignments、姓名、账号和班级列。");
         }
     }
+
+    private static bool HasStaffConfiguration(JsonElement row) => row.ValueKind == JsonValueKind.Object &&
+        (row.TryGetProperty("teachingAssignments", out _) || row.TryGetProperty("responsibilities", out _) || row.TryGetProperty("credential", out _));
 
     public static AllocationTeacher[] ReadColumns(string text, string mode)
     {

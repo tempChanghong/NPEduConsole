@@ -29,17 +29,22 @@
                 <TextBlock Text="网页值守" Classes="label" />
                 <TextBlock x:Name="BrowserDutyState" FontSize="17" TextWrapping="Wrap" />
                 <TextBlock x:Name="BrowserDutyEvidence" Classes="muted" TextWrapping="Wrap" />
+                <WrapPanel x:Name="DutyHandoffActions" IsVisible="False" ItemSpacing="5" LineSpacing="4">
+                  <Button x:Name="DutyCopyPin" Content="复制本次网页 PIN" Classes="action" IsVisible="False" Click="DeliverPinClicked"/>
+                  <Button x:Name="DutySavePin" Content="另存本次网页 PIN" Classes="action" IsVisible="False" Click="DeliverPinClicked"/>
+                </WrapPanel>
                 <Button x:Name="DutyPrimary" Classes="action accent" Click="PrimaryClicked" />
                 <Button x:Name="DutyLegacySync" Content="查看同步情况" Classes="action" IsVisible="False" Click="ToggleCommandsClicked" />
               </StackPanel>
             </Border>
             <Border x:Name="NativeDutyCard" Grid.Column="1" Classes="card" Padding="11">
-              <StackPanel Spacing="4">
+              <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="4" ColumnSpacing="8">
                 <TextBlock Text="NPEduTools 接入" Classes="label" />
-                <TextBlock x:Name="NativeDutyState" FontSize="17" TextWrapping="Wrap" />
-                <TextBlock x:Name="NativeDutyEvidence" Classes="muted" TextWrapping="Wrap" />
-                <Button x:Name="DutyNative" Content="打开接入与换机" Classes="action" Click="NativeClicked" />
-              </StackPanel>
+                <TextBlock x:Name="NativeDutyState" Grid.Row="1" FontSize="17" TextWrapping="Wrap" />
+                <TextBlock x:Name="NativeDutyEvidence" Grid.Row="2" Classes="muted" TextWrapping="Wrap" />
+                <Button x:Name="DutyNative" Grid.Row="3" HorizontalAlignment="Left" VerticalAlignment="Center"
+                        Content="打开接入与换机" Classes="action" Click="NativeClicked" />
+              </Grid>
             </Border>
           </Grid>
           <StackPanel x:Name="DutyCommandsPanel" Spacing="6" IsVisible="False">

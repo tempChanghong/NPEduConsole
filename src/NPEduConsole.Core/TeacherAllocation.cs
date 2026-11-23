@@ -1,6 +1,6 @@
 namespace NPEduConsole.Core;
 
-public sealed record AllocationAccount(string Id, string Name, string? Username, string? Email, bool Disabled, bool Manageable)
+public sealed record AllocationAccount(string Id, string Name, string? Username, string? Email, bool Disabled, bool Manageable, int? CredentialVersion = null)
 {
     public override string ToString() => $"{Name}（{Username ?? Email ?? Id}）{(Disabled ? " · 已停用" : "")}";
 }
@@ -24,7 +24,7 @@ public sealed record AllocationDuty(string AccountId, string Position, string Ty
 public sealed record TeacherAllocationCatalog(string SchoolId, string Mode, OrganizationTerm[] Terms, string? TermId,
     OrganizationGradeOption[] Grades, string? GradeId, AllocationAccount[] Accounts, AllocationWorkspace[] Workspaces,
     AllocationMember[] Members, AllocationInvitation[] Invitations, AllocationTeaching[] Teaching, AllocationDuty[] Duties,
-    bool CanRevokeArchivedInvitations = false);
+    bool CanRevokeArchivedInvitations = false, string? SchoolCode = null);
 public sealed record AllocationAccess(string? WorkspaceId, string? WorkspaceCode, string Operation, string? Role,
     bool ConfirmReduction = false, string? InvitationId = null);
 public sealed record AllocationTeacher(string? Username, string? Email, string? AccountId, string? Name, string? Pin,
@@ -50,5 +50,6 @@ public sealed record AllocationSavedAccess(string WorkspaceId, string? Role, str
 public sealed record AllocationSavedTeacher(string? AccountId, string? Username, string? Email, string Name, bool Created,
     AllocationSavedAccess[] Access);
 public sealed record TeacherAllocationReceipt(Guid RequestId, string? TermId, string? TermStatus, string? GradeId, AllocationSavedTeacher[] Teachers);
+public sealed record AppliedTeacherPin(string AccountId, int Version);
 public sealed record TeacherAllocationResult(string State, TeacherAllocationReceipt? Receipt = null, TeacherAllocationPreview? Preview = null,
-    string[]? ChangedKeys = null);
+    string[]? ChangedKeys = null, AppliedTeacherPin[]? AppliedPins = null);

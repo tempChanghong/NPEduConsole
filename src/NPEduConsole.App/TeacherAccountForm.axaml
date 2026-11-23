@@ -40,12 +40,16 @@
                        AutomationProperties.HelpText="教师用它登录。窗口关闭后不再显示，管理员可随时重置。"
                        MinWidth="180"/>
               <TextBlock x:Name="TeacherFormPinError" IsVisible="False" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap"/>
-              <TextBlock x:Name="TeacherFormPinHint" Classes="muted" FontSize="12" TextWrapping="Wrap"
-                         Text="教师用它登录，只能在这里或之后的「重置 PIN」里设置。此窗口不会保存 PIN，也不会复制到剪贴板。"/>
+              <TextBlock x:Name="TeacherFormPinHint" Classes="muted" FontSize="12" TextWrapping="Wrap"/>
+              <CheckBox x:Name="TeacherWantDelivery" Content="保存后复制或另存本次 PIN"/>
             </StackPanel>
             <TextBlock x:Name="TeacherFormExplanation" Classes="muted" TextWrapping="Wrap"/>
           </StackPanel>
         </Border>
+        <WrapPanel x:Name="TeacherDeliveryActions" IsVisible="False" ItemSpacing="8" LineSpacing="4">
+          <Button x:Name="TeacherCopyPin" Classes="action" Content="复制本次 PIN" Click="DeliverPinClicked"/>
+          <Button x:Name="TeacherSavePin" Classes="action" Content="另存本次 PIN" Click="DeliverPinClicked"/>
+        </WrapPanel>
         <Button x:Name="TeacherFormAllocation" Classes="action" Content="打开邮箱分配" Click="OpenAllocationClicked" IsVisible="False" HorizontalAlignment="Left"/>
       </StackPanel>
     </ScrollViewer>

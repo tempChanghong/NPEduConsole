@@ -39,6 +39,9 @@ public sealed partial class ScreenDutyWindow : Window
             columns[0].Width = new GridLength(1, GridUnitType.Star);
             columns[1].Width = stacked ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
         }
+        Grid.SetColumn(DutyNative, stacked ? 1 : 0);
+        Grid.SetRow(DutyNative, stacked ? 0 : 3);
+        Grid.SetRowSpan(DutyNative, stacked ? 3 : 1);
         Grid.SetColumn(NativeDutyCard, stacked ? 0 : 1);
         Grid.SetRow(NativeDutyCard, stacked ? 1 : 0);
         DutyEvidenceGrid.ColumnSpacing = stacked ? 0 : 8;
