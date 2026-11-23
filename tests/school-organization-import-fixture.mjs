@@ -94,6 +94,8 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
 
   let browser, url, firstReceipt, staleCommits = 0, currentReceipt, holdCatalog = false;
   const receiptRequests = [];
+  let dropCurrent = false, droppedCurrentId;
+  const droppedCurrentReads = [];
   const catalogHeld = Promise.withResolvers();
   const releaseCatalog = Promise.withResolvers();
   const catalogReturned = Promise.withResolvers();
@@ -184,7 +186,16 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       patch.administrativeClasses[0].subjectRules.push({subjectCode: 'ART', deliveryMode: 'ADMIN_CLASS', isCompulsory: false});
       patch.courseGroups[0].sourceClassCodes.push(draftEight.code);
       assert.equal((await (await apply(patch)).save()).state, 'APPLIED');
+    } else if (step === 'drop-next-current-write') {
+      dropCurrent = true;
+    } else if (step === 'current-write-never-arrived') {
+      assert.ok(droppedCurrentId);
+      assert.deepEqual(droppedCurrentReads, [droppedCurrentId]);
+      assert.equal(await countReceipts(term.id), 0);
+      assert.equal(await prisma.workspace.count({where: {termId: term.id, code: 'G2-C15'}}), 0);
     } else if (step === 'current-applied') {
+      assert.equal(currentReceipt.requestId, droppedCurrentId);
+      assert.equal(await countReceipts(term.id), 1);
       assert.equal(currentReceipt.administrativeClasses.length, 1);
       const row = await prisma.workspace.findUniqueOrThrow({where: {id: currentReceipt.administrativeClasses[0].id}, include: {subjectRules: true}});
       assert.equal(row.code, 'G2-C15');
@@ -213,9 +224,22 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       return;
     }
     const pathname = new URL(req.url, upstreamOrigin).pathname;
+    if (dropCurrent && req.method === 'POST' && pathname === importPath) {
+      dropCurrent = false;
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const original = JSON.parse(Buffer.concat(chunks));
+      droppedCurrentId = original.requestId;
+      res.destroy();
+      return;
+    }
     if (req.method === 'GET' && pathname.startsWith(importPath + '/receipts/')) {
-      receiptRequests.push(pathname.split('/').at(-1));
-      if (receiptRequests.length === 1) { res.writeHead(502).end(); return; }
+      const id = pathname.split('/').at(-1);
+      if (id === droppedCurrentId) droppedCurrentReads.push(id);
+      else {
+        receiptRequests.push(id);
+        if (receiptRequests.length === 1) { res.writeHead(502).end(); return; }
+      }
     }
     const delayed = holdCatalog && req.method === 'GET' && pathname === importPath;
     if (delayed) holdCatalog = false;
@@ -280,6 +304,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
     assert.equal(await prisma.administrativeClassStudent.count({where: {administrativeClassId: oldSeven.id}}), 1);
     await writeFile(join(evidence, 'organization-cross-end-result.json'), JSON.stringify({passed: true, marks, staleCommits,
       receiptReads: receiptRequests.length, originalReceiptRequests: receiptRequests,
+      discardedInitialPost: droppedCurrentId, discardedInitialPostReceiptReads: droppedCurrentReads,
       draftId: draft.id, draftRooms: firstReceipt.administrativeClasses.length, draftGroups: firstReceipt.courseGroups.length,
       currentRoomId: currentReceipt.administrativeClasses[0].id, originalTermId: term.id, teacherWorkspaces: teacherBefore,
       nativeBindings: devicesAfter.map(row => ({bindingId: row.screenBindingId, classId: row.administrativeClassId,

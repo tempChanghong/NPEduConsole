@@ -69,6 +69,9 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   const inviteEmail = 'claim-teacher@example.invalid', revokeEmail = 'revoke-teacher@example.invalid';
   const state = {steps: [], stale: 0, lost: false, receiptReads: 0, draftReads: [], oauthCodes: []};
   let draftReceipt;
+  let dropNextPinnedWrite = false, droppedPinnedId, retryPinnedReceipt;
+  let dropNextRoleChange = false, droppedRoleChangeId;
+  const droppedPinnedReads = [], droppedRoleChangeReads = [];
   let browser, frontend;
   const probe = await isolatedIdentityProvider(fromKv, origin);
   const myWorkspaces = (token, targetTerm) => api('/api/v2/me/workspaces' + (targetTerm ? '?termId=' + targetTerm : ''), {token});
@@ -178,6 +181,43 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
         row.role === 'TEACHER' && row.responsibilityDerived));
       assert.deepEqual(await prisma.teachingAssignment.findMany({where: {workspace: {termId: term.id}}}), teachingBefore);
       break;
+    case 'drop-next-pinned-write':
+      dropNextPinnedWrite = true;
+      break;
+    case 'pinned-write-never-arrived':
+      assert.ok(droppedPinnedId);
+      assert.deepEqual(droppedPinnedReads, [droppedPinnedId]);
+      assert.equal(await prisma.schoolTeacherAllocationReceipt.count({where: {schoolId: school.id, requestId: droppedPinnedId}}), 0);
+      assert.equal(await findTeacher('retry-office'), null);
+      break;
+    case 'cancelled-pinned-retry':
+      assert.equal(await findTeacher('retry-office'), null);
+      assert.equal(await prisma.schoolTeacherAllocationReceipt.count({where: {schoolId: school.id, requestId: droppedPinnedId}}), 0);
+      break;
+    case 'pinned-retry-applied': {
+      assert.equal(retryPinnedReceipt.requestId, droppedPinnedId);
+      assert.equal(await prisma.schoolTeacherAllocationReceipt.count({where: {schoolId: school.id, requestId: droppedPinnedId}}), 1);
+      const signedIn = await localLogin('retry-office', newPin);
+      assert.equal(signedIn.account.id, retryPinnedReceipt.teachers[0].accountId);
+      assert.deepEqual((await myWorkspaces(signedIn.access_token)).map(row => row.workspace.id), [seven.id]);
+      break;
+    }
+    case 'drop-next-role-change':
+      dropNextRoleChange = true;
+      break;
+    case 'change-role-scope-before-retry':
+      assert.ok(droppedRoleChangeId);
+      assert.deepEqual(droppedRoleChangeReads, [droppedRoleChangeId, droppedRoleChangeId]);
+      await prisma.workspace.update({where: {id: eight.id}, data: {name: eight.name + ' · 回读时变更'}});
+      break;
+    case 'stale-retry-left-role-untouched': {
+      assert.equal(state.stale, 2);
+      assert.equal(await prisma.schoolTeacherAllocationReceipt.count({where: {schoolId: school.id, requestId: droppedRoleChangeId}}), 0);
+      const teacherCreatedByRetry = await findTeacher('retry-office');
+      assert.equal(await findMember(eight, teacherCreatedByRetry.id), null);
+      assert.equal((await findMember(seven, teacherCreatedByRetry.id)).role, 'TEACHER');
+      break;
+    }
     case 'invitation-pending':
       assert.equal(await prisma.workspaceMemberInvite.count({where: {workspaceId: {in: [oauthSeven.id, oauthEight.id]}, claimedAt: null}}), 2);
       break;
@@ -209,12 +249,24 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       catch (error) { console.error(error); res.writeHead(500).end(); }
       return;
     }
+    if ((dropNextPinnedWrite || dropNextRoleChange) && req.method === 'POST' && req.url === primaryPath) {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const original = JSON.parse(Buffer.concat(chunks));
+      if (dropNextPinnedWrite) droppedPinnedId = original.requestId;
+      else droppedRoleChangeId = original.requestId;
+      dropNextPinnedWrite = dropNextRoleChange = false;
+      res.destroy();
+      return;
+    }
     if (req.method === 'GET' && req.url.startsWith(primaryPath + '/receipts/')) {
       const id = new URL(req.url, upstreamOrigin).pathname.split('/').at(-1);
       if (id === draftReceipt?.requestId) {
         state.draftReads.push(id);
         if (state.draftReads.length === 1) { res.writeHead(502).end(); return; }
-      } else state.receiptReads++;
+      } else if (id === droppedPinnedId) droppedPinnedReads.push(id);
+      else if (id === droppedRoleChangeId) droppedRoleChangeReads.push(id);
+      else state.receiptReads++;
     }
     const upstream = request(new URL(req.url, upstreamOrigin), {method: req.method, headers: {...req.headers, host: upstreamOrigin.host}}, reply => {
       if (req.method !== 'POST' || req.url !== primaryPath || reply.statusCode !== 200) {
@@ -237,6 +289,8 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
           res.destroy();
           return;
         }
+        if (result?.state === 'APPLIED' && result.receipt.teachers.some(row => row.username === 'retry-office'))
+          retryPinnedReceipt = result.receipt;
         res.writeHead(reply.statusCode, reply.headers);
         res.end(response);
       });
@@ -268,8 +322,11 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       await runDesktop(['--live-teacher-allocation', desktopAccess, evidence]);
     }});
     assert.deepEqual(state.steps, ['draft-pending', 'draft-isolated-from-active', 'document-scope-zero', 'legacy-remove',
-      'stale-zero', 'primary-applied', 'teaching-return', 'duty-only', 'draft-access', 'invitation-pending', 'oauth-complete']);
+      'stale-zero', 'primary-applied', 'teaching-return', 'duty-only', 'drop-next-pinned-write', 'pinned-write-never-arrived',
+      'cancelled-pinned-retry', 'pinned-retry-applied', 'drop-next-role-change', 'change-role-scope-before-retry',
+      'stale-retry-left-role-untouched', 'draft-access', 'invitation-pending', 'oauth-complete']);
     await writeFile(join(evidence, 'teacher-allocation-cross-end.json'), JSON.stringify({passed: true, ...state,
+      discardedInitialPost: droppedPinnedId, discardedInitialPostReceiptReads: droppedPinnedReads,
       sharedLocalLogin: true, originalLocalSession: 'valid', retainedDuty: 'HEAD_TEACHER', unchangedTeachingRows: teachingBefore.length,
       oauthProvider: 'loopback HLY fixture, real KV OAuth callback and browser-bound exchange routes'}, null, 2));
     console.log('PASS: Windows teacher allocation, Edge legacy mutation, actual local logins and OAuth callback/exchange.');

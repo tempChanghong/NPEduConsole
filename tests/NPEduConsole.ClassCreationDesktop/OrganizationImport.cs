@@ -221,7 +221,16 @@ internal static partial class Program
                 "recovery leaves the active worksheet unchanged");
 
             await PressScoped(active, "OrgPreview");
+            await Signal("drop-next-current-write");
             await Commit(active);
+            await Until(() => Status(active).Contains("暂未") && !Find<CheckBox>(active, "OrgApprove").IsEffectivelyVisible,
+                "read-only receipt check completed after first current POST was dropped");
+            await Signal("current-write-never-arrived");
+            await Until(() => Find<Button>(active, "OrgSave").IsEffectivelyVisible &&
+                Equals(Find<Button>(active, "OrgSave").Content, "按原编号重试"), "current import with a missing receipt can retry the exact request");
+            Check(Find<Button>(active, "OrgVerify").IsEffectivelyEnabled, "another read-only check remains available");
+            await CaptureWithFrame(main, output, "06a-dropped-current-request-can-retry");
+            await PressScoped(active, "OrgSave");
             var activeReceipt = Find<ListBox>(active, "OrgReceiptClasses");
             await Until(() => Status(active).Contains("由服务器确认") && activeReceipt.ItemCount == 1, "active term import confirmed");
             await Signal("current-applied");

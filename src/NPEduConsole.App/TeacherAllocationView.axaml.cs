@@ -124,7 +124,7 @@ public sealed partial class TeacherAllocationView : UserControl
         if (_closed) return;
         if (pending is not null)
         {
-            SetTable(pending.Draft.Teachers, dirty: false);
+            SetTable(pending.Draft.Teachers, dirty: true);
             await VerifyAsync(pending);
             return;
         }
@@ -151,6 +151,7 @@ public sealed partial class TeacherAllocationView : UserControl
         _closed = true;
         _archiveInvitationConfirmation?.Close();
         _pasteDialog?.Close();
+        _retryPinDialog?.Close();
         _lifetime.Cancel();
         _lifetime.Dispose();
         foreach (var row in _teachers) row.Pin = "";
@@ -432,7 +433,7 @@ public sealed partial class TeacherAllocationView : UserControl
     {
         if (!_busy && _retryMissingReceipt && Pending is { } pending)
         {
-            await SubmitAsync(pending, pending.Draft);
+            await RetryOriginalAsync(pending);
             return;
         }
         if (_stage != Stage.Review || !CanEdit || HasUnresolvedTarget || HasDocumentConflict || !_reviewed || AllocationApprove.IsChecked != true || _preview is not {CanApply: true} review) return;
@@ -492,8 +493,9 @@ public sealed partial class TeacherAllocationView : UserControl
         if (_closed) return;
         if (receipt is null)
         {
-            _retryMissingReceipt = _archivedCorrection && !_rescope;
-            Status(_retryMissingReceipt ? "暂未找到本次回执。可继续只读查询，或按原编号重试。" :
+            _retryMissingReceipt = !_rescope;
+            var retry = RequiredRetryPins(request).Length == 0 ? "或按原编号重试。" : "或重新输入新账号的初始 PIN 后按原编号重试。";
+            Status(_retryMissingReceipt ? "暂未找到本次回执。可继续只读查询，" + retry :
                 "暂未找到本次回执，结果仍待核对。请稍后按原请求查询。");
         }
         else

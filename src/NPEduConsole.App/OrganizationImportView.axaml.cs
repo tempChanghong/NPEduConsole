@@ -520,7 +520,7 @@ public sealed partial class OrganizationImportView : UserControl
         if (_closed) return;
         if (receipt is null)
         {
-            _retryMissingReceipt = _archivedCorrection && !_scopeUnavailable;
+            _retryMissingReceipt = !_scopeUnavailable;
             Status(_retryMissingReceipt ? "暂未找到本次回执。可继续只读查询，或按原编号重试。" :
                 "服务器暂未返回本次回执。结果仍待核对，请稍后再查原请求。");
         }
@@ -715,7 +715,7 @@ public sealed partial class OrganizationImportView : UserControl
         OrgFileMismatchText.Text = _fileMismatch;
         OrgKeepOriginal.IsEnabled = !confirming && !_busy;
         OrgPreview.IsEnabled = edit && canPreview;
-        OrgVerify.IsVisible = pending && !_retryMissingReceipt;
+        OrgVerify.IsVisible = pending;
         OrgVerify.IsEnabled = !_busy;
         OrgApprove.IsVisible = _reviewed && !pending;
         OrgApprove.IsEnabled = edit;

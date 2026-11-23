@@ -227,6 +227,74 @@ internal static partial class Program
             await CaptureWithFrame(main, output, "05-removing-direct-keeps-head-teacher");
             await Save(window, () => Status(window).Contains("服务器已确认"));
             await Signal("duty-only");
+            await PressScoped(window, "AllocationEdit");
+            await Paste(window, "短账号\t姓名\t初始 PIN\t班级代码\t角色\nretry-office\t断线重试教师\t" +
+                access.NewPin + "\tG2-C07\t教师");
+            await Preview(window, () => Find<CheckBox>(window, "AllocationApprove").IsEffectivelyEnabled);
+            await Signal("drop-next-pinned-write");
+            await Save(window, () => Status(window).Contains("暂未找到"));
+            await Signal("pinned-write-never-arrived");
+            await Until(() => Find<Button>(window, "AllocationSave").IsEffectivelyVisible &&
+                Equals(Find<Button>(window, "AllocationSave").Content, "按原编号重试"), "missing local-account receipt offers safe original retry");
+            await PressScoped(window, "AllocationClose");
+            await PressScoped(activeOrganization, "OrgTeacherAllocation");
+            window = await AcademicPageAsync<TeacherAllocationView>(main);
+            var pendingAfterReopen = Find<WrapPanel>(window, "AllocationPendingActions");
+            await Until(() => pendingAfterReopen.Children.OfType<Button>().Any(), "pending local-account request reopens from its own scope");
+            Click(pendingAfterReopen.Children.OfType<Button>().Single());
+            window = await AcademicPageAsync<TeacherAllocationView>(main);
+            await PressScoped(window, "AllocationSave");
+            await Until(() => desktop.Windows.Any(dialog => dialog.IsVisible && dialog.Title == "确认原请求的初始 PIN"), "retry requests a fresh masked PIN");
+            var retryDialog = desktop.Windows.Single(dialog => dialog.IsVisible && dialog.Title == "确认原请求的初始 PIN");
+            Click(retryDialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "取消")));
+            await Until(() => !retryDialog.IsVisible && Find<Button>(window, "AllocationSave").IsFocused,
+                "cancelling PIN entry keeps the request and restores retry focus");
+            await Signal("cancelled-pinned-retry");
+            await PressScoped(window, "AllocationSave");
+            await Until(() => desktop.Windows.Any(dialog => dialog.IsVisible && dialog.Title == "确认原请求的初始 PIN"),
+                "original request is still available for retry");
+            retryDialog = desktop.Windows.Single(dialog => dialog.IsVisible && dialog.Title == "确认原请求的初始 PIN");
+            var reenterPin = retryDialog.GetVisualDescendants().OfType<TextBox>().Single(box => box.PasswordChar != '\0');
+            Check(string.IsNullOrEmpty(reenterPin.Text), "the original PIN was not retained with the request");
+            await Capture(retryDialog, output, "10-reenter-pin-for-original-request");
+            reenterPin.Text = access.NewPin;
+            Click(retryDialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "按原编号重试")));
+            await Until(() => window.DisplayedStage == TeacherAllocationView.Stage.Receipt && Status(window).Contains("服务器已确认"),
+                "the original local-account request completed");
+            await Signal("pinned-retry-applied");
+            await PressScoped(window, "AllocationClose");
+            window = await AcademicPageAsync<TeacherAllocationView>(main);
+            if (window.DisplayedStage != TeacherAllocationView.Stage.Edit) await PressScoped(window, "AllocationEdit");
+            await Paste(window, "retry-office\t断线重试教师\t\tG2-C08\t助教");
+            await Preview(window, () => Find<CheckBox>(window, "AllocationApprove").IsEffectivelyEnabled);
+            await Signal("drop-next-role-change");
+            await Save(window, () => Status(window).Contains("暂未找到"));
+            await PressScoped(window, "AllocationClose");
+            await PressScoped(activeOrganization, "OrgTeacherAllocation");
+            window = await AcademicPageAsync<TeacherAllocationView>(main);
+            var outstandingRoleChange = Find<WrapPanel>(window, "AllocationPendingActions");
+            await Until(() => outstandingRoleChange.Children.OfType<Button>().Any(), "role change is available from a freshly opened view");
+            Click(outstandingRoleChange.Children.OfType<Button>().Single());
+            window = await AcademicPageAsync<TeacherAllocationView>(main);
+            await Until(() => Find<Button>(window, "AllocationSave").IsEffectivelyVisible &&
+                Find<Button>(window, "AllocationSave").IsEffectivelyEnabled, "reopened request has rechecked its missing receipt");
+            await Signal("change-role-scope-before-retry");
+            await PressScoped(window, "AllocationSave");
+            await Until(() => window.DisplayedStage == TeacherAllocationView.Stage.Review && Status(window).Contains("零写入"),
+                "stale original retry comes back as an unapplied review");
+            await Signal("stale-retry-left-role-untouched");
+            await PressScoped(window, "AllocationClose");
+            await Until(() => Find<Button>(window, "AllocationKeepEditing").IsEffectivelyVisible,
+                "a reopened draft rejected by the server cannot be silently discarded");
+            await CaptureWithFrame(main, output, "11-stale-retry-keeps-original-table");
+            await PressScoped(window, "AllocationKeepEditing");
+            await PressScoped(window, "AllocationEdit");
+            await Until(() => Find<ListBox>(window, "AllocationTeachers").GetVisualDescendants().OfType<TextBox>()
+                .Any(box => box.IsEffectivelyVisible && box.Text == "retry-office"),
+                "the original unapplied edit is still available");
+            await PressScoped(window, "AllocationClose");
+            await PressScoped(window, "AllocationDiscard");
+            window = await AcademicPageAsync<TeacherAllocationView>(main);
             await PressScoped(window, "AllocationClose");
             await Until(() => Find<Button>(activeOrganization, "OrgTeacherAllocation").IsFocused &&
                 Find<ListBox>(activeOrganization, "OrgReceiptClasses").SelectedItem?.ToString()?.Contains("G2-C15") == true,
