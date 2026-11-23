@@ -100,6 +100,7 @@ internal static class WindowFrameChecks
             Require(main.FindControl<TextBox>("Username")!.Foreground is ISolidColorBrush ink && ink.Color == Colors.White,
                 "高对比字段采用系统文字色");
             Capture(main, output, "04-login-high-contrast");
+            VerifyChoiceControls(main, output);
             Console.WriteLine("PASS Window frame and input checks");
             desktop.Shutdown(0);
         }
@@ -107,6 +108,45 @@ internal static class WindowFrameChecks
         {
             Console.Error.WriteLine(error);
             desktop.Shutdown(1);
+        }
+    }
+
+    private static void VerifyChoiceControls(Window window, string output)
+    {
+        var action = new Button { Content = "核对差异", Height = 46, Classes = { "action" } };
+        var back = new Button { Content = "返回", Height = 42 };
+        var check = new CheckBox { Content = "已核对本次变化", Height = 46, IsChecked = true };
+        var radio = new RadioButton { Content = "仅当前班级", Height = 46, IsChecked = true };
+        var date = new DatePicker { SelectedDate = new DateTimeOffset(2026, 11, 23, 0, 0, 0, TimeSpan.Zero), Height = 46 };
+        var selected = new ComboBox { ItemsSource = new[] { "高二（08）班" }, SelectedIndex = 0, Height = 46 };
+        var empty = new ComboBox { PlaceholderText = "选择年级", Height = 46 };
+        window.Content = new StackPanel { Margin = new Thickness(26, 48, 26, 0), Width = 380, Spacing = 4,
+            Children = { action, back, check, radio, date, selected, empty } };
+        window.RequestedThemeVariant = ThemeVariant.Light;
+        window.UpdateLayout();
+        foreach (var control in new Control[] { action, back, check, radio, date, selected, empty })
+        {
+            var labels = control.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text)).ToArray();
+            Require(labels.Length >= (control == date ? 3 : 1), $"{control.GetType().Name} 显示文字");
+            foreach (var label in labels)
+            {
+                double y = label.Padding.Top + label.TextLayout.Height / 2;
+                AssertCenter(control, label, y);
+            }
+        }
+        foreach (var (control, name) in new (Control, string)[] { (check, "NormalRectangle"), (radio, "OuterEllipse") })
+        {
+            var glyph = control.GetVisualDescendants().OfType<Control>().Single(c => c.Name == name);
+            AssertCenter(control, glyph, glyph.Bounds.Height / 2);
+        }
+        Capture(window, output, "05-choice-controls");
+
+        static void AssertCenter(Control control, Control child, double localY)
+        {
+            var center = child.TranslatePoint(new Point(0, localY), control);
+            Require(center is { } p && Math.Abs(p.Y - control.Bounds.Height / 2) <= 1,
+                $"{control.GetType().Name} · {child.Name ?? child.GetType().Name} 垂直居中");
         }
     }
 
