@@ -2,187 +2,105 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="NPEduConsole.App.DeviceRunReportDetail">
   <UserControl.Styles>
-    <Style Selector="TextBlock.report-empty">
-      <Setter Property="FontSize" Value="13" />
+    <Style Selector="TextBlock">
       <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="Opacity" Value="0.78" />
     </Style>
-    <Style Selector="TextBlock.report-heading">
-      <Setter Property="FontSize" Value="16" />
+    <Style Selector="TextBlock.metric">
+      <Setter Property="FontSize" Value="20" />
       <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="TextWrapping" Value="Wrap" />
+      <Setter Property="Foreground" Value="{DynamicResource AccentStrongBrush}" />
     </Style>
-    <Style Selector="TextBlock.report-heading.warn">
+    <Style Selector="TextBlock.warn">
       <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
     </Style>
-    <Style Selector="TextBlock.report-sub">
+    <Style Selector="TextBlock.caption">
       <Setter Property="FontSize" Value="12" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="Opacity" Value="0.8" />
-    </Style>
-    <Style Selector="TextBlock.report-section">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="FontWeight" Value="SemiBold" />
-      <Setter Property="Margin" Value="0,2,0,-2" />
-    </Style>
-    <Style Selector="Border.report-cell">
-      <Setter Property="Background" Value="{DynamicResource CanvasBrush}" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="Padding" Value="8,7" />
-      <Setter Property="Width" Value="166" />
-      <Setter Property="Margin" Value="0,0,6,6" />
-    </Style>
-    <Style Selector="TextBlock.report-label">
-      <Setter Property="FontSize" Value="11" />
-      <Setter Property="Opacity" Value="0.72" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-    </Style>
-    <Style Selector="TextBlock.report-value">
-      <Setter Property="FontSize" Value="13" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-    </Style>
-    <Style Selector="Border.report-hint">
-      <Setter Property="Background" Value="{DynamicResource WarningTintBrush}" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="Padding" Value="9,7" />
-    </Style>
-    <Style Selector="Border.report-hint > TextBlock">
-      <Setter Property="FontSize" Value="12" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="Foreground" Value="{DynamicResource WarningBrush}" />
-    </Style>
-    <Style Selector="Border.report-trace">
-      <Setter Property="Background" Value="{DynamicResource CanvasBrush}" />
-      <Setter Property="CornerRadius" Value="6" />
-      <Setter Property="Padding" Value="9,7" />
-    </Style>
-    <Style Selector="Border.report-trace > TextBlock">
-      <Setter Property="FontSize" Value="11" />
-      <Setter Property="TextWrapping" Value="Wrap" />
-      <Setter Property="Opacity" Value="0.75" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
     </Style>
   </UserControl.Styles>
-
-  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="0,0,4,0">
-    <StackPanel Spacing="7">
-      <TextBlock x:Name="ReportEmpty" Classes="report-empty" Text="选择一份运行报告查看详情" />
-
-      <StackPanel x:Name="ReportBody" Spacing="7" IsVisible="False">
-        <TextBlock x:Name="ReportHeading" Classes="report-heading" AutomationProperties.LiveSetting="Polite" />
-        <TextBlock x:Name="ReportWindow" Classes="report-sub" TextWrapping="Wrap" />
-
-        <Border x:Name="ReportHintPanel" Classes="report-hint" IsVisible="False">
-          <TextBlock x:Name="ReportHints" AutomationProperties.LiveSetting="Polite" />
+  <ScrollViewer x:Name="ReportScroll" HorizontalScrollBarVisibility="Disabled" Focusable="True"
+                AutomationProperties.Name="报告详情">
+    <Panel Margin="0,0,8,0">
+      <TextBlock x:Name="ReportEmpty" Classes="muted" Text="选择一份运行报告查看详情" />
+      <StackPanel x:Name="ReportBody" Spacing="8" IsVisible="False">
+        <StackPanel Spacing="3">
+          <TextBlock x:Name="ReportHeading" Classes="label" FontSize="18" AutomationProperties.LiveSetting="Polite" />
+          <TextBlock x:Name="ReportWindow" Classes="caption" />
+        </StackPanel>
+        <Border Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="12,7">
+          <Grid ColumnDefinitions="*,*,*" ColumnSpacing="10">
+            <StackPanel>
+              <TextBlock Classes="caption" Text="有效采样" />
+              <TextBlock x:Name="SummarySampled" Classes="metric" />
+            </StackPanel>
+            <StackPanel Grid.Column="1">
+              <TextBlock Classes="caption" Text="总时长" />
+              <TextBlock x:Name="SummaryElapsed" Classes="metric" />
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+              <TextBlock Classes="caption" Text="有效覆盖率" />
+              <TextBlock x:Name="SummaryCoverage" Classes="metric" />
+            </StackPanel>
+          </Grid>
         </Border>
-
-        <TextBlock Classes="report-section" Text="原始采集" />
-        <WrapPanel ItemSpacing="0" LineSpacing="0">
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="有效采样" />
-              <TextBlock x:Name="SummarySampled" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="总时长" />
-              <TextBlock x:Name="SummaryElapsed" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="有效覆盖率" />
-              <TextBlock x:Name="SummaryCoverage" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="削波占比" />
-              <TextBlock x:Name="SummaryClipped" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="原始能量平均 · dBFS" />
-              <TextBlock x:Name="SummaryEnergy" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="原始采样峰值 · dBFS" />
-              <TextBlock x:Name="SummaryPeak" Classes="report-value" />
-            </StackPanel>
-          </Border>
-        </WrapPanel>
-
-        <TextBlock Classes="report-section" Text="外部参考估算 · dB(A)" />
-        <WrapPanel ItemSpacing="0" LineSpacing="0">
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="估算有效采样" />
-              <TextBlock x:Name="EstimateSampled" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="估算有效覆盖" />
-              <TextBlock x:Name="EstimateCoverage" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock x:Name="EstimateEnergyLabel" Classes="report-label" Text="平滑电平能量均值" />
-              <TextBlock x:Name="EstimateEnergy" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="最高平滑电平" />
-              <TextBlock x:Name="EstimatePeak" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="估算结果状态" />
-              <TextBlock x:Name="EstimateStatus" Classes="report-value" />
-            </StackPanel>
-          </Border>
-        </WrapPanel>
-        <TextBlock x:Name="EstimateNote" Classes="report-sub" IsVisible="False"
-                   Text="估算只统计参考匹配、预热结束且削波不超过 0.1% 的区间，范围 30–130 dB(A)；这是参考换算结果，不是经仪器验证的 LAeq。" />
-
-        <TextBlock Classes="report-section" Text="会话与归属" />
-        <WrapPanel ItemSpacing="0" LineSpacing="0">
-          <Border x:Name="OwnershipCell" Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="归属" />
-              <TextBlock x:Name="Ownership" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border x:Name="StudyCell" Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="自习规则" />
-              <TextBlock x:Name="StudyWindow" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border Classes="report-cell">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="会话编号" />
-              <TextBlock x:Name="SessionText" Classes="report-value" />
-            </StackPanel>
-          </Border>
-          <Border x:Name="EndReasonCell" Classes="report-cell" IsVisible="False">
-            <StackPanel Spacing="2">
-              <TextBlock Classes="report-label" Text="结束原因" />
-              <TextBlock x:Name="EndReason" Classes="report-value" />
-            </StackPanel>
-          </Border>
-        </WrapPanel>
-
-        <Border x:Name="ReportTracePanel" Classes="report-trace" IsVisible="False">
-          <TextBlock x:Name="ReportTrace" />
+        <Border x:Name="ReportHintPanel" Background="{DynamicResource WarningTintBrush}" CornerRadius="8" Padding="10,6" IsVisible="False">
+          <TextBlock x:Name="ReportHints" Classes="warn" FontSize="12" AutomationProperties.LiveSetting="Polite" />
         </Border>
+        <TextBlock Classes="label" Text="原始采集 · dBFS" />
+        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+          <StackPanel>
+            <TextBlock Classes="caption" Text="能量平均" />
+            <TextBlock x:Name="SummaryEnergy" />
+          </StackPanel>
+          <StackPanel Grid.Column="1">
+            <TextBlock Classes="caption" Text="采样峰值" />
+            <TextBlock x:Name="SummaryPeak" />
+          </StackPanel>
+          <StackPanel Grid.Column="2">
+            <TextBlock Classes="caption" Text="削波占比" />
+            <TextBlock x:Name="SummaryClipped" />
+          </StackPanel>
+        </Grid>
+        <Border Height="1" Background="{DynamicResource LineBrush}" />
+        <TextBlock Classes="label" Text="外部参考估算 · dB(A)" />
+        <TextBlock x:Name="EstimateStatus" />
+        <StackPanel x:Name="EstimateMeasurements" Spacing="6">
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="6">
+            <StackPanel>
+              <TextBlock x:Name="EstimateEnergyLabel" Classes="caption" Text="平滑电平能量均值" />
+              <TextBlock x:Name="EstimateEnergy" />
+            </StackPanel>
+            <StackPanel Grid.Column="1">
+              <TextBlock Classes="caption" Text="最高平滑电平" />
+              <TextBlock x:Name="EstimatePeak" />
+            </StackPanel>
+            <StackPanel Grid.Row="1">
+              <TextBlock Classes="caption" Text="估算有效采样" />
+              <TextBlock x:Name="EstimateSampled" />
+            </StackPanel>
+            <StackPanel Grid.Row="1" Grid.Column="1">
+              <TextBlock Classes="caption" Text="估算有效覆盖率" />
+              <TextBlock x:Name="EstimateCoverage" />
+            </StackPanel>
+          </Grid>
+          <TextBlock Classes="caption" Text="参考换算范围为 30–130 dB(A)，仅计入匹配参考、预热完成且削波不超过 0.1% 的区间。该估算值未经仪器验证。" />
+        </StackPanel>
+        <Expander x:Name="ReportIdentity" Header="会话、归属与时间依据" HorizontalAlignment="Stretch"
+                  Background="{DynamicResource CanvasBrush}" BorderBrush="{DynamicResource LineBrush}" CornerRadius="8"
+                  HorizontalContentAlignment="Stretch">
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
+            <TextBlock Classes="caption" Text="入库归属" />
+            <TextBlock x:Name="Ownership" Grid.Column="1" />
+            <TextBlock Grid.Row="1" Classes="caption" Text="自习规则" />
+            <TextBlock x:Name="StudyWindow" Grid.Row="1" Grid.Column="1" />
+            <TextBlock Grid.Row="2" Classes="caption" Text="会话编号" />
+            <TextBlock x:Name="SessionText" Grid.Row="2" Grid.Column="1" />
+            <TextBlock x:Name="EndReasonLabel" Grid.Row="3" Classes="caption" Text="结束原因" />
+            <TextBlock x:Name="EndReason" Grid.Row="3" Grid.Column="1" />
+            <TextBlock x:Name="ReportTrace" Grid.Row="4" Grid.ColumnSpan="2" Classes="caption" />
+          </Grid>
+        </Expander>
       </StackPanel>
-    </StackPanel>
+    </Panel>
   </ScrollViewer>
 </UserControl>

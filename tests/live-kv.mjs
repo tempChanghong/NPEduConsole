@@ -192,7 +192,7 @@ async function createDatabase() {
     NPEP_DEPLOYMENT_FILE: join(directory, 'deployment.json'),
   });
   delete process.env.NPEP_UPDATE_CATALOG_FILE;
-  if (studyMonitoring || managementAccounts || mode?.startsWith('--school-transfer')) process.env.NPEP_PHOTO_STORAGE_DIR = join(directory, 'photos');
+  if (studyMonitoring || mode === '--device-run-reports' || managementAccounts || mode?.startsWith('--school-transfer')) process.env.NPEP_PHOTO_STORAGE_DIR = join(directory, 'photos');
   if (managementAccounts || mode === '--school-login-profile-setup' || mode?.startsWith('--school-transfer') || mode === '--first-school-console')
     process.env.BOOTSTRAP_SETUP_KEY = randomBytes(32).toString('hex');
   if (mode === '--server-status') process.env.ACCESS_TOKEN_EXPIRES_IN = '15s';
@@ -802,7 +802,7 @@ async function runFixture() {
         child.once('close', code => code === 0 ? resolveRun() : reject(new Error(`Native field Host acceptance failed (${code}); see ${log}`)));
       } finally { closeSync(output); }
     });
-    return verifyDeviceFieldActions({prisma, origin, fixture, fromKv, directory, evidence, withReports, web: join(kv, '..', 'NPClassworks'),
+    return verifyDeviceFieldActions({prisma, origin, fixture, fromKv, kvRequire, directory, evidence, withReports, web: join(kv, '..', 'NPClassworks'),
       runDesktop: args => runDesktop(project, args), runNative});
   }
   if (mode === '--school-study-db') {

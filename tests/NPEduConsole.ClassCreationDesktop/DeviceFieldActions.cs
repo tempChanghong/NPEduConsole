@@ -91,17 +91,29 @@ internal static partial class Program
             if (access.WithReports)
             {
                 var ended = await LinkedReports(window, "已定位此次处置对应的结束报告");
-                var row = (DeviceRunReportRow)Find<ListBox>(ended, "RunReportRows").SelectedItem!;
+                ended.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
+                ended.Width = 1160;
+                ended.Height = 780;
+                await Until(() => ended.ClientSize.Width >= 1155, "wide report workspace");
+                var reportRows = Find<ListBox>(ended, "RunReportRows");
+                var filter = Find<ComboBox>(ended, "RunReportFilter");
+                filter.SelectedIndex = 1;
+                var row = (DeviceRunReportRow)reportRows.SelectedItem!;
                 Check(row.Report.Ownership?.ClassId == access.RoomId && row.Report.Summary.SampledSeconds > 0, "ended native report has exact class and sampling");
-                await Capture(ended, output, "08-wide-resume-linked-report");
+                await CaptureWithFrame(ended, output, "08-wide-resume-linked-report");
                 var sessionId = row.Report.SessionId;
+                var liveToggle = Find<Avalonia.Controls.Primitives.ToggleButton>(ended, "ReportLiveToggle");
+                liveToggle.IsChecked = true;
+                await Until(() => Find<TextBlock>(ended,"RunReportLive").IsEffectivelyVisible &&
+                    Read(ended,"RunReportDevice").Contains(access.RearDeviceId), "current device state identifies the exact rear device");
+                liveToggle.IsChecked = false;
                 foreach (var fault in new[] { "missing-fragment-fields", "empty-fragment-row", "missing-elapsed-seconds" })
                 {
                     await Signal(fault);
                     await PressScoped(ended, "RunReportRecords");
                     await Until(() => Read(ended, "RunReportFeedback").Contains("不兼容") && Ready(ended, "RunReportRecords"),
                         "incomplete archived fragment stays recoverable in the original report window");
-                    Check(!desktop.Windows.OfType<StudyRecordsWindow>().Any(w => w.IsVisible),
+                    Check(!Find<ContentControl>(ended, "ReportRecordsHost").IsVisible && !desktop.Windows.OfType<StudyRecordsWindow>().Any(w => w.IsVisible),
                         "an unreadable historical report opens no records");
                     await PressScoped(ended, "RunReportRefresh");
                     await Until(() => Read(ended, "RunReportFeedback").Contains("已定位") && Ready(ended, "RunReportRecords"),
@@ -109,14 +121,54 @@ internal static partial class Program
                     row = (DeviceRunReportRow)Find<ListBox>(ended, "RunReportRows").SelectedItem!;
                     Check(row.Report.SessionId == sessionId, "refresh keeps the originally selected capture session");
                 }
-                await PressScoped(ended, "RunReportRecords");
-                var exitRecords = await Open<StudyRecordsWindow>();
-                await Until(() => Read(exitRecords, "RecordsStatus").Contains("已读取 1 条"), "only the matched capture's one authorized exit record is listed");
-                exitRecords.Close();
                 ended.Width = 840;
                 ended.Height = 480;
                 await Until(() => ended.ClientSize is { Width: <= 845, Height: <= 485 }, "narrow report window");
-                await Capture(ended, output, "09-narrow-resume-linked-report");
+                Console.WriteLine($"Report narrow window {ended.Width}×{ended.Height} DIP at {ended.RenderScaling * 100:0}% display scaling.");
+                var reportDetail = Find<DeviceRunReportDetail>(ended, "RunReportDetail");
+                var scroll = Find<ScrollViewer>(reportDetail, "ReportScroll");
+                await Until(() => new[] {"SummarySampled","SummaryElapsed","SummaryCoverage","ReportHints"}.All(name =>
+                    FullyInView(Find<TextBlock>(reportDetail, name), scroll)), "three measured values and warnings are fully visible without scrolling");
+                await CaptureWithFrame(ended, output, "09-narrow-resume-linked-report");
+                await Signal("hold-records-read");
+                await PressScoped(ended, "RunReportRecords");
+                await Signal("records-read-started");
+                await PressScoped(ended, "RunReportBack");
+                await Signal("release-records-read");
+                await Until(() => reportRows.IsEffectivelyVisible && reportRows.IsKeyboardFocusWithin &&
+                    !Find<ContentControl>(ended, "ReportRecordsHost").IsVisible, "cancelled records lookup keeps focus in the report list");
+                await PressScoped(ended, "RunReportOpen");
+                await Until(() => Ready(ended, "RunReportRecords") && !Find<ContentControl>(ended, "ReportRecordsHost").IsVisible,
+                    "late historical details do not reopen records");
+                var identity = Find<Expander>(reportDetail, "ReportIdentity");
+                identity.BringIntoView();
+                identity.IsExpanded = true;
+                var trace = Find<TextBlock>(reportDetail, "ReportTrace");
+                await Until(() => trace.IsEffectivelyVisible && trace.Bounds.Height > 0, "expanded time evidence laid out");
+                scroll.PageDown();
+                trace.BringIntoView();
+                await Until(() => scroll.Offset.Y > 0 && FullyInView(Find<TextBlock>(reportDetail,"ReportTrace"), scroll),
+                    "one detail viewport reaches the final time evidence");
+                var previousOffset = scroll.Offset;
+                var windowHandle = ended.TryGetPlatformHandle()!.Handle;
+                var windowCount = desktop.Windows.Count(w => w.IsVisible);
+                var records = await OpenReportPhoto(ended);
+                Check(windowCount == desktop.Windows.Count(w => w.IsVisible) && ended.TryGetPlatformHandle()!.Handle == windowHandle &&
+                    ReferenceEquals(TopLevel.GetTopLevel(records), ended), "matched photo opens in the original report HWND");
+                await CaptureWithFrame(ended, output, "09a-narrow-report-photo");
+                var view = Find<StudyRecordsView>(records, "Records");
+                var photos = Find<ListBox>(view, "StudyRecordsList");
+                var originalPhoto = photos.SelectedItem;
+                var photoBack = Find<Button>(view, "StudyRecordsBack");
+                photoBack.RaiseEvent(new KeyEventArgs {RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape});
+                await Until(() => photos.IsKeyboardFocusWithin && ReferenceEquals(originalPhoto, photos.SelectedItem) &&
+                    Find<Image>(view, "StudyRecordsImage").Source is null, "photo returns to its row and releases the image");
+                photos.RaiseEvent(new KeyEventArgs {RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape});
+                await Until(() => Find<Button>(ended, "RunReportRecords").IsFocused &&
+                    ReferenceEquals(reportRows.SelectedItem, row) && filter.SelectedIndex == 1 &&
+                    identity.IsExpanded && Math.Abs(previousOffset.Y - scroll.Offset.Y) < 2, "return restores the original report, filter, scroll and focus");
+                Console.WriteLine($"Report, photo and return shared HWND 0x{windowHandle:X} and session {sessionId}.");
+
                 await PressScoped(ended, "RunReportBack");
                 var reportList = Find<ListBox>(ended, "RunReportRows");
                 await Until(() => reportList.IsEffectivelyVisible && reportList.IsKeyboardFocusWithin && ReferenceEquals(reportList.SelectedItem, row),
@@ -146,9 +198,18 @@ internal static partial class Program
             if (access.WithReports)
             {
                 var historic = await LinkedReports(window, "已定位此次处置对应的结束报告");
-                Check(Read(historic, "RunReportTarget").Contains(access.RearDeviceId) && Read(historic, "RunReportFeedback").Contains("设备报告读取失败"),
+                Check(Read(historic, "RunReportDevice").Contains(access.RearDeviceId) && Read(historic, "RunReportFeedback").Contains("设备报告读取失败"),
                     "replacement leaves old class-owned exact report accessible without reading revoked device history");
                 await Capture(historic, output, "10-historical-replaced-rear");
+                var historicalRecords = await OpenReportPhoto(historic);
+                var formerView = Find<StudyRecordsView>(historicalRecords, "Records");
+                await Signal("records-revoke");
+                // Keep the photo open while the report window rechecks its school access.
+                await Until(() => Find<Image>(formerView, "StudyRecordsImage").Source is null &&
+                    Find<ListBox>(formerView,"StudyRecordsList").ItemCount == 0 && !Find<ContentControl>(historic, "ReportRecordsHost").IsVisible &&
+                    Read(historic, "RunReportTarget").Contains("访问已失效") && Find<ListBox>(historic,"RunReportRows").ItemCount == 0,
+                    "periodic access check clears the open photo and the original report after school access is revoked");
+                await Signal("records-restored");
                 historic.Close();
             }
             await PressScoped(window, "FieldReturn");
@@ -218,10 +279,17 @@ internal static partial class Program
                 await PressScoped(frontReports, "RunReportOpen");
                 var clockDetail = Find<DeviceRunReportDetail>(frontReports, "RunReportDetail");
                 Check(Read(clockDetail, "ReportWindow").StartsWith("报告起止（结束按设备计时推算）") &&
-                    Read(clockDetail, "ReportHints").Contains("报告起止时间仍待核对") &&
+                    Read(clockDetail, "ReportHints").Contains("报告起止时间仍待核对") && Read(clockDetail, "ReportHints").Contains("麦克风变化，参考失效") &&
                     Read(clockDetail, "ReportTrace").Contains("服务器收到于") && Read(clockDetail, "ReportTrace").Contains("设备墙钟观测结束"),
                     "reported interval, server receipt and device wall clock are named separately");
-                await Capture(frontReports, output, "11b-narrow-clock-detail");
+                await Until(() => FullyInView(Find<TextBlock>(clockDetail, "ReportHints"), Find<ScrollViewer>(clockDetail, "ReportScroll")),
+                    "clock warning is visible alongside coverage");
+                await CaptureWithFrame(frontReports, output, "11b-narrow-clock-detail");
+                frontReports.RequestedThemeVariant = ConsoleHighContrast.Dark;
+                await CaptureWithFrame(frontReports, output, "11e-high-contrast-clock-detail");
+                frontReports.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
+                await CaptureWithFrame(frontReports, output, "11d-dark-clock-detail");
+                frontReports.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Default;
                 await Signal("report-revoke");
                 if (Ready(frontReports, "RunReportRefresh")) await PressScoped(frontReports, "RunReportRefresh");
                 await Until(() => Read(frontReports, "RunReportTarget").Contains("报告访问已失效") &&
@@ -309,6 +377,23 @@ internal static partial class Program
             await Until(() => Read(reports, "RunReportFeedback").Contains(feedback), feedback);
             return reports;
         }
+        async Task<StudyRecordsPage> OpenReportPhoto(DeviceRunReportsWindow host)
+        {
+            await PressScoped(host, "RunReportRecords");
+            var content = Find<ContentControl>(host, "ReportRecordsHost");
+            await Until(() => content is {IsEffectivelyVisible:true,Content:StudyRecordsPage}, "embedded records page");
+            var records = (StudyRecordsPage)content.Content!;
+            await Until(() => Read(records,"RecordsStatus").Contains("已读取 2 条"), "exact capture has one photo and one exit");
+            var view = Find<StudyRecordsView>(records, "Records");
+            var list = Find<ListBox>(view, "StudyRecordsList");
+            list.SelectedItem = list.Items.OfType<StudyRecordRow>().Single(item => item.PhotoId is not null);
+            await Until(() => Find<Image>(view, "StudyRecordsImage").Source is not null, "matching photo loaded from isolated KV");
+            return records;
+        }
+        static bool FullyInView(Control item, ScrollViewer viewport) =>
+            item.IsEffectivelyVisible && item.Bounds.Height > 0 && item.TranslatePoint(default, viewport) is { } at &&
+            at.Y >= -1 && at.Y + item.Bounds.Height <= viewport.Bounds.Height + 1;
+
         async Task SaveDiagnostic(DeviceDiagnosticsWindow diagnostic, string name, int count)
         {
             string file = Path.GetFullPath(Path.Combine(output, name));

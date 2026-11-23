@@ -23,6 +23,11 @@ public sealed partial class DeviceRunReportDetail : UserControl
 
     public void SetReport(DeviceRunReport? report)
     {
+        if (Report?.SessionId != report?.SessionId)
+        {
+            ReportIdentity.IsExpanded = false;
+            ReportScroll.ScrollToHome();
+        }
         Report = report;
         if (report is null)
         {
@@ -46,7 +51,7 @@ public sealed partial class DeviceRunReportDetail : UserControl
         SummaryPeak.Text = Dbfs(report.Summary.PeakDbfs);
 
         var estimate = report.Estimate;
-        EstimateNote.IsVisible = estimate is not null;
+        EstimateMeasurements.IsVisible = estimate is not null;
         EstimateEnergyLabel.Text = estimate is null || string.IsNullOrWhiteSpace(estimate.TimeWeighting)
             ? "A 加权平滑电平能量均值"
             : "A/" + estimate.TimeWeighting + " 平滑电平能量均值";
@@ -68,7 +73,7 @@ public sealed partial class DeviceRunReportDetail : UserControl
         SessionText.Text = report.SessionId;
 
         var endReason = EndReasonText(report.SessionKind, report.EndReason);
-        EndReasonCell.IsVisible = endReason is not null;
+        EndReasonLabel.IsVisible = EndReason.IsVisible = endReason is not null;
         EndReason.Text = endReason ?? string.Empty;
 
         // 收到时间是服务器事实；设备墙钟观测时刻是设备事实，两者并排但不互相解释。
@@ -79,7 +84,6 @@ public sealed partial class DeviceRunReportDetail : UserControl
         var hints = Hints(report);
         ReportHintPanel.IsVisible = hints.Count > 0;
         ReportHints.Text = string.Join("\n", hints);
-        ReportTracePanel.IsVisible = true;
     }
 
     private void Clear()
@@ -95,9 +99,8 @@ public sealed partial class DeviceRunReportDetail : UserControl
             field.Text = string.Empty;
         EstimateEnergyLabel.Text = "平滑电平能量均值";
         ReportHintPanel.IsVisible = false;
-        ReportTracePanel.IsVisible = false;
-        EstimateNote.IsVisible = false;
-        EndReasonCell.IsVisible = false;
+        EstimateMeasurements.IsVisible = false;
+        EndReasonLabel.IsVisible = EndReason.IsVisible = false;
         ReportHeading.Classes.Set("warn", false);
     }
 
@@ -188,6 +191,9 @@ public sealed partial class DeviceRunReportDetail : UserControl
             hints.Add("这份报告是部分统计：结束前的时间可能没有采到样本。");
         if (report.Timing?.ClockDiscontinuity == true)
             hints.Add("设备墙钟与监测计时存在差异，报告起止时间仍待核对。");
+        if (report.Estimate?.Status is "DEVICE_CHANGED" or "INPUT_SETTINGS_CHANGED" or "INPUT_SETTINGS_UNAVAILABLE" or
+            "A_WEIGHTING_UNAVAILABLE" or "REFERENCE_STORE_UNAVAILABLE" or "Invalidated")
+            hints.Add(EstimateLabel(report.Estimate.Status) + "。");
         if (report.Summary.SampledSeconds <= 0)
             hints.Add("这段会话没有采集到有效样本。");
         else if (report.Summary.SampledSeconds * 2 < report.Summary.ElapsedSeconds)

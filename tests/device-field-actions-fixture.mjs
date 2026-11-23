@@ -6,7 +6,7 @@ import {join} from 'node:path';
 import {setTimeout as delay} from 'node:timers/promises';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
 
-export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv, directory, evidence, withReports = false, web, runDesktop, runNative}) {
+export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv, kvRequire, directory, evidence, withReports = false, web, runDesktop, runNative}) {
   const {school, term, pin, managerId, identity} = fixture;
   await mkdir(evidence, {recursive: true});
   const {defaultStudySettings} = await fromKv('domain/npep/studySettings.js');
@@ -156,7 +156,24 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
           ...report.ownership, digest:randomBytes(32).toString('hex'), metadata:{sessionId:report.sessionId,reason:'Random',photoEventId:null},
           createdAt:new Date(),expiresAt:new Date(Date.now()+86400000)}));
         await prisma.npepStudyExitEvent.createMany({data:endedEvents});
+        const {NpepPhotoStore} = await fromKv('services/npepPhotoStore.js');
+        const {photoHash} = await fromKv('domain/npep/studyPhotos.js');
+        const width = 320, height = 180;
+        const pixels = Buffer.alloc(width * height * 4);
+        for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+          const i = (y * width + x) * 4;
+          const seat = x % 43 > 6 && y % 35 > 6;
+          pixels.set(seat ? [28, 95, 160, 255] : [216, 234, 248, 255], i);
+        }
+        const jpeg = kvRequire('jpeg-js').encode({width, height, data:pixels}, 80).data;
+        const eventId = randomUUID(), storedHash = photoHash(jpeg);
+        await new NpepPhotoStore(join(directory, 'photos')).put(eventId, jpeg);
+        await prisma.npepStudyPhoto.create({data:{eventId, deviceId:rear.device.id, ...matching.ownership,
+          metadata:{sessionId:matching.sessionId, reason:'Noise'}, leaseId:randomUUID(), version:'fixture',
+          digest:storedHash, storedHash, width, height, byteCount:jpeg.length, capturedAt:new Date(matching.endedAt),
+          expiresAt:new Date(Date.now()+86400000), state:'Stored'}});
         const exact = await classReport(rear, matching.sessionId);
+        assert.deepEqual(exact.items[0].photos.map(item => item.eventId), [eventId]);
         assert.deepEqual(exact.items[0].fragments.map(item => item.sessionId), [matching.sessionId]);
         assert.deepEqual(exact.items[0].events.map(item => item.eventId),
           endedEvents.filter(item => item.metadata.sessionId === matching.sessionId).map(item => item.eventId));
@@ -166,7 +183,7 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
         assert.equal((await classReport(rear, matching.sessionId, room.id, 403, fixture.other.id, second.access_token)).code, 'SCHOOL_ADMIN_REQUIRED');
         assert.deepEqual((await reportsFor(front)).reports.map(report => report.sessionId), [frontReportId]);
         await legacyReports(matching.sessionId);
-        reportProof = {matchedSession: matching.sessionId, precedingSession: current.find(report => report.sessionId !== matching.sessionId).sessionId,
+        reportProof = {photoEventId:eventId, matchedSession: matching.sessionId, precedingSession: current.find(report => report.sessionId !== matching.sessionId).sessionId,
           originalClass: room.id, frontReportId, retainedOwnership: matching.ownership, replacementDeviceId: null};
       }
       await prisma.npepDevice.update({where: {id: rear.device.id}, data: {lastSeenAt: new Date(Date.now() - 120000), lastReportedAt: new Date(Date.now() - 120000)}});
@@ -193,11 +210,17 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
         assert.equal((await classReport(replacement, reportProof.matchedSession, room.id, 404)).code, 'NOT_FOUND');
         reportProof.replacementDeviceId = replacement.device.id;
       }
+    } else if (withReports && name === 'hold-records-read') {
+      marks.add('hold-exact-report');
+    } else if (withReports && name === 'records-read-started') {
+      await wait('held-exact-report');
+    } else if (withReports && name === 'release-records-read') {
+      marks.add('release-exact-report');
     } else if (withReports && reportFaults.includes(name)) {
       nextReportFault = name;
-    } else if (withReports && name === 'report-revoke') {
+    } else if (withReports && (name === 'report-revoke' || name === 'records-revoke')) {
       await prisma.schoolMember.update({where:{schoolId_accountId:{schoolId:school.id,accountId:managerId}},data:{role:'VIEWER'}});
-    } else if (withReports && name === 'report-restored') {
+    } else if (withReports && (name === 'report-restored' || name === 'records-restored')) {
       await prisma.schoolMember.update({where:{schoolId_accountId:{schoolId:school.id,accountId:managerId}},data:{role:'ADMIN'}});
     } else if (withReports && name === 'export-revoke') {
       const [primary, capped] = await Promise.all(['diagnostics-partial.json', 'diagnostics-capped.json'].map(async file => {
@@ -329,6 +352,10 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
       for (const key of ['connection', 'host', 'transfer-encoding', 'content-length']) delete headers[key];
       const upstream = await fetch(url, {method: req.method, headers, body, redirect: 'manual'});
       const response = Buffer.from(await upstream.arrayBuffer());
+      if (url.pathname.endsWith('/study-sessions') && url.searchParams.has('sessionId') && marks.delete('hold-exact-report')) {
+        marks.add('held-exact-report');
+        await wait('release-exact-report');
+      }
       if (nextReportFault && upstream.ok && url.pathname.endsWith('/study-sessions') && url.searchParams.has('sessionId')) {
         const reply = JSON.parse(response);
         const parts = reply.data.items[0].fragments;
@@ -398,15 +425,15 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
       await native;
     }});
     assert.deepEqual(steps, ['arm', 'received', 'processed', 'sample-shown', 'second-stop',
-      ...(withReports ? reportFaults : []), 'revoked', ...(withReports
-      ? ['report-revoke','report-restored','export-revoke','export-restored','export-begin-switch','export-finish-switch'] : [])]);
+      ...(withReports ? [...reportFaults, 'hold-records-read','records-read-started','release-records-read'] : []), 'revoked', ...(withReports
+      ? ['records-revoke','records-restored','report-revoke','report-restored','export-revoke','export-restored','export-begin-switch','export-finish-switch'] : [])]);
     const attribution = await verifyAttribution();
     await writeFile(join(evidence, 'device-field-actions-result.json'), JSON.stringify({result: 'PASS', steps, marks: [...marks],
       front: {bindingId: front.binding.id, id: front.device.id, captureVerified: legacyFront.captureVerified},
       rear: {bindingId: rear.binding.id, id: rear.device.id}, resumeReceipt, revokeReceipt, revokePosts, ownRevokeReads, attribution,
       reportProof, exportProof, signals: 'synthetic audio and school clock; actual NoiseService, NoiseScheduleService and StudySettingsService'}, null, 2));
   } finally {
-    for (const name of ['armed', 'allow-delivery', 'allow-sample', 'allow-local-stop', 'rear-revoked', 'release-diagnostic-response']) marks.add(name);
+    for (const name of ['armed', 'allow-delivery', 'allow-sample', 'allow-local-stop', 'rear-revoked', 'release-exact-report', 'release-diagnostic-response']) marks.add(name);
     relay.closeAllConnections();
     await new Promise(resolve => relay.close(resolve));
     await native?.catch(() => {});

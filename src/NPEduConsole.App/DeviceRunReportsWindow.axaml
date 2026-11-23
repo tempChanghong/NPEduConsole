@@ -1,27 +1,40 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.DeviceRunReportsWindow"
         Title="教室设备运行报告" Width="1040" Height="690" MinWidth="660" MinHeight="440" WindowStartupLocation="CenterOwner">
-  <Border Background="{DynamicResource CanvasBrush}" Padding="16,12">
-    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="9">
+  <Panel Background="{DynamicResource CanvasBrush}">
+    <Grid x:Name="ReportWorkspace" Margin="16,12" RowDefinitions="Auto,*,Auto" RowSpacing="8">
       <StackPanel Spacing="4">
-        <TextBlock Text="运行报告" Classes="label" FontSize="23" />
-        <TextBlock x:Name="RunReportTarget" Classes="label" TextWrapping="Wrap" />
-        <TextBlock x:Name="RunReportLive" Classes="muted" TextWrapping="Wrap" />
-        <TextBlock x:Name="RunReportFeedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <StackPanel Spacing="2">
+            <TextBlock Text="运行报告" Classes="label" FontSize="23" />
+            <TextBlock x:Name="RunReportTarget" Classes="label" TextWrapping="Wrap" />
+          </StackPanel>
+          <ToggleButton x:Name="ReportLiveToggle" Grid.Column="1" Content="设备当下状态"
+                        VerticalAlignment="Center" MinHeight="36" Padding="12,6" CornerRadius="8"
+                        Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                        AutomationProperties.Name="显示或收起设备当下状态" />
+        </Grid>
+        <Border IsVisible="{Binding IsChecked, ElementName=ReportLiveToggle}" Classes="card" Padding="10,6">
+          <StackPanel Spacing="3">
+            <TextBlock x:Name="RunReportDevice" Classes="label" TextWrapping="Wrap" />
+            <TextBlock x:Name="RunReportLive" Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <TextBlock x:Name="RunReportFeedback" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
       </StackPanel>
-      <Grid x:Name="RunReportColumns" Grid.Row="1" ColumnDefinitions="1*,1.45*" ColumnSpacing="10">
+      <Grid x:Name="RunReportColumns" Grid.Row="1" ColumnDefinitions="1*,1.6*" ColumnSpacing="10">
         <Border x:Name="RunReportListPane" Classes="card" Padding="10">
-          <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
-            <StackPanel Orientation="Horizontal" Spacing="8">
+          <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="7">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
               <TextBlock Text="已结束的报告" Classes="label" VerticalAlignment="Center" />
-              <ComboBox x:Name="RunReportFilter" SelectedIndex="0" AutomationProperties.Name="筛选报告来源">
+              <ComboBox x:Name="RunReportFilter" Grid.Column="1" SelectedIndex="0" AutomationProperties.Name="筛选报告来源">
                 <ComboBoxItem Content="全部来源" />
                 <ComboBoxItem Content="学校排程" />
                 <ComboBoxItem Content="手动自习" />
                 <ComboBoxItem Content="来源待核对" />
               </ComboBox>
-            </StackPanel>
-            <TextBlock Grid.Row="1" Classes="muted" TextWrapping="Wrap" Text="设备接口显示最近 20 份结束报告。服务端每台最多保留 30 天内的 200 份。" />
+            </Grid>
+            <TextBlock Grid.Row="1" Classes="muted" FontSize="12" TextWrapping="Wrap" Text="显示最近 20 份。每台设备在服务器保留 30 天内最多 200 份。" />
             <ListBox x:Name="RunReportRows" Grid.Row="2" Classes="object-list" Background="Transparent" AutomationProperties.Name="运行报告列表"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
               <ListBox.ItemTemplate>
@@ -36,21 +49,22 @@
             <Button x:Name="RunReportOpen" Grid.Row="3" Classes="action accent" Content="查看报告" Click="OpenReport" />
           </Grid>
         </Border>
-        <Border x:Name="RunReportDetailPane" Grid.Column="1" Classes="card" Padding="10">
-          <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
-            <TextBlock x:Name="RunReportDetailStatus" IsVisible="False" Classes="muted" TextWrapping="Wrap" />
-            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-              <local:DeviceRunReportDetail x:Name="RunReportDetail" />
-            </ScrollViewer>
-            <Button x:Name="RunReportRecords" Grid.Row="2" Classes="action" Content="本场照片与退出记录" Click="OpenRecords" IsVisible="False" />
+        <Border x:Name="RunReportDetailPane" Grid.Column="1" Classes="card" Padding="12,9">
+          <Grid RowDefinitions="Auto,*" RowSpacing="5">
+            <TextBlock x:Name="RunReportDetailStatus" IsVisible="False" Classes="muted" FontSize="12" TextWrapping="Wrap" />
+            <local:DeviceRunReportDetail Grid.Row="1" x:Name="RunReportDetail" />
           </Grid>
         </Border>
       </Grid>
-      <WrapPanel Grid.Row="2" HorizontalAlignment="Right" ItemSpacing="6" LineSpacing="4">
-        <Button x:Name="RunReportBack" Classes="action" Content="返回" Click="GoBack" />
-        <Button x:Name="RunReportField" Classes="action" Content="现场处置" Click="OpenField" />
-        <Button x:Name="RunReportRefresh" Classes="action" Content="刷新报告" Click="Refresh" />
-      </WrapPanel>
+      <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="6">
+        <Button x:Name="RunReportRecords" HorizontalAlignment="Left" Classes="action" Content="本场照片与退出记录" Click="OpenRecords" IsVisible="False" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+          <Button x:Name="RunReportBack" Classes="action" Content="返回" Click="GoBack" />
+          <Button x:Name="RunReportField" Classes="action" Content="现场处置" Click="OpenField" />
+          <Button x:Name="RunReportRefresh" Classes="action" Content="刷新报告" Click="Refresh" />
+        </StackPanel>
+      </Grid>
     </Grid>
-  </Border>
+    <ContentControl x:Name="ReportRecordsHost" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" IsVisible="False" />
+  </Panel>
 </Window>
