@@ -98,18 +98,27 @@
           <TabItem Header="任课与变更">
             <ScrollViewer AllowAutoHide="False" HorizontalScrollBarVisibility="Disabled">
               <StackPanel Spacing="7" Margin="0,0,10,0">
-                <TextBlock Text="任课按当前选中的行政班和编辑科目办理，也可直接选择走班。" TextWrapping="Wrap" Classes="muted"/>
+                <TextBlock x:Name="PlanTeachingHint" Text="任课按当前选中的行政班和编辑科目办理，也可直接选择走班。"
+                           TextWrapping="Wrap" Classes="muted"/>
                 <ComboBox x:Name="PlanTeachingTarget" SelectionChanged="TeachingTargetChanged" HorizontalAlignment="Stretch" AutomationProperties.Name="任课教学空间"/>
-                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+                <Grid x:Name="PlanAddTeaching" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
                   <ComboBox x:Name="PlanTeacher" SelectionChanged="TeacherChoiceChanged" HorizontalAlignment="Stretch" PlaceholderText="选择教师" AutomationProperties.Name="选择教师"/>
                   <ComboBox x:Name="PlanTeacherRole" Grid.Column="1" Width="86" AutomationProperties.Name="任课角色"/>
                   <Button x:Name="PlanStageTeacher" Grid.Column="2" Classes="action" Click="StageTeacher" Content="加入任课"/>
                 </Grid>
+                <Button x:Name="PlanOpenMixedTeaching" Classes="action" Click="OpenMixedTeaching" Content="批量选择随班与走班"/>
+                <StackPanel x:Name="PlanMixedTeaching" Spacing="6" IsVisible="False">
+                  <TextBlock x:Name="PlanMixedTeachingInfo" Classes="muted" TextWrapping="Wrap"/>
+                  <ListBox x:Name="PlanMixedTeachingTargets" Classes="object-list" SelectionMode="Multiple" MinHeight="82" MaxHeight="185"
+                           SelectionChanged="MixedTeachingChanged" ScrollViewer.AllowAutoHide="False" AutomationProperties.Name="同年级随班和走班目标"/>
+                  <Button x:Name="PlanStageMixedTeaching" Classes="action" Click="StageMixedTeaching" Content="加入所选任课"/>
+                </StackPanel>
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7">
                   <ComboBox x:Name="PlanTeachingExisting" SelectionChanged="TeacherChoiceChanged" HorizontalAlignment="Stretch" PlaceholderText="选择要移除的现有任课" AutomationProperties.Name="现有任课"/>
                   <Button x:Name="PlanStageRemoval" Grid.Column="1" Classes="action" Click="StageRemoval" Content="加入移除任课"/>
                 </Grid>
-                <TextBlock Text="新增任课沿用现有成员授权规则。移除任课保留独立成员权限。也可保存后再补任课。" TextWrapping="Wrap" Classes="muted"/>
+                <TextBlock x:Name="PlanTeachingAccessHint" Text="新增任课沿用现有成员授权规则。移除任课保留独立成员权限。也可保存后再补任课。"
+                           TextWrapping="Wrap" Classes="muted"/>
                 <Border x:Name="PlanNarrowChanges" Classes="card" Padding="10" IsVisible="False"/>
               </StackPanel>
             </ScrollViewer>
@@ -162,7 +171,7 @@
           <TabItem x:Name="PlanReviewTab" Header="逐项预览" IsVisible="False">
             <Grid RowDefinitions="*,Auto" RowSpacing="8">
               <local:TermTeachingReviewView x:Name="PlanScopedReview"/>
-              <WrapPanel Grid.Row="1" ItemSpacing="8">
+              <WrapPanel x:Name="PlanReviewActions" Grid.Row="1" ItemSpacing="8">
                 <Button x:Name="PlanReviewLocate" Classes="action" Content="定位所选调整" Click="LocateScopedReviewClicked"/>
                 <Button Classes="action" Content="返回逐班对照" Click="ReturnToPlanRowsClicked"/>
               </WrapPanel>

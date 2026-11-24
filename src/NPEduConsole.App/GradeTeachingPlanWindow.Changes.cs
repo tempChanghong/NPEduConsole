@@ -18,7 +18,7 @@ public sealed partial class GradeTeachingPlanWindow
         {
             var pending = _groups.GetValueOrDefault(group.Id);
             if (pending?.Operation == "RETIRE" || !group.IsActive && pending?.Operation != "RESTORE") continue;
-            items.Add(new(group.Id, pending?.Name ?? group.Name));
+            items.Add(new(group.Id, $"{pending?.Name ?? group.Name}（{pending?.Code ?? group.Code}）"));
         }
         items.AddRange(_groups.Values.Where(row => row.Operation == "CREATE").Select(row => new Option(row.Key, row.Name)));
         _filling = true;
@@ -26,6 +26,7 @@ public sealed partial class GradeTeachingPlanWindow
         PlanTeachingTarget.SelectedItem = items.FirstOrDefault(row => row.Id == selected) ?? items[0];
         _filling = false;
         BindTeachingExisting();
+        BindMixedTeachingTargets();
         Render();
     }
 
@@ -45,13 +46,49 @@ public sealed partial class GradeTeachingPlanWindow
     {
         if (_catalog is not { } data) return;
         var selected = PlanTeachingExisting.SelectedItem as GradePlanAssignment;
-        string? key = TeachingTarget?.Id;
+        string? key = _teachingIssue?.Group ?? TeachingTarget?.Id;
+        string? roomId = _teachingIssue?.Room ?? (SelectedClasses.Take(2).ToArray() is [var room] ? room.ClassId : null);
+        string? subjectId = _teachingIssue?.Subject ?? RuleSubjectId;
         var assignments = key is { Length: > 0 } ? data.Groups.FirstOrDefault(row => row.Id == key)?.Assignments :
-            SelectedClasses.Take(2).ToArray() is [var room] ?
-                data.Classes.FirstOrDefault(row => row.Id == room.ClassId)?.Assignments.Where(row => row.SubjectId == RuleSubjectId).ToArray() : null;
-        var items = assignments?.Where(row => row.IsActive && !_assignments.Any(edit => edit.AssignmentId == row.Id)).ToArray() ?? [];
+            data.Classes.FirstOrDefault(row => row.Id == roomId)?.Assignments.Where(row => row.SubjectId == subjectId).ToArray();
+        var items = assignments?.Where(row => row.IsActive && !_assignments.Any(edit => edit.AssignmentId == row.Id) &&
+            (_teachingIssue?.Account is not { } account || row.AccountId == account) &&
+            (_teachingIssue?.Code != "MULTIPLE_PRIMARY_TEACHERS" || row.Position == "PRIMARY")).ToArray() ?? [];
         PlanTeachingExisting.ItemsSource = items;
         PlanTeachingExisting.SelectedItem = items.FirstOrDefault(row => row.Id == selected?.Id);
+    }
+
+    private void OpenTeachingIssue()
+    {
+        if (_teachingIssue is not { Subject: { } subject } issue) return;
+        if (issue.Room is { } room) FocusKey(RowKey(room, subject));
+        var target = PlanTeachingTarget.Items.OfType<Option>().FirstOrDefault(row => row.Id == (issue.Group ?? ""));
+        PlanTabs.SelectedIndex = 2;
+        PlanTeachingTarget.SelectedItem = target;
+        BindTeachingExisting();
+        var assignments = PlanTeachingExisting.Items.OfType<GradePlanAssignment>().ToArray();
+        var original = issue.Account is { } teacher ? assignments.FirstOrDefault(row => row.AccountId == teacher) : null;
+        bool stillApplies = issue.Code switch
+        {
+            "MULTIPLE_PRIMARY_TEACHERS" => assignments.Count(row => row.Position == "PRIMARY") > 1,
+            "DISABLED_TEACHER_ASSIGNED" => original?.LocalDisabled == true,
+            "TEACHING_ASSIGNMENT_SUBJECT_CONFLICT" => original is not null && issue.Room is { } classId &&
+                _catalog?.Classes.FirstOrDefault(row => row.Id == classId) is { } current &&
+                !current.Rules.Any(row => row.SubjectId == subject && row.Mode == "ADMIN_CLASS"),
+            _ => false
+        };
+        string name = TargetName(issue.Group ?? RowKey(issue.Room ?? "", subject));
+        if (target is null || !stillApplies)
+        {
+            PlanTeachingExisting.SelectedItem = null;
+            _scopeLost = true;
+            Notice($"{name}的原任课待办已变化或不再成立，请返回总览刷新。", true);
+            return;
+        }
+        if (original is not null) PlanTeachingExisting.SelectedItem = original;
+        Notice(OtherPlanPending ? $"{name}。本学期另有一份方案待核对，请从本学期教学安排打开原回执。" :
+            $"正在核对原待办：{name}。请确认实际任课，再将需要移除的关系加入方案。");
+        Focus(PlanTeachingExisting);
     }
 
     private void StageTeacher(object? sender, RoutedEventArgs args)
@@ -75,17 +112,62 @@ public sealed partial class GradeTeachingPlanWindow
         }
         DraftChanged();
 
-        void AddTeacher(string key, string subject)
-        {
-            _assignments.RemoveAll(row => row.WorkspaceKey == key && row.SubjectId == subject && row.AccountId == teacher.Id);
-            _assignments.Add(new(key, subject, "ADD", teacher.Id, role.Id));
-        }
+        void AddTeacher(string key, string subject) => PutTeachingEdit(key, subject, teacher.Id, role.Id);
+    }
+
+    private void PutTeachingEdit(string space, string subject, string account, string role)
+    {
+        _assignments.RemoveAll(row => row.WorkspaceKey == space && row.SubjectId == subject && row.AccountId == account);
+        _assignments.Add(new(space, subject, "ADD", account, role));
+    }
+
+    private void OpenMixedTeaching(object? sender, RoutedEventArgs args)
+    {
+        PlanMixedTeaching.IsVisible = !PlanMixedTeaching.IsVisible;
+        if (!PlanMixedTeaching.IsVisible) return;
+        BindMixedTeachingTargets();
+        Render();
+        Focus(PlanMixedTeachingTargets);
+    }
+
+    private void BindMixedTeachingTargets()
+    {
+        if (!PlanMixedTeaching.IsVisible || _catalog is not { } data || _subjectId is not { } subject) return;
+        var selected = PlanMixedTeachingTargets.SelectedItems?.OfType<Option>().Select(row => row.Id).ToHashSet() ?? [];
+        var rooms = data.Classes.Where(room => (_rules.GetValueOrDefault(RowKey(room.Id, subject))?.Mode ??
+            room.Rules.FirstOrDefault(rule => rule.SubjectId == subject)?.Mode) == "ADMIN_CLASS")
+            .Select(room => new Option(room.Id, $"随班 · {room.Name}（{room.Code}）"));
+        var groups = data.Groups.Where(group => group.IsActive && group.SubjectId == subject &&
+            _groups.GetValueOrDefault(group.Id)?.Operation != "RETIRE")
+            .Select(group => new Option(group.Id, $"走班 · {group.Name}（{group.Code}）"));
+        var targets = rooms.Concat(groups).ToArray();
+        PlanMixedTeachingTargets.ItemsSource = targets;
+        if (PlanMixedTeachingTargets.SelectedItems is { } choices)
+            foreach (var target in targets.Where(target => selected.Contains(target.Id))) choices.Add(target);
+        PlanMixedTeachingInfo.Text = $"{PlanGrade.SelectedItem} · {PlanSubject.SelectedItem}。选定班级后，将上方教师和任课角色加入同一份方案。";
+    }
+
+    private void MixedTeachingChanged(object? sender, SelectionChangedEventArgs args)
+    {
+        if (!_filling && _client is not null) Render();
+    }
+
+    private void StageMixedTeaching(object? sender, RoutedEventArgs args)
+    {
+        if (!PlanStageMixedTeaching.IsEnabled || _subjectId is not { } subject || PlanTeacher.SelectedItem is not GradePlanTeacher teacher ||
+            PlanTeacherRole.SelectedItem is not Option role || PlanMixedTeachingTargets.SelectedItems is not { } selected) return;
+        foreach (var target in selected.OfType<Option>()) PutTeachingEdit(target.Id, subject, teacher.Id, role.Id);
+        selected.Clear();
+        PlanMixedTeaching.IsVisible = false;
+        DraftChanged();
+        Focus(PlanPreview);
     }
 
     private void StageRemoval(object? sender, RoutedEventArgs args)
     {
         if (PlanTeachingExisting.SelectedItem is not GradePlanAssignment assignment) return;
-        string? key = TeachingTarget?.Id is { Length: > 0 } group ? group : SelectedClasses.FirstOrDefault()?.ClassId;
+        string? key = _teachingIssue?.Group ?? _teachingIssue?.Room ??
+            (TeachingTarget?.Id is { Length: > 0 } group ? group : SelectedClasses.FirstOrDefault()?.ClassId);
         if (key is null) return;
         _assignments.Add(new(key, assignment.SubjectId, "REMOVE", AssignmentId: assignment.Id));
         DraftChanged();
@@ -134,10 +216,21 @@ public sealed partial class GradeTeachingPlanWindow
                 "NONE" => "\n该教师在此空间没有独立成员关系",
                 _ => ""
             };
+            if (observed?.MembershipAfterRole is not null || observed?.Unchanged == true)
+                access = $"\n{TeachingImpact(observed!, false)} → {TeachingImpact(observed!, true)}";
             changes.Add(new(index.ToString(), $"{TargetName(edit.WorkspaceKey)} · {role} · {teacher}{access}", "移出", "teacher"));
         }
         PlanChangeCount.Text = HasDraft ? $"授课规则 {_rules.Count} 项 · 教学班 {_groups.Count} 项 · 任课 {_assignments.Count} 项" : "选定调整后，可在此统一预览。";
         PlanChangeRows.ItemsSource = changes;
+    }
+
+    private static string TeachingImpact(GradePlanTeacherChange change, bool after)
+    {
+        string? position = after ? change.Action == "REMOVE" ? null : change.Position : change.PreviousPosition;
+        string teaching = position switch { "PRIMARY" => "主讲", "CO_TEACHER" => "协同", _ => "无任课" };
+        string? role = after ? change.MembershipAfterRole ?? change.MembershipRole : change.MembershipRole;
+        string direct = role switch { "OWNER" => "所有者", "MANAGER" => "管理", "TEACHER" => "教师", "ASSISTANT" => "助教", "VIEWER" => "只读", _ => "无直接成员" };
+        return $"{teaching} · 直接权限：{direct}";
     }
 
     private string SourceSummary(GradePlanGroupEdit group, GradePlanGroupChange? observed)
@@ -169,8 +262,10 @@ public sealed partial class GradeTeachingPlanWindow
     {
         if (_catalog is not { } catalog) return key;
         var parts = key.Split(':', 2);
-        string name = catalog.Classes.FirstOrDefault(row => row.Id == parts[0])?.Name ??
-            catalog.Groups.FirstOrDefault(row => row.Id == key)?.Name ?? _groups.GetValueOrDefault(key)?.Name ?? key;
+        var room = catalog.Classes.FirstOrDefault(row => row.Id == parts[0]);
+        var group = catalog.Groups.FirstOrDefault(row => row.Id == key);
+        string name = room is not null ? $"{room.Name}（{room.Code}）" : group is not null ? $"{group.Name}（{group.Code}）" :
+            _groups.GetValueOrDefault(key)?.Name ?? key;
         return parts.Length == 2 && catalog.Subjects.FirstOrDefault(row => row.Id == parts[1]) is { } subject ?
             $"{name} · {subject.Name}" : name;
     }

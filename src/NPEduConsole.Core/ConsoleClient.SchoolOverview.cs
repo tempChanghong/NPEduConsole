@@ -29,7 +29,7 @@ public sealed partial class ConsoleClient
     {
         var session = CurrentSession;
         var overview = await RequestAsync<SchoolOverview>(HttpMethod.Get,
-            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1&staffReview=1&teacherAccountActions=1&managementAccountActions=1&courseGroupActions=1&termPreparation=1&screenPlacement=1&screenDuty=1", session.Token, ct);
+            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1&staffReview=1&teacherAccountActions=1&managementAccountActions=1&courseGroupActions=1&termPreparation=1&screenPlacement=1&screenDuty=1&structureActions=1", session.Token, ct);
         CheckCreationSession(session, ct);
         return ValidateOverview(overview, schoolId);
     }
@@ -114,6 +114,9 @@ public sealed partial class ConsoleClient
                 task.Action == "OPEN_COURSE_GROUP_SOURCE" && (overview.Term is null || string.IsNullOrWhiteSpace(task.SubjectId) ||
                     string.IsNullOrWhiteSpace(task.ClassId) && string.IsNullOrWhiteSpace(task.CourseGroupId)) ||
                 task.Action is "OPEN_TEACHER_ACCOUNT" or "OPEN_MANAGEMENT_ACCOUNT" && string.IsNullOrWhiteSpace(task.AccountId) ||
+                task.Action == "OPEN_TERM_TEACHING" && !overview.Scoped && (overview.Term is null ||
+                    string.IsNullOrWhiteSpace(task.GradeId) || string.IsNullOrWhiteSpace(task.SubjectId) ||
+                    string.IsNullOrWhiteSpace(task.ClassId) && string.IsNullOrWhiteSpace(task.CourseGroupId)) ||
                 task.Action == "OPEN_CLASS_RESPONSIBILITY" && (overview.Term is null || string.IsNullOrWhiteSpace(task.ClassId)) ||
                 task.Action == "OPEN_GRADE_RESPONSIBILITY" && (overview.Term is null || string.IsNullOrWhiteSpace(task.GradeId)) ||
                 task.Action == "OPEN_STAFF_REVIEW" && overview.Term is null ||

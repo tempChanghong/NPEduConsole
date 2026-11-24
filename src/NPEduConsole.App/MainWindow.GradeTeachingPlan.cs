@@ -33,10 +33,12 @@ public sealed partial class MainWindow
     }
 
     private async Task<bool> ShowGradeTeachingPlanAsync(Window owner, ConsoleClient client, School school, string? grade = null,
-        string? subject = null, string? group = null)
+        string? subject = null, string? group = null, string? term = null, string? room = null, string? teacher = null,
+        string? teachingIssue = null)
     {
         if (_gradeTeachingPlanWindow is not null || _client != client || _school != school) return false;
-        var window = new GradeTeachingPlanWindow(client, school, grade, subject, group)
+        var window = new GradeTeachingPlanWindow(client, school, grade, subject, group, term, room, teacher,
+            requireInitialTarget: teachingIssue is not null, teachingIssue: teachingIssue)
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
         };

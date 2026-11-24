@@ -65,6 +65,14 @@ public sealed partial class MainWindow
                 if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
+            if (task.Action == "OPEN_TERM_TEACHING" && overview.Term is { } originalTerm &&
+                task.GradeId is { } teachingGrade && task.SubjectId is { } teachingSubject)
+            {
+                await ShowGradeTeachingPlanAsync(this, client, school, teachingGrade, teachingSubject, task.CourseGroupId,
+                    originalTerm.Id, task.CourseGroupId is null ? task.ClassId : null, task.AccountId, task.Code);
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
+                return;
+            }
             if (task.Action == "OPEN_SCREEN_DUTY" && task.ScreenId is { } dutyBinding)
             {
                 await ShowScreenDutyAsync(client, school, dutyBinding, task.ClassId, restoreTask: true);
@@ -190,7 +198,7 @@ public sealed partial class MainWindow
     {
         if (OverviewTaskItem.WebSection(task) is not { } section) return;
         if (SchoolAdminBrowser.Link(overview.AdminUrl, school.Id, task.SourceTermId ?? overview.Term?.Id, section,
-                task.ScreenId, task.ClassId, task.AccountId) is not { } link)
+                task.ScreenId, task.ClassId, task.AccountId, task.CourseGroupId, task.SubjectId) is not { } link)
         {
             SchoolOverviewWorkspace.ShowNavigationMessage("KV 未提供网页地址。请在原 NPClassworks 网页的「学校管理」打开对应入口。");
             return;

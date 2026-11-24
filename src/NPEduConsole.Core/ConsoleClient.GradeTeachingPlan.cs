@@ -8,9 +8,10 @@ public sealed record GradePlanTeacher(string Id, string Name, string? Username)
 {
     public override string ToString() => string.IsNullOrWhiteSpace(Username) ? Name : $"{Name}（{Username}）";
 }
-public sealed record GradePlanAssignment(string Id, string SubjectId, string AccountId, string Position, string TeacherName, bool IsActive)
+public sealed record GradePlanAssignment(string Id, string SubjectId, string AccountId, string Position, string TeacherName, bool IsActive,
+    string? TeacherIdentity = null, bool? LocalDisabled = null)
 {
-    public override string ToString() => $"{TeacherName}（{(Position == "PRIMARY" ? "主讲" : "协同")}）";
+    public override string ToString() => $"{TeacherName}（{TeacherIdentity ?? AccountId} · {(Position == "PRIMARY" ? "主讲" : "协同")}）";
 }
 public sealed record GradePlanRule(string SubjectId, string Mode, bool Compulsory);
 public sealed record GradePlanClass(string Id, string Name, string Code, GradePlanRule[] Rules, GradePlanAssignment[] Assignments);
@@ -31,8 +32,9 @@ public sealed record GradePlanGroupEdit(string Key, string? GroupId, string Oper
     string Name, string Code, bool IsStudentSelectable, string[] SourceClassIds);
 public sealed record GradePlanTeacherEdit(string WorkspaceKey, string SubjectId, string Action,
     string? AccountId = null, string? Position = null, string? AssignmentId = null);
+public sealed record GradePlanExpectedIssue(string Code, string WorkspaceId, string SubjectId, string? AccountId);
 public sealed record GradePlanDraft(string TermId, string GradeId, string SubjectId, GradePlanRuleEdit[] Rules,
-    GradePlanGroupEdit[] Groups, GradePlanTeacherEdit[] Assignments)
+    GradePlanGroupEdit[] Groups, GradePlanTeacherEdit[] Assignments, GradePlanExpectedIssue? ExpectedIssue = null)
 {
     public bool HasEdits => Rules.Length + Groups.Length + Assignments.Length > 0;
 }
@@ -46,7 +48,8 @@ public sealed record GradePlanRow(string Key, string ClassId, string ClassName, 
 public sealed record GradePlanIssue(string Key, string Code, string Message);
 public sealed record GradePlanGroupChange(string Key, string Operation, GradePlanCourse? Current, GradePlanCourse After);
 public sealed record GradePlanTeacherChange(string Key, string WorkspaceKey, string SubjectId, string Action, string TeacherName,
-    string Membership, string? AssignmentId = null, string? AccountId = null, string? MembershipRole = null);
+    string Membership, string? AssignmentId = null, string? AccountId = null, string? MembershipRole = null,
+    string? MembershipAfterRole = null, string? PreviousPosition = null, string? Position = null, bool Unchanged = false, string? TeacherIdentity = null);
 public sealed record GradePlanEvidence(string Key, string Version);
 public sealed record GradePlanPreview(string Version, GradePlanEvidence[] Evidence, GradePlanRow[] Rows, GradePlanIssue[] Issues,
     GradePlanIssue[] Notices, GradePlanGroupChange[] GroupChanges, GradePlanTeacherChange[] TeacherChanges, bool CanApply);
@@ -96,7 +99,7 @@ public sealed partial class ConsoleClient
         var session = CurrentSession;
         var result = await RequestAsync<GradePlanPreview>(HttpMethod.Post, GradePlanPath(school, expectedScope is null ? null : draft.TermId) + "/preview",
             session.Token, ct, body: expectedScope is null ? draft :
-                new {draft.TermId, draft.GradeId, draft.SubjectId, draft.Rules, draft.Groups, draft.Assignments, expectedScope});
+                new {draft.TermId, draft.GradeId, draft.SubjectId, draft.Rules, draft.Groups, draft.Assignments, draft.ExpectedIssue, expectedScope});
         CheckCreationSession(session, ct);
         ValidateGradePreview(result);
         return result;
@@ -107,7 +110,7 @@ public sealed partial class ConsoleClient
     {
         var session = CurrentSession;
         var result = await RequestAsync<GradePlanResult>(HttpMethod.Post, GradePlanPath(school, expectedScope is null ? null : draft.TermId), session.Token, ct,
-            body: new {draft.TermId, draft.GradeId, draft.SubjectId, draft.Rules, draft.Groups, draft.Assignments, requestId,
+            body: new {draft.TermId, draft.GradeId, draft.SubjectId, draft.Rules, draft.Groups, draft.Assignments, draft.ExpectedIssue, requestId,
                 expectedVersion = preview.Version, expectedEvidence = preview.Evidence, expectedScope});
         CheckCreationSession(session, ct);
         if (result.State == "APPLIED" && result.Receipt is { } receipt) ValidateGradeReceipt(receipt, draft, requestId);

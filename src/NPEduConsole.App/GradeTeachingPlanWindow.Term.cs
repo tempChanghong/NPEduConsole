@@ -301,13 +301,15 @@ public sealed partial class GradeTeachingPlanWindow
         var oldRooms = _previousPreview?.Rows.ToDictionary(row => row.Key) ?? [];
         var oldGroups = _previousPreview?.GroupChanges.ToDictionary(row => row.Key) ?? [];
         var lines = new List<TermTeachingReviewLine>();
+        bool onlyTeaching = _rules.Count == 0 && _groups.Count == 0 && preview.TeacherChanges.Length > 0;
         foreach (var row in preview.Rows)
         {
+            if (onlyTeaching && !preview.Issues.Any(issue => issue.Key == row.Key) && !preview.Notices.Any(issue => issue.Key == row.Key)) continue;
             string before = State(row.Current);
             if (_changedKeys.Contains(row.Key) && oldRooms.TryGetValue(row.Key, out var old))
-                before = $"上次核对\n{State(old.Current)}{RemovalFacts(_previousPreview!, row.Key)}\n\n服务器当前\n{before}";
+                before = $"上次核对\n{State(old.Current)}\n\n服务器当前\n{before}";
             lines.Add(new(row.Key, $"{row.ClassName} · {row.SubjectName}", before,
-                State(row.After) + RemovalFacts(preview, row.Key), Issue(row.Key)));
+                State(row.After), Issue(row.Key)));
         }
         foreach (var group in preview.GroupChanges)
         {
@@ -318,9 +320,32 @@ public sealed partial class GradeTeachingPlanWindow
             var after = stagedTeaching is null ? group.After : group.After with { Assignments = stagedTeaching };
             lines.Add(new(group.Key, $"走班 · {group.After.Name}（{group.After.Code}）", before, GroupState(after), Issue(group.Key)));
         }
+        foreach (var target in preview.TeacherChanges.GroupBy(change => change.Key))
+        {
+            string before = DescribeTeachers(target, false), after = DescribeTeachers(target, true);
+            if (_changedKeys.Contains(target.Key) && _previousPreview is { } previous)
+            {
+                string original = DescribeTeachers(previous.TeacherChanges.Where(change => change.Key == target.Key), false);
+                if (original.Length > 0) before = $"上次核对\n{original}\n\n服务器当前\n{before}";
+            }
+            int existing = lines.FindIndex(line => line.Key == target.Key);
+            if (existing >= 0)
+            {
+                var line = lines[existing];
+                lines[existing] = line with {Before = line.Before + "\n\n" + before, After = line.After + "\n\n" + after};
+            }
+            else
+            {
+                string? subject = _catalog?.Subjects.FirstOrDefault(row => row.Id == target.First().SubjectId)?.Name;
+                string type = target.Key == target.First().WorkspaceKey ? $"走班 · {TargetName(target.Key)} · {subject}" :
+                    $"随班 · {TargetName(target.Key)}";
+                lines.Add(new(target.Key, type, before, after, Issue(target.Key)));
+            }
+        }
         foreach (string key in _changedKeys.Concat(preview.Issues.Select(issue => issue.Key)).Distinct().Except(lines.Select(row => row.Key)))
             lines.Add(new(key, TargetName(key), "原预览", "请重新核对", Issue(key)));
         PlanScopedReview.SetRows(lines, focusKey ?? PlanScopedReview.SelectedKey);
+        UpdateReviewActions();
         PlanTabs.SelectedItem = PlanReviewTab;
         if (focusKey is not null) Dispatcher.UIThread.Post(() => { if (!_closed) PlanScopedReview.FocusIssue(focusKey); }, DispatcherPriority.Loaded);
         return;
@@ -334,9 +359,17 @@ public sealed partial class GradeTeachingPlanWindow
         }
     }
 
-    private static string RemovalFacts(GradePlanPreview preview, string key) =>
-        string.Concat(preview.TeacherChanges.Where(row => row.Key == key && row.Action == "REMOVE").Select(row =>
-            $"\n移除 {row.TeacherName} 任课 · " + (row.MembershipRole is { } role ? $"保留独立成员 {role}" : "无独立成员关系")));
+    private void UpdateReviewActions()
+    {
+        bool simpleTeachingPreview = _preview is { CanApply: true } preview && preview.TeacherChanges.Length > 0 &&
+            preview.Notices.Length == 0 && _changedKeys.Count == 0 && _rules.Count == 0 && _groups.Count == 0;
+        PlanReviewActions.IsVisible = !_compact || !simpleTeachingPreview;
+    }
+
+    private static string DescribeTeachers(IEnumerable<GradePlanTeacherChange> changes, bool after) =>
+        string.Join("\n", changes.Select(change => $"{change.TeacherName}" +
+            (change.TeacherIdentity is { } identity ? $"（{identity}）" : "") + $" · {TeachingImpact(change, after)}" +
+            (after && change.Unchanged ? "（保持原安排）" : "")));
 
     private string GroupState(GradePlanCourse? group)
     {

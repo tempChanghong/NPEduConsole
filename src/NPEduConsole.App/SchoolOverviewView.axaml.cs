@@ -22,11 +22,15 @@ public sealed record OverviewTaskItem(SchoolOverviewTask Task, string ActionLabe
             "SCREEN_WEB_NEEDS_VERIFICATION" or "TERM_SCREEN_RETAINED_ORIGINAL" when task.ScreenId is not null => "screens",
         "DISABLED_ACCOUNT_HAS_ASSIGNMENT" or "LOCAL_ACCOUNT_NEVER_LOGGED_IN" when task.AccountId is not null => "accounts",
         "DISABLED_TEACHER_ASSIGNED" or "TEACHER_ACCESS_MISSING" when task.ClassId is not null || task.CourseGroupId is not null => "teachers",
-        "TEACHING_ASSIGNMENT_SUBJECT_CONFLICT" or "MULTIPLE_PRIMARY_TEACHERS" when task.ClassId is not null => "structure",
+        "TEACHING_ASSIGNMENT_SUBJECT_CONFLICT" or "MULTIPLE_PRIMARY_TEACHERS" when
+            task.SubjectId is not null && (task.ClassId is not null || task.CourseGroupId is not null) => "structure",
         _ => null
     };
     public string AutomationId => "SchoolOverviewTask-" + Task.Code + "-" + (Task.ScreenId ?? Task.CourseGroupId ?? Task.ClassId ?? Task.GradeId ?? "school") +
-        (Task.Action is "OPEN_TEACHING" or "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING" ? "-" + Task.SubjectId + (Task.CourseGroupId is not null && Task.ClassId is not null ? "-" + Task.ClassId : "") : Task.AccountId is { } accountId ? "-" + accountId : "");
+        (Task.Action == "OPEN_TERM_TEACHING" ? $"-{Task.SubjectId}" + (Task.AccountId is { } teacher ? $"-{teacher}" : "") :
+            Task.Action is "OPEN_TEACHING" or "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING" ?
+            "-" + Task.SubjectId + (Task.CourseGroupId is not null && Task.ClassId is not null ? "-" + Task.ClassId : "") :
+            Task.AccountId is { } accountId ? "-" + accountId : "");
 }
 
 public sealed partial class SchoolOverviewView : UserControl
