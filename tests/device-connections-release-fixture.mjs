@@ -18,12 +18,12 @@ export async function verifyReleasedDeviceConnections(options) {
   }
 }
 
-async function verify({prisma, fixture, origin, directory, evidence, web, zip, manifestPath, relay, runNative, nativeRoot}) {
+async function verify({prisma, fixture, origin, directory, evidence, web, zip, manifestPath, relay, review, runNative, nativeRoot}) {
   const {school, term, pin, managerId, classes: [, , classId]} = fixture;
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   const artifact = await readFile(zip);
   const sha256 = contents => createHash('sha256').update(contents).digest('hex');
-  assert.equal(manifest.version, '0.1.12');
+  assert.match(manifest.version, /^0\.1\.(1[2-9]|[2-9]\d|\d{3,})$/);
   assert.equal(manifest.sha256, sha256(artifact));
   assert.equal(manifest.sizeBytes, artifact.length);
   const checkedStatus = async () => (await (await fetch(origin + '/api/v2/setup/status')).json()).data;
@@ -82,12 +82,18 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
   const frontBefore = await prisma.npepDevice.findUniqueOrThrow({where: {id: previousFront.deviceId}});
   const pendingRear = await native('begin', rear, 'rear', {classApply: true});
   const pendingLegacy = await native('begin', legacy, 'legacy', {classApply: false});
-  const observations = {}, retiredRequests = [];
+  const reviewApproval = review === 'approval' || review === 'all';
+  const reviewEquipment = review === 'equipment' || review === 'all';
+  const cancellation = reviewApproval ? await native('begin', legacy, 'cancel', {classApply: false}) : null;
+  const observations = {}, retiredRequests = [], desktopRequests = [];
   let browserDigest;
   relay.server.on('request', (req, res) => {
     const path = new URL(req.url, origin).pathname;
     if (/\/(class-management|management-connections|pairing-access|pairings|equipment)(?:\/|$)/.test(path))
-      res.once('finish', () => console.log(`${req.method} ${path} ${res.statusCode}`));
+      res.once('finish', () => {
+        desktopRequests.push({method: req.method, path, status: res.statusCode});
+        console.log(`${req.method} ${path} ${res.statusCode}`);
+      });
   });
 
   async function waitFor(read, seconds, label) {
@@ -108,11 +114,13 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
   }
   async function equipment(expectedVersion, locked) {
     const device = await rearDevice();
-    const observed = join(exchange, `equipment-${expectedVersion}.recorded`);
+    const started = Date.now();
+    const observed = join(exchange, `equipment-${expectedVersion}-${randomUUID()}.recorded`);
     const observe = async () => {
       const snapshot = await waitFor(async () => {
         const saved = await prisma.npepEquipmentInventory.findUnique({where: {deviceId: device.id}});
-        return saved?.data?.appliedRevision === expectedVersion && saved.data.error === null ? saved.data : null;
+        return saved?.data?.appliedRevision === expectedVersion && saved.data.error === null &&
+          Date.parse(saved.data.receivedAt) >= started ? saved.data : null;
       }, 48, 'Missing actual Host receipt');
       await writeFile(observed, '');
       return snapshot;
@@ -160,7 +168,8 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
         login: {url: relay.origin, website: site, code: school.code, username: 'admin', pin},
         deviceConnections: {exchange, frontBinding: front.id, rearBinding: rear.id, legacyBinding: legacy.id, rearPair: pendingRear.pairingId,
           rearCode: pendingRear.code, legacyCode: pendingLegacy.code,
-          secret: randomBytes(18).toString('hex'), rotatedSecret: randomBytes(18).toString('hex')}}));
+          secret: randomBytes(18).toString('hex'), rotatedSecret: randomBytes(18).toString('hex'), reviewApproval, reviewEquipment,
+          cancellationCode: cancellation?.code}}));
       child = spawn('pwsh.exe', ['-NoProfile', '-STA', '-File', fileURLToPath(new URL('./WindowsReleaseOobe.ps1', import.meta.url)),
         '-ManagementLogin', '-FixturePath', input, '-ZipPath', downloaded, '-ManifestPath', manifestPath,
         '-EvidenceDirectory', evidence], {windowsHide: true, stdio: 'inherit'});
@@ -189,10 +198,16 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
           observations.approval = {requestId: approved.approvalRequestId, pairingId: approved.id, bindingId: rear.id,
             bindingRevision: activated.bindingRevision, deviceId: activated.id, beforeFirstReport: activated.lastReportedAt};
         });
+        if (reviewApproval) await checkpoint('expire-legacy-approval', async () => {
+          const prior = await pair(pendingLegacy.pairingId);
+          assert.equal(prior.state, 'APPROVED');
+          await prisma.npepPairing.update({where: {id: prior.id}, data: {expiresAt: new Date(Date.now() - 1000)}});
+        });
         await checkpoint('report-rear', async () => {
           const former = await pair(pendingLegacy.pairingId);
-          assert.equal(former.state, 'CANCELLED');
+          assert.equal(former.state, reviewApproval ? 'APPROVED' : 'CANCELLED');
           assert.equal(former.screenBindingId, legacy.id);
+          if (cancellation) assert.equal((await pair(cancellation.pairingId)).state, 'CANCELLED');
           assert.equal((await pair(pendingRear.pairingId)).state, 'ACTIVATED');
           await native('report', rear, 'rear');
           await native('report', front, 'front');
@@ -201,11 +216,34 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
           assert.ok(after.lastReportedAt > frontBefore.lastReportedAt);
           observations.approval.reportedAt = (await rearDevice()).lastReportedAt;
           observations.front = {bindingId: front.id, deviceId: after.id, originalCredentialStillWorks: true};
-          observations.otherApproval = {pairingId: former.id, bindingId: legacy.id, state: former.state};
+          observations.otherApproval = {pairingId: former.id, bindingId: legacy.id, state: former.state,
+            expired: former.expiresAt <= new Date()};
           await equipment(0, false);
         });
         await checkpoint('apply-equipment', () => equipment(1, true));
+        if (reviewEquipment) {
+          const device = await rearDevice();
+          const inventory = () => prisma.npepEquipmentInventory.findUniqueOrThrow({where: {deviceId: device.id}});
+          const save = async data => prisma.npepEquipmentInventory.update({where: {deviceId: device.id}, data: {data}});
+          let original;
+          await checkpoint('equipment-mismatch', async () => {
+            original = (await inventory()).data;
+            await save({...original, selectedCameraId: 'another-camera', selectedMicrophoneId: 'another-mic',
+              unlocked: true, receivedAt: new Date().toISOString()});
+          });
+          await checkpoint('equipment-near-expiry', async () => {
+            await save({...original, receivedAt: new Date(Date.now() - 52000).toISOString()});
+          });
+          await checkpoint('equipment-renew', () => equipment(1, true));
+        }
         await checkpoint('clear-equipment', () => equipment(2, false));
+        if (reviewApproval) await checkpoint('withdraw-rear-approval-device', async () => {
+          const device = await rearDevice();
+          const removed = await adminRequest(root + `/devices/${device.id}/revoke`, otherAdmin,
+            {expectedBindingRevision: device.bindingRevision});
+          assert.equal(removed.status, 200, removed.error?.code);
+          assert.equal((await rearDevice()).state, 'REVOKED');
+        });
       };
       await Promise.all([desktop, drive()]);
     } finally {
@@ -217,12 +255,21 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
   }});
   const finalScreens = await prisma.classroomScreenBinding.findMany({where: {id: {in: [rear.id, legacy.id]}}});
   assert.ok(finalScreens.every(row => row.npepPairingEnabled === false));
-  assert.equal(relay.attempts(), 2, 'one stale, one successful, no automatic replay');
-  assert.equal(relay.count(), 1, 'one lost acknowledged write');
+  const batchWrites = desktopRequests.filter(row => row.method === 'POST' && row.path.endsWith('/pairing-access/batch'));
+  assert.deepEqual(batchWrites.map(row => row.status), [409, 502], 'one stale write and one lost successful write without replay');
+  if (reviewApproval) {
+    const approvals = desktopRequests.filter(row => row.method === 'POST' && row.path.endsWith('/approve'));
+    assert.deepEqual(approvals.map(row => row.status), [502, 502, 502], 'each successful approval reply was dropped once');
+    assert.ok(desktopRequests.some(row => row.path === root + `/pairings/${pendingLegacy.pairingId}/cancel` && row.status === 410));
+    assert.ok(desktopRequests.some(row => row.method === 'GET' && row.path.includes(`/pairings/${pendingRear.pairingId}/approvals/`) && row.status === 200));
+    const cancellations = desktopRequests.filter(row => row.path === root + `/pairings/${cancellation.pairingId}/cancel`);
+    assert.deepEqual(cancellations.map(row => row.status), [502], 'successful cancellation is never posted again');
+  }
   assert.equal(await prisma.npepAudit.count({where: {schoolId: school.id, action: 'SCREEN_PAIRING_BATCH_DISABLED'}}), 1);
   await writeFile(join(evidence, 'release-device-connections.json'), JSON.stringify({
     passed: true, version: manifest.version, sha256: browserDigest, sizeBytes: manifest.sizeBytes, retiredRequests,
-    batch: {attempts: relay.attempts(), successfulResponseLost: relay.count(), bindingIds: finalScreens.map(row => row.id)},
+    batch: {attempts: batchWrites.length, successfulResponseLost: 1, bindingIds: finalScreens.map(row => row.id)},
+    ...(review && {review, desktopRequests}),
     ...observations,
   }, null, 2));
 }

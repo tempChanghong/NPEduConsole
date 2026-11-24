@@ -1007,11 +1007,14 @@ async function runFixture() {
   if (mode === '--device-connections-release') {
     assert.ok(process.env.NP_CONSOLE_RELEASE_ZIP && process.env.NP_CONSOLE_RELEASE_MANIFEST, 'Provide the published ZIP and its manifest.');
     const project = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
-    lostReply = await loseWriteReply(origin, path => path.endsWith('/pairing-access/batch'));
+    const review = process.env.NP_CONSOLE_DEVICE_CONNECTIONS_REVIEW;
+    assert.ok(!review || ['approval', 'equipment', 'all'].includes(review), 'Unknown device connection review case.');
+    lostReply = await loseWriteReply(origin, path => path.endsWith('/pairing-access/batch') ||
+      (review === 'approval' || review === 'all') && /\/(approve|cancel)$/.test(path));
     return verifyReleasedDeviceConnections({prisma, origin, fixture, directory, web: join(kv, '..', 'NPClassworks'),
       evidence: resolve(process.env.NP_CONSOLE_DEVICE_CONNECTIONS_EVIDENCE || '.artifacts/device-connections-retirement/released'),
       zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP), manifestPath: resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST),
-      relay: lostReply, runNative: args => runDesktop(project, args)});
+      relay: lostReply, review, runNative: args => runDesktop(project, args)});
   }
   if (mode === '--overview-retirement-release') {
     assert.ok(process.env.NP_CONSOLE_RELEASE_ZIP && process.env.NP_CONSOLE_RELEASE_MANIFEST, 'Provide the published ZIP and its manifest.');

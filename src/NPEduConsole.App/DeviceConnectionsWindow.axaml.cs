@@ -70,7 +70,9 @@ public sealed partial class DeviceConnectionsWindow : Window
             ClearSecret();
             ConnectionCode.Clear();
             _candidate = null;
+            _equipmentFreshnessTimer.Stop();
         };
+        _equipmentFreshnessTimer.Tick += (_, _) => UpdateExpiredEquipment();
         Render();
     }
 
@@ -83,7 +85,11 @@ public sealed partial class DeviceConnectionsWindow : Window
     }
 
     private void ExitClicked(object? sender, RoutedEventArgs args) => Close();
-    private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RunAsync(ReadCatalogAsync);
+    private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RunAsync(async ct =>
+    {
+        await ReadCatalogAsync(ct);
+        if (ConnectionTabs.SelectedIndex == 1) await ReadApprovalAsync(ct, revealResult: false);
+    });
 
     private async Task ReadCatalogAsync(CancellationToken ct)
     {
@@ -94,6 +100,8 @@ public sealed partial class DeviceConnectionsWindow : Window
         string? previousEquipment = equipment?.Id ?? previousScreen;
         var previousTerm = _catalog?.Term?.Id;
         _catalog = null;
+        _approval = null;
+        _approvalChecked = false;
         ResetAdmission();
         ResetBatch();
         ResetEquipment();

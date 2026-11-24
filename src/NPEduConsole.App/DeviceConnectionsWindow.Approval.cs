@@ -113,7 +113,11 @@ public sealed partial class DeviceConnectionsWindow
                 Changed = true;
                 SetMessage("学校已批准。请现场在 NPEduTools 确认，随后核对上报。");
             }
-            catch (ConsoleApiException error) when (error.Code != "CONNECTION_UNCONFIRMED")
+            catch (ConsoleApiException error) when (error.Code == "CONNECTION_UNCONFIRMED")
+            {
+                SetMessage("批准结果待核对。正在按原申请读取。");
+            }
+            catch (ConsoleApiException error)
             {
                 _pending.Approvals.Remove(pending.PairingId);
                 SelectApproval(null);
@@ -129,6 +133,7 @@ public sealed partial class DeviceConnectionsWindow
             }
             EnableReadWhileChecking();
             await ReadApprovalAsync(ct);
+            SetMessage(null);
         }, writing: true);
     }
 
@@ -140,9 +145,10 @@ public sealed partial class DeviceConnectionsWindow
         SetApprovalScreens();
     }
 
-    private async void ReadApprovalClicked(object? sender, RoutedEventArgs args) => await RunAsync(ReadApprovalAsync);
+    private async void ReadApprovalClicked(object? sender, RoutedEventArgs args) =>
+        await RunAsync(ct => ReadApprovalAsync(ct));
 
-    private async Task ReadApprovalAsync(CancellationToken ct)
+    private async Task ReadApprovalAsync(CancellationToken ct, bool revealResult = true)
     {
         if (CurrentApproval is not { } pending) return;
         _approval = null;
@@ -152,6 +158,7 @@ public sealed partial class DeviceConnectionsWindow
         _approval = result;
         _approvalChecked = true;
         if (result is not null) Changed = true;
+        if (!revealResult) return;
         Dispatcher.UIThread.Post(() =>
         {
             if (!_closed && ReferenceEquals(CurrentApproval, pending) && ConnectionTabs.SelectedIndex == 1)
@@ -170,12 +177,17 @@ public sealed partial class DeviceConnectionsWindow
             {
                 await _client.CancelConnectionAsync(pending, ct);
             }
-            catch (ConsoleApiException error) when (error.Code == "PAIRING_STATE_CONFLICT")
+            catch (ConsoleApiException error) when (error.StatusCode == 410 || error.Code == "PAIRING_STATE_CONFLICT")
             {
                 SetMessage("现场申请状态已变化，正在核对原申请。");
             }
+            catch (ConsoleApiException error) when (error.Code == "CONNECTION_UNCONFIRMED")
+            {
+                SetMessage("取消结果待核对。正在按原申请读取。");
+            }
             EnableReadWhileChecking();
             await ReadApprovalAsync(ct);
+            SetMessage(null);
         }, writing: true);
     }
 

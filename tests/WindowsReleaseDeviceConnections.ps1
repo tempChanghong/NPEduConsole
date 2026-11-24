@@ -100,8 +100,21 @@ try {
     Invoke-Control 'ConnectionApprove'
     Wait-Text 'ConnectionApprovalResult' $targets.legacyBinding
     Wait-Text 'ConnectionApprovalResult' '等待现场'
+    if ($targets.reviewApproval) { Request-ConnectionCheckpoint 'expire-legacy-approval' }
     Invoke-Control 'ConnectionCancelApproval'
-    Wait-Text 'ConnectionApprovalResult' '本申请已取消'
+    if ($targets.reviewApproval) {
+        Wait-Text 'ConnectionApprovalResult' '本申请已过期'
+        if (Get-Control 'ConnectionCancelApproval' -Onscreen -Enabled) { throw 'Expired approval can still be cancelled.' }
+        Set-Field 'ConnectionCode' $targets.cancellationCode
+        Invoke-Control 'ConnectionResolve'
+        Wait-Text 'ConnectionCandidateInfo' '管理员批准配对'
+        Select-ConnectionOption 'ConnectionApprovalScreens' $targets.legacyBinding
+        Set-Checked 'ConnectionApprovalConfirmed'
+        Invoke-Control 'ConnectionApprove'
+        Wait-Text 'ConnectionApprovalResult' '等待现场'
+        Invoke-Control 'ConnectionCancelApproval'
+        Wait-Text 'ConnectionApprovalResult' '本申请已取消'
+    } else { Wait-Text 'ConnectionApprovalResult' '本申请已取消' }
     Invoke-Control 'ConnectionExit'
     $script:hwnd = $mainHandle
     Open-ConnectionWorkbench
@@ -133,6 +146,28 @@ try {
     Size-ReleaseWindow 840 480
     Save-ReleaseScreenshot '03-host-equipment-receipt-narrow' 'ConnectionReadEquipment'
     Size-ReleaseWindow 1160 780
+    if ($targets.reviewEquipment) {
+        Request-ConnectionCheckpoint 'equipment-mismatch'
+        Invoke-Control 'ConnectionReadEquipment'
+        Wait-Text 'ConnectionEquipmentState' '尚未确认使用学校指定的摄像头'
+        Wait-Text 'ConnectionEquipmentState' '尚未确认使用指定麦克风'
+        Wait-Text 'ConnectionEquipmentState' '现场已解锁'
+        $state = (Get-Control 'ConnectionEquipmentState').Current.Name
+        if ($state.Contains('Host 已报告应用当前版本')) { throw 'A mismatched receipt was displayed as fully applied.' }
+        Save-ReleaseScreenshot '04-mismatched-equipment-receipt-wide' 'ConnectionReadEquipment'
+
+        Request-ConnectionCheckpoint 'equipment-near-expiry'
+        Invoke-Control 'ConnectionReadEquipment'
+        Wait-Text 'ConnectionEquipmentState' 'Host 已报告应用当前版本'
+        Select-ConnectionOption 'ConnectionCamera' '清除学校指定'
+        Set-Checked 'ConnectionEquipmentConfirmed'
+        Wait-Text 'ConnectionEquipmentState' '当前清单已过期'
+        if (Get-Control 'ConnectionEquipmentSave' -Enabled) { throw 'Aged equipment inventory still allows publishing.' }
+        Save-ReleaseScreenshot '05-expired-equipment-receipt-wide' 'ConnectionReadEquipment'
+        Request-ConnectionCheckpoint 'equipment-renew'
+        Invoke-Control 'ConnectionReadEquipment'
+        Wait-Text 'ConnectionEquipmentState' 'Host 已报告应用当前版本'
+    }
     Select-ConnectionOption 'ConnectionCamera' '清除学校指定'
     Select-ConnectionOption 'ConnectionMicrophone' '清除学校指定'
     (Get-Control 'ConnectionEquipmentLocked' -Enabled).GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern).Toggle()
@@ -142,6 +177,19 @@ try {
     Request-ConnectionCheckpoint 'clear-equipment'
     Invoke-Control 'ConnectionReadEquipment'
     Wait-Text 'ConnectionEquipmentState' 'Host 已报告应用当前版本'
+    if ($targets.reviewApproval) {
+        Select-ConnectionOption 'ConnectionApprovalTab' '' -Tab
+        Wait-Text 'ConnectionApprovalResult' '已收到原设备有效上报'
+        Request-ConnectionCheckpoint 'withdraw-rear-approval-device'
+        Invoke-Control 'ConnectionRefresh'
+        Wait-Text 'ConnectionApprovalResult' '原设备授权已变化'
+        $state = (Get-Control 'ConnectionApprovalResult').Current.Name
+        if (!$state.Contains($targets.rearPair) -or $state.Contains('已收到原设备有效上报')) {
+            throw 'Refreshing after revocation lost the original request or kept its old online evidence.'
+        }
+        Size-ReleaseWindow 840 480
+        Save-ReleaseScreenshot '06-original-approval-revoked-narrow' 'ConnectionReadApproval'
+    }
     Write-Output 'PASS: released device connection workbench, independent approvals, unattributed batch recovery and real Host policy revisions.'
 } catch {
     foreach ($id in @('ConnectionMessage', 'ConnectionAdmissionState', 'ConnectionBatchState', 'ConnectionApprovalResult', 'ConnectionEquipmentState')) {

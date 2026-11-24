@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
@@ -12,10 +13,12 @@ public sealed partial class DeviceConnectionsWindow
     }
 
     private readonly Dictionary<string, long> _savedEquipment = new(StringComparer.Ordinal);
+    private readonly DispatcherTimer _equipmentFreshnessTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private Equipment? _equipment;
 
     private void ResetEquipment()
     {
+        _equipmentFreshnessTimer.Stop();
         _equipment = null;
         ConnectionEquipmentConfirmed.IsChecked = false;
         ConnectionEquipmentState.Text = ConnectionEquipmentScreens.SelectedItem is ConnectionScreen { Device: { } device }
@@ -43,15 +46,43 @@ public sealed partial class DeviceConnectionsWindow
         ConnectionEquipmentLocked.IsChecked = saved.Locked;
         _filling = false;
         _equipment = saved;
+        ShowEquipmentObservation(screen, device, saved);
+        if (saved.IsInventoryFresh) _equipmentFreshnessTimer.Start();
+    }
+
+    private void UpdateExpiredEquipment()
+    {
+        if (_closed || _equipment is not { IsInventoryFresh: false } saved ||
+            ConnectionEquipmentScreens.SelectedItem is not ConnectionScreen { Device: { } device } screen) return;
+        _equipmentFreshnessTimer.Stop();
+        ShowEquipmentObservation(screen, device, saved);
+        ConnectionEquipmentConfirmed.IsChecked = false;
+        Render();
+    }
+
+    private void ShowEquipmentObservation(ConnectionScreen screen, ConnectionDevice device, Equipment saved)
+    {
         var receipt = saved.ReceivedAt is { } at ? $"Host 回执版本 {saved.AppliedRevision} · {at.LocalDateTime:g}" : "暂无 Host 回执";
-        var observation = saved.HasCurrentReceipt && saved.ErrorCode is null && saved.IsInventoryFresh
-            ? "Host 已报告应用当前版本。"
-            : saved.ErrorCode is not null ? saved.StatusText
-            : saved.HasCurrentReceipt ? "曾收到此版本回执，当前清单已过期。" : "当前版本待设备应用或核对。";
         var accepted = _savedEquipment.TryGetValue(device.Id, out var revision)
             ? $"本次保存版本 {revision}。 " : "";
         ConnectionEquipmentState.Text = $"{screen.ClassName} · {screen.Name} · {device.Name}（{device.Id}）\n"
-            + $"{accepted}学校当前版本 {saved.PublishedRevision} · {receipt}。{observation}";
+            + $"{accepted}学校当前版本 {saved.PublishedRevision} · {receipt}。{DescribeEquipmentObservation(saved)}";
+    }
+
+    private static string DescribeEquipmentObservation(Equipment saved)
+    {
+        if (saved.ReceivedAt is not null && !saved.IsInventoryFresh)
+            return saved.HasCurrentReceipt ? "曾收到此版本回执，当前清单已过期。" : "当前清单已过期，等待设备重新上报。";
+        if (saved.ErrorCode is not null || saved.AppliedRevision > saved.PublishedRevision) return saved.StatusText;
+        if (!saved.HasCurrentReceipt) return "当前版本待设备应用或核对。";
+
+        var observations = new List<string>();
+        if (saved.HasCurrentLocalMicrophoneOverride || saved.MicrophoneId is not null && !saved.MatchesPublishedMicrophone)
+            observations.Add(saved.StatusText);
+        if (saved.CameraId is { } camera && (saved.ReportedCameraId != camera || !saved.Cameras.Any(item => item.Id == camera)))
+            observations.Add("尚未确认使用学校指定的摄像头");
+        if (saved.Locked && saved.LocallyUnlocked != false) observations.Add(saved.EditingStatusText);
+        return observations.Count == 0 ? "Host 已报告应用当前版本。" : string.Join("。", observations) + "。";
     }
 
     private static void SetEquipmentChoices(ComboBox control, IEnumerable<EquipmentChoice> source, string? chosen)
@@ -76,6 +107,12 @@ public sealed partial class DeviceConnectionsWindow
 
     private async void SaveEquipmentClicked(object? sender, RoutedEventArgs args)
     {
+        if (_equipment is { IsInventoryFresh: false })
+        {
+            UpdateExpiredEquipment();
+            SetMessage("设备清单已过期，请等设备重新上报后再读取。");
+            return;
+        }
         if (!CanSaveEquipment() || ConnectionEquipmentConfirmed.IsChecked != true || _equipment is not { } snapshot ||
             ConnectionMicrophone.SelectedItem is not EquipmentChoice microphone || ConnectionCamera.SelectedItem is not EquipmentChoice camera ||
             ConnectionEquipmentScreens.SelectedItem is not ConnectionScreen { Device: { } device }) return;
