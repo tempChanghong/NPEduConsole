@@ -33,7 +33,7 @@ public sealed partial class TermGradeEditWindow : Window
         _client = client;
         _context = context;
         _gradeId = grade.Id;
-        GradeScope.Text = $"{context.TermName} · {context.TermStatus} / {grade.Name}";
+        ShowScope(context, grade);
         GradeNameInput.Text = grade.Name;
         GradeCodeInput.Text = grade.Code;
         GradeOrderInput.Text = grade.SortOrder.ToString(CultureInfo.InvariantCulture);
@@ -43,11 +43,16 @@ public sealed partial class TermGradeEditWindow : Window
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal void CloseForScopeChange() { _closed = true; Close(); }
 
+    private void ShowScope(ClassCreationContext context, ClassCreationGrade grade) =>
+        GradeScope.Text = $"{context.TermName} · {context.TermStatus} / {grade.Name}";
+
+    private bool TryReadOrder(out int order) =>
+        int.TryParse(GradeOrderInput.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out order);
+
     private async void SaveClicked(object? sender, RoutedEventArgs args)
     {
         if (_busy || _checking || _blocked || _client is not { } client || _context is not { } context) return;
-        if (!int.TryParse(GradeOrderInput.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int order) ||
-            order is < -10000 or > 10000)
+        if (!TryReadOrder(out int order) || order is < -10000 or > 10000)
         {
             GradeEditNotice.Text = "显示顺序请输入 −10000 至 10000 的整数。";
             GradeOrderInput.Focus();
@@ -117,7 +122,7 @@ public sealed partial class TermGradeEditWindow : Window
             else
             {
                 _observed = current;
-                GradeEditNotice.Text = "草稿已保留。请核对服务器当前值，再决定是否按此版本保存。";
+                GradeEditNotice.Text = "草稿已保留。采用当前版本会更新你未修改的字段。";
             }
         }
         catch (OperationCanceledException) when (_closed) { }
@@ -134,12 +139,21 @@ public sealed partial class TermGradeEditWindow : Window
 
     private void AdoptClicked(object? sender, RoutedEventArgs args)
     {
-        if (_observed is not { } current || _busy || _blocked) return;
+        if (_busy || _blocked || _observed is not { } current ||
+            _context?.Grades.FirstOrDefault(row => row.Id == _gradeId) is not { } before ||
+            current.Grades.FirstOrDefault(row => row.Id == _gradeId) is not { } latest) return;
+
+        if ((GradeNameInput.Text ?? "").Trim() == before.Name) GradeNameInput.Text = latest.Name;
+        if ((GradeCodeInput.Text ?? "").Trim().ToUpperInvariant() == before.Code) GradeCodeInput.Text = latest.Code;
+        if (TryReadOrder(out int order) && order == before.SortOrder)
+            GradeOrderInput.Text = latest.SortOrder.ToString(CultureInfo.InvariantCulture);
+
         _context = current;
         _observed = null;
         _checking = false;
         _uncertain = null;
-        GradeEditNotice.Text = "已采用核对后的版本，草稿仍保留。";
+        ShowScope(current, latest);
+        GradeEditNotice.Text = "未修改的字段已更新为服务器当前值。请核对你的修改后再保存。";
         Render();
         GradeEditSave.Focus();
     }

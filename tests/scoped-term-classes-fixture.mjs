@@ -4,7 +4,7 @@ import {mkdir, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
 
-export async function verifyScopedTermClasses({prisma, origin, fixture, directory, evidence, web, runDesktop}) {
+export async function verifyScopedTermClasses({prisma, origin, fixture, directory, evidence, web, bcrypt, localProviderId, runDesktop}) {
   const {school, term: autumn, pin, other, managerId} = fixture;
   await mkdir(evidence, {recursive: true});
   const spring = await makeTerm(2026, 2, '春季学期 · 备课', 'DRAFT');
@@ -24,14 +24,25 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
   await prisma.classAttendanceDay.create({data: {administrativeClassId: archiveRoom.id, attendanceDate: day, attendance}});
   await prisma.schoolMember.upsert({where: {schoolId_accountId: {schoolId: other.id, accountId: managerId}},
     create: {schoolId: other.id, accountId: managerId, role: 'ADMIN'}, update: {role: 'ADMIN'}});
-  const login = await fetch(origin + '/accounts/local/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({schoolCode: school.code, username: 'admin', password: pin})});
-  assert.equal(login.status, 200);
-  const loginResult = await login.json();
-  const auth = loginResult.data ?? loginResult;
+  const secondUsername = 'grade-second-admin';
+  const secondAdmin = await prisma.account.create({data: {provider: 'school-local', providerId: localProviderId(school.code, secondUsername),
+    localUsername: secondUsername, name: '第二位管理员', localPasswordHash: await bcrypt.hash(pin, 10), providerData: {schoolCode: school.code}}});
+  await prisma.schoolMember.create({data: {schoolId: school.id, accountId: secondAdmin.id, role: 'ADMIN'}});
+  async function login(username) {
+    const response = await fetch(origin + '/accounts/local/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({schoolCode: school.code, username, password: pin})});
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    return payload.data ?? payload;
+  }
+  const auth = await login('admin');
+  const secondAuth = await login(secondUsername);
   const steps = [];
+  const gradeWrites = [];
   let lost, receiptReads = 0, gradeReplyLost = false, gradeReadLost = false, browser, site, originalSpringIds;
   const sourcePath = '/api/v2/admin/schools/' + school.id + '/academic-terms/' + spring.id + '/structure';
+  const gradePath = sourcePath + '/grades/' + springGrade.id;
+  const competingGradeName = '高二 · 第二位管理员已更名';
 
   function makeTerm(academicYear, semester, name, status) {
     return prisma.academicTerm.create({data: {schoolId: school.id, academicYear, semester, name, status}});
@@ -127,6 +138,34 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
       case 'before':
         await activeStudent(autumn, 'edge-student-autumn');
         break;
+      case 'second-admin-renames-grade': {
+        const headers = {'Content-Type': 'application/json', Authorization: `Bearer ${secondAuth.access_token}`};
+        const current = await fetch(origin + sourcePath, {headers});
+        assert.equal(current.status, 200);
+        const {scopeVersion, grades} = (await current.json()).data;
+        const expectedUpdatedAt = grades.find(grade => grade.id === springGrade.id).updatedAt;
+        const renamed = await fetch(origin + gradePath, {method: 'PATCH', headers,
+          body: JSON.stringify({name: competingGradeName, expectedScope: scopeVersion, expectedUpdatedAt})});
+        assert.equal(renamed.status, 200);
+        assert.equal((await renamed.json()).data.grade.name, competingGradeName);
+        break;
+      }
+      case 'grade-conflict-no-write':
+      case 'grade-rebase-ready': {
+        assert.deepEqual(gradeWrites, [200, 409]);
+        const grade = await prisma.grade.findUniqueOrThrow({where: {id: springGrade.id}});
+        assert.deepEqual([grade.name, grade.code, grade.sortOrder], [competingGradeName, 'SG2', 25]);
+        break;
+      }
+      case 'grade-rebase-preserves-name': {
+        assert.deepEqual(gradeWrites, [200, 409, 200]);
+        const grade = await prisma.grade.findUniqueOrThrow({where: {id: springGrade.id}});
+        assert.deepEqual([grade.name, grade.code, grade.sortOrder], [competingGradeName, 'SG2', 37]);
+        const untouched = await prisma.grade.findMany({where: {id: {in: [fallGrade.id, archiveGrade.id]}}});
+        assert.equal(untouched.length, 2);
+        assert.ok(untouched.every(row => row.code === 'G2' && row.name === '高二'));
+        break;
+      }
       case 'long-roster-saved': {
         const room = await prisma.workspace.findFirstOrThrow({where: {termId: spring.id, code: 'SPRING-ONE'}});
         const rows = await roster(room);
@@ -159,7 +198,8 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
         assert.equal((await prisma.workspace.findUniqueOrThrow({where: {id: archiveRoom.id}})).name, '高二（7）班 · 归档二版');
         assert.deepEqual((await prisma.classAttendanceDay.findFirstOrThrow({where: {administrativeClassId: archiveRoom.id}})).attendance, attendance);
         assert.deepEqual((await roster(fallRoom)).map(row => row.name), ['秋季原同学']);
-        assert.equal((await prisma.grade.findUniqueOrThrow({where: {id: springGrade.id}})).sortOrder, 25);
+        const grade = await prisma.grade.findUniqueOrThrow({where: {id: springGrade.id}});
+        assert.deepEqual([grade.name, grade.code, grade.sortOrder], [competingGradeName, 'SG2', 37]);
         assert.equal(await prisma.workspace.count({where: {termId: spring.id, code: {in: ['SG2-C01', 'SG2-C02', 'SPRING-ONE']}}}), 3);
         assert.ok(lost && receiptReads > 0, 'named class recovered by the same request');
         assert.equal(await prisma.administrativeClassCreation.count({where: {schoolId: school.id, requestId: lost}}), 1);
@@ -190,10 +230,13 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
       const upstream = await fetch(origin + path, {method: request.method, headers, redirect: 'manual',
         body: chunks.length ? Buffer.concat(chunks) : undefined});
       const body = Buffer.from(await upstream.arrayBuffer());
-      if (path === sourcePath + '/grades/' + springGrade.id && request.method === 'PATCH' && upstream.ok && !gradeReplyLost) {
-        gradeReplyLost = true;
-        response.writeHead(502).end();
-        return;
+      if (path === gradePath && request.method === 'PATCH') {
+        gradeWrites.push(upstream.status);
+        if (upstream.ok && !gradeReplyLost) {
+          gradeReplyLost = true;
+          response.writeHead(502).end();
+          return;
+        }
       }
       if (path === sourcePath && request.method === 'GET' && gradeReplyLost && !gradeReadLost) {
         gradeReadLost = true;
@@ -228,9 +271,10 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
           otherSchoolId: other.id, allowScopedTermWrites: true}), {mode: 0o600});
         await runDesktop(['--live-scoped-term-classes', access, evidence]);
       }});
-    assert.equal(steps.length, 10);
+    assert.equal(steps.length, 14);
     assert.ok(gradeReplyLost && gradeReadLost);
     await writeFile(join(evidence, 'scoped-term-result.json'), JSON.stringify({result: 'PASS', steps, receiptReads, gradeReplyLost, gradeReadLost,
+      gradeRebase: {id: springGrade.id, name: competingGradeName, code: 'SG2', sortOrder: 37, desktopWriteStatuses: gradeWrites},
       roomIds: {autumn: fallRoom.id, spring: springRoom.id, archive: archiveRoom.id},
       archiveStudentId: archivedStudent.id, archiveAttendanceRetained: true}, null, 2));
   } finally {

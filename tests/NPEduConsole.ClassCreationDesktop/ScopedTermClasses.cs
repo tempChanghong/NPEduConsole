@@ -72,6 +72,25 @@ internal static partial class Program
             await Until(() => Read(gradeEditor, "GradeEditNotice").Contains("服务器当前值与本次提交一致"), "只读查到 A");
             await PressScoped(gradeEditor, "GradeEditClose");
             await Until(() => !gradeEditor.IsVisible && grade.SelectedItem?.ToString()?.Contains("SG2") == true, "刷新且保留原年级 ID");
+            await PressScoped(structure, "StructureGradeEdit");
+            var concurrentGradeEditor = await Show<TermGradeEditWindow>();
+            var order = Find<TextBox>(concurrentGradeEditor, "GradeOrderInput");
+            order.Text = "37";
+            await Step("second-admin-renames-grade");
+            await PressScoped(concurrentGradeEditor, "GradeEditSave");
+            await Until(() => Read(concurrentGradeEditor, "GradeServerValue").Contains("第二位管理员已更名") &&
+                Find<Button>(concurrentGradeEditor, "GradeAdoptVersion").IsEffectivelyEnabled, "同年级另一管理员更名，读回服务器现值");
+            await Step("grade-conflict-no-write");
+            await CaptureWithFrame(concurrentGradeEditor, output, "01a-grade-current-name-and-order-draft");
+            await PressScoped(concurrentGradeEditor, "GradeAdoptVersion");
+            Check(order.Text == "37" && Find<TextBox>(concurrentGradeEditor, "GradeNameInput").Text == "高二 · 第二位管理员已更名" &&
+                Read(concurrentGradeEditor, "GradeScope").Contains("第二位管理员已更名"), "采用服务器版本同时保留自己的顺序、对方的名称和同一目标");
+            await Step("grade-rebase-ready");
+            await CaptureWithFrame(concurrentGradeEditor, output, "01b-grade-rebased-order-draft");
+            await PressScoped(concurrentGradeEditor, "GradeEditSave");
+            await Until(() => !concurrentGradeEditor.IsVisible && grade.SelectedItem?.ToString()?.Contains("第二位管理员已更名") == true,
+                "保存核对后的草稿，按原年级刷新目录");
+            await Step("grade-rebase-preserves-name");
             var list = Find<TermClassDirectoryView>(structure, "StructureDirectory");
             list.Select(access.SpringRoomId);
             await Until(() => list.Selected?.Id == access.SpringRoomId && Read(structure, "StructureRosterSummary") == "学生名单为空",

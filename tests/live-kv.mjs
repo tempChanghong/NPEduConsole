@@ -978,6 +978,7 @@ async function runFixture() {
     }
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     return verifyScopedTermClasses({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
+      bcrypt, localProviderId: (await fromKv('domain/localAccount.js')).localProviderId,
       runDesktop: args => runDesktop(project, args)});
   }
   if (mode === '--term-retirement-release') {
