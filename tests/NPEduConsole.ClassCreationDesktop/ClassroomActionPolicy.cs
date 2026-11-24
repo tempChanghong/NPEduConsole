@@ -9,7 +9,7 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record ClassroomActionAccess(string Origin, string SchoolCode, string SchoolId, string Pin, string GradeCode,
-        string ClassCode, string FrontId, string RearId, string HistoricalKeyId);
+        string ClassCode, string NeighborCode, string FrontId, string RearId, string HistoricalKeyId);
 
     private static int StartClassroomActionPolicy(string fixture, string output)
     {
@@ -73,13 +73,14 @@ internal static partial class Program
             window.Height = 780;
             await ChooseTarget(access.GradeCode);
             Check(Content("Context").Contains("秋季学期") && Content("Source").Contains("沿用原教室端规则"), "original grade/term was not clear");
-            Option("StopMode").SelectedIndex = Option("ExitMode").SelectedIndex = 1;
-            Option("StopFactor").SelectedIndex = 2;
-            Option("ExitFactor").SelectedIndex = 3;
+            Option("StopMode").SelectedIndex = 1;
+            Option("StopFactor").SelectedIndex = 3;
+            Option("ExitMode").SelectedIndex = 2;
             Click(Action("SavePreview"));
             var review = Find<ListBox>(window, "ActionPolicyReviewRows");
             await Until(() => review.IsEffectivelyVisible && review.Items.Count == 3, "grade preview lists the three real classes");
-            Check(review.Items.OfType<string>().Any(row => row.Contains("任一") && row.Contains("全部") && row.Contains("同班后屏")), "preview omitted the actual factors or second screen");
+            Check(review.Items.OfType<string>().Any(row => row.Contains("全部") && row.Contains("退出 禁止现场操作") &&
+                row.Contains("同班后屏")), "preview omitted the grade rule or second screen");
             await CaptureWithFrame(window, output, "01-grade-preview-wide");
             await Publish();
             var tabs = Find<TabControl>(window, "ActionPolicyTabs");
@@ -104,18 +105,36 @@ internal static partial class Program
             await ChooseTarget(access.ClassCode);
             Check(Content("Source").Contains("继承年级默认"), "class did not inherit grade policy");
             var classroomMode = Option("ClassroomMode");
-            Check(classroomMode.IsEffectivelyEnabled && classroomMode.SelectedItem?.ToString() == "沿用原行为",
-                "opening a legacy rule did not retain the classroom mode behavior");
-            Option("StopMode").SelectedIndex = 0;
-            Option("ExitMode").SelectedIndex = 2;
-            classroomMode.SelectedItem = classroomMode.Items.Cast<object>().Single(item => item.ToString() == "禁止现场操作");
-            await CaptureWithFrame(window, output, "03-classroom-mode-control-narrow");
+            void Pick(string option, string label)
+            {
+                var control = Option(option);
+                control.SelectedItem = control.Items.Cast<object>().Single(item => item.ToString() == label);
+            }
+            Check(!classroomMode.IsEffectivelyEnabled && classroomMode.SelectedItem?.ToString() == "沿用原行为" &&
+                Option("ClassroomSource").SelectedItem?.ToString() == "跟随年级", "class mode did not start by following the grade");
+            Pick("ClassroomSource", "本班自定");
+            Check(classroomMode.IsEffectivelyEnabled && Option("ExitSource").SelectedItem?.ToString() == "跟随年级" &&
+                !Option("ExitMode").IsEffectivelyEnabled && Option("ExitMode").SelectedItem?.ToString() == "禁止现场操作",
+                "customizing only mode should keep the inherited exit denial");
+            Pick("ClassroomMode", "验证后允许");
+            Pick("ClassroomFactor", "登记 U 盘");
+            Check(Find<TextBlock>(window, "ActionPolicyDraft").IsEffectivelyVisible && !Option("ExitFactor").IsEffectivelyVisible &&
+                Content("ExitModeRead") == "禁止现场操作" && Content("ExitFactorRead") == "不适用",
+                "the draft and inherited exit denial must be visible without an unrelated credential");
+            await CaptureWithFrame(window, output, "03-per-action-narrow");
+            window.Width = 1160;
+            window.Height = 780;
+            await CaptureWithFrame(window, output, "04-per-action-wide");
+            window.Width = 840;
+            window.Height = 480;
             Click(Action("SavePreview"));
             await Until(() => review.IsEffectivelyVisible && review.Items.Count == 1 && Content("ReviewSummary").Contains("2 台大屏"), "override only that exact class and its two screens");
-            Check(review.Items.OfType<string>().Single().Contains("课堂模式 禁止现场操作"), "preview omitted the classroom mode change");
-            await CaptureWithFrame(window, output, "03-class-override-narrow");
+            Check(review.Items.OfType<string>().Single().Contains("课堂模式 登记 U 盘（本班自定）") &&
+                review.Items.OfType<string>().Single().Contains("退出 禁止现场操作（年级默认）"), "preview omitted the per-action origins");
+            await CaptureWithFrame(window, output, "05-preview-narrow");
             await Publish();
-            Check(Content("Source").Contains("已发布班级覆盖"), "class override was not activated in KV");
+            Check(Content("Source").Contains("已发布：逐项设置") && !Find<TextBlock>(window, "ActionPolicyDraft").IsEffectivelyVisible,
+                "class override was not activated in KV");
             tabs.SelectedIndex = 2;
             bool HasNewLegacyReceipt() => observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) &&
                 row.Contains("旧版大屏回执") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用"));
@@ -129,6 +148,12 @@ internal static partial class Program
             }
             Check(HasNewLegacyReceipt(), "a v1 receipt for this publication should leave the new classroom mode rule unconfirmed");
             tabs.SelectedIndex = 0;
+            await ChooseTarget(access.NeighborCode);
+            Check(Content("Source").Contains("继承年级默认") &&
+                Option("ExitMode").SelectedItem?.ToString() == "禁止现场操作" &&
+                Option("ClassroomSource").SelectedItem?.ToString() == "跟随年级" &&
+                classroomMode.SelectedItem?.ToString() == "沿用原行为", "neighbor should still follow the grade for all settings");
+            await ChooseTarget(access.ClassCode);
             Click(Action("Inherit"));
             await Until(() => review.IsEffectivelyVisible && Content("ReviewSummary").Contains("恢复继承"), "restoration has its own review");
             await Publish();
@@ -145,7 +170,7 @@ internal static partial class Program
             Check(registry.Items.Count == 1 && registry.Items[0]!.ToString() == "验收值班 U 盘", "only the exact grade key is listed");
             registry.SelectedIndex = 0;
             Click(Action("Revoke"));
-            await Until(() => Content("ReviewSummary").Contains("补齐验证方式前") && review.Items.OfType<string>().Any(row => row.Contains("退出后台缺少验证条件")),
+            await Until(() => Content("ReviewSummary").Contains("补齐验证方式前") && review.Items.OfType<string>().Any(row => row.Contains("停止本场缺少验证条件")),
                 "lost key may be revoked after previewing the actual credential consequence");
             await CaptureWithFrame(window, output, "04-final-key-revoke-warning-narrow");
             await Publish();
@@ -186,7 +211,7 @@ internal static partial class Program
             await Until(() => !window.IsVisible && entry.IsFocused, "historical window returns to the same device entry");
             File.WriteAllText(Path.Combine(output, "desktop-result.json"), JsonSerializer.Serialize(new { passed = true, realWindows = true,
                 physicalUsbRegistered = false, verified = new[] { "normal-entry", "wide-grade-review", "lost-response-own-read", "narrow-independent-screens",
-                    "class-override", "classroom-mode-preview", "old-device-receipt-pending", "restore-inheritance",
+                    "class-override", "classroom-mode-preview", "neighbor-follows-grade", "old-device-receipt-pending", "restore-inheritance",
                     "last-key-revoke-warning", "entry-focus", "historical-no-active-term", "original-key-revocation" } }));
             desktop.Shutdown(0);
         }

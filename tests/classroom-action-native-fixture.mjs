@@ -7,7 +7,9 @@ import {setTimeout as delay} from 'node:timers/promises';
 // Cross the actual KV / native-runtime boundary. Only the input device inventory
 // is synthetic. No production account, capture, USB drive or Guard is involved.
 export async function verifyNativeClassroomActions({prisma, origin, directory, fixture, runNative}) {
-  const {school, term, managerId, classes: [, , classId]} = fixture;
+  const {school, term, managerId, classes} = fixture;
+  const inheritance = process.env.NP_CLASSROOM_ACTION_INHERITANCE === '1';
+  const classId = inheritance ? classes[0] : classes[2];
   const room = await prisma.workspace.findUniqueOrThrow({where: {id: classId}});
   const makeScreen = name => prisma.classroomScreenBinding.create({data: {name, schoolId: school.id,
     administrativeClassId: classId, tokenHash: randomBytes(32).toString('hex'), createdByAccountId: managerId}});
@@ -23,7 +25,7 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
     const id = randomUUID();
     const response = await fetch(origin + path, {method: value ? 'POST' : 'GET', signal: AbortSignal.timeout(15000),
       headers: {Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json', 'X-NPEP-Version': version, 'X-Request-Id': id,
-        'X-NPEP-Classroom-Action-Policy': '2'},
+        'X-NPEP-Classroom-Action-Policy': '2', 'X-NPEP-Classroom-Action-Inheritance': '1'},
       ...(value ? {body: JSON.stringify({requestId: id, ...value})} : {})});
     const envelope = await response.json();
     assert.equal(response.status, 200, path + ' ' + (envelope.error?.code ?? ''));
@@ -47,9 +49,10 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   await call(classManagement, {expectedRevision: old.revision, enabled: false, secret: classSecret});
   const records = [];
   const rule = mode => ({mode, factor: null});
-  async function publishAndObserve(kind, actions, stopMode, exitMode, switchMode = null) {
+  async function publishAndObserve(kind, actions, stopMode, exitMode, switchMode = null, classActionOverrides) {
     const scopeId = kind === 'GRADE' ? room.gradeId : classId;
-    const change = {termId: term.id, scopeKind: kind, scopeId, operation: 'SET_POLICY', actions, usbKey: null, keyId: null};
+    const change = {termId: term.id, scopeKind: kind, scopeId, operation: 'SET_POLICY', actions, usbKey: null, keyId: null,
+      ...(classActionOverrides ? {classActionOverrides} : {})};
     const preview = await call(prefix + '/preview', {change});
     assert.equal(preview.canApply, true);
     const expected = preview.rooms.find(row => row.id === classId).after;
@@ -71,15 +74,14 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
         assert.equal(rearRow.observed, null);
         if (frontRow.observationCurrent && frontRow.observed?.policyId === expected.policyId &&
             frontRow.observed?.revision === result.revision && frontRow.observed.error === null) {
-          if (switchMode) {
-            assert.equal(frontRow.observed.schemaVersion, 2);
-            assert.equal(current.rooms.find(row => row.id === classId).before.actions.switchClassroomMode.mode, 'DENY');
-            assert.equal(frontRow.deviceId, paired.id);
-            assert.equal(frontRow.bindingRevision, paired.bindingRevision);
-          }
+          assert.equal(frontRow.observed.schemaVersion, 3);
+          assert.deepEqual(current.rooms.find(row => row.id === classId).before.actions, expected.actions);
+          assert.equal(frontRow.deviceId, paired.id);
+          assert.equal(frontRow.bindingRevision, paired.bindingRevision);
           records.push({revision: result.revision, source: expected.source, policyId: expected.policyId,
             classId, front: frontRow.bindingId, frontDeviceId: frontRow.deviceId, frontReceiptVersion: frontRow.observed.schemaVersion,
-            rear: rearRow.bindingId, rearReceipt: rearRow.observed, stopMode, exitMode, switchMode});
+            rear: rearRow.bindingId, rearReceipt: rearRow.observed, stopMode, exitMode, switchMode,
+            origins: expected.actionOrigins, requiredSchema: expected.minimumReceiptSchema});
           await writeFile(observed, 'verified');
           return;
         }
@@ -91,29 +93,50 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
     const results = await Promise.allSettled([nativeRun, check()]);
     for (const part of results) if (part.status === 'rejected') throw part.reason;
   }
-  await publishAndObserve('GRADE', {stopScheduledMonitoring: rule('ALLOW'), exitBackground: rule('DENY')}, 'allow', 'deny');
-  await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
-    exitBackground: {mode: 'VERIFY', factor: 'CLASS_PASSWORD'}}, 'deny', 'password');
-  await publishAndObserve('CLASS', null, 'allow', 'deny');
-  assert.equal(records[0].policyId, records[2].policyId);
-  assert.notEqual(records[0].policyId, records[1].policyId);
-  // A random synthetic hardware identity can never match a drive on the workstation.
-  // Use it to contrast ANY and ALL under the same real classroom credential.
-  const usbKey = {keyId: randomUUID(), label: '验收专用模拟盘', mediaHash: randomBytes(32).toString('hex'), secretHash: randomBytes(32).toString('hex')};
-  const register = {termId: term.id, scopeKind: 'GRADE', scopeId: room.gradeId, operation: 'REGISTER_USB', actions: null, usbKey, keyId: null};
-  const usbPreview = await call(prefix + '/preview', {change: register});
-  assert.equal(usbPreview.canApply, true);
-  await call(prefix, {change: register, expectedVersion: usbPreview.version});
-  await publishAndObserve('GRADE', {stopScheduledMonitoring: rule('DENY'),
-    exitBackground: {mode: 'VERIFY', factor: 'ANY'}}, 'deny', 'either');
-  await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
-    exitBackground: {mode: 'VERIFY', factor: 'ALL'}}, 'deny', 'both');
-  await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
-    exitBackground: {mode: 'VERIFY', factor: 'ALL'}, switchClassroomMode: rule('DENY')}, 'deny', 'both', 'deny');
+  async function registerFixtureKey() {
+    // A random synthetic hardware identity cannot match a drive on the workstation.
+    const usbKey = {keyId: randomUUID(), label: '验收专用模拟盘', mediaHash: randomBytes(32).toString('hex'), secretHash: randomBytes(32).toString('hex')};
+    const change = {termId: term.id, scopeKind: 'GRADE', scopeId: room.gradeId, operation: 'REGISTER_USB', actions: null, usbKey, keyId: null};
+    const preview = await call(prefix + '/preview', {change});
+    assert.equal(preview.canApply, true);
+    await call(prefix, {change, expectedVersion: preview.version});
+  }
+  const gradeActions = {stopScheduledMonitoring: rule('ALLOW'), exitBackground: rule('DENY')};
+  let neighborEvidence = null;
+  if (inheritance) {
+    await registerFixtureKey();
+    const follow = {stopScheduledMonitoring: null, exitBackground: null, switchClassroomMode: null};
+    await publishAndObserve('CLASS', null, 'default', 'default', 'usb',
+      {...follow, switchClassroomMode: {rule: {mode: 'VERIFY', factor: 'USB'}}});
+    assert.equal(records[0].requiredSchema, 3);
+    await publishAndObserve('GRADE', gradeActions, 'allow', 'deny', 'usb');
+    const neighbor = await prisma.workspace.findFirstOrThrow({where: {id: {in: classes.slice(1)}, gradeId: room.gradeId}, orderBy: {code: 'asc'}});
+    const other = await call(prefix + '/scope/' + term.id + '/CLASS/' + neighbor.id);
+    assert.equal(other.savedClassActionOverrides, null);
+    assert.deepEqual(other.rooms[0].before.actions, {...gradeActions, switchClassroomMode: null});
+    neighborEvidence = {classId: neighbor.id, code: neighbor.code, policy: other.rooms[0].before};
+    await publishAndObserve('CLASS', null, 'allow', 'deny', null, follow);
+    assert.equal(records[1].origins.switchClassroomMode, 'CLASS');
+    assert.equal(records[2].source, 'GRADE');
+  } else {
+    await publishAndObserve('GRADE', gradeActions, 'allow', 'deny');
+    await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
+      exitBackground: {mode: 'VERIFY', factor: 'CLASS_PASSWORD'}}, 'deny', 'password');
+    await publishAndObserve('CLASS', null, 'allow', 'deny');
+    assert.equal(records[0].policyId, records[2].policyId);
+    assert.notEqual(records[0].policyId, records[1].policyId);
+    await registerFixtureKey();
+    await publishAndObserve('GRADE', {stopScheduledMonitoring: rule('DENY'),
+      exitBackground: {mode: 'VERIFY', factor: 'ANY'}}, 'deny', 'either');
+    await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
+      exitBackground: {mode: 'VERIFY', factor: 'ALL'}}, 'deny', 'both');
+    await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
+      exitBackground: {mode: 'VERIFY', factor: 'ALL'}, switchClassroomMode: rule('DENY')}, 'deny', 'both', 'deny');
+  }
   const evidence = resolve(process.env.NP_CLASSROOM_ACTION_NATIVE_EVIDENCE || '.artifacts/classroom-action-native');
   await mkdir(evidence, {recursive: true});
-  await writeFile(join(evidence, 'classroom-action-native.json'), JSON.stringify({passed: true, records}, null, 2));
-  console.log('PASS grade, classroom override and restored inheritance on the real paired native runtime; separate same-class screen stays pending.');
-  console.log('PASS existing class password alone satisfies ANY, while ALL still requires a registered USB.');
-  console.log('PASS classroom mode policy was published by an authenticated administrator, acknowledged by the bound native Host, and enforced by its classroom.set guard.');
+  await writeFile(join(evidence, 'classroom-action-native.json'), JSON.stringify({passed: true, neighbor: neighborEvidence, records}, null, 2));
+  console.log(inheritance ?
+    'PASS bound native Host applied class-only USB verification, then inherited grade exit denial, and restored full grade inheritance; neighbor stayed on grade policy.' :
+    'PASS previous classroom rules, grade inheritance restoration, ANY/ALL, and on-site mode denial on the bound native Host.');
 }

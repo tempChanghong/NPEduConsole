@@ -22,18 +22,33 @@
       <TabItem Header="操作权限">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
           <StackPanel Margin="0,4,8,8" Spacing="5">
-            <TextBlock x:Name="ActionPolicySource" Classes="label" TextWrapping="Wrap" />
+            <DockPanel LastChildFill="True">
+              <TextBlock x:Name="ActionPolicyDraft" DockPanel.Dock="Right" Classes="muted" Text="修改未发布" Margin="12,0,0,0" IsVisible="False" />
+              <WrapPanel ItemSpacing="12" LineSpacing="3">
+                <TextBlock x:Name="ActionPolicySource" Classes="label" TextWrapping="Wrap" />
+                <TextBlock x:Name="ActionPolicyFollowNote" Classes="muted" Text="跟随项随年级更新" VerticalAlignment="Center" IsVisible="False" />
+              </WrapPanel>
+            </DockPanel>
             <Border Classes="card" Padding="12,8">
-              <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="1.3*,1.1*,1.15*" RowSpacing="5" ColumnSpacing="10">
+              <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="1.1*,Auto,1.05*,1.18*" RowSpacing="5" ColumnSpacing="8">
                 <TextBlock Text="停止本场学校监测" VerticalAlignment="Center" TextWrapping="Wrap" />
-                <ComboBox x:Name="ActionPolicyStopMode" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的现场权限" SelectionChanged="RuleChanged" />
-                <ComboBox x:Name="ActionPolicyStopFactor" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的验证方式" />
+                <ComboBox x:Name="ActionPolicyStopSource" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="停止本场的规则来源" SelectionChanged="SourceChanged" />
+                <ComboBox x:Name="ActionPolicyStopMode" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的现场权限" SelectionChanged="RuleChanged" />
+                <TextBlock x:Name="ActionPolicyStopModeRead" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                <ComboBox x:Name="ActionPolicyStopFactor" Grid.Column="3" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的验证方式" SelectionChanged="RuleChanged" />
+                <TextBlock x:Name="ActionPolicyStopFactorRead" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
                 <TextBlock Grid.Row="1" Text="退出后台" VerticalAlignment="Center" TextWrapping="Wrap" />
-                <ComboBox x:Name="ActionPolicyExitMode" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的现场权限" SelectionChanged="RuleChanged" />
-                <ComboBox x:Name="ActionPolicyExitFactor" Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的验证方式" />
+                <ComboBox x:Name="ActionPolicyExitSource" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="退出后台的规则来源" SelectionChanged="SourceChanged" />
+                <ComboBox x:Name="ActionPolicyExitMode" Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的现场权限" SelectionChanged="RuleChanged" />
+                <TextBlock x:Name="ActionPolicyExitModeRead" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                <ComboBox x:Name="ActionPolicyExitFactor" Grid.Row="1" Grid.Column="3" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的验证方式" SelectionChanged="RuleChanged" />
+                <TextBlock x:Name="ActionPolicyExitFactorRead" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
                 <TextBlock Grid.Row="2" Text="切换课堂模式" VerticalAlignment="Center" TextWrapping="Wrap" />
-                <ComboBox x:Name="ActionPolicyClassroomMode" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="切换课堂模式的现场权限" SelectionChanged="RuleChanged" />
-                <ComboBox x:Name="ActionPolicyClassroomFactor" Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="切换课堂模式的验证方式" />
+                <ComboBox x:Name="ActionPolicyClassroomSource" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="切换课堂模式的规则来源" SelectionChanged="SourceChanged" />
+                <ComboBox x:Name="ActionPolicyClassroomMode" Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="切换课堂模式的现场权限" SelectionChanged="RuleChanged" />
+                <TextBlock x:Name="ActionPolicyClassroomModeRead" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                <ComboBox x:Name="ActionPolicyClassroomFactor" Grid.Row="2" Grid.Column="3" HorizontalAlignment="Stretch" AutomationProperties.Name="切换课堂模式的验证方式" SelectionChanged="RuleChanged" />
+                <TextBlock x:Name="ActionPolicyClassroomFactorRead" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
               </Grid>
             </Border>
             <TextBlock Text="使用班级口令时，各班继续用自己的现行口令。返回作业板仍可直接使用。离线大屏沿用最后已应用的策略。"

@@ -9,6 +9,7 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
   const {school, term, pin, identity, managerId, devices, classes, classroomBearer} = fixture;
   const room = await prisma.workspace.findUniqueOrThrow({where: {id: classes[0]}});
   const grade = await prisma.grade.findUniqueOrThrow({where: {id: room.gradeId}});
+  const neighbor = await prisma.workspace.findFirstOrThrow({where: {id: {in: classes.slice(1)}, gradeId: grade.id}, orderBy: {code: 'asc'}});
   const front = await prisma.npepDevice.findUniqueOrThrow({where: {id: devices[0]}});
   const rear = await prisma.classroomScreenBinding.create({data: {schoolId: school.id, administrativeClassId: room.id,
     name: '同班后屏', tokenHash: randomBytes(32).toString('hex'), createdByAccountId: managerId}});
@@ -82,7 +83,8 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
   const access = join(directory, 'classroom-action-console.json');
   await mkdir(evidence, {recursive: true});
   await writeFile(access, JSON.stringify({origin: `http://127.0.0.1:${proxy.address().port}`, schoolCode: school.code, schoolId: school.id,
-    pin, gradeCode: grade.code, classCode: room.code, frontId: front.screenBindingId, rearId: rear.id, historicalKeyId: oldKey.keyId}));
+    pin, gradeCode: grade.code, classCode: room.code, neighborCode: neighbor.code,
+    frontId: front.screenBindingId, rearId: rear.id, historicalKeyId: oldKey.keyId}));
   let done = false;
   const applyObservation = async () => {
     let acknowledged = 0;
@@ -93,7 +95,8 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
           (acknowledged === 1 && policy.source === 'CLASS' && policy.revision === 3)) {
         if (acknowledged === 1) {
           const target = await call('/device/school-management', null, classroomBearer, '0.16', true);
-          assert.equal(target.actionPolicy.actions.switchClassroomMode.mode, 'DENY');
+          assert.deepEqual(target.actionPolicy.actions.switchClassroomMode, {mode: 'VERIFY', factor: 'USB'});
+          assert.equal(target.actionPolicy.actions.exitBackground.mode, 'DENY');
           assert.notEqual(target.actionPolicy.policyId, policy.policyId);
         }
         await call('/device/school-management/receipt', {context: {identity: current.identity, runId, sessionId: session.sessionId,
@@ -117,7 +120,8 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     const final = activeFinal;
     assert.equal(final.rooms[0].before.source, 'GRADE');
     assert.equal(final.rooms[0].before.usbCount, 0);
-    assert.equal(final.rooms[0].before.actions.exitBackground.factor, 'ALL');
+    assert.equal(final.rooms[0].before.actions.stopScheduledMonitoring.factor, 'ALL');
+    assert.equal(final.rooms[0].before.actions.exitBackground.mode, 'DENY');
     assert.deepEqual((await call(path + '/history-usb')).keys, []);
     assert.equal((await call(path)).term, null);
     assert.equal((await prisma.academicTerm.findUnique({where: {id: term.id}})).status, 'ARCHIVED');

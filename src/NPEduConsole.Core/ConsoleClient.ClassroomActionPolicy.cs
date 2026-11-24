@@ -50,7 +50,7 @@ public sealed partial class ConsoleClient
         if (!ActionPolicyProof.IsMatch(preview.Version) || RequireNonNullRows(preview.Issues).Any(issue =>
                 issue.Action is not ("stopScheduledMonitoring" or "exitBackground" or "switchClassroomMode") ||
                 !preview.Rooms.Any(room => room.Id == issue.ClassId)) ||
-            preview.CanApply != (preview.Issues.Length == 0 || change.Operation != "SET_POLICY" || change.Actions is null)) throw InvalidResponse();
+            preview.CanApply != (preview.Issues.Length == 0 || change.Operation != "SET_POLICY" || change.RestoresInheritedPolicy)) throw InvalidResponse();
         return preview;
     }
 
@@ -68,19 +68,25 @@ public sealed partial class ConsoleClient
         return ValidateActionReceipt(receipt, schoolId, change, requestId);
     }
 
-    private static object ActionChangeBody(ClassroomActionChange change) => new
+    private static object ActionChangeBody(ClassroomActionChange change)
     {
-        change.TermId, change.ScopeKind, change.ScopeId, change.Operation,
-        Actions = change.Actions is { } rules && !change.IncludeClassroomModeSwitch && rules.SwitchClassroomMode is null ?
-            (object)new {rules.StopScheduledMonitoring, rules.ExitBackground} : change.Actions,
-        change.UsbKey, change.KeyId
-    };
+        var body = new Dictionary<string, object?>
+        {
+            ["termId"] = change.TermId, ["scopeKind"] = change.ScopeKind, ["scopeId"] = change.ScopeId,
+            ["operation"] = change.Operation,
+            ["actions"] = change.Actions is { } rules && !change.IncludeClassroomModeSwitch && rules.SwitchClassroomMode is null ?
+                new {rules.StopScheduledMonitoring, rules.ExitBackground} : change.Actions,
+            ["usbKey"] = change.UsbKey, ["keyId"] = change.KeyId
+        };
+        if (change.ClassActionOverrides is { } overrides) body["classActionOverrides"] = overrides;
+        return body;
+    }
 
     private async Task<T> ActionPolicyRequestAsync<T>(HttpMethod method, string path, CancellationToken ct, object? body = null, Guid? id = null)
     {
         var session = CurrentSession;
         var result = ReadData<T>(await SendAsync(method, path, session.Token, ct, version: "0.16", body: body, operationId: id,
-            classroomActionPolicyV2: true));
+            classroomActionPolicy: true));
         ct.ThrowIfCancellationRequested();
         if (!ReferenceEquals(session, _session)) throw new ConsoleApiException(401, "登录会话已改变，请重新登录。");
         return result;
@@ -89,7 +95,11 @@ public sealed partial class ConsoleClient
     private static ClassroomActionScope ValidateActionScope(ClassroomActionScope scope, string schoolId, ClassroomActionTarget target, bool allowMissingClass = false)
     {
         if (scope.SchoolId != schoolId || scope.TermId != target.TermId || scope.ScopeKind != target.ScopeKind || scope.ScopeId != target.ScopeId ||
-            !ValidActionRules(scope.SavedActions)) throw InvalidResponse();
+            !ValidActionRules(scope.SavedActions) || !ValidActionRules(scope.InheritedGradeActions) ||
+            scope.InheritedGradeActions is not null && target.ScopeKind != "CLASS" ||
+            scope.SavedClassActionOverrides is { } overrides && (scope.SavedActions is not null || target.ScopeKind != "CLASS" ||
+                !overrides.HasOverrides || !ValidOverride(overrides.StopScheduledMonitoring) || !ValidOverride(overrides.ExitBackground) ||
+                !ValidOverride(overrides.SwitchClassroomMode, allowLegacy: true))) throw InvalidResponse();
         var rooms = RequireNonNullRows(scope.Rooms);
         if (rooms.Any(room => string.IsNullOrWhiteSpace(room.Id) || !ValidEffective(room.Before) || !ValidEffective(room.After)) ||
             rooms.Select(room => room.Id).Distinct(StringComparer.Ordinal).Count() != rooms.Length ||
@@ -110,14 +120,30 @@ public sealed partial class ConsoleClient
         !string.IsNullOrWhiteSpace(term.Name) && scopeState is "PRESENT" or "INACTIVE" or "MISSING" &&
         (term.Status is "DRAFT" or "ARCHIVED" or "MISSING" || term.Status == "ACTIVE" && scopeState is not "PRESENT");
 
-    private static bool ValidDeviceReceipt(ClassroomActionDeviceReceipt? receipt) => receipt is null || receipt.SchemaVersion is 1 or 2 &&
+    private static bool ValidDeviceReceipt(ClassroomActionDeviceReceipt? receipt) => receipt is null || receipt.SchemaVersion is 1 or 2 or 3 &&
         (receipt.Revision is null ? receipt.PolicyId is null : receipt.Revision >= 0 && receipt.PolicyId is { } id && ActionPolicyProof.IsMatch(id));
-    private static bool ValidEffective(ClassroomEffectiveAction policy) => ActionPolicyProof.IsMatch(policy.PolicyId) && policy.UsbCount is >= 0 and <= 64 && policy.RequiredRevision >= 0 &&
-        (policy.Source == "LEGACY" ? policy.Actions is null && policy.UsbCount == 0 : policy.Source is "GRADE" or "CLASS" && policy.Actions is not null && ValidActionRules(policy.Actions));
+    private static bool ValidEffective(ClassroomEffectiveAction policy)
+    {
+        if (!ActionPolicyProof.IsMatch(policy.PolicyId) || policy.UsbCount is < 0 or > 64 || policy.RequiredRevision < 0)
+            return false;
+        bool validWhole = policy.Source == "LEGACY" ? policy.Actions is null && policy.UsbCount == 0 :
+            policy.Source is "GRADE" or "CLASS" && policy.Actions is not null && ValidActionRules(policy.Actions);
+        if (policy.ActionOrigins is not { } origins) return policy.MinimumReceiptSchema is null && validWhole;
+        if (policy.Source == "LEGACY")
+            return validWhole && policy.MinimumReceiptSchema == 1 && origins == new ClassroomActionOrigins("LEGACY", "LEGACY", "LEGACY");
+        if (policy.Source is not ("GRADE" or "CLASS") || policy.Actions is not { } actions) return false;
+        int schema = actions.StopScheduledMonitoring is null || actions.ExitBackground is null ? 3 : actions.SwitchClassroomMode is not null ? 2 : 1;
+        return policy.MinimumReceiptSchema == schema && ValidOrigin(origins.StopScheduledMonitoring, actions.StopScheduledMonitoring) &&
+            ValidOrigin(origins.ExitBackground, actions.ExitBackground) && ValidOrigin(origins.SwitchClassroomMode, actions.SwitchClassroomMode, allowLegacy: true);
+    }
+    private static bool ValidOrigin(string origin, ClassroomActionRule? rule, bool allowLegacy = false) => rule is null ?
+        origin == "LEGACY" || allowLegacy && origin == "CLASS" : origin is "CLASS" or "GRADE" && ValidActionRule(rule);
+    private static bool ValidOverride(ClassroomActionOverride? value, bool allowLegacy = false) => value is null ||
+        (value.Rule is null ? allowLegacy : ValidActionRule(value.Rule));
     private static bool ValidActionRules(ClassroomActionRules? actions) => actions is null ||
         ValidActionRule(actions.StopScheduledMonitoring) && ValidActionRule(actions.ExitBackground) &&
         (actions.SwitchClassroomMode is null || ValidActionRule(actions.SwitchClassroomMode));
-    private static bool ValidActionRule(ClassroomActionRule rule) => rule.Mode switch
+    private static bool ValidActionRule(ClassroomActionRule? rule) => rule?.Mode switch
     {
         "VERIFY" => rule.Factor is "CLASS_PASSWORD" or "USB" or "ANY" or "ALL",
         "ALLOW" or "DENY" => rule.Factor is null,
@@ -143,7 +169,7 @@ public sealed partial class ConsoleClient
         return new ConsoleApiException(status, code switch
         {
             "ACTION_POLICY_UPGRADE_REQUIRED" or "PROTOCOL_UNSUPPORTED" => "此 KV 尚未提供大屏安全策略，请升级服务并完成数据库迁移。",
-            "ACTION_POLICY_CLIENT_UPGRADE_REQUIRED" => "此策略包含课堂模式设置，请使用支持课堂模式的管理端重新核对。",
+            "ACTION_POLICY_CLIENT_UPGRADE_REQUIRED" => "此范围包含新版安全策略，请更新管理端后重新核对。",
             "ACTION_POLICY_TERM_CHANGED" or "ACTION_POLICY_SCOPE_NOT_FOUND" => "原学期、年级或班级已变化，请重新核对办理范围。",
             "ACTION_POLICY_STALE" or "REVISION_CONFLICT" => "策略、班级口令或大屏范围已变化，请重新预览。",
             "ACTION_POLICY_NO_CHANGE" => "当前已是此设置，可刷新核对。",
