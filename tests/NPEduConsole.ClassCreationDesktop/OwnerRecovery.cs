@@ -41,7 +41,7 @@ internal static partial class Program
             var loginPin = Find<TextBox>(main, "Password");
             var entry = Find<Button>(main, "OpenOwnerRecoveryButton");
             address.Text = slow.Origin;
-            loginSchool.Text = "NO-MATCH";
+            loginSchool.Text = "school2";
             loginName.Text = "old-scope";
             loginPin.Text = "unused-login-field";
             Click(entry);
@@ -77,7 +77,7 @@ internal static partial class Program
                 Find<TextBlock>(view, "OwnerRecoveryVerifiedAddress").Text?.Contains(current.Origin) == true,
                 "late results cannot change the selected server or available schools");
             Check(picker.SelectedItem is null && !confirm.IsEffectivelyEnabled && !credentials.IsEffectivelyVisible && !save.IsEffectivelyVisible,
-                "no exact match means no automatic first school or credential controls");
+                "the same school code on another KV does not select a school or reveal credential controls");
             await CaptureWithFrame(main, output, "01-wide-choose-school");
             picker.SelectedItem = picker.Items.Cast<OwnerRecoverySchool>().Single(school => school.Id == "two");
             Check(!credentials.IsEffectivelyVisible && confirm.IsEffectivelyEnabled, "selecting a school still requires explicit target confirmation");
@@ -102,9 +102,29 @@ internal static partial class Program
             SetFields("owner-short");
             Click(back);
             await Until(() => entry.IsFocused && !view.IsEffectivelyVisible, "cancel returns focus to the original login entry");
-            Check(address.Text == slow.Origin && loginSchool.Text == "NO-MATCH" && loginName.Text == "old-scope" &&
+            Check(address.Text == slow.Origin && loginSchool.Text == "school2" && loginName.Text == "old-scope" &&
                 Blank(loginPin) && Blank(key) && Blank(pin) && Blank(repeat),
                 "cancel leaves the original non-secret login fields in place");
+
+            address.Text = current.Origin + "/other-deployment";
+            Click(entry);
+            recoveryAddress.Text = address.Text + "/";
+            Click(read);
+            await Until(() => picker.SelectedItem is OwnerRecoverySchool { Id: "other-two" } && confirm.IsEffectivelyEnabled,
+                "an equivalent address with the same deployment path preserves exact school preselection");
+            Click(confirm);
+            await Until(() => key.IsFocused && username.Text == "old-scope", "the matching deployment still prefills its original short account");
+            Click(editTarget);
+            recoveryAddress.Text = current.Origin;
+            Click(read);
+            await Until(() => picker.ItemCount == 2 && read.IsEffectivelyEnabled, "the different deployment on the same origin was loaded");
+            Check(picker.SelectedItem is null && !confirm.IsEffectivelyEnabled, "a different deployment path requires an explicit school selection");
+            picker.SelectedItem = picker.Items.Cast<OwnerRecoverySchool>().Single(school => school.Id == "two");
+            Click(confirm);
+            await Until(() => username.IsFocused && Blank(username), "a different deployment path never carries the original short account");
+            await CaptureWithFrame(main, output, "06-narrow-same-code-another-deployment");
+            Click(back);
+            await Until(() => !view.IsEffectivelyVisible, "the test returned to the main login after checking deployment scope");
 
             address.Text = current.Origin;
             loginSchool.Text = "school2";
@@ -167,7 +187,7 @@ internal static partial class Program
             Check(!File.Exists(preference) && current.LoginCount == 0 && slow.LoginCount == 0,
                 "recovery alone stores no connection preference and never attempts login");
             desktop.Shutdown(0);
-            Console.WriteLine("PASS: same-window OWNER recovery, two servers and stale directory, explicit school confirmation, narrow geometry, clear secrets, controlled rejections, protected single POST, confirmed and uncertain returns.");
+            Console.WriteLine("PASS: same-window OWNER recovery, same school code across servers and deployment paths, normalized matching address, stale directory, explicit school confirmation, narrow geometry, clear secrets, controlled rejections, protected single POST, confirmed and uncertain returns.");
 
             static bool Blank(TextBox field) => string.IsNullOrEmpty(field.Text);
             bool ResultStaysTogether()
@@ -232,6 +252,8 @@ internal static partial class Program
             builder.WebHost.ConfigureKestrel(options => options.Listen(IPAddress.Loopback, 0));
             _app = builder.Build();
             _app.MapGet("/accounts/oauth/desktop/providers", () => Envelope(Array.Empty<object>()));
+            _app.MapGet("/other-deployment/api/v2/catalog/schools", () =>
+                Envelope(new[] { new OwnerRecoverySchool("other-two", "SCHOOL2", "其他部署的乙校") }));
             _app.MapPost("/accounts/local/login", () => { Interlocked.Increment(ref _loginCount); return Results.Unauthorized(); });
             _app.MapGet("/api/v2/catalog/schools", (Func<HttpContext, Task<IResult>>)(async context =>
             {
@@ -240,7 +262,7 @@ internal static partial class Program
                 DirectoryStarted.TrySetResult();
                 await ReleaseDirectory.Task;
                 DirectoryFinished.TrySetResult();
-                return Envelope(new[] { new OwnerRecoverySchool("stale", "STALE", "原服务器学校") });
+                return Envelope(new[] { new OwnerRecoverySchool("stale", "SCHOOL2", "原服务器的乙校") });
             }));
             _app.MapPost("/accounts/local/recover-owner", async (RecoveryBody body, HttpContext context) =>
             {

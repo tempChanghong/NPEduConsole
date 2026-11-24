@@ -20,6 +20,7 @@ public sealed partial class OwnerRecoveryView : UserControl
     private OwnerRecoverySchool? _confirmedSchool;
     private LoginTarget? _result;
     private string? _checkedInput;
+    private Uri? _originalServer;
     private string _originalSchoolCode = "";
     private string _originalUsername = "";
     private bool _open, _writing;
@@ -39,6 +40,8 @@ public sealed partial class OwnerRecoveryView : UserControl
 
     internal void Open(string address, string schoolCode, string username)
     {
+        try { _originalServer = ConsoleClient.NormalizeKvAddress(address); }
+        catch (ConsoleApiException) { _originalServer = null; }
         _originalSchoolCode = schoolCode.Trim();
         _originalUsername = username.Trim();
         OwnerRecoveryAddress.Text = address;
@@ -52,6 +55,7 @@ public sealed partial class OwnerRecoveryView : UserControl
         _open = false;
         ResetTarget();
         OwnerRecoveryAddress.Clear();
+        _originalServer = null;
         _originalSchoolCode = _originalUsername = "";
     }
 
@@ -79,6 +83,9 @@ public sealed partial class OwnerRecoveryView : UserControl
     }
 
     private string ReadAddress() => OwnerRecoveryAddress.Text?.Trim() ?? "";
+
+    private bool MatchesOriginalSchool(Uri server, OwnerRecoverySchool school) =>
+        _originalServer == server && string.Equals(school.Code.Trim(), _originalSchoolCode, StringComparison.OrdinalIgnoreCase);
 
     private void SchoolChanged(object? sender, SelectionChangedEventArgs args)
     {
@@ -109,8 +116,7 @@ public sealed partial class OwnerRecoveryView : UserControl
             if (_read != request || !_open || input != ReadAddress()) return;
             _verifiedServer = server;
             OwnerRecoverySchool.ItemsSource = schools;
-            OwnerRecoverySchool.SelectedItem = schools.SingleOrDefault(school =>
-                string.Equals(school.Code.Trim(), _originalSchoolCode, StringComparison.OrdinalIgnoreCase));
+            OwnerRecoverySchool.SelectedItem = schools.SingleOrDefault(school => MatchesOriginalSchool(server, school));
             SetNotice(schools.Count == 0 ? "此服务器未返回可选学校。请核对实际 KV 地址。" : null);
         }
         catch (OperationCanceledException) when (request.IsCancellationRequested) { }
@@ -132,11 +138,10 @@ public sealed partial class OwnerRecoveryView : UserControl
 
     private void ConfirmTargetClicked(object? sender, RoutedEventArgs args)
     {
-        if (!_open || _verifiedServer is null || _read is not null || _confirmedSchool is not null || _checkedInput != ReadAddress() ||
+        if (!_open || _verifiedServer is not { } server || _read is not null || _confirmedSchool is not null || _checkedInput != ReadAddress() ||
             OwnerRecoverySchool.SelectedItem is not OwnerRecoverySchool school) return;
         _confirmedSchool = school;
-        OwnerRecoveryUsername.Text = string.Equals(school.Code.Trim(), _originalSchoolCode, StringComparison.OrdinalIgnoreCase)
-            ? _originalUsername : "";
+        OwnerRecoveryUsername.Text = MatchesOriginalSchool(server, school) ? _originalUsername : "";
         SetNotice(null);
         Render();
         Focus(string.IsNullOrWhiteSpace(OwnerRecoveryUsername.Text) ? OwnerRecoveryUsername : OwnerRecoverySetupKey);
