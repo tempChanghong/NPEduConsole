@@ -4,6 +4,7 @@ import {createServer, request} from 'node:http';
 import {createRequire} from 'node:module';
 import {mkdir, writeFile} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
+import {setTimeout as delay} from 'node:timers/promises';
 import {pathToFileURL} from 'node:url';
 
 export async function verifyCourseGroups({prisma, origin, fixture, directory, evidence, web, createTeacher, runDesktop, runDatabase}) {
@@ -51,7 +52,12 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   const task = async (code, group) => (await api(schoolPath + '/management-overview/current?courseGroupActions=1', {token: admin})).tasks
     .find(row => row.code === code && (row.courseGroupId === group || row.classId === group) && row.subjectId === physics.id);
   const student = room => '/api/v2/catalog/administrative-classes/' + room.id;
-  let a1, lost, receiptReads = 0, createCommits = 0;
+  let a1, lost, releaseCommit, requestId, firstReceipt, firstReadCanceled = false, savePosts = 0, postsAtRecovery;
+  const receiptReads = [];
+  async function waitFor(condition, step) {
+    for (let i = 0; i < 200 && !condition(); i++) await delay(20);
+    assert.ok(condition(), step);
+  }
   async function check(step) {
     switch (step) {
     case 'blocked':
@@ -59,10 +65,33 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
       assert.ok(await task('WALKING_SUBJECT_WITHOUT_GROUP', eight.id));
       assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: nine.id, accountId: fixedTeacher.id}}), 1);
       break;
+    case 'commit-response-held':
+      await waitFor(() => releaseCommit, 'the KV committed but its response is still in flight');
+      assert.equal(savePosts, 1);
+      assert.equal(receiptReads.length, 0);
+      break;
+    case 'drop-commit-response':
+      assert.ok(releaseCommit);
+      releaseCommit();
+      break;
+    case 'receipt-response-held':
+      await waitFor(() => firstReceipt, 'the first read reached the real KV and its response is held');
+      assert.equal(firstReceipt.requestId, requestId);
+      assert.equal(firstReceipt.termId, term.id);
+      assert.equal(receiptReads.length, 1);
+      break;
+    case 'receipt-read-canceled':
+      await waitFor(() => firstReadCanceled, 'closing canceled the first receipt read');
+      assert.equal(savePosts, 1);
+      assert.equal(receiptReads.length, 1);
+      break;
     case 'created': {
       a1 = await prisma.workspace.findUniqueOrThrow({where: {termId_code: {termId: term.id, code: 'PHY-A1'}}});
       assert.equal(a1.name, '物理 A1');
-      assert.ok(lost && receiptReads === 1 && createCommits === 1);
+      postsAtRecovery = savePosts;
+      assert.ok(lost && firstReadCanceled && postsAtRecovery === 1);
+      assert.deepEqual(receiptReads, [requestId, requestId]);
+      assert.equal(firstReceipt.groupId, a1.id);
       assert.deepEqual((await prisma.workspaceSourceClass.findMany({where: {workspaceId: a1.id}})).map(row => row.administrativeClassId).sort(), [seven.id, eight.id].sort());
       assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: a1.id}}), 0);
       assert.equal((await access(teacherToken)).has(a1.id), false);
@@ -118,17 +147,29 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
       catch (error) { console.error(error.message); res.writeHead(500).end(); }
       return;
     }
-    if (req.method === 'POST' && req.url === newPath) createCommits++;
-    if (req.method === 'GET' && req.url.startsWith(newPath + '/receipts/')) receiptReads++;
+    if (req.method === 'POST' && req.url === newPath) savePosts++;
+    const readsReceipt = req.method === 'GET' && req.url.startsWith(newPath + '/receipts/');
+    if (readsReceipt) receiptReads.push(req.url.split('/').at(-1));
+    const holdFirstRead = readsReceipt && receiptReads.length === 1;
     const upstream = request(new URL(req.url, backend), {method: req.method, headers: {...req.headers, host: backend.host}}, reply => {
       if (!lost && req.method === 'POST' && req.url === newPath && reply.statusCode === 200) {
         const chunks = [];
         reply.on('data', chunk => chunks.push(chunk));
         reply.on('end', () => {
           const body = Buffer.concat(chunks);
-          if (JSON.parse(body).data?.state === 'APPLIED') { lost = true; res.destroy(); }
+          const result = JSON.parse(body).data;
+          if (result?.state === 'APPLIED') {
+            lost = true;
+            requestId = result.receipt.requestId;
+            releaseCommit = () => res.destroy();
+          }
           else { res.writeHead(reply.statusCode, reply.headers); res.end(body); }
         });
+      } else if (holdFirstRead && reply.statusCode === 200) {
+        const chunks = [];
+        res.once('close', () => { firstReadCanceled = !res.writableEnded; });
+        reply.on('data', chunk => chunks.push(chunk));
+        reply.on('end', () => { firstReceipt = JSON.parse(Buffer.concat(chunks)).data; });
       } else { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); }
     });
     upstream.on('error', () => res.destroy());
@@ -141,10 +182,12 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
       alternateSchoolId: other.id, password: pin, sevenId: seven.id, eightId: eight.id, nineId: nine.id, tenId: ten.id,
       subjectId: physics.id, teacherId: walkTeacher.id, a2Id: a2.id, allowCourseTestWrites: true}), {mode: 0o600});
     await runDesktop(['--live-course-groups', accessPath, evidence]);
-    assert.deepEqual(checks, ['blocked', 'created', 'assigned', 'supplemented']);
+    assert.deepEqual(checks, ['blocked', 'commit-response-held', 'drop-commit-response', 'receipt-response-held',
+      'receipt-read-canceled', 'created', 'assigned', 'supplemented']);
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [seven, eight, nine]});
     await runDatabase();
-    await writeFile(join(evidence, 'server-result.json'), JSON.stringify({checks, createCommits, receiptReads, groupId: a1.id,
+    await writeFile(join(evidence, 'server-result.json'), JSON.stringify({checks, savePosts, postsAtRecovery, requestId,
+      receiptReads, firstReadCanceled, groupId: a1.id,
       actualStudentBrowser: true, passed: true}, null, 2));
     console.log('PASS: Windows course-group setup, real Edge student selection, teacher / homeroom / direct member access, and transactional walking regressions.');
   } finally {

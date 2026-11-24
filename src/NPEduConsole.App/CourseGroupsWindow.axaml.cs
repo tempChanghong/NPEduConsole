@@ -80,6 +80,7 @@ public sealed partial class CourseGroupsWindow : Window
     private CourseGroupLabel? Grade => CourseGrade.SelectedItem as CourseGroupLabel;
     private CourseGroupLabel? Subject => CourseSubject.SelectedItem as CourseGroupLabel;
     private CourseGroupDirectoryRow? DirectorySelection => CourseGroupRows.SelectedItem as CourseGroupDirectoryRow;
+    private bool CanGoBack => !_writing && (!_busy || Pending is not null || !_editing);
 
     private async Task OpenInitialAsync()
     {
@@ -490,12 +491,11 @@ public sealed partial class CourseGroupsWindow : Window
         _canRetry = false;
         Feedback("正在保存走班配置…");
         Render();
-        CourseGroupResult result;
+        CourseGroupResult? result = null;
         try { result = await _client.SaveCourseGroupAsync(_school.Id, pending.Draft, pending.Preview, pending.RequestId, _lifetime.Token); }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
         {
-            if (!_closed) await ReadReceiptAsync(pending);
-            return;
+            // The write may have reached KV. Keep the request for a read-only lookup.
         }
         catch (ConsoleApiException)
         {
@@ -506,7 +506,10 @@ public sealed partial class CourseGroupsWindow : Window
             }
             throw;
         }
+        finally { _writing = false; }
         if (_closed) return;
+        Render();
+        if (result is null) { await ReadReceiptAsync(pending); return; }
         if (result.Receipt is { } receipt) { await CompleteAsync(receipt); return; }
         Operations.Remove(_school.Id);
         ShowPreview(result.Preview!, false);
@@ -542,7 +545,6 @@ public sealed partial class CourseGroupsWindow : Window
         Operations.Remove(_school.Id);
         _dirty = _canRetry = false;
         _directoryId = receipt.GroupId;
-        _writing = false;
         ShowDirectory();
         Feedback("已收到本次走班办理回执，正在刷新教学班列表…");
         try { await LoadAsync(); }
@@ -651,7 +653,7 @@ public sealed partial class CourseGroupsWindow : Window
 
     private void BackClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy || _writing) return;
+        if (!CanGoBack) return;
         if (Pending is not null || !_editing) { Close(); return; }
         if (_dirty) ConfirmDiscard();
         else { ShowDirectory(); Feedback(null); }
@@ -716,7 +718,7 @@ public sealed partial class CourseGroupsWindow : Window
         CourseGradePlan.IsEnabled = CourseEdit.IsEnabled = CourseTeaching.IsEnabled = editable && existing;
         CourseRefresh.IsEnabled = !_busy;
         CourseRefresh.Content = pending ? "核对回执" : "刷新";
-        CourseBack.IsEnabled = !_busy;
+        CourseBack.IsEnabled = CanGoBack;
         CourseBack.Content = pending ? "关闭，稍后核对" : _editing ? "返回列表" : "关闭";
         CoursePrimary.Content = pending ? _canRetry ? "按原编号重试" : "核对原请求" :
             !_editing ? "新建教学班" : _readyToSave ? "确认保存" : _preview is null ? "预览改动" : "重新预览";

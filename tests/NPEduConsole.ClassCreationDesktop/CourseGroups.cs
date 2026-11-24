@@ -82,6 +82,23 @@ internal static partial class Program
                 "first source explicitly keeps its other teaching group");
             await Capture(scope, output, "02-wide-source-in-two-teaching-groups");
             Click(primary);
+            await Signal("commit-response-held");
+            var back = Find<Button>(scope, "CourseBack");
+            Check(!back.IsEffectivelyEnabled, "the close button is disabled while the save response is in flight");
+            scope.Close();
+            Check(scope.IsVisible, "closing the actual window is blocked while the save response is in flight");
+            await Signal("drop-commit-response");
+            await Signal("receipt-response-held");
+            Check(CourseText(scope, "CourseNotice").Contains("只读核对") && back.IsEffectivelyEnabled,
+                "the close button is available while the original receipt is being read");
+            await CaptureWithFrame(scope, output, "02a-close-while-reading-original-receipt");
+            Click(back);
+            await Until(() => !scope.IsVisible, "closing during receipt lookup returns to the main window");
+            await Signal("receipt-read-canceled");
+
+            await PressScoped(main, "OpenClassWorkspaceButton");
+            await PressScoped(main, "OpenCourseGroupsButton");
+            scope = await WindowOf<CourseGroupsWindow>();
             var list = Find<ListBox>(scope, "CourseGroupRows");
             await Until(() => list.SelectedItem is CourseGroupDirectoryRow item && item.Group.Code == "PHY-A1" &&
                 CourseText(scope, "CourseNotice").Contains("已确认"), "lost success response verified by original receipt");
@@ -91,6 +108,8 @@ internal static partial class Program
             await Signal("created");
             await Capture(scope, output, "03-wide-saved-and-ready-to-assign");
             Click(Find<Button>(scope, "CourseBack"));
+            await Until(() => !scope.IsVisible, "recovered group workflow closes");
+            await PressScoped(main, "OpenSchoolOverviewButton");
             await Until(() => !scope.IsVisible && FindTask("COURSE_GROUP_WITHOUT_TEACHER", groupId, true) is not null &&
                 FindTask("WALKING_SUBJECT_WITHOUT_GROUP", access.EightId, false) is null, "only the A1 teacher task remains relevant");
 
@@ -183,7 +202,7 @@ internal static partial class Program
             await Until(() => CourseText(scope, "CourseDirectoryEmpty").Contains("没有启用学期"), "no class or group leaks into the alternate school");
             Check(Find<ListBox>(scope, "CourseGroupRows").ItemCount == 0, "alternate school remains empty");
             Click(Find<Button>(scope, "CourseBack"));
-            Finish("PASS: Windows 1160×780 / 840×480, exact source and A1 tasks, teacher conflict blocks write, recover real receipt, separate assignment, supplement original sources, school switch.", 0);
+            Finish("PASS: Windows 1160×780 / 840×480, exact source and A1 tasks, teacher conflict blocks write, save stays protected, cancel the slow receipt read and recover the same request after reopening, separate assignment, supplement original sources, school switch.", 0);
 
             OverviewTaskItem? FindTask(string code, string target, bool group) => tasks.Items.Cast<OverviewTaskItem>()
                 .FirstOrDefault(row => row.Task.Code == code && (group ? row.Task.CourseGroupId : row.Task.ClassId) == target && row.Task.SubjectId == access.SubjectId);
