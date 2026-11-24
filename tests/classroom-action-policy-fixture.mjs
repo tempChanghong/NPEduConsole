@@ -39,11 +39,28 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     usbKey: {keyId, label: '验收值班 U 盘', mediaHash: randomBytes(32).toString('hex'), secretHash: randomBytes(32).toString('hex')}};
   const preview = await call(path + '/preview', {change});
   await call(path, {change, expectedVersion: preview.version});
+  const oldKey = {...change.usbKey, keyId: randomUUID(), label: '跨学期挂失演示盘', mediaHash: randomBytes(32).toString('hex'), secretHash: randomBytes(32).toString('hex')};
   const runId = randomUUID();
   const session = await call('/device/sessions', {...identity, runId, expectedStatusEpoch: 0}, classroomBearer, '0.1');
 
-  let dropped = false, writes = 0, ownReads = 0;
+  let dropped = false, writes = 0, ownReads = 0, activeFinal = null;
   const proxy = createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/__classroom-policy-fixture/archive') {
+      request.resume();
+      (async () => {
+        assert.equal(activeFinal, null);
+        activeFinal = await call(path + `/scope/${term.id}/CLASS/${room.id}`);
+        const oldRegistration = {...change, usbKey: oldKey};
+        const review = await call(path + '/preview', {change: oldRegistration});
+        await call(path, {change: oldRegistration, expectedVersion: review.version});
+        await prisma.academicTerm.update({where: {id: term.id}, data: {status: 'ARCHIVED'}});
+        response.writeHead(204).end();
+      })().catch(error => {
+        console.error(error);
+        response.writeHead(500).end();
+      });
+      return;
+    }
     const upstream = forward(new URL(request.url, origin), {method: request.method, headers: request.headers}, result => {
       const apply = request.method === 'POST' && request.url === '/api/v2/npep' + path;
       if (apply) writes++;
@@ -64,7 +81,7 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
   const access = join(directory, 'classroom-action-console.json');
   await mkdir(evidence, {recursive: true});
   await writeFile(access, JSON.stringify({origin: `http://127.0.0.1:${proxy.address().port}`, schoolCode: school.code, schoolId: school.id,
-    pin, gradeCode: grade.code, classCode: room.code, frontId: front.screenBindingId, rearId: rear.id}));
+    pin, gradeCode: grade.code, classCode: room.code, frontId: front.screenBindingId, rearId: rear.id, historicalKeyId: oldKey.keyId}));
   let done = false;
   const applyObservation = async () => {
     while (!done) {
@@ -85,17 +102,24 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
   try {
     const outcomes = await Promise.allSettled([observed, launched]);
     for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
-    assert.equal(writes, 4);
+    assert.equal(writes, 5);
     assert.equal(ownReads, 1);
     assert.equal(dropped, true);
-    const final = await call(path + `/scope/${term.id}/CLASS/${room.id}`);
+    assert.ok(activeFinal, 'desktop reached the original active-range result before archiving');
+    const final = activeFinal;
     assert.equal(final.rooms[0].before.source, 'GRADE');
     assert.equal(final.rooms[0].before.usbCount, 0);
     assert.equal(final.rooms[0].before.actions.exitBackground.factor, 'ALL');
+    assert.deepEqual((await call(path + '/history-usb')).keys, []);
+    assert.equal((await call(path)).term, null);
+    assert.equal((await prisma.academicTerm.findUnique({where: {id: term.id}})).status, 'ARCHIVED');
+    const [{data}] = await prisma.$queryRaw`SELECT data FROM "NpepClassroomActionState" WHERE "schoolId"=${school.id}`;
+    assert.ok(data.keys.some(key => key.keyId === oldKey.keyId && key.termId === term.id && key.scopeId === grade.id && key.revoked));
     await writeFile(join(evidence, 'cross-check.json'), JSON.stringify({passed: true, writes, ownReads, dropped,
       originalGradeId: grade.id, originalTermId: term.id, originalClassId: room.id, front: front.screenBindingId, rear: rear.id,
-      verifiedSource: final.rooms[0].before.source, lastKeyRevoked: final.rooms[0].before.usbCount === 0, physicalUsbWritten: false}, null, 2));
-    console.log('PASS real Windows Console, isolated KV/PostgreSQL, original receipt recovery and independent screen observations. No physical USB was written.');
+      verifiedSource: final.rooms[0].before.source, lastKeyRevoked: final.rooms[0].before.usbCount === 0, physicalUsbWritten: false,
+      historicalKeyId: oldKey.keyId, historicalKeyRevokedWithNoActiveTerm: true}, null, 2));
+    console.log('PASS real Windows Console, isolated KV/PostgreSQL, independent per-screen observations and historical USB revocation without an active term. No physical USB was written.');
   } finally {
     proxy.closeAllConnections();
     await new Promise(resolve => proxy.close(resolve));

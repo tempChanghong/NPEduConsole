@@ -9,7 +9,7 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record ClassroomActionAccess(string Origin, string SchoolCode, string SchoolId, string Pin, string GradeCode,
-        string ClassCode, string FrontId, string RearId);
+        string ClassCode, string FrontId, string RearId, string HistoricalKeyId);
 
     private static int StartClassroomActionPolicy(string fixture, string output)
     {
@@ -133,9 +133,41 @@ internal static partial class Program
             Check(registry.Items.Count == 0, "revoked key remained in the current range");
             Click(Action("Close"));
             await Until(() => !window.IsVisible && entry.IsFocused, "return restores focus to original policy entry");
+
+            using (var checkpoint = new HttpClient { BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(15) })
+            using (var archived = await checkpoint.PostAsync("/__classroom-policy-fixture/archive", null))
+                Check(archived.IsSuccessStatusCode, "isolated original term was archived after a new USB registration");
+            Click(entry);
+            await Until(() => (view = desktop.Windows.OfType<ClassroomActionPolicyWindow>().SingleOrDefault(candidate => candidate.IsVisible)) is not null,
+                "normal policy entry reopens after the only active term is archived");
+            window = view!;
+            window.Width = 840;
+            window.Height = 480;
+            await Until(() => Content("Context").Contains("当前没有启用学期") && Action("OpenHistory").IsEffectivelyEnabled, "historical entry remains available with no active term");
+            Check(!Action("Load").IsEffectivelyEnabled, "current term editing remained enabled without an active term");
+            Click(Action("OpenHistory"));
+            var historical = Find<ListBox>(window, "ActionPolicyHistoryList");
+            await Until(() => historical.IsEffectivelyVisible && historical.Items.Count == 1 && Action("HistoryBack").IsEffectivelyEnabled, "original USB registration listed");
+            Check(historical.Items[0]?.ToString() is { } row && row.Contains("秋季学期（已归档）") && row.Contains("年级 高二") &&
+                row.Contains(access.HistoricalKeyId), "historical key lost its original term, grade or key ID");
+            historical.SelectedIndex = 0;
+            await CaptureWithFrame(window, output, "05-no-active-term-historical-usb-narrow");
+            Click(Action("HistoryRevoke"));
+            await Until(() => Action("Apply").IsEffectivelyVisible && Content("ReviewSummary").Contains("有效绑定同步"), "outstanding offline effect is shown before the historical write");
+            Check(Content("ReviewSummary").Contains(access.HistoricalKeyId), "confirmation substituted the original key");
+            Check(Equals(Action("Apply").Content, "确认撤销原登记"), "historical confirmation clearly names revocation");
+            await CaptureWithFrame(window, output, "06-historical-usb-revocation-confirmation-narrow");
+            var historicalConfirm = Find<CheckBox>(window, "ActionPolicyConfirmed");
+            Check(!Action("Apply").IsEffectivelyEnabled, "historical revocation did not require explicit confirmation");
+            historicalConfirm.IsChecked = true;
+            Click(Action("Apply"));
+            await Until(() => Content("Status").Contains("已撤销原登记") && historical.Items.Count == 0, "exact historical revocation removes only the original row");
+            Check(Content("Context").Contains("当前没有启用学期") && !Action("Load").IsEffectivelyEnabled, "historical revocation enabled the original term");
+            Click(Action("Close"));
+            await Until(() => !window.IsVisible && entry.IsFocused, "historical window returns to the same device entry");
             File.WriteAllText(Path.Combine(output, "desktop-result.json"), JsonSerializer.Serialize(new { passed = true, realWindows = true,
                 physicalUsbRegistered = false, verified = new[] { "normal-entry", "wide-grade-review", "lost-response-own-read", "narrow-independent-screens",
-                    "class-override", "restore-inheritance", "last-key-revoke-warning", "entry-focus" } }));
+                    "class-override", "restore-inheritance", "last-key-revoke-warning", "entry-focus", "historical-no-active-term", "original-key-revocation" } }));
             desktop.Shutdown(0);
         }
         catch (Exception error)

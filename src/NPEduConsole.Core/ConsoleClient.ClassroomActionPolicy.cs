@@ -27,12 +27,26 @@ public sealed partial class ConsoleClient
         return ValidateActionScope(scope, schoolId, target);
     }
 
+    public async Task<ClassroomHistoricalUsbRegistry> GetClassroomHistoricalUsbKeysAsync(string schoolId, CancellationToken ct)
+    {
+        var registry = await ActionPolicyRequestAsync<ClassroomHistoricalUsbRegistry>(HttpMethod.Get, ActionPolicyPath(schoolId) + "/history-usb", ct);
+        var keys = RequireNonNullRows(registry.Keys);
+        if (registry.SchoolId != schoolId || keys.Any(key => !Guid.TryParseExact(key.KeyId, "D", out _) ||
+                string.IsNullOrWhiteSpace(key.Label) || string.IsNullOrWhiteSpace(key.ScopeId) || string.IsNullOrWhiteSpace(key.ScopeName) ||
+                key.ScopeKind is not ("GRADE" or "CLASS") || !ValidHistoricalScope(key.Term, key.ScopeState)) ||
+            keys.Select(key => key.KeyId).Distinct(StringComparer.Ordinal).Count() != keys.Length) throw InvalidResponse();
+        return registry;
+    }
+
     public async Task<ClassroomActionPreview> PreviewClassroomActionAsync(string schoolId, ClassroomActionChange change, CancellationToken ct)
     {
         var requestId = Guid.NewGuid();
         var preview = await ActionPolicyRequestAsync<ClassroomActionPreview>(HttpMethod.Post, ActionPolicyPath(schoolId) + "/preview", ct,
             new {requestId, change = ActionChangeBody(change)}, requestId);
-        ValidateActionScope(preview, schoolId, change.Target);
+        if (preview.HistoricalTerm is { } term && (change.Operation != "REVOKE_USB" || term.Id != change.TermId || !ValidHistoricalScope(term, preview.HistoricalScopeState)) ||
+            preview.HistoricalTerm is null && preview.HistoricalScopeState is not null)
+            throw InvalidResponse();
+        ValidateActionScope(preview, schoolId, change.Target, allowMissingClass: preview.HistoricalTerm is not null);
         if (!ActionPolicyProof.IsMatch(preview.Version) || RequireNonNullRows(preview.Issues).Any(issue =>
                 issue.Action is not ("stopScheduledMonitoring" or "exitBackground") || !preview.Rooms.Any(room => room.Id == issue.ClassId)) ||
             preview.CanApply != (preview.Issues.Length == 0 || change.Operation != "SET_POLICY" || change.Actions is null)) throw InvalidResponse();
@@ -67,22 +81,29 @@ public sealed partial class ConsoleClient
         return result;
     }
 
-    private static ClassroomActionScope ValidateActionScope(ClassroomActionScope scope, string schoolId, ClassroomActionTarget target)
+    private static ClassroomActionScope ValidateActionScope(ClassroomActionScope scope, string schoolId, ClassroomActionTarget target, bool allowMissingClass = false)
     {
         if (scope.SchoolId != schoolId || scope.TermId != target.TermId || scope.ScopeKind != target.ScopeKind || scope.ScopeId != target.ScopeId ||
             !ValidActionRules(scope.SavedActions)) throw InvalidResponse();
         var rooms = RequireNonNullRows(scope.Rooms);
         if (rooms.Any(room => string.IsNullOrWhiteSpace(room.Id) || !ValidEffective(room.Before) || !ValidEffective(room.After)) ||
             rooms.Select(room => room.Id).Distinct(StringComparer.Ordinal).Count() != rooms.Length ||
-            target.ScopeKind == "CLASS" && (rooms.Length != 1 || rooms[0].Id != target.ScopeId)) throw InvalidResponse();
+            target.ScopeKind == "CLASS" && (rooms.Length > 1 || rooms.Length == 0 && !allowMissingClass || rooms.Length == 1 && rooms[0].Id != target.ScopeId))
+            throw InvalidResponse();
         var screens = RequireNonNullRows(scope.Screens);
         if (screens.Any(screen => screen.BindingRevision < 0 || string.IsNullOrWhiteSpace(screen.BindingId) ||
             !rooms.Any(room => room.Id == screen.ClassId) || !ValidDeviceReceipt(screen.Observed) || !ValidDeviceReceipt(screen.LastApplied)) ||
             screens.Select(screen => screen.BindingId).Distinct(StringComparer.Ordinal).Count() != screens.Length) throw InvalidResponse();
-        if (RequireNonNullRows(scope.UsbKeys).Any(key => !Guid.TryParseExact(key.KeyId, "D", out _) || string.IsNullOrWhiteSpace(key.Label)))
+        var keys = RequireNonNullRows(scope.UsbKeys);
+        if (keys.Any(key => !Guid.TryParseExact(key.KeyId, "D", out _) || string.IsNullOrWhiteSpace(key.Label)) ||
+            keys.Select(key => key.KeyId).Distinct(StringComparer.Ordinal).Count() != keys.Length)
             throw InvalidResponse();
         return scope;
     }
+
+    private static bool ValidHistoricalScope(ClassroomActionHistoricalTerm term, string? scopeState) => !string.IsNullOrWhiteSpace(term.Id) &&
+        !string.IsNullOrWhiteSpace(term.Name) && scopeState is "PRESENT" or "INACTIVE" or "MISSING" &&
+        (term.Status is "DRAFT" or "ARCHIVED" or "MISSING" || term.Status == "ACTIVE" && scopeState is not "PRESENT");
 
     private static bool ValidDeviceReceipt(ClassroomActionDeviceReceipt? receipt) => receipt is null || receipt.SchemaVersion == 1 &&
         (receipt.Revision is null ? receipt.PolicyId is null : receipt.Revision >= 0 && receipt.PolicyId is { } id && ActionPolicyProof.IsMatch(id));

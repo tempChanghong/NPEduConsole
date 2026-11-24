@@ -6,13 +6,14 @@
       <StackPanel Spacing="5">
         <TextBlock Text="NPEduTools 安全策略" FontSize="24" FontWeight="SemiBold" />
         <TextBlock x:Name="ActionPolicyContext" Classes="muted" TextWrapping="Wrap" />
-        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
           <ComboBox x:Name="ActionPolicyKind" AutomationProperties.Name="策略范围" MinWidth="112" SelectionChanged="KindChanged">
             <ComboBoxItem Content="年级默认" /><ComboBoxItem Content="班级覆盖" />
           </ComboBox>
           <ComboBox x:Name="ActionPolicyTarget" Grid.Column="1" HorizontalAlignment="Stretch" PlaceholderText="选择年级或行政班"
                     AutomationProperties.Name="选择年级或行政班" SelectionChanged="TargetChanged" />
           <Button x:Name="ActionPolicyLoad" Grid.Column="2" Classes="action" Content="读取范围" Click="LoadClicked" />
+          <Button x:Name="ActionPolicyOpenHistory" Grid.Column="3" Classes="action" Content="历史 U 盘登记" Click="OpenHistoryClicked" />
         </Grid>
       </StackPanel>
     </Border>
@@ -67,6 +68,20 @@
         </ListBox>
       </TabItem>
     </TabControl>
+
+    <Grid Grid.Row="1" x:Name="ActionPolicyHistoryPane" Margin="16,10" RowDefinitions="Auto,*,Auto" RowSpacing="8" IsVisible="False">
+      <StackPanel Spacing="4">
+        <TextBlock Classes="label" Text="本校历史 U 盘登记" />
+        <TextBlock Classes="muted" TextWrapping="Wrap" Text="这里可挂失仍有效的原登记。撤销不会启用原学期，也不会把钥匙带到新学期。" />
+      </StackPanel>
+      <ListBox Grid.Row="1" x:Name="ActionPolicyHistoryList" Classes="object-list" AutomationProperties.Name="历史 U 盘登记列表" SelectionChanged="UsbChanged">
+        <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding .}" TextWrapping="Wrap" Margin="4" /></DataTemplate></ListBox.ItemTemplate>
+      </ListBox>
+      <WrapPanel Grid.Row="2" ItemSpacing="8" LineSpacing="4">
+        <Button x:Name="ActionPolicyHistoryBack" Classes="action" Content="返回当前策略" Click="HistoryBackClicked" />
+        <Button x:Name="ActionPolicyHistoryRevoke" Classes="action accent" Content="预览撤销所选登记" Click="PreviewHistoricalRevokeClicked" />
+      </WrapPanel>
+    </Grid>
 
     <Grid Grid.Row="1" x:Name="ActionPolicyReviewPane" IsVisible="False" Margin="16,10" RowDefinitions="Auto,*" RowSpacing="8">
       <TextBlock x:Name="ActionPolicyReviewSummary" Classes="label" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
