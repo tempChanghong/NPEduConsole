@@ -45,14 +45,22 @@ internal static class DeviceConnectionsNative
                                 policy.ExitHost != fixture.Text("exitMode")) throw new NpepException("HOST_ACTION_POLICY_MISMATCH");
                             if (File.Exists(fixture.Text("observed")))
                             {
-                                if (policy.ExitHost == "password")
+                                if (policy.ExitHost is "password" or "either" or "both")
                                 {
-                                    HostResponse CheckSecret(string secret) => noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(),
+                                    HostResponse Authorize(string? secret) => noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(),
                                         "noise.management.command", NoiseManagement: new("authorize", secret, Purpose: "maintenance",
                                             TargetRequestId: Guid.NewGuid(), InstanceId: state.InstanceId, SessionId: state.SessionId,
                                             ClassroomPolicyVersion: policy.Version)));
-                                    if (CheckSecret("fixture-wrong-secret").NoiseProtection?.Ticket is not null ||
-                                        CheckSecret(fixture.Text("classSecret")).NoiseProtection?.Ticket is null)
+                                    if (policy.ExitHost is "either" or "both" && Authorize(null).ErrorCode != "CLASSROOM_USB_REQUIRED")
+                                        throw new NpepException("MISSING_REGISTERED_USB_WAS_NOT_REQUIRED");
+                                    var correct = Authorize(fixture.Text("classSecret"));
+                                    if (policy.ExitHost == "both")
+                                    {
+                                        if (correct.ErrorCode != "CLASSROOM_USB_REQUIRED" || correct.NoiseProtection?.Ticket is not null)
+                                            throw new NpepException("CLASSROOM_ALL_FACTOR_NOT_ENFORCED");
+                                    }
+                                    else if (correct.NoiseProtection?.Ticket is null ||
+                                        Authorize("fixture-wrong-secret").NoiseProtection?.Ticket is not null)
                                         throw new NpepException("CLASSROOM_CREDENTIAL_NOT_VERIFIED");
                                 }
                                 return 0;

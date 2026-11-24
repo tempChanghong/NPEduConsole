@@ -55,7 +55,7 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
     assert.equal(own.revision, result.revision);
     const observed = join(directory, 'seen-' + result.revision);
     const nativeRun = native('classroom-actions', {policyId: expected.policyId, stopMode, exitMode, observed,
-      ...(exitMode === 'password' ? {classSecret} : {})});
+      ...(['password', 'either', 'both'].includes(exitMode) ? {classSecret} : {})});
     const scopePath = prefix + '/scope/' + term.id + '/CLASS/' + classId;
     const check = async () => {
       const until = Date.now() + 65000;
@@ -86,8 +86,20 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   await publishAndObserve('CLASS', null, 'allow', 'deny');
   assert.equal(records[0].policyId, records[2].policyId);
   assert.notEqual(records[0].policyId, records[1].policyId);
+  // A random synthetic hardware identity can never match a drive on the workstation.
+  // Use it to contrast ANY and ALL under the same real classroom credential.
+  const usbKey = {keyId: randomUUID(), label: '验收专用模拟盘', mediaHash: randomBytes(32).toString('hex'), secretHash: randomBytes(32).toString('hex')};
+  const register = {termId: term.id, scopeKind: 'GRADE', scopeId: room.gradeId, operation: 'REGISTER_USB', actions: null, usbKey, keyId: null};
+  const usbPreview = await call(prefix + '/preview', {change: register});
+  assert.equal(usbPreview.canApply, true);
+  await call(prefix, {change: register, expectedVersion: usbPreview.version});
+  await publishAndObserve('GRADE', {stopScheduledMonitoring: rule('DENY'),
+    exitBackground: {mode: 'VERIFY', factor: 'ANY'}}, 'deny', 'either');
+  await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
+    exitBackground: {mode: 'VERIFY', factor: 'ALL'}}, 'deny', 'both');
   const evidence = resolve(process.env.NP_CLASSROOM_ACTION_NATIVE_EVIDENCE || '.artifacts/classroom-action-native');
   await mkdir(evidence, {recursive: true});
   await writeFile(join(evidence, 'classroom-action-native.json'), JSON.stringify({passed: true, records}, null, 2));
   console.log('PASS grade, classroom override and restored inheritance on the real paired native runtime; separate same-class screen stays pending.');
+  console.log('PASS existing class password alone satisfies ANY, while ALL still requires a registered USB.');
 }
