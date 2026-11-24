@@ -65,7 +65,7 @@ import {verifyStudyDisplay} from './study-display-fixture.mjs';
 import {verifyDeviceFieldActions} from './device-field-actions-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
-assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization', '--serve-local-authorization',
+assert.ok(checkout && binaries && (!mode || ['--classroom-action-native', '--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview', '--school-opening', '--staff-configuration',
@@ -662,6 +662,11 @@ async function runFixture() {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
+  if (mode === '--classroom-action-native') {
+    const {verifyNativeClassroomActions} = await import('./classroom-action-native-fixture.mjs');
+    const project = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
+    return verifyNativeClassroomActions({prisma, origin, directory, fixture, runNative: args => runDesktop(project, args)});
+  }
   if (mode === '--school-transfer-target') {
     const stop = new Promise(resolve => {
       process.once('disconnect', resolve);

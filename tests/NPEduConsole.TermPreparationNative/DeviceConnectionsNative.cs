@@ -16,7 +16,7 @@ internal static class DeviceConnectionsNative
             if (!OperatingSystem.IsWindows() || !new Uri(origin).IsLoopback ||
                 fixture.Text("kind") != "DEVICE_CONNECTIONS_DISPOSABLE_DATABASE") return 2;
             var binding = fixture.Text("bindingId");
-            if (phase == "equipment")
+            if (phase is "equipment" or "classroom-actions")
             {
                 step = "start Host device policy";
                 var equipment = Path.Combine(root, "host-equipment");
@@ -33,6 +33,34 @@ internal static class DeviceConnectionsNative
                 await using var runtime = new NpepRuntime(root, "device-connections-acceptance",
                     () => new(Protocol.Version, Guid.NewGuid(), "Succeeded", null, "Acceptance"), study: study, schoolManagement: management);
                 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
+                if (phase == "classroom-actions")
+                {
+                    while (true)
+                    {
+                        var receipt = management.ObserveSchool()["actionPolicyReceipt"] as JsonObject;
+                        if (receipt?["policyId"]?.GetValue<string>() == fixture.Text("policyId") && receipt["error"] is null)
+                        {
+                            var state = noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(), "noise.management.status.classroom-policy")).NoiseProtection;
+                            if (state?.ClassroomPolicy is not { } policy || policy.StopScheduled != fixture.Text("stopMode") ||
+                                policy.ExitHost != fixture.Text("exitMode")) throw new NpepException("HOST_ACTION_POLICY_MISMATCH");
+                            if (File.Exists(fixture.Text("observed")))
+                            {
+                                if (policy.ExitHost == "password")
+                                {
+                                    HostResponse CheckSecret(string secret) => noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(),
+                                        "noise.management.command", NoiseManagement: new("authorize", secret, Purpose: "maintenance",
+                                            TargetRequestId: Guid.NewGuid(), InstanceId: state.InstanceId, SessionId: state.SessionId,
+                                            ClassroomPolicyVersion: policy.Version)));
+                                    if (CheckSecret("fixture-wrong-secret").NoiseProtection?.Ticket is not null ||
+                                        CheckSecret(fixture.Text("classSecret")).NoiseProtection?.Ticket is null)
+                                        throw new NpepException("CLASSROOM_CREDENTIAL_NOT_VERIFIED");
+                                }
+                                return 0;
+                            }
+                        }
+                        await Task.Delay(120, deadline.Token);
+                    }
+                }
                 var version = fixture.Number("expectedVersion");
                 var locked = fixture["locked"]!.GetValue<bool>();
                 while (true)
