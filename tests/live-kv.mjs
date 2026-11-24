@@ -39,6 +39,7 @@ import { verifyGradeTeachingPlan } from './grade-teaching-plan-fixture.mjs';
 import { verifyStructureRetirement } from './structure-retirement-fixture.mjs';
 import { verifyTeachersRetirement } from './teacher-retirement-fixture.mjs';
 import { verifyTeacherScreenRelease } from './teacher-screen-release-fixture.mjs';
+import {verifyReleasedDeviceConnections} from './device-connections-release-fixture.mjs';
 import { verifySchoolStudy } from './school-study-fixture.mjs';
 import { verifyStudyMonitoring } from './study-monitoring-fixture.mjs';
 import { verifyManagementAccounts } from './management-accounts-fixture.mjs';
@@ -69,7 +70,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview', '--school-opening', '--staff-configuration',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
   '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-status', '--term-status-db', '--term-retirement-release', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--structure-retirement', '--school-study', '--school-study-db',
-  '--organization-import', '--organization-import-db', '--teacher-retirement', '--teacher-screen-release', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
+  '--organization-import', '--organization-import-db', '--teacher-retirement', '--teacher-screen-release', '--device-connections-release', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--accounts-retirement-release', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--school-transfer-retirement', '--first-school-console', '--windows-release-oobe', '--organization-retirement-setup', '--management-handoff', '--teacher-batch-release', '--owner-recovery',
@@ -256,10 +257,12 @@ async function seed() {
     await prisma.schoolMember.create({ data: { schoolId: school.id, accountId: entry.id, role } });
     return entry;
   }
-  const manager = await account('admin', managementAccounts || termStatus || ['--desktop-oauth', '--staff-configuration'].includes(mode) ? 'OWNER' : 'ADMIN');
+  const manager = await account('admin', managementAccounts || termStatus ||
+    ['--desktop-oauth', '--staff-configuration', '--device-connections-release'].includes(mode) ? 'OWNER' : 'ADMIN');
   await account('viewer', 'VIEWER');
   if (studyMonitoring) await account('owner', 'OWNER');
-  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || managementAccounts || schoolOpening || structureRetirement || ['--screen-duty', '--exam-workbench', '--homework-settings', '--staff-configuration'].includes(mode))
+  if (gradeRename || classBatch || classMaintenance || schoolStudy || organizationImport || teacherAllocation || managementAccounts || schoolOpening || structureRetirement ||
+    ['--screen-duty', '--exam-workbench', '--homework-settings', '--staff-configuration', '--device-connections-release'].includes(mode))
     await account('admin2', 'ADMIN');
   const term = await prisma.academicTerm.create({ data: {
     schoolId: school.id, academicYear: 2026, semester: 1, status: 'ACTIVE', name: '秋季学期',
@@ -999,6 +1002,15 @@ async function runFixture() {
     return verifyTeacherScreenRelease({prisma, origin, fixture, directory, fromKv, bcrypt, web: join(kv, '..', 'NPClassworks'),
       evidence: resolve(process.env.NP_CONSOLE_TEACHER_SCREEN_EVIDENCE || '.artifacts/teacher-screen-retirement/released'),
       zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP), manifestPath: resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST)});
+  }
+  if (mode === '--device-connections-release') {
+    assert.ok(process.env.NP_CONSOLE_RELEASE_ZIP && process.env.NP_CONSOLE_RELEASE_MANIFEST, 'Provide the published ZIP and its manifest.');
+    const project = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
+    lostReply = await loseWriteReply(origin, path => path.endsWith('/pairing-access/batch'));
+    return verifyReleasedDeviceConnections({prisma, origin, fixture, directory, web: join(kv, '..', 'NPClassworks'),
+      evidence: resolve(process.env.NP_CONSOLE_DEVICE_CONNECTIONS_EVIDENCE || '.artifacts/device-connections-retirement/released'),
+      zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP), manifestPath: resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST),
+      relay: lostReply, runNative: args => runDesktop(project, args)});
   }
   if (termStatus) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));

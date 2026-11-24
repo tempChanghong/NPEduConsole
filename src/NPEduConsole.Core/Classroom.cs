@@ -23,6 +23,7 @@ public sealed record Screen(string Id, string Name, IReadOnlyList<Device> Device
 }
 public sealed record Device(string Id, string Name, string Connectivity, DateTimeOffset? LastSeenAt);
 public sealed record Microphone(string Id, string Name);
+public sealed record Camera(string Id, string Name);
 
 internal sealed record EquipmentSource(Guid SessionId, string SchoolId, string DeviceId, Policy Policy,
     DateTimeOffset ServerTime, long RequestStarted);
@@ -32,7 +33,10 @@ public sealed record Equipment(long PublishedRevision, long? AppliedRevision, bo
 {
     internal EquipmentSource? Source { get; init; }
     public IReadOnlyList<Microphone> Microphones { get; internal init; } = [];
+    public IReadOnlyList<Camera> Cameras { get; internal init; } = [];
     public string? MicrophoneId => Source?.Policy.MicrophoneId;
+    public string? CameraId => Source?.Policy.CameraId;
+    public string? ReportedCameraId { get; internal init; }
     public string? ReportedMicrophoneId { get; internal init; }
     public string? ReportedMicrophoneName { get; internal init; }
     public bool ServiceSupportsLocalMicrophoneChange => Source?.Policy.AllowLocalMicrophoneChange is not null;

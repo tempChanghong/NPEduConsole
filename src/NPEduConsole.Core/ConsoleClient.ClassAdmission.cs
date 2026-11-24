@@ -72,28 +72,41 @@ public sealed partial class ConsoleClient
 
     public async Task<ClassAdmission> EnableClassAdmissionAsync(ClassAdmission snapshot, string? secret, Guid requestId, CancellationToken ct)
     {
+        if (snapshot.IsReady || snapshot.Configured != (secret is null))
+            throw new ConsoleApiException(400, "请核对网页配对状态和管理口令。", "INVALID_CHANGE");
+        return await ChangeClassAdmissionAsync(snapshot, true, secret, true, requestId, ct);
+    }
+
+    public Task<ClassAdmission> UpdateConnectionAdmissionAsync(ClassAdmission snapshot, bool enabled, string? secret,
+        Guid requestId, CancellationToken ct) => ChangeClassAdmissionAsync(snapshot, enabled, secret, false, requestId, ct);
+
+    private async Task<ClassAdmission> ChangeClassAdmissionAsync(ClassAdmission snapshot, bool enabled, string? secret,
+        bool requireUnpaired, Guid requestId, CancellationToken ct)
+    {
         var session = CurrentSession;
         var scope = snapshot.Scope;
         if (scope.SessionId != session.Id)
             throw new ConsoleApiException(409, "请在当前账号下重新读取这台大屏的接入设置。", "SNAPSHOT_CHANGED");
         if (scope.BindingRevision is not { } bindingRevision || scope.PairingRevision is not { } pairingRevision)
             throw new ConsoleApiException(426, "当前学校服务仅支持查看接入设置。请先更新学校服务，再保存。", "ADMISSION_GUARD_UNAVAILABLE");
-        if (snapshot.IsReady || snapshot.Configured != (secret is null) ||
+        if (secret is null && (snapshot.Enabled == enabled || enabled && !snapshot.Configured) ||
             secret is not null && !ClassAdmission.IsValidSecret(secret) || requestId == Guid.Empty)
             throw new ConsoleApiException(400, "请核对大屏接入状态和班级管理口令。", "INVALID_CLASS_ADMISSION");
 
         try
         {
-            var body = new
+            var body = new Dictionary<string, object?>
             {
-                requestId, expectedRevision = snapshot.Revision, enabled = true, secret,
-                expectedClassId = scope.ClassId, expectedBindingRevision = bindingRevision, expectedPairingRevision = pairingRevision,
-                requireUnpaired = true
+                ["requestId"] = requestId, ["expectedRevision"] = snapshot.Revision, ["enabled"] = enabled, ["secret"] = secret,
+                ["expectedClassId"] = scope.ClassId, ["expectedBindingRevision"] = bindingRevision,
+                ["expectedPairingRevision"] = pairingRevision
             };
+            if (requireUnpaired) body["requireUnpaired"] = true;
             var envelope = await SendAsync(HttpMethod.Post, ClassAdmissionPath(scope.SchoolId, scope.ScreenId),
                 session.Token, ct, "0.16", body, requestId);
             var saved = ClassAdmissionSnapshot(ReadData<ClassAdmissionResponse>(envelope), scope);
-            if (!saved.IsReady || saved.Revision != snapshot.Revision + (secret is null ? 0 : 1) ||
+            if (saved.Enabled != enabled || saved.Configured != (snapshot.Configured || secret is not null) ||
+                saved.Revision != snapshot.Revision + (secret is null ? 0 : 1) ||
                 saved.Scope.BindingRevision != bindingRevision || saved.Scope.PairingRevision != pairingRevision + 1)
                 throw InvalidResponse();
             return saved;

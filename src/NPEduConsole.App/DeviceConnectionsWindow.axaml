@@ -1,0 +1,150 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPEduConsole.App.DeviceConnectionsWindow" Title="大屏互联"
+        Width="1160" Height="780" MinWidth="740" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Padding="16,9" Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <StackPanel Spacing="3">
+        <TextBlock Text="大屏互联" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock x:Name="ConnectionScope" Classes="muted" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+    <TabControl Grid.Row="1" x:Name="ConnectionTabs" Margin="16,7,16,0">
+      <TabItem x:Name="ConnectionAdmissionTab" Header="配对预授权">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="10" Margin="0,8,8,8">
+            <Border Classes="card" Padding="12">
+              <StackPanel Spacing="7">
+                <TextBlock Text="逐屏办理" Classes="label" />
+                <Grid ColumnDefinitions="*,1.35*,Auto" ColumnSpacing="8">
+                  <TextBox x:Name="ConnectionScreenSearch" Classes="search-field" PlaceholderText="查找班级或大屏"
+                           AutomationProperties.Name="查找班级或大屏" TextChanged="ScreenSearchChanged" />
+                  <ComboBox Grid.Column="1" x:Name="ConnectionScreens" HorizontalAlignment="Stretch" SelectionChanged="ScreenChanged"
+                            PlaceholderText="选择大屏" AutomationProperties.Name="选择大屏" />
+                  <Button Grid.Column="2" x:Name="ConnectionReadAdmission" Content="读取设置" Classes="action" Click="ReadAdmissionClicked" />
+                </Grid>
+                <TextBlock x:Name="ConnectionAdmissionState" Classes="muted" TextWrapping="Wrap" />
+                <StackPanel x:Name="ConnectionAdmissionForm" Spacing="7" IsVisible="False">
+                  <WrapPanel ItemSpacing="12" LineSpacing="4">
+                    <CheckBox x:Name="ConnectionPairingEnabled" Content="开放这台屏的网页配对" />
+                    <CheckBox x:Name="ConnectionRotate" Content="设置或轮换本班管理口令" IsCheckedChanged="RotateChanged" />
+                  </WrapPanel>
+                  <Grid x:Name="ConnectionSecretFields" IsVisible="False" ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <TextBox x:Name="ConnectionSecret" PasswordChar="●" MaxLength="128" PlaceholderText="新班级管理口令（8–128 位）"
+                             AutomationProperties.Name="新班级管理口令" />
+                    <TextBox Grid.Column="1" x:Name="ConnectionSecretAgain" PasswordChar="●" MaxLength="128" PlaceholderText="再次输入"
+                             AutomationProperties.Name="确认班级管理口令" />
+                  </Grid>
+                  <TextBlock Text="关闭网页配对会使此屏已签发但未完成的网页配对失效，已配对设备继续使用。口令按班级共用，轮换后该班各屏下次使用班级口令时需用新值。"
+                             Classes="muted" TextWrapping="Wrap" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+            <Border Classes="card" Padding="12">
+              <StackPanel Spacing="7">
+                <TextBlock Text="全校或年级批量办理" Classes="label" />
+                <WrapPanel ItemSpacing="8" LineSpacing="5">
+                  <ComboBox x:Name="ConnectionBatchRange" MinWidth="155" PlaceholderText="选择范围"
+                            AutomationProperties.Name="批量预授权范围" SelectionChanged="BatchOptionsChanged" />
+                  <ComboBox x:Name="ConnectionBatchChange" MinWidth="142" AutomationProperties.Name="批量预授权动作" SelectionChanged="BatchOptionsChanged">
+                    <ComboBoxItem Content="开放网页配对" />
+                    <ComboBoxItem Content="关闭网页配对" />
+                  </ComboBox>
+                  <Button x:Name="ConnectionBatchPreview" Content="预览影响" Classes="action" Click="BatchPreviewClicked" />
+                  <Button x:Name="ConnectionBatchCheck" Content="只读核对原范围" Classes="action" IsVisible="False" Click="BatchCheckClicked" />
+                </WrapPanel>
+                <TextBlock x:Name="ConnectionBatchState" Classes="muted" TextWrapping="Wrap" />
+                <ListBox x:Name="ConnectionBatchRows" Classes="object-list" MaxHeight="240" IsVisible="False"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="大屏预授权对照" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem x:Name="ConnectionApprovalTab" Header="审批现场接入">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="8" Margin="0,8,8,8">
+            <ComboBox x:Name="ConnectionApprovalHistory" HorizontalAlignment="Stretch" PlaceholderText="按原申请核对批准与上报"
+                      AutomationProperties.Name="本校已提交的配对申请" SelectionChanged="ApprovalHistoryChanged" />
+            <Border x:Name="ConnectionApprovalCard" IsVisible="False" Classes="card" Padding="12">
+              <StackPanel Spacing="8">
+                <TextBlock x:Name="ConnectionApprovalResult" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                <WrapPanel ItemSpacing="8" LineSpacing="6">
+                  <Button x:Name="ConnectionReadApproval" Content="读取本申请状态" Classes="action" Click="ReadApprovalClicked" />
+                  <Button x:Name="ConnectionCancelApproval" Content="取消本次批准" IsVisible="False" Classes="action" Click="CancelApprovalClicked" />
+                  <Button x:Name="ConnectionFinishApproval" Content="收起本申请结果" Classes="action" Click="FinishApprovalClicked" />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+            <Border Classes="card" Padding="12">
+              <StackPanel Spacing="8">
+                <TextBlock Text="核对 NPEduTools 显示的短码" Classes="label" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBox x:Name="ConnectionCode" MaxLength="18" PlaceholderText="输入 8 位短码"
+                           AutomationProperties.Name="设备配对短码" TextChanged="CodeChanged" />
+                  <Button Grid.Column="1" x:Name="ConnectionResolve" Content="核对短码" Classes="action" Click="ResolveClicked" />
+                </Grid>
+                <TextBlock x:Name="ConnectionCandidateInfo" TextWrapping="Wrap" Classes="muted" />
+                <ComboBox x:Name="ConnectionApprovalScreens" HorizontalAlignment="Stretch" PlaceholderText="选择批准对象"
+                          AutomationProperties.Name="选择批准的大屏" SelectionChanged="ApprovalScreenChanged" />
+                <TextBlock x:Name="ConnectionApprovalTarget" TextWrapping="Wrap" />
+                <CheckBox x:Name="ConnectionApprovalConfirmed" Content="已与现场核对设备与这台大屏" />
+                <TextBlock Text="批准后，请现场在 NPEduTools 确认学校、班级和大屏。此处可继续读取本申请的确认和上报结果。"
+                           Classes="muted" TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem x:Name="ConnectionEquipmentTab" Header="采集设备策略">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Spacing="8" Margin="0,8,8,8">
+            <Border Classes="card" Padding="12">
+              <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <ComboBox x:Name="ConnectionEquipmentScreens" HorizontalAlignment="Stretch" PlaceholderText="选择已配对大屏"
+                            AutomationProperties.Name="选择采集设备的大屏" SelectionChanged="EquipmentScreenChanged" />
+                  <Button Grid.Column="1" x:Name="ConnectionReadEquipment" Content="读取策略和回执" Classes="action" Click="ReadEquipmentClicked" />
+                </Grid>
+                <TextBlock x:Name="ConnectionEquipmentState" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                <StackPanel x:Name="ConnectionEquipmentForm" IsVisible="False" Spacing="8">
+                  <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                    <StackPanel Spacing="4">
+                      <TextBlock Text="学校默认麦克风" Classes="label" />
+                      <ComboBox x:Name="ConnectionMicrophone" HorizontalAlignment="Stretch" AutomationProperties.Name="学校默认麦克风"
+                                SelectionChanged="EquipmentOptionsChanged" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="4">
+                      <TextBlock Text="学校默认摄像头" Classes="label" />
+                      <ComboBox x:Name="ConnectionCamera" HorizontalAlignment="Stretch" AutomationProperties.Name="学校默认摄像头"
+                                SelectionChanged="EquipmentOptionsChanged" />
+                    </StackPanel>
+                  </Grid>
+                  <CheckBox x:Name="ConnectionEquipmentLocked" Content="锁定本机采集设备选择" IsCheckedChanged="EquipmentOptionsChanged" />
+                  <TextBlock Text="清除默认指取消学校指定，由设备按既有规则选择。监测进行中，设备可能延后应用。"
+                             Classes="muted" TextWrapping="Wrap" />
+                </StackPanel>
+              </StackPanel>
+            </Border>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+    </TabControl>
+    <Border Grid.Row="2" Padding="16,6" Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="ConnectionMessage" TextWrapping="Wrap" Classes="muted" AutomationProperties.LiveSetting="Polite" IsVisible="False" />
+        <WrapPanel ItemSpacing="8" LineSpacing="4">
+          <Button x:Name="ConnectionExit" Content="返回教室设备" Classes="action" Click="ExitClicked" />
+          <Button x:Name="ConnectionRefresh" Content="刷新大屏目录" Classes="action" Click="RefreshClicked" />
+          <Button x:Name="ConnectionAdmissionSave" Content="保存逐屏设置" Classes="action accent" Click="SaveAdmissionClicked" />
+          <CheckBox x:Name="ConnectionBatchConfirmed" IsVisible="False" Content="我已核对本学期范围和这次变更" />
+          <Button x:Name="ConnectionBatchApply" IsVisible="False" Content="确认批量保存" Classes="action accent" Click="BatchApplyClicked" />
+          <Button x:Name="ConnectionApprove" Content="批准所选大屏" Classes="action accent" IsVisible="False" Click="ApproveClicked" />
+          <CheckBox x:Name="ConnectionEquipmentConfirmed" IsVisible="False" Content="确认将策略保存给所选原生设备" />
+          <Button x:Name="ConnectionEquipmentSave" Content="保存设备策略" Classes="action accent" IsVisible="False" Click="SaveEquipmentClicked" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

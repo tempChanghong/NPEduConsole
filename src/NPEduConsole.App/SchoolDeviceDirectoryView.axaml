@@ -24,6 +24,7 @@
     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
       <TextBlock Text="教室设备" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center" />
       <WrapPanel Grid.Column="1" ItemSpacing="6">
+        <Button x:Name="DeviceConnectionsButton" Content="大屏互联" Classes="action" Click="OpenConnectionsClicked" />
         <Button x:Name="DeviceDiagnosticExport" Content="导出原生诊断…" Classes="action" Click="OpenDiagnosticsClicked" />
         <Button x:Name="DeviceDutyDirectory" Content="大屏账号与值守" Classes="action" Click="OpenDutyDirectoryClicked" />
         <Button Content="刷新目录" Classes="action" Click="RefreshClicked" />

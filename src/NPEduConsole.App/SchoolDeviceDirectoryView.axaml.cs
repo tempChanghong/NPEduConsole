@@ -20,6 +20,12 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
     public event Action<SchoolOverview, OverviewScreenItem>? ScreenRequested;
     public event Action<string?, string?, string?, Control?>? DutyRequested;
     public event Action<string, Control>? DiagnosticsRequested;
+    public event Action<Control>? ConnectionsRequested;
+
+    private void OpenConnectionsClicked(object? sender, RoutedEventArgs args)
+    {
+        if (sender is Control anchor) ConnectionsRequested?.Invoke(anchor);
+    }
 
     public SchoolDeviceDirectoryView()
     {

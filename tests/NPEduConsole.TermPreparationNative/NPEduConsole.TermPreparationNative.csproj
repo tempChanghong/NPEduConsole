@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="$(NpepToolsCheckout)/src/NPEduTools.Integrations.Npep/NPEduTools.Integrations.Npep.csproj"/>
+    <ProjectReference Include="$(NpepToolsCheckout)/src/NPEduTools.Host/NPEduTools.Host.csproj"/>
   </ItemGroup>
 </Project>

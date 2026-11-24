@@ -24,6 +24,7 @@ internal sealed record EquipmentChange(Guid RequestId, long ExpectedRevision, st
     bool Locked, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? AllowLocalMicrophoneChange);
 internal sealed record Inventory(long AppliedRevision, bool Unlocked, Microphone[] Microphones,
     DateTimeOffset ReceivedAt, string? Error, string? SelectedMicrophoneId = null,
-    string? LocalMicrophoneOverride = null, bool SupportsLocalMicrophoneChange = false);
+    string? LocalMicrophoneOverride = null, bool SupportsLocalMicrophoneChange = false,
+    Camera[]? Cameras = null, string? SelectedCameraId = null);
 internal sealed record EquipmentResponse(Policy Policy, Inventory? Inventory);
 internal sealed record NpepError(string Code);
