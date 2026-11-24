@@ -17,7 +17,12 @@
       <TextBlock Text="本班自习报告" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
       <Button Grid.Column="1" x:Name="ReadReportsButton" Classes="action" Content="查询报告" IsEnabled="False" Click="RefreshReports" />
     </Grid>
-    <TextBlock x:Name="ReportsStatus" Classes="muted" />
+    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+      <TextBlock Text="运行模式" Classes="label" VerticalAlignment="Center" />
+      <ComboBox Grid.Column="1" x:Name="StudyReportModePicker" AutomationProperties.AutomationId="StudyReportModePicker"
+                AutomationProperties.Name="自习报告运行模式" HorizontalAlignment="Stretch" SelectionChanged="ReportModeChanged" />
+    </Grid>
+    <TextBlock x:Name="ReportsStatus" Classes="muted" TextWrapping="Wrap" />
     <ComboBox x:Name="ReportPicker" AutomationProperties.Name="选择自习场次" IsVisible="False"
               SelectionChanged="ReportChanged" HorizontalAlignment="Stretch" />
     <Button x:Name="EarlierReports" Content="更早的场次" Classes="action" IsVisible="False" Click="ReadEarlier" />

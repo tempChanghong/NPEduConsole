@@ -9,6 +9,13 @@ public partial class StudyEvidenceView : UserControl
 {
     private sealed record DeviceOption(Device Device, string BindingId, string ScreenName, string Caption) { public override string ToString() => Caption; }
     private sealed record ReportOption(StudyReportGroup Report, string Caption) { public override string ToString() => Caption; }
+    private sealed record ModeOption(StudyReportMode? Mode, string Caption) { public override string ToString() => Caption; }
+    private static readonly ModeOption[] Modes =
+    [
+        new(null, "全部模式"),
+        new(StudyReportMode.Daily, "日常模式 · ClassIsland 时间"),
+        new(StudyReportMode.Exam, "考试模式 · Windows 时间"),
+    ];
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private ConsoleClient? _client;
     private StudyEvidenceScope? _scope;
@@ -25,9 +32,20 @@ public partial class StudyEvidenceView : UserControl
     public StudyEvidenceView()
     {
         InitializeComponent();
+        StudyReportModePicker.ItemsSource = Modes;
+        StudyReportModePicker.SelectedIndex = 0;
         _clock.Tick += (_, _) => RenderReceipt();
-        DetachedFromVisualTree += (_, _) => _clock.Stop();
-        AttachedToVisualTree += (_, _) => { if (_receipt is not null) RenderReceipt(); };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            _clock.Stop();
+            Cancel(ref _reportRead);
+            ClearReports();
+        };
+        AttachedToVisualTree += (_, _) =>
+        {
+            if (_receipt is not null) RenderReceipt();
+            ResetReportsStatus();
+        };
     }
 
     public void SetScope(ConsoleClient? client, string? schoolId, string? termId, Classroom? classroom, DateOnly? date = null, string? schoolName = null)
@@ -38,6 +56,7 @@ public partial class StudyEvidenceView : UserControl
         _clock.Stop();
         _receipt = null;
         _scope = null;
+        StudyReportModePicker.SelectedIndex = 0;
         _client = client;
         _date = date;
         _schoolName = schoolName ?? schoolId;
@@ -62,7 +81,13 @@ public partial class StudyEvidenceView : UserControl
         DevicePicker.ItemsSource = _devices;
         ReceiptStatus.Text = _devices.Length == 0 ? "本班暂无已接入的大屏。" : "请选择设备查看回执。";
         if (_devices.Length > 0) DevicePicker.SelectedIndex = 0;
-        ReportsStatus.Text = date is { } selected ? $"查询 {selected:M 月 d 日} 开始且已上传的场次。" : "可查询最近 30 天已上传的自习报告。";
+        ResetReportsStatus();
+    }
+
+    private void ResetReportsStatus()
+    {
+        if (_scope is null) return;
+        ReportsStatus.Text = _date is { } selected ? $"查询 {selected:M 月 d 日} 开始且已上传的场次。" : "可查询最近 30 天已上传的自习报告。";
         ReadReportsButton.IsEnabled = true;
     }
 
@@ -170,11 +195,12 @@ public partial class StudyEvidenceView : UserControl
     }
 
     private async void RefreshReports(object? sender, RoutedEventArgs e) => await ReadReports(null);
+    private async void ReportModeChanged(object? sender, SelectionChangedEventArgs e) => await ReadReports(null);
     private async void ReadEarlier(object? sender, RoutedEventArgs e) { if (_cursor is { } cursor) await ReadReports(cursor); }
 
     private async Task ReadReports(string? cursor)
     {
-        if (_scope is not { } scope || _client is not { } client) return;
+        if (_scope is not { } scope || _client is not { } client || StudyReportModePicker.SelectedItem is not ModeOption option) return;
         Cancel(ref _reportRead);
         ClearReports();
         using var read = _reportRead = new();
@@ -182,7 +208,7 @@ public partial class StudyEvidenceView : UserControl
         ReadReportsButton.IsEnabled = false;
         try
         {
-            var page = await client.ReadStudyReportsAsync(scope, cursor, read.Token, _date);
+            var page = await client.ReadStudyReportsAsync(scope, cursor, read.Token, _date, option.Mode);
             if (_reportRead != read) return;
             var choices = page.Items.Select(report =>
             {

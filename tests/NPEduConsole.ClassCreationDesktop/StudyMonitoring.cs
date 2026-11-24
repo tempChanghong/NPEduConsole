@@ -99,6 +99,55 @@ internal static partial class Program
             var rearStatus = Find<TextBlock>(RecordsPage(rear), "RecordsStatus");
             await Until(() => rearStatus.Text?.Contains("暂无可查看") == true, "rear receipt yields no front photos");
             rear.Close();
+
+            await Signal("seed-report-modes");
+            var reportMode = evidence.FindControl<ComboBox>("StudyReportModePicker")!;
+            var earlier = evidence.FindControl<Button>("EarlierReports")!;
+            string[] ReportLabels() => reportPicker.Items.Cast<object>().Select(item => item.ToString()!).ToArray();
+            bool PageHasMode(int size, string mode) => reportPicker.ItemCount == size && ReportLabels().All(label =>
+                label.Contains($" · {mode} · ", StringComparison.Ordinal));
+            await Until(() => query.IsEffectivelyEnabled && reportMode.SelectedIndex == 0, "reports initially query all modes");
+            Click(query);
+            await Until(() => reportPicker.ItemCount == 20 && ReportLabels().Any(label => label.Contains(" · 日常 · ")) &&
+                ReportLabels().Any(label => label.Contains(" · 考试 · ")), "first unfiltered page contains both modes");
+            reportMode.SelectedIndex = 1;
+            await Until(() => PageHasMode(20, "日常") && earlier.IsEffectivelyVisible && sessionRecords.IsEffectivelyVisible, "daily first page and detail loaded");
+            reports.Width = 1160;
+            reports.Height = 780;
+            await Until(() => reports.ClientSize is {Width: >= 1140, Height: >= 740}, "wide report window measured");
+            reportMode.BringIntoView();
+            await CaptureWithFrame(reports, output, "08-wide-daily-reports");
+            Click(earlier);
+            await Until(() => PageHasMode(3, "日常") && !earlier.IsEffectivelyVisible && sessionRecords.IsEffectivelyVisible,
+                "daily next page retains mode and cursor");
+
+            await Signal("hold-daily-reports");
+            Click(query);
+            await Signal("daily-response-held");
+            Check(!reportPicker.IsEffectivelyVisible && !sessionRecords.IsEffectivelyVisible, "pending query clears previous report and records");
+            reportMode.SelectedIndex = 2;
+            await Until(() => PageHasMode(20, "考试") && earlier.IsEffectivelyVisible && sessionRecords.IsEffectivelyVisible, "exam starts again on page one");
+            reports.Width = 840;
+            reports.Height = 480;
+            await Until(() => reports.ClientSize is {Width: <= 845, Height: <= 485}, "compact report window measured");
+            earlier.BringIntoView();
+            await CaptureWithFrame(reports, output, "09-compact-exam-reports");
+            await Signal("release-daily-reports");
+            Click(earlier);
+            await Until(() => PageHasMode(2, "考试") && !earlier.IsEffectivelyVisible && sessionRecords.IsEffectivelyVisible,
+                "exam next page retains mode and delayed daily results cannot replace it");
+
+            reportMode.SelectedIndex = 1;
+            await Until(() => PageHasMode(20, "日常") && sessionRecords.IsEffectivelyVisible, "daily selection resets pagination");
+            reportPicker.SelectedItem = reportPicker.Items.Cast<object>().First(row => row.ToString()!.Contains("前屏"));
+            await Until(() => sessionRecords.IsEffectivelyVisible, "original front session ready after filter");
+            Click(sessionRecords);
+            var filteredRecords = await WindowOf<StudyRecordsWindow>();
+            var filteredList = Find<StudyRecordsView>(RecordsPage(filteredRecords), "Records").FindControl<ListBox>("StudyRecordsList")!;
+            await Until(() => filteredList.Items.OfType<StudyRecordRow>().Any(row => row.PhotoId == access.PhotoId) &&
+                filteredList.Items.OfType<StudyRecordRow>().Any(row => row.Key == "exit:" + access.ExitId && row.PhotoId is null),
+                "filtered report still opens the exact front photo and no-image exit");
+            filteredRecords.Close();
             reports.Close();
             await Signal("seed-large-rear");
 

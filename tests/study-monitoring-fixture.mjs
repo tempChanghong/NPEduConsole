@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
 import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {createServer, request} from 'node:http';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {nextStudyMonday} from './class-study-fixture.mjs';
 import {prepareLegacyStudyWeb} from './school-study-fixture.mjs';
 
@@ -126,6 +128,32 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
   await api(photoPath + '/image' + query, {token: 'monitoring-credential-fixture', status: 401});
   const checks = ['real-host-stored', 'report-by-device-and-session', 'date-filter', 'owner-admin-allowed',
     'head-teacher-and-other-school-admin-denied', 'scoped-image', 'explicit-download-audit'];
+  const reportRequests = [];
+  const reportsPath = resource + '/study-sessions';
+  let holdDaily = false, releaseDaily;
+  async function seedReportModes() {
+    const additional = Array.from({length: 43}, (_, index) => {
+      const exam = index % 2 === 0;
+      const start = `${date}T08:${String(index).padStart(2, '0')}:00`;
+      return {...report, sessionId: randomUUID(), study: {mode: exam ? 'Exam' : 'Daily',
+        clockSource: exam ? 'Windows' : 'ClassIsland', window: {start, end: start.replace('T08:', 'T09:'), label: `${exam ? '考试' : '日常'}样本 ${index + 1}`}}};
+    });
+    await prisma.npepNoiseDevice.update({where: {deviceId: front.unit.id}, data: {data: {reports: [report, ...additional]}}});
+    const all = await api(reportsPath + query + '&date=' + date, {version: '0.17'});
+    assert.deepEqual(new Set(all.items.map(row => row.mode)), new Set(['Daily', 'Exam']));
+    for (const [mode, count] of [['Daily', 23], ['Exam', 22]]) {
+      const path = reportsPath + query + '&date=' + date + '&mode=' + mode;
+      const first = await api(path, {version: '0.17'});
+      assert.equal(first.items.length, 20);
+      assert.ok(first.cursor);
+      const second = await api(path + '&cursor=' + first.cursor, {version: '0.17'});
+      const rows = [...first.items, ...second.items];
+      assert.equal(rows.length, count);
+      assert.equal(new Set(rows.map(row => row.groupId)).size, count);
+      assert.ok(rows.every(row => row.mode === mode));
+      assert.equal(second.cursor, null);
+    }
+  }
   const legacy = prepareLegacyStudyWeb({web, directory, evidence, origin, token: alternate, school, term, room: eight});
   legacy.catch(() => {});
   let lost = false, receipts = 0, holdPhoto = false, stoppedImage;
@@ -191,6 +219,16 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
           await api(studyPath, {method: 'POST', version: '0.10', body: {...change, expectedPreviewFingerprint: next.previewFingerprint}});
           assert.deepEqual((await prisma.npepStudyPhoto.findUniqueOrThrow({where: {eventId: capture.photoId}})).expiresAt, shortened.expiresAt);
           assert.deepEqual((await prisma.npepStudyExitEvent.findUniqueOrThrow({where: {eventId: capture.exitId}})).expiresAt, oldExit.expiresAt);
+        } else if (step === 'seed-report-modes') {
+          await seedReportModes();
+        } else if (step === 'hold-daily-reports') {
+          holdDaily = true;
+        } else if (step === 'release-daily-reports') {
+          assert.ok(releaseDaily);
+          releaseDaily();
+        } else if (step === 'daily-response-held') {
+          for (let retry = 0; retry < 50 && !releaseDaily; retry++) await new Promise(resolve => setTimeout(resolve, 100));
+          assert.ok(releaseDaily);
         } else if (step === 'seed-large-rear') {
           await seedLargeRear();
         } else if (step === 'photo-retained-after-selection-change' || step === 'photos-retained-after-compact-cancel') {
@@ -210,7 +248,17 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
     }
     if (req.method === 'GET' && req.url.startsWith(studyPath + '/requests/')) receipts++;
     const endpoint = new URL(req.url, origin);
+    const reportQuery = req.method === 'GET' && endpoint.pathname === reportsPath ? Object.fromEntries(endpoint.searchParams) : null;
+    if (reportQuery) reportRequests.push(reportQuery);
     const forward = request(endpoint, {method: req.method, headers: {...req.headers, host: endpoint.host}}, response => {
+      if (holdDaily && reportQuery?.mode === 'Daily' && !reportQuery.cursor && response.statusCode === 200) {
+        holdDaily = false;
+        releaseDaily = () => {
+          if (res.destroyed) response.resume();
+          else { res.writeHead(response.statusCode, response.headers); response.pipe(res); }
+        };
+        return;
+      }
       if (holdPhoto && req.method === 'GET' && endpoint.pathname === photoPath + '/image' && response.statusCode === 200) {
         holdPhoto = false;
         stoppedImage = () => {
@@ -237,6 +285,28 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
     assert.equal(createHash('sha256').update(await readFile(legacyFile)).digest('hex'), capture.digest);
     checks.push('edge-photo-preview-and-explicit-download');
     await runDesktop(['--live-study-monitoring', desktop, join(evidence, 'console')]);
+    for (const mode of ['Daily', 'Exam']) {
+      const reads = reportRequests.filter(row => row.mode === mode);
+      assert.ok(reads.some(row => !row.cursor) && reads.some(row => row.cursor));
+      assert.ok(reads.every(row => row.classId === seven.id && row.termId === term.id && row.date === date && !row.groupId));
+    }
+    checks.push('desktop-query-modes-and-scoped-cursors');
+    if (process.env.NP_CONSOLE_STUDY_RELEASE_ZIP) {
+      const release = join(directory, 'release-monitoring.json');
+      await writeFile(release, JSON.stringify({isolated: true, login: {url: 'http://127.0.0.1:' + server.address().port,
+        website: 'http://127.0.0.1:' + server.address().port, code: school.code, username: 'owner', pin},
+      studyReports: {className: seven.name}}), {mode: 0o600});
+      const first = reportRequests.length;
+      const runner = fileURLToPath(new URL('./WindowsReleaseOobe.ps1', import.meta.url));
+      await new Promise((resolve, reject) => {
+        const child = spawn('pwsh', ['-NoProfile', '-File', runner, '-ManagementLogin', '-FixturePath', release,
+          '-ZipPath', process.env.NP_CONSOLE_STUDY_RELEASE_ZIP, '-EvidenceDirectory', join(evidence, 'release')], {stdio: 'inherit'});
+        child.once('error', reject);
+        child.once('close', status => status === 0 ? resolve() : reject(new Error(`Windows release report acceptance failed (${status})`)));
+      });
+      assert.ok(reportRequests.slice(first).some(row => row.mode === 'Exam' && row.classId === seven.id && row.termId === term.id && !row.cursor));
+      checks.push('released-windows-exe-requests-exam-mode');
+    }
     assert.equal(await prisma.npepAudit.count({where: {objectId: capture.photoId, action: 'STUDY_PHOTO_VIEW'}}) >= 3, true);
     const retry = await fetch(origin + '/api/v2/npep/device/study-settings/photos/upload', {method: 'POST', headers: {
       Authorization: 'Bearer ' + front.bearer, 'X-NPEP-Version': '0.15', 'X-Request-Id': randomUUID(),
@@ -249,6 +319,7 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
     await api(rearPath + '/image' + query);
     assert.equal(await prisma.npepAudit.count({where: {objectId: rearPhotoId, action: 'STUDY_PHOTO_DELETE'}}), 0);
     checks.push('explicit-deletion-audit-and-device-retry-cannot-restore');
+    await writeFile(join(evidence, 'report-mode-requests.json'), JSON.stringify(reportRequests, null, 2));
     await writeFile(join(evidence, 'cross-end-result.json'), JSON.stringify({passed: true, checks, scope, capture, rearPhotoId,
       screens: {front: front.binding.id, rear: rear.binding.id},
       receipt: {front: observation.receivedAt, frontApplied: observation.configurationApplied, frontSignal: observation.captureVerified,
@@ -256,6 +327,7 @@ export async function verifyStudyMonitoring({prisma, origin, fixture, fromKv, kv
       reportSeed: 'Finished fragment with actual Host session and synthetic report statistics'}, null, 2));
   } finally {
     stoppedImage?.();
+    releaseDaily?.();
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
     try { await (await legacy).close(); } catch {}

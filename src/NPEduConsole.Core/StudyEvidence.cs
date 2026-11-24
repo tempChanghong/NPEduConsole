@@ -90,3 +90,5 @@ public sealed record StudyReportGroup(string GroupId, string DeviceId, string Mo
     StudyReportWindow Window, int FragmentCount, StudyReportFragment[]? Fragments = null,
     StudyPhotoRecord[]? Photos = null, StudyExitRecord[]? Events = null, bool Truncated = false);
 public sealed record StudyReportPage(StudyReportGroup[] Items, string? Cursor);
+
+public enum StudyReportMode { Daily, Exam }

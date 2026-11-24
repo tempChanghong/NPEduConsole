@@ -24,15 +24,25 @@ public sealed partial class ConsoleClient
         return result with { RequestStarted = started };
     }
 
-    public async Task<StudyReportPage> ReadStudyReportsAsync(StudyEvidenceScope scope, string? cursor, CancellationToken ct, DateOnly? date = null)
+    public async Task<StudyReportPage> ReadStudyReportsAsync(StudyEvidenceScope scope, string? cursor, CancellationToken ct,
+        DateOnly? date = null, StudyReportMode? mode = null)
     {
         var path = StudyReportsPath(scope);
         if (date is { } day) path += "&date=" + StudyDate(day);
+        string? modeName = mode switch
+        {
+            StudyReportMode.Daily => "Daily",
+            StudyReportMode.Exam => "Exam",
+            null => null,
+            _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+        };
+        if (modeName is not null) path += "&mode=" + modeName;
         if (cursor is not null) path += "&cursor=" + Uri.EscapeDataString(cursor);
         var session = CurrentSession;
         var page = await RequestAsync<StudyReportPage>(HttpMethod.Get, path, session.Token, ct, version: "0.17");
         CheckCreationSession(session, ct);
-        if (page.Items.Length > 20 || page.Items.Any(row => !ValidStudyGroup(row)) ||
+        if (page.Items is not { Length: <= 20 } ||
+            page.Items.Any(row => !ValidStudyGroup(row) || modeName is not null && row.Mode != modeName) ||
             page.Cursor is not null && (page.Cursor.Length == 0 || page.Cursor == cursor)) throw InvalidResponse();
         return page;
     }
