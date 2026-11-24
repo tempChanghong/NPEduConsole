@@ -93,6 +93,7 @@ public sealed partial class MainWindow : Window
         Activated += (_, _) => RefreshAfterWebOverviewTask();
         LoginView.AddHandler(KeyDownEvent, OnLoginKeyDown, RoutingStrategies.Tunnel);
         ConnectSchoolSetup();
+        OwnerRecovery.ReturnRequested += ReturnFromOwnerRecovery;
         RestoreLoginServer();
         Opened += (_, _) => (KnownServerRow.IsVisible ? SchoolCode : ServerAddress).Focus();
         Closing += OnClosing;
@@ -563,7 +564,7 @@ public sealed partial class MainWindow : Window
     private async void OnClosing(object? sender, WindowClosingEventArgs args)
     {
         if (_allowClose) return;
-        if (!CanExitSchoolSetup()) { args.Cancel = true; return; }
+        if (!CanExitSchoolSetup() || !OwnerRecovery.CanExit) { args.Cancel = true; return; }
         if (!CanLeaveAcademicWorkspace()) { args.Cancel = true; return; }
         if (_desktopLogin is not null || _closingBrowserLogin)
         {
@@ -576,6 +577,7 @@ public sealed partial class MainWindow : Window
             return;
         }
         StopBrowserDiscovery();
+        OwnerRecovery.Deactivate();
         SchoolConnectionSetup.ClearCheck();
         CloseSchoolSetupView();
         CancelRequest();
@@ -810,13 +812,14 @@ public sealed partial class MainWindow : Window
         LoginButton.IsEnabled = ServerAddress.IsEnabled = SchoolCode.IsEnabled = Username.IsEnabled = Password.IsEnabled = !busy;
         BrowserLogin.IsEnabled = !busy || _desktopLogin is not null;
         ChangeLoginServer.IsEnabled = OpenServerStatusButton.IsEnabled = !busy;
-        OpenFirstSchoolSetup.IsEnabled = !busy;
+        OpenFirstSchoolSetup.IsEnabled = OpenOwnerRecoveryButton.IsEnabled = !busy;
         LoginProgress.IsVisible = busy;
         LoginButton.Content = busy ? (_signingOut ? "正在退出…" : "正在登录…") : "登录";
     }
 
-    private void SetLoginMessage(string message)
+    private void SetLoginMessage(string message, bool recoveryAdvice = false)
     {
+        LoginFeedback.Classes.Set("recovery-advice", recoveryAdvice);
         LoginMessage.Text = message;
         LoginFeedback.IsVisible = message.Length > 0;
     }

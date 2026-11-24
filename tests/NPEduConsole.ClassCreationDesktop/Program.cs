@@ -58,6 +58,8 @@ internal static partial class Program
             return StartStudyMonitoring(monitoringFixture, monitoringOutput);
         if (args is ["--live-management-accounts", var managementFixture, var managementOutput])
             return StartManagementAccounts(managementFixture, managementOutput);
+        if (args is ["--owner-recovery-ui", var ownerRecoveryOutput])
+            return StartOwnerRecovery(ownerRecoveryOutput);
         if (args is ["--live-school-profile", var profileFixture, var profileOutput])
             return StartSchoolProfile(profileFixture, profileOutput);
         if (args is ["--live-first-school-console", var setupFixture, var setupOutput])

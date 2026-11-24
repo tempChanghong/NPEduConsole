@@ -13,6 +13,18 @@
       <Setter Property="CornerRadius" Value="6"/>
       <Setter Property="Padding" Value="9,5"/>
     </Style>
+    <Style Selector="Border#LoginFeedback">
+      <Setter Property="Background" Value="{DynamicResource ErrorTintBrush}" />
+    </Style>
+    <Style Selector="TextBlock#LoginMessage">
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+    </Style>
+    <Style Selector="Border#LoginFeedback.recovery-advice">
+      <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+    </Style>
+    <Style Selector="Border#LoginFeedback.recovery-advice TextBlock#LoginMessage">
+      <Setter Property="Foreground" Value="{DynamicResource InkBrush}" />
+    </Style>
     <Style Selector="Border.shell-top">
       <Setter Property="Padding" Value="16,0"/>
     </Style>
@@ -106,7 +118,12 @@
       <ScrollViewer x:Name="LoginView" Grid.Row="1" Background="{DynamicResource LoginCanvasBrush}"
                     VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel x:Name="LoginForm" MaxWidth="416" Margin="28,32" Spacing="17" VerticalAlignment="Center">
-            <TextBlock Text="管理员登录" FontSize="30" FontWeight="SemiBold" Margin="0,0,0,3"/>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock Text="管理员登录" FontSize="30" FontWeight="SemiBold" Margin="0,0,0,3"/>
+              <Button x:Name="OpenOwnerRecoveryButton" Grid.Column="1" Content="忘记所有者 PIN"
+                      VerticalAlignment="Center" Classes="server-link" Click="OpenOwnerRecoveryClicked"
+                      AutomationProperties.AutomationId="OpenOwnerRecoveryButton" />
+            </Grid>
             <Grid x:Name="KnownServerRow" IsVisible="False" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9">
               <Viewbox Width="17" Height="17" VerticalAlignment="Center">
                 <Path Classes="shell-glyph" Data="{StaticResource ServerGlyph}"/>
@@ -130,8 +147,8 @@
             <local:FormField x:Name="LocalPasswordLoginFields" Header="密码">
               <TextBox x:Name="Password" PasswordChar="●" AutomationProperties.Name="密码" />
             </local:FormField>
-            <Border x:Name="LoginFeedback" IsVisible="False" Background="{DynamicResource ErrorTintBrush}" CornerRadius="8" Padding="12,9">
-              <TextBlock x:Name="LoginMessage" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+            <Border x:Name="LoginFeedback" IsVisible="False" CornerRadius="8" Padding="12,9">
+              <TextBlock x:Name="LoginMessage" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
             </Border>
             <ProgressBar x:Name="LoginProgress" IsVisible="False" IsIndeterminate="True" Height="4" />
             <Button x:Name="LoginButton" Classes="action accent" MinHeight="42" Content="登录" Click="LoginClicked"
@@ -140,6 +157,7 @@
         </StackPanel>
       </ScrollViewer>
       <local:SchoolConnectionSetupView x:Name="SchoolConnectionSetup" Grid.Row="1" IsVisible="False"/>
+      <local:OwnerRecoveryView x:Name="OwnerRecovery" Grid.Row="1" IsVisible="False"/>
       <ContentControl x:Name="SchoolSetupHost" Grid.Row="1" IsVisible="False"
                       HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
 

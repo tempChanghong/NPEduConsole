@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" xmlns:core="using:NPEduConsole.Core"
+             x:Class="NPEduConsole.App.OwnerRecoveryView">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource LoginCanvasBrush}">
+    <Border BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,12">
+      <StackPanel MaxWidth="680" Spacing="4">
+        <TextBlock Text="恢复学校所有者 PIN" FontSize="25" FontWeight="SemiBold" />
+        <TextBlock x:Name="OwnerRecoveryVerifiedAddress" AutomationProperties.AutomationId="OwnerRecoveryVerifiedAddress"
+                   Classes="muted" TextWrapping="Wrap" IsVisible="False" />
+        <TextBlock x:Name="OwnerRecoveryVerifiedSchool" AutomationProperties.AutomationId="OwnerRecoveryVerifiedSchool"
+                   FontWeight="SemiBold" TextWrapping="Wrap" IsVisible="False" />
+        <TextBlock x:Name="OwnerRecoveryVerifiedAccount" AutomationProperties.AutomationId="OwnerRecoveryVerifiedAccount"
+                   Classes="muted" TextWrapping="Wrap" IsVisible="False" />
+      </StackPanel>
+    </Border>
+    <ScrollViewer x:Name="OwnerRecoveryEditor" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+      <StackPanel MaxWidth="680" Margin="20,12" Spacing="10">
+        <StackPanel x:Name="OwnerRecoveryTargetPane" Spacing="12">
+          <TextBlock Text="使用服务器恢复密钥办理本地所有者账号。请核对实际 KV 地址和所属学校。"
+                     Classes="muted" TextWrapping="Wrap" />
+          <local:FormField x:Name="OwnerRecoveryAddressField" Header="KV 服务地址">
+            <TextBox x:Name="OwnerRecoveryAddress" PlaceholderText="https://school.example.edu"
+                     AutomationProperties.AutomationId="OwnerRecoveryAddress" AutomationProperties.Name="KV 服务地址"
+                     TextChanged="AddressChanged" />
+          </local:FormField>
+          <local:FormField x:Name="OwnerRecoverySchoolField" Header="学校" IsVisible="False">
+            <ComboBox x:Name="OwnerRecoverySchool" PlaceholderText="选择实际所属学校" HorizontalAlignment="Stretch"
+                      AutomationProperties.AutomationId="OwnerRecoverySchool" AutomationProperties.Name="学校"
+                      SelectionChanged="SchoolChanged">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="core:OwnerRecoverySchool">
+                  <TextBlock TextWrapping="Wrap"><Run Text="{Binding Name}" /><Run Text="（" /><Run Text="{Binding Code}" /><Run Text="）" /></TextBlock>
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </local:FormField>
+        </StackPanel>
+        <StackPanel x:Name="OwnerRecoveryCredentials" Spacing="9" IsVisible="False">
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+            <local:FormField x:Name="OwnerRecoveryUsernameField" Header="所有者短账号">
+              <TextBox x:Name="OwnerRecoveryUsername" AutomationProperties.AutomationId="OwnerRecoveryUsername"
+                       AutomationProperties.Name="所有者短账号" />
+            </local:FormField>
+            <local:FormField x:Name="OwnerRecoveryKeyField" Grid.Column="1" Header="服务器恢复密钥">
+              <TextBox x:Name="OwnerRecoverySetupKey" PasswordChar="●" IsUndoEnabled="False"
+                       AutomationProperties.AutomationId="OwnerRecoverySetupKey" AutomationProperties.Name="服务器恢复密钥" />
+            </local:FormField>
+          </Grid>
+          <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+            <local:FormField x:Name="OwnerRecoveryNewPinField" Header="新 PIN">
+              <TextBox x:Name="OwnerRecoveryNewPin" PasswordChar="●" MaxLength="8" IsUndoEnabled="False"
+                       AutomationProperties.AutomationId="OwnerRecoveryNewPin" AutomationProperties.Name="新 PIN" />
+            </local:FormField>
+            <local:FormField x:Name="OwnerRecoveryRepeatPinField" Grid.Column="1" Header="再输入一次新 PIN">
+              <TextBox x:Name="OwnerRecoveryRepeatPin" PasswordChar="●" MaxLength="8" IsUndoEnabled="False"
+                       AutomationProperties.AutomationId="OwnerRecoveryRepeatPin" AutomationProperties.Name="再输入一次新 PIN" />
+            </local:FormField>
+          </Grid>
+          <TextBlock Text="恢复会启用此本地账号、解除登录锁定并结束该账号的所有已有会话。学校角色、任课和岗位保留。"
+                     Classes="muted" TextWrapping="Wrap" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+    <Border x:Name="OwnerRecoveryActions" Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0" Padding="20,9">
+      <StackPanel MaxWidth="680" Spacing="7">
+        <TextBlock x:Name="OwnerRecoveryNotice" AutomationProperties.AutomationId="OwnerRecoveryNotice"
+                   TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" IsVisible="False" />
+        <WrapPanel ItemSpacing="8" LineSpacing="4">
+          <Button x:Name="OwnerRecoveryBack" AutomationProperties.AutomationId="OwnerRecoveryBack"
+                  Content="返回登录" Classes="action" Click="BackClicked" />
+          <Button x:Name="OwnerRecoveryCheckServer" AutomationProperties.AutomationId="OwnerRecoveryCheckServer"
+                  Content="核对学校" Classes="action accent" Click="CheckClicked" />
+          <Button x:Name="OwnerRecoveryConfirmTarget" AutomationProperties.AutomationId="OwnerRecoveryConfirmTarget"
+                  Content="核对此地址和学校，继续填写" Classes="action accent" Click="ConfirmTargetClicked" IsVisible="False" />
+          <Button x:Name="OwnerRecoveryChangeTarget" AutomationProperties.AutomationId="OwnerRecoveryChangeTarget"
+                  Content="更改恢复目标" Classes="action" Click="ChangeTargetClicked" IsVisible="False" />
+          <Button x:Name="OwnerRecoverySave" AutomationProperties.AutomationId="OwnerRecoverySave"
+                  Content="确认恢复此账号" Classes="action accent" Click="SaveClicked" IsVisible="False" />
+          <Button x:Name="OwnerRecoveryReturnToLogin" AutomationProperties.AutomationId="OwnerRecoveryReturnToLogin"
+                  Content="返回并使用新 PIN 登录" Classes="action accent" Click="LoginClicked" IsVisible="False" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>
