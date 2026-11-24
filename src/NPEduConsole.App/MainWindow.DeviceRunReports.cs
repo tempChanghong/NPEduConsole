@@ -46,6 +46,7 @@ public sealed partial class MainWindow
     private void CloseDeviceRunReports()
     {
         CloseDeviceConnections();
+        CloseClassroomActionPolicy();
         _deviceRunReportsWindow?.Close();
         _deviceDiagnosticsWindow?.Close();
     }

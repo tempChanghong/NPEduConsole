@@ -1,0 +1,131 @@
+using System.Net;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
+namespace NPEduConsole.Core;
+
+public sealed partial class ConsoleClient
+{
+    private const string ActionPolicySegment = "/classroom-action-policy";
+    private static readonly Regex ActionPolicyProof = new(@"\A[0-9a-f]{64}\z", RegexOptions.NonBacktracking);
+
+    private static string ActionPolicyPath(string schoolId) => "api/v2/npep/schools/" + Segment(schoolId) + ActionPolicySegment;
+
+    public async Task<ClassroomActionCatalog> GetClassroomActionCatalogAsync(string schoolId, CancellationToken ct)
+    {
+        var catalog = await ActionPolicyRequestAsync<ClassroomActionCatalog>(HttpMethod.Get, ActionPolicyPath(schoolId), ct);
+        if (catalog.SchoolId != schoolId || RequireNonNullRows(catalog.Grades).Any(grade => string.IsNullOrWhiteSpace(grade.Id)) ||
+            RequireNonNullRows(catalog.Rooms).Any(room => string.IsNullOrWhiteSpace(room.Id) || room.TermId != catalog.Term?.Id))
+            throw InvalidResponse();
+        return catalog;
+    }
+
+    public async Task<ClassroomActionScope> GetClassroomActionScopeAsync(string schoolId, ClassroomActionTarget target, CancellationToken ct)
+    {
+        var path = ActionPolicyPath(schoolId) + $"/scope/{Segment(target.TermId)}/{Segment(target.ScopeKind)}/{Segment(target.ScopeId)}";
+        var scope = await ActionPolicyRequestAsync<ClassroomActionScope>(HttpMethod.Get, path, ct);
+        return ValidateActionScope(scope, schoolId, target);
+    }
+
+    public async Task<ClassroomActionPreview> PreviewClassroomActionAsync(string schoolId, ClassroomActionChange change, CancellationToken ct)
+    {
+        var requestId = Guid.NewGuid();
+        var preview = await ActionPolicyRequestAsync<ClassroomActionPreview>(HttpMethod.Post, ActionPolicyPath(schoolId) + "/preview", ct,
+            new {requestId, change = ActionChangeBody(change)}, requestId);
+        ValidateActionScope(preview, schoolId, change.Target);
+        if (!ActionPolicyProof.IsMatch(preview.Version) || RequireNonNullRows(preview.Issues).Any(issue =>
+                issue.Action is not ("stopScheduledMonitoring" or "exitBackground") || !preview.Rooms.Any(room => room.Id == issue.ClassId)) ||
+            preview.CanApply != (preview.Issues.Length == 0 || change.Operation != "SET_POLICY" || change.Actions is null)) throw InvalidResponse();
+        return preview;
+    }
+
+    public async Task<ClassroomActionReceipt> ApplyClassroomActionAsync(string schoolId, ClassroomActionChange change, string expectedVersion,
+        Guid requestId, CancellationToken ct)
+    {
+        var receipt = await ActionPolicyRequestAsync<ClassroomActionReceipt>(HttpMethod.Post, ActionPolicyPath(schoolId), ct,
+            new {requestId, change = ActionChangeBody(change), expectedVersion}, requestId);
+        return ValidateActionReceipt(receipt, schoolId, change, requestId);
+    }
+
+    public async Task<ClassroomActionReceipt> ReadClassroomActionReceiptAsync(string schoolId, ClassroomActionChange change, Guid requestId, CancellationToken ct)
+    {
+        var receipt = await ActionPolicyRequestAsync<ClassroomActionReceipt>(HttpMethod.Get, ActionPolicyPath(schoolId) + $"/receipts/{requestId:D}", ct);
+        return ValidateActionReceipt(receipt, schoolId, change, requestId);
+    }
+
+    private static object ActionChangeBody(ClassroomActionChange change) => new
+    {
+        change.TermId, change.ScopeKind, change.ScopeId, change.Operation, change.Actions, change.UsbKey, change.KeyId
+    };
+
+    private async Task<T> ActionPolicyRequestAsync<T>(HttpMethod method, string path, CancellationToken ct, object? body = null, Guid? id = null)
+    {
+        var session = CurrentSession;
+        var result = ReadData<T>(await SendAsync(method, path, session.Token, ct, version: "0.16", body: body, operationId: id));
+        ct.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(session, _session)) throw new ConsoleApiException(401, "登录会话已改变，请重新登录。");
+        return result;
+    }
+
+    private static ClassroomActionScope ValidateActionScope(ClassroomActionScope scope, string schoolId, ClassroomActionTarget target)
+    {
+        if (scope.SchoolId != schoolId || scope.TermId != target.TermId || scope.ScopeKind != target.ScopeKind || scope.ScopeId != target.ScopeId ||
+            !ValidActionRules(scope.SavedActions)) throw InvalidResponse();
+        var rooms = RequireNonNullRows(scope.Rooms);
+        if (rooms.Any(room => string.IsNullOrWhiteSpace(room.Id) || !ValidEffective(room.Before) || !ValidEffective(room.After)) ||
+            rooms.Select(room => room.Id).Distinct(StringComparer.Ordinal).Count() != rooms.Length ||
+            target.ScopeKind == "CLASS" && (rooms.Length != 1 || rooms[0].Id != target.ScopeId)) throw InvalidResponse();
+        var screens = RequireNonNullRows(scope.Screens);
+        if (screens.Any(screen => screen.BindingRevision < 0 || string.IsNullOrWhiteSpace(screen.BindingId) ||
+            !rooms.Any(room => room.Id == screen.ClassId) || !ValidDeviceReceipt(screen.Observed) || !ValidDeviceReceipt(screen.LastApplied)) ||
+            screens.Select(screen => screen.BindingId).Distinct(StringComparer.Ordinal).Count() != screens.Length) throw InvalidResponse();
+        if (RequireNonNullRows(scope.UsbKeys).Any(key => !Guid.TryParseExact(key.KeyId, "D", out _) || string.IsNullOrWhiteSpace(key.Label)))
+            throw InvalidResponse();
+        return scope;
+    }
+
+    private static bool ValidDeviceReceipt(ClassroomActionDeviceReceipt? receipt) => receipt is null || receipt.SchemaVersion == 1 &&
+        (receipt.Revision is null ? receipt.PolicyId is null : receipt.Revision >= 0 && receipt.PolicyId is { } id && ActionPolicyProof.IsMatch(id));
+    private static bool ValidEffective(ClassroomEffectiveAction policy) => ActionPolicyProof.IsMatch(policy.PolicyId) && policy.UsbCount is >= 0 and <= 64 && policy.RequiredRevision >= 0 &&
+        (policy.Source == "LEGACY" ? policy.Actions is null && policy.UsbCount == 0 : policy.Source is "GRADE" or "CLASS" && policy.Actions is not null && ValidActionRules(policy.Actions));
+    private static bool ValidActionRules(ClassroomActionRules? actions) => actions is null || ValidActionRule(actions.StopScheduledMonitoring) && ValidActionRule(actions.ExitBackground);
+    private static bool ValidActionRule(ClassroomActionRule rule) => rule.Mode switch
+    {
+        "VERIFY" => rule.Factor is "CLASS_PASSWORD" or "USB" or "ANY" or "ALL",
+        "ALLOW" or "DENY" => rule.Factor is null,
+        _ => false
+    };
+
+    private static ClassroomActionReceipt ValidateActionReceipt(ClassroomActionReceipt receipt, string schoolId, ClassroomActionChange change, Guid requestId)
+    {
+        if (receipt.RequestId != requestId || receipt.SchoolId != schoolId || receipt.TermId != change.TermId || receipt.ScopeKind != change.ScopeKind ||
+            receipt.ScopeId != change.ScopeId || receipt.Operation != change.Operation || receipt.Revision <= 0 || receipt.ChangedClasses < 0 ||
+            receipt.KeyId != (change.UsbKey?.KeyId ?? change.KeyId)) throw InvalidResponse();
+        return receipt;
+    }
+
+    private static async Task<ConsoleApiException> ClassroomActionErrorAsync(HttpResponseMessage response, string requestId, CancellationToken ct)
+    {
+        var status = (int)response.StatusCode;
+        if (status is 401 or 403) return HttpError(status, false);
+        Envelope? envelope = null;
+        try { envelope = await ReadEnvelopeAsync(response.Content, ct); }
+        catch (JsonException) { }
+        var code = envelope?.RequestId == requestId && envelope.ProtocolVersion == "0.16" ? envelope.Error?.Code : null;
+        return new ConsoleApiException(status, code switch
+        {
+            "ACTION_POLICY_UPGRADE_REQUIRED" or "PROTOCOL_UNSUPPORTED" => "此 KV 尚未提供大屏安全策略，请升级服务并完成数据库迁移。",
+            "ACTION_POLICY_TERM_CHANGED" or "ACTION_POLICY_SCOPE_NOT_FOUND" => "原学期、年级或班级已变化，请重新核对办理范围。",
+            "ACTION_POLICY_STALE" or "REVISION_CONFLICT" => "策略、班级口令或大屏范围已变化，请重新预览。",
+            "ACTION_POLICY_NO_CHANGE" => "当前已是此设置，可刷新核对。",
+            "ACTION_POLICY_USB_REGISTERED" => "此 U 盘在本学期已登记，或盘上的原钥匙编号已使用过。请先核对登记状态。",
+            "ACTION_POLICY_USB_LIMIT" => "此范围已有 32 支已登记 U 盘。",
+            "ACTION_POLICY_USB_CHANGED" => "此 U 盘登记已变化，请刷新原范围。",
+            "ACTION_POLICY_USB_REISSUE_UNAVAILABLE" => "无法核对这支 U 盘是本校已撤销的原钥匙，原文件保留。",
+            "ACTION_POLICY_RECEIPT_NOT_FOUND" => "暂未查到本人的这笔回执。",
+            "IDEMPOTENCY_CONFLICT" => "此请求编号已有其他办理记录，请核对原编号。",
+            null when response.StatusCode == HttpStatusCode.NotFound => "此 KV 未提供大屏安全策略入口。",
+            _ => HttpError(status, false).Message
+        }, code);
+    }
+}

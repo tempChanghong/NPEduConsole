@@ -1,0 +1,93 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPEduConsole.App.ClassroomActionPolicyWindow" Title="NPEduTools 安全策略"
+        Width="1160" Height="780" MinWidth="720" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Padding="16,9" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <StackPanel Spacing="5">
+        <TextBlock Text="NPEduTools 安全策略" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock x:Name="ActionPolicyContext" Classes="muted" TextWrapping="Wrap" />
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <ComboBox x:Name="ActionPolicyKind" AutomationProperties.Name="策略范围" MinWidth="112" SelectionChanged="KindChanged">
+            <ComboBoxItem Content="年级默认" /><ComboBoxItem Content="班级覆盖" />
+          </ComboBox>
+          <ComboBox x:Name="ActionPolicyTarget" Grid.Column="1" HorizontalAlignment="Stretch" PlaceholderText="选择年级或行政班"
+                    AutomationProperties.Name="选择年级或行政班" SelectionChanged="TargetChanged" />
+          <Button x:Name="ActionPolicyLoad" Grid.Column="2" Classes="action" Content="读取范围" Click="LoadClicked" />
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <TabControl Grid.Row="1" x:Name="ActionPolicyTabs" Margin="16,6" IsVisible="False">
+      <TabItem Header="操作权限">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="0,8,8,8" Spacing="8">
+            <TextBlock x:Name="ActionPolicySource" Classes="label" TextWrapping="Wrap" />
+            <Border Classes="card" Padding="12">
+              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="1.3*,1.1*,1.15*" RowSpacing="8" ColumnSpacing="10">
+                <TextBlock Text="停止本场学校监测" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <ComboBox x:Name="ActionPolicyStopMode" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的现场权限" SelectionChanged="RuleChanged" />
+                <ComboBox x:Name="ActionPolicyStopFactor" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的验证方式" />
+                <TextBlock Grid.Row="1" Text="退出后台" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <ComboBox x:Name="ActionPolicyExitMode" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的现场权限" SelectionChanged="RuleChanged" />
+                <ComboBox x:Name="ActionPolicyExitFactor" Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的验证方式" />
+              </Grid>
+            </Border>
+            <WrapPanel ItemSpacing="8" LineSpacing="4">
+              <Button x:Name="ActionPolicySavePreview" Classes="action accent" Content="预览策略影响" Click="PreviewRulesClicked" />
+              <Button x:Name="ActionPolicyInherit" Classes="action" Content="恢复继承" Click="PreviewInheritClicked" />
+            </WrapPanel>
+            <TextBlock Text="使用班级口令时，各班继续用自己的现行口令。返回作业板仍可直接使用。离线大屏沿用最后已应用的策略。"
+                       Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="U 盘钥匙">
+        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+          <StackPanel Margin="0,8,8,8" Spacing="8">
+            <TextBlock Text="插入要登记的 U 盘。系统会核对 USB 实物标识，并在所选盘根目录保存钥匙文件。" Classes="muted" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="8">
+              <ComboBox x:Name="ActionPolicyUsbVolumes" HorizontalAlignment="Stretch" PlaceholderText="选择已插入的 USB 存储设备" AutomationProperties.Name="选择实体 U 盘" SelectionChanged="UsbChanged" />
+              <TextBox x:Name="ActionPolicyUsbLabel" Grid.Column="1" MaxLength="64" PlaceholderText="用途或保管人" AutomationProperties.Name="U 盘登记名称" TextChanged="UsbChanged" />
+              <Button x:Name="ActionPolicyScanUsb" Grid.Column="2" Classes="action" Content="刷新 U 盘" Click="ScanUsbClicked" />
+            </Grid>
+            <WrapPanel ItemSpacing="8" LineSpacing="4">
+              <Button x:Name="ActionPolicyEnroll" Classes="action accent" Content="预览这支 U 盘的登记范围" Click="PreviewEnrollmentClicked" />
+              <Button x:Name="ActionPolicyReissue" Classes="action" Content="重新登记已撤销的 U 盘" Click="PreviewReissueClicked" />
+            </WrapPanel>
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="一支盘在本校只登记到一个范围。班级可以使用本班或所在年级登记的钥匙。请到原登记范围撤销；已撤销的盘可以重新发钥匙。" />
+            <TextBlock Text="本范围已登记的 U 盘" Classes="label" />
+            <ListBox x:Name="ActionPolicyUsbRegistry" Classes="object-list" MinHeight="48" MaxHeight="220" AutomationProperties.Name="本范围已登记 U 盘" SelectionChanged="UsbChanged" />
+            <Button x:Name="ActionPolicyRevoke" Classes="action" Content="预览撤销这支 U 盘" Click="PreviewRevokeClicked" />
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+      <TabItem Header="逐屏核对">
+        <ListBox x:Name="ActionPolicyScreenEvidence" Margin="0,8" Classes="object-list" AutomationProperties.Name="逐屏策略回执">
+          <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding .}" TextWrapping="Wrap" Margin="4" /></DataTemplate></ListBox.ItemTemplate>
+        </ListBox>
+      </TabItem>
+    </TabControl>
+
+    <Grid Grid.Row="1" x:Name="ActionPolicyReviewPane" IsVisible="False" Margin="16,10" RowDefinitions="Auto,*" RowSpacing="8">
+      <TextBlock x:Name="ActionPolicyReviewSummary" Classes="label" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+      <ListBox Grid.Row="1" x:Name="ActionPolicyReviewRows" Classes="object-list" AutomationProperties.Name="实际影响的班级和大屏">
+        <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding .}" TextWrapping="Wrap" Margin="4" /></DataTemplate></ListBox.ItemTemplate>
+      </ListBox>
+    </Grid>
+
+    <Border Grid.Row="2" Padding="16,7" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="ActionPolicyStatus" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+        <WrapPanel ItemSpacing="8" LineSpacing="4">
+          <Button x:Name="ActionPolicyClose" Classes="action" Content="返回教室设备" Click="CloseClicked" />
+          <Button x:Name="ActionPolicyRefresh" Classes="action" Content="刷新范围与回执" Click="RefreshClicked" />
+          <Button x:Name="ActionPolicyReviewBack" Classes="action" Content="返回修改" IsVisible="False" Click="ReviewBackClicked" />
+          <CheckBox x:Name="ActionPolicyConfirmed" Content="已核对本次范围与影响" IsVisible="False" IsCheckedChanged="ConfirmedChanged" />
+          <Button x:Name="ActionPolicyApply" Classes="action accent" Content="确认发布" IsVisible="False" Click="ApplyClicked" />
+          <Button x:Name="ActionPolicyReadReceipt" Classes="action" Content="查本人原回执" IsVisible="False" Click="ReadReceiptClicked" />
+          <Button x:Name="ActionPolicyRetry" Classes="action" Content="按原编号重试" IsVisible="False" Click="RetryClicked" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

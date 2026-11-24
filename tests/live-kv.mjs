@@ -63,9 +63,10 @@ import {verifyStaffReview} from './staff-review-fixture.mjs';
 import {verifyClassSubjectRules} from './class-subject-rules-fixture.mjs';
 import {verifyStudyDisplay} from './study-display-fixture.mjs';
 import {verifyDeviceFieldActions} from './device-field-actions-fixture.mjs';
+import {verifyClassroomActionPolicyConsole} from './classroom-action-policy-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
-assert.ok(checkout && binaries && (!mode || ['--classroom-action-native', '--serve', '--local-authorization', '--serve-local-authorization',
+assert.ok(checkout && binaries && (!mode || ['--classroom-action-native', '--classroom-action-policy', '--classroom-action-policy-db', '--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview', '--school-opening', '--staff-configuration',
@@ -189,6 +190,7 @@ async function createDatabase() {
     mode === '--class-rules-db' ? 'npclassworks_test_class_rules' :
     mode === '--study-display-db' ? 'npclassworks_test_study_display' :
     mode === '--device-field-actions-db' ? 'npclassworks_test_device_field_actions' :
+    mode === '--classroom-action-policy-db' ? 'npclassworks_test_classroom_action' :
     mode === '--school-login-profile-db' ? 'npclassworks_test_school_profile' :
     mode === '--management-accounts-db' ? 'npclassworks_test_management' :
     mode === '--homework-settings-db' ? 'npclassworks_test_homework_settings' :
@@ -645,6 +647,15 @@ async function runFixture() {
     finally { await copyFile(join(directory, log), join(evidence, log)); }
     return;
   }
+  if (mode === '--classroom-action-policy-db') {
+    const evidence = resolve(process.env.NP_CONSOLE_ACTION_POLICY_EVIDENCE || '.artifacts/classroom-action-policy');
+    await mkdir(evidence, {recursive: true});
+    const log = 'classroom-action-policy-pg.log';
+    try { run(process.execPath, ['--test', '--test-concurrency=1', 'tests/npepClassroomActionPolicy.integration.test.js'],
+      {...process.env, RUN_DATABASE_TESTS: 'true'}, log); }
+    finally { await copyFile(join(directory, log), join(evidence, log)); }
+    return;
+  }
   const emptySetup = ['--school-login-profile-setup', '--school-transfer-target', '--first-school-console', '--windows-release-oobe', '--organization-retirement-setup'].includes(mode) || termStatusDatabase;
   const fixture = emptySetup ? null : await seed();
   let transferIdentity;
@@ -662,6 +673,11 @@ async function runFixture() {
     instance.once('error', rej);
   });
   const origin = 'http://127.0.0.1:' + server.address().port;
+  if (mode === '--classroom-action-policy') {
+    const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
+    const evidence = resolve(process.env.NP_CONSOLE_ACTION_POLICY_EVIDENCE || '.artifacts/classroom-action-policy');
+    return verifyClassroomActionPolicyConsole({prisma, origin, fixture, fromKv, directory, evidence, runDesktop: args => runDesktop(project, args)});
+  }
   if (mode === '--classroom-action-native') {
     const {verifyNativeClassroomActions} = await import('./classroom-action-native-fixture.mjs');
     const project = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));

@@ -20,6 +20,8 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--live-classroom-action-policy", var classroomActionFixture, var classroomActionOutput])
+            return StartClassroomActionPolicy(classroomActionFixture, classroomActionOutput);
         if (args is ["--live-school-overview", var overviewFixture, var overviewOutput])
             return StartSchoolOverview(overviewFixture, overviewOutput);
         if (args is ["--live-school-opening", var openingFixture, var openingOutput])

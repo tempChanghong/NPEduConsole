@@ -21,9 +21,10 @@
     </Style>
   </UserControl.Styles>
   <Grid Margin="25,20,25,20" RowDefinitions="Auto,Auto,Auto,*" RowSpacing="12">
-    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="12">
       <TextBlock Text="教室设备" FontSize="29" FontWeight="SemiBold" VerticalAlignment="Center" />
-      <WrapPanel Grid.Column="1" ItemSpacing="6">
+      <WrapPanel x:Name="DeviceDirectoryActions" Grid.Column="1" ItemSpacing="6" LineSpacing="4">
+        <Button x:Name="DeviceActionPolicyButton" Content="NPEduTools 安全策略" Classes="action" Click="OpenActionPolicyClicked" />
         <Button x:Name="DeviceConnectionsButton" Content="大屏互联" Classes="action" Click="OpenConnectionsClicked" />
         <Button x:Name="DeviceDiagnosticExport" Content="导出原生诊断…" Classes="action" Click="OpenDiagnosticsClicked" />
         <Button x:Name="DeviceDutyDirectory" Content="大屏账号与值守" Classes="action" Click="OpenDutyDirectoryClicked" />

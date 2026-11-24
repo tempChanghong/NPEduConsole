@@ -21,6 +21,12 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
     public event Action<string?, string?, string?, Control?>? DutyRequested;
     public event Action<string, Control>? DiagnosticsRequested;
     public event Action<Control>? ConnectionsRequested;
+    public event Action<Control>? ActionPolicyRequested;
+
+    private void OpenActionPolicyClicked(object? sender, RoutedEventArgs args)
+    {
+        if (sender is Control anchor) ActionPolicyRequested?.Invoke(anchor);
+    }
 
     private void OpenConnectionsClicked(object? sender, RoutedEventArgs args)
     {
@@ -36,6 +42,13 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
         NativeFilter.SelectionChanged += (_, _) => Render();
         BrowserFilter.SelectionChanged += (_, _) => Render();
         AddHandler(KeyDownEvent, DirectoryKeyDown, RoutingStrategies.Tunnel);
+        SizeChanged += (_, args) =>
+        {
+            bool compact = args.NewSize.Width < 890;
+            Grid.SetRow(DeviceDirectoryActions, compact ? 1 : 0);
+            Grid.SetColumn(DeviceDirectoryActions, compact ? 0 : 1);
+            Grid.SetColumnSpan(DeviceDirectoryActions, compact ? 2 : 1);
+        };
     }
 
     private static void SetChoices(ComboBox filter, params string[] states)

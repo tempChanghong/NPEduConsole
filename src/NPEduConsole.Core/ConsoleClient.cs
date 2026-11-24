@@ -376,6 +376,8 @@ public sealed partial class ConsoleClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 int status = (int)response.StatusCode;
+                if (version == "0.16" && path.Contains(ActionPolicySegment, StringComparison.Ordinal))
+                    throw await ClassroomActionErrorAsync(response, requestId, ct);
                 if (path == OwnerRecoveryPath)
                     throw OwnerRecoveryError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSchoolProfilePath(path))
