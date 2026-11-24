@@ -60,6 +60,9 @@ function Wait-For([string] $checkpoint, [scriptblock] $condition, [int] $seconds
             if ($result) { return $result }
         }
         catch [Windows.Automation.ElementNotAvailableException] { }
+        catch [System.Runtime.InteropServices.COMException] {
+            if ($_.Exception.HResult -ne -2147418094 -or !$script:appProcess -or $script:appProcess.HasExited) { throw }
+        }
         Start-Sleep -Milliseconds 100
     } while ($timer.Elapsed.TotalSeconds -lt $seconds)
     throw "Timed out at $checkpoint."
@@ -275,6 +278,7 @@ try {
         Invoke-Control 'LoginButton'
         Wait-Text 'OverviewFeedback' '核对时间'
         Save-ReleaseScreenshot 'windows-school-overview' 'OpenSchoolOpeningButton'
+        if ($fixture.batch) { . (Join-Path $PSScriptRoot 'WindowsReleaseTeacherPins.ps1') }
         [ordered]@{version = $manifest.version; zipSha256 = $actualHash; api = $fixture.login.url; code = $fixture.login.code;
             runs = $moduleEvidence; screenshots = $screenEvidence} | ConvertTo-Json -Depth 8 |
             Set-Content -LiteralPath (Join-Path $evidence 'windows-login.json') -Encoding utf8
