@@ -47,11 +47,12 @@ internal static partial class Program
             await Capture(window, output, "02-grant-photo-impact");
             Find<TextBox>(window,"ManagementPin").Text = access.NewPin;
             Click(Confirm(first));
-            await Saved(window);
+            await Until(() => Find<TextBlock>(window,"ManagementStatus").Text?.Contains("请勿交付")==true &&
+                Find<Grid>(window,"ManagementPanes").IsEffectivelyEnabled, "lost successful write is confirmed by read-only receipt");
             Check(Find<TextBox>(window,"ManagementPin").Text == "", "initial PIN leaves the edit field once sent");
             Check(Find<TextBlock>(window,"ManagementAccountAuthority").Text?.Contains("待接任者") == true, "pending actual management login is shown");
             await Signal("teacher-granted");
-            Check(Find<Button>(window,"ManagementSavePin").IsEffectivelyVisible, "the confirmed PIN can be delivered for its own account");
+            Check(!Find<Button>(window,"ManagementSavePin").IsEffectivelyVisible, "a lost successful write never offers the original PIN after receipt lookup");
             Select(window, access.OwnerId);
             Check(!Find<Button>(window,"ManagementSavePin").IsEffectivelyVisible, "changing the selected identity clears any previous PIN");
             await ExportRoster(window, access, rosterPath);
@@ -79,7 +80,7 @@ internal static partial class Program
             studyRows.SelectedItem = studyRows.Items.OfType<SchoolStudyRoomRow>().Single(row=>row.Room.ClassId==access.ClassId);
             Click(classPhotos);
             var photos = await WindowOf<StudyRecordsWindow>();
-            var records = Find<StudyRecordsView>(photos,"Records");
+            var records = Find<StudyRecordsView>((StudyRecordsPage)photos.Content!,"Records");
             await Until(() => records.FindControl<ListBox>("StudyRecordsList")!.Items.OfType<StudyRecordRow>()
                 .Any(row=>row.PhotoId==access.PhotoId),"candidate used actual Console login to obtain the scoped photo directory");
             await Capture(photos,output,"03-candidate-photo-access");
@@ -109,6 +110,31 @@ internal static partial class Program
             Check(Find<TextBlock>(window,"ManagementRetryTarget").Text?.Contains("successor")==true,
                 "the original target is visible before PIN re-entry");
             await Capture(window, output,"04a-retry-missing-receipt");
+            window.Close();
+            await Until(() => !window.IsVisible, "unreceived request may be left pending");
+            Click(Find<Button>(main, "OpenClassWorkspaceButton"));
+            Click(Find<Button>(main, "OpenSchoolAffairsButton"));
+            Click(Find<Button>(main, "OpenTeacherAccountsButton"));
+            var teacherDirectory = await WindowOf<TeacherAccountsWindow>();
+            var teacherRows = Find<ListBox>(teacherDirectory, "TeacherAccountRows");
+            await Until(() => teacherRows.Items.OfType<ManagedTeacherAccount>().Any(row => row.Id == access.TeacherId), "the original teacher remains in the active directory");
+            teacherRows.SelectedItem = teacherRows.Items.OfType<ManagedTeacherAccount>().Single(row => row.Id == access.TeacherId);
+            Click(Find<Button>(teacherDirectory, "TeacherSchoolAccount"));
+            var pinned = await WindowOf<SchoolManagementAccountsWindow>();
+            await Until(() => Find<TextBlock>(pinned, "ManagementAccountTitle").Text?.Contains("viewer")==true &&
+                Find<TextBlock>(pinned, "ManagementOtherPending").IsEffectivelyVisible, "the original account stays selected next to another unresolved request");
+            Check(!Find<Button>(pinned, "ManagementReceipt").IsEffectivelyVisible &&
+                !Find<Button>(pinned, "ManagementRetry").IsEffectivelyVisible, "another account cannot read or retry the pending create from this target");
+            await Capture(pinned, output, "04a-pinned-account-other-pending", includeFrame: true);
+            pinned.Close();
+            await Until(() => !pinned.IsVisible, "the pinned account closes without ending the original request");
+            teacherDirectory.Close();
+            var globalAccounts = Find<Button>(main,"OpenSchoolManagementAccountsButton");
+            await Until(() => !teacherDirectory.IsVisible && globalAccounts.IsEffectivelyEnabled, "the school-level receipt entry is available again");
+            await Dispatcher.UIThread.InvokeAsync(() => Click(globalAccounts), DispatcherPriority.ApplicationIdle);
+            window = await WindowOf<SchoolManagementAccountsWindow>();
+            await RetryReady(window);
+            newRole = Find<ComboBox>(window,"ManagementNewRole");
             Find<TextBox>(window,"ManagementRetryPin").Text=access.HeirPin;
             Click(Find<Button>(window,"ManagementRetry"));
             await Saved(window);
@@ -165,8 +191,55 @@ internal static partial class Program
             Check(Find<TextBlock>(window,"ManagementScope").Text?.Contains("当前会话为学校管理员")==true,
                 "owner self-demotion refreshes real management capabilities");
             await Capture(window,output,"06-handoff-complete");
+
+            const string original = "MUST REMAIN EXACTLY THE SAME";
+            string protectedPath = Path.Combine(output, "preserved-existing-file.txt");
+            await File.WriteAllTextAsync(protectedPath, original);
+            Click(Find<Button>(window,"ManagementBackToList"));
+            Select(window, access.TeacherId, compact:true);
+            await ResetForDelivery(window);
+            bool cancelled = false;
+            window.SelectPinFile = _ => { cancelled = true; return Task.FromResult<IStorageFile?>(null); };
+            Click(Find<Button>(window,"ManagementSavePin"));
+            await Until(() => cancelled && Find<Button>(window,"ManagementSavePin").IsEffectivelyEnabled, "cancelled file choice can be retried");
+            Check(await File.ReadAllTextAsync(protectedPath) == original, "cancel keeps the original file");
+            window.SelectPinFile = _ => window.StorageProvider.TryGetFileFromPathAsync(protectedPath);
+            using (var locked = new FileStream(protectedPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Click(Find<Button>(window,"ManagementSavePin"));
+                await Until(() => Find<TextBlock>(window,"ManagementStatus").Text?.Contains("交付未完成")==true &&
+                    Find<Button>(window,"ManagementSavePin").IsEffectivelyEnabled, "a file replacement failure leaves delivery available");
+            }
+            Check(await File.ReadAllTextAsync(protectedPath) == original, "write error keeps the original file");
+            await TestBlockedDelivery(window, "rotate-in-file-picker", "凭据已变更");
+            await ResetForDelivery(window);
+            await TestBlockedDelivery(window, "revoke-in-file-picker", "无本校管理权限");
+            await Capture(window, output, "07-compact-delivery-revoked", includeFrame:true);
             Console.WriteLine("PASS: Windows management directory, freshly authorized photo access, compact impact focus and verified owner handover.");
             desktop.Shutdown(0);
+
+            async Task ResetForDelivery(SchoolManagementAccountsWindow selected)
+            {
+                await Until(() => Find<Button>(selected,"ManagementResetPin").IsEffectivelyEnabled, "the original selected account can be reset");
+                var review = await Review(selected,"ManagementResetPin");
+                Find<TextBox>(selected,"ManagementPin").Text = access.NewPin;
+                Click(Confirm(review));
+                await Saved(selected);
+                Check(Find<Button>(selected,"ManagementSavePin").IsEffectivelyVisible,"a fresh verified reset has one delivery");
+            }
+
+            async Task TestBlockedDelivery(SchoolManagementAccountsWindow selected, string checkpoint, string notice)
+            {
+                selected.SelectPinFile = async _ =>
+                {
+                    await Signal(checkpoint);
+                    return await selected.StorageProvider.TryGetFileFromPathAsync(protectedPath);
+                };
+                Click(Find<Button>(selected,"ManagementSavePin"));
+                await Until(() => Find<TextBlock>(selected,"ManagementStatus").Text?.Contains(notice)==true &&
+                    !Find<Button>(selected,"ManagementSavePin").IsEffectivelyVisible,"the current server decision stops stale delivery");
+                Check(await File.ReadAllTextAsync(protectedPath) == original, "the previous file survives the server rejecting delivery");
+            }
         }
         catch (Exception error)
         {

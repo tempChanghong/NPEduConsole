@@ -12,7 +12,8 @@ public sealed record SchoolManagementAccount(string Id, string Name, string? Use
     public bool IsManagement => Role is "OWNER" or "ADMIN";
 }
 
-public sealed record SchoolManagementDirectory(string SchoolId, string ActorId, string ActorRole, SchoolManagementAccount[] Accounts)
+public sealed record SchoolManagementDirectory(string SchoolId, string ActorId, string ActorRole, SchoolManagementAccount[] Accounts,
+    string? SchoolCode = null)
 {
     internal Guid SessionId { get; init; }
 }
@@ -23,7 +24,10 @@ public sealed record SchoolManagementCommand(string Action, string? AccountId = 
 public sealed record SchoolManagementPreview(string Fingerprint, string Title, string[] Consequences, bool CanConfirm,
     string? BlockedCode, bool NeedsPin);
 
-public sealed record SchoolManagementReceipt(Guid RequestId, string AccountId, string Action, string? Role, bool Replayed = false);
+public sealed record SchoolManagementPinProof(string AccountId, string Username, int CredentialVersion);
+
+public sealed record SchoolManagementReceipt(Guid RequestId, string AccountId, string Action, string? Role, bool Replayed = false,
+    SchoolManagementPinProof? CredentialDelivery = null);
 
 public sealed partial class ConsoleClient
 {
@@ -65,10 +69,19 @@ public sealed partial class ConsoleClient
         var body = ManagementPayload(command);
         body["requestId"] = requestId;
         body["expectedFingerprint"] = preview.Fingerprint;
-        if (pin is not null) body["pin"] = pin;
+        if (pin is not null)
+        {
+            body["pin"] = pin;
+            if (!string.IsNullOrWhiteSpace(directory.SchoolCode)) body["requestCredentialDelivery"] = true;
+        }
         var value = await RequestAsync<SchoolManagementReceipt>(HttpMethod.Post, SchoolManagementPath(directory.SchoolId), session.Token, ct, body: body);
         CheckCreationSession(session, ct);
-        return VerifyManagementReceipt(value, requestId, command);
+        var receipt = VerifyManagementReceipt(value, requestId, command);
+        if (receipt.CredentialDelivery is { } proof && (receipt.Replayed || pin is null || proof.AccountId != receipt.AccountId ||
+            string.IsNullOrWhiteSpace(proof.Username) || proof.CredentialVersion < 1 ||
+            command.Username is { } expected && !string.Equals(expected.Trim(), proof.Username, StringComparison.OrdinalIgnoreCase)))
+            throw InvalidResponse();
+        return receipt;
     }
 
     public async Task<SchoolManagementReceipt?> GetSchoolManagementReceiptAsync(string school, SchoolManagementCommand command,
@@ -79,13 +92,23 @@ public sealed partial class ConsoleClient
         {
             var receipt = await RequestAsync<SchoolManagementReceipt>(HttpMethod.Get, SchoolManagementPath(school) + $"/requests/{requestId:D}", session.Token, ct);
             CheckCreationSession(session, ct);
-            return VerifyManagementReceipt(receipt, requestId, command);
+            return VerifyManagementReceipt(receipt, requestId, command) with { CredentialDelivery = null };
         }
         catch (ConsoleApiException error) when (error is {StatusCode: 404, Code: "MANAGEMENT_ACCOUNT_RECEIPT_NOT_FOUND"})
         {
             CheckCreationSession(session, ct);
             return null;
         }
+    }
+
+    public async Task VerifySchoolManagementPinDeliveryAsync(SchoolManagementDirectory directory, Guid requestId,
+        SchoolManagementPinProof proof, CancellationToken ct)
+    {
+        var session = CheckManagementDirectory(directory);
+        var path = SchoolManagementPath(directory.SchoolId) + $"/requests/{requestId:D}/pin-delivery";
+        var current = await RequestAsync<SchoolManagementPinProof>(HttpMethod.Get, path, session.Token, ct);
+        CheckCreationSession(session, ct);
+        if (current != proof) throw new ConsoleApiException(409, "账号或凭据已变更。需要新 PIN 时请另行重置。", "MANAGEMENT_PIN_DELIVERY_CHANGED");
     }
 
     public async Task ChangeOwnSchoolPinAsync(string currentPin, string newPin, CancellationToken ct)
@@ -155,6 +178,7 @@ public sealed partial class ConsoleClient
             "INVALID_MANAGEMENT_ACCOUNT_TARGET" => "请核对短账号（2 至 32 位）与目标角色。",
             "INVALID_ACCOUNT_NAME" => "姓名需为 1 至 64 个字符。",
             "MANAGEMENT_ACCOUNT_NOT_FOUND" => "该账号已不在本校目录。",
+            "MANAGEMENT_PIN_DELIVERY_CHANGED" => "账号或凭据已变更。需要新 PIN 时请另行重置。",
             null when status == 404 => "当前 KV 版本暂无账号与权限入口，请先更新 KV。",
             _ => HttpError(status, false).Message
         }, code) { RelatedAccountId = related };

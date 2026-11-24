@@ -46,6 +46,11 @@ public sealed partial class MainWindow
             await ShowTeacherAccountsAsync(client, school, target.AccountId);
             return;
         }
+        if (target.Action == OpeningAction.ManagementAccounts && target.AccountId is { } accountId)
+        {
+            await ShowSchoolManagementAccountsAsync(this, client, school, accountId);
+            return;
+        }
         if (target.Action == OpeningAction.StaffConfiguration)
         {
             await ShowStaffConfigurationAsync(client, school, term?.Id);

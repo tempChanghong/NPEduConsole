@@ -3,7 +3,7 @@ using NPEduConsole.Core;
 namespace NPEduConsole.App;
 
 internal enum OpeningStage { Organization, Teachers, Classrooms }
-internal enum OpeningAction { Terms, Import, Class, ClassDirectory, Accounts, Access, StaffConfiguration, Teaching, Duty, StaffReview, CourseGroups, Screen, InactiveScreens, Placement }
+internal enum OpeningAction { Terms, Import, Class, ClassDirectory, Accounts, ManagementAccounts, Access, StaffConfiguration, Teaching, Duty, StaffReview, CourseGroups, Screen, InactiveScreens, Placement }
 internal sealed record OpeningTarget(OpeningAction Action, string? ClassId = null, string? GradeId = null,
     string? SubjectId = null, string? AccountId = null, string? GroupId = null, string? BindingId = null,
     string? IssueKey = null, bool CreateGrade = false);
@@ -117,6 +117,7 @@ internal sealed record SchoolOpeningSnapshot(SchoolOverview Overview, TeacherAll
         "OPEN_STAFF_REVIEW" => (new(OpeningAction.StaffReview, ClassId: task.ClassId, GradeId: task.GradeId,
             AccountId: task.AccountId, IssueKey: StaffReviewIssue.IssueKey(task.Code, task.GradeId, task.ClassId, task.AccountId)), "核对师资"),
         "OPEN_TEACHER_ACCOUNT" => (new(OpeningAction.Accounts, AccountId: task.AccountId), "查看教师账号"),
+        "OPEN_MANAGEMENT_ACCOUNT" => (new(OpeningAction.ManagementAccounts, AccountId: task.AccountId), "核对原账号与权限"),
         "PREPARE_SCREEN" => (new(OpeningAction.Screen, ClassId: task.ClassId), "登记本班大屏"),
         "OPEN_TERM_SCREEN_PLACEMENT" => (new(OpeningAction.Placement, BindingId: task.ScreenId), "安排至当前学期"),
         "OPEN_WEB" when task.Code == "ADMIN_CLASS_SCREEN_INACTIVE" && task.ClassId is not null =>

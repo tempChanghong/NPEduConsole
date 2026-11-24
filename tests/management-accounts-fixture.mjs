@@ -141,12 +141,18 @@ export async function verifyManagementAccounts({prisma, origin, fixture, fromKv,
           assert.deepEqual(await prisma.schoolMember.findMany({where:{schoolId:school.id,role:'OWNER'},select:{accountId:true}}),[{accountId:heirId}]);
           assert.equal((await getDirectory(ownerToken)).actorRole,'ADMIN');
           await api(management+'/preview',{token:ownerToken,method:'POST',body:{action:'ROLE',accountId:heirId,role:'VIEWER'},status:403});
+        } else if(step==='rotate-in-file-picker'){
+          const heir=await login('successor',heirPin);
+          await api(layer+'/local-accounts/'+teacher.id,{token:heir.access_token,method:'PATCH',body:{pin:heirPin}});
+        } else if(step==='revoke-in-file-picker'){
+          const heir=await login('successor',heirPin);
+          await change({action:'ROLE',accountId:managerId,role:'VIEWER'},heir.access_token);
         } else throw new Error('Unexpected checkpoint '+step);
         steps.push(step);res.writeHead(204).end();
       } catch(error){console.error(error);res.writeHead(500).end();}
       return;
     }
-    if(req.method==='GET'&&req.url.startsWith(management+'/requests/')) receiptReads++;
+    if(req.method==='GET'&&req.url.startsWith(management+'/requests/')&&!req.url.endsWith('/pin-delivery')) receiptReads++;
     let body;
     if(req.method==='POST'&&req.url===management){
       try {
@@ -203,7 +209,7 @@ export async function verifyManagementAccounts({prisma, origin, fixture, fromKv,
     const receiptRows=await prisma.$queryRaw`SELECT digest,result FROM "SchoolManagementAccountReceipt" WHERE "schoolId"=${school.id}`;
     const serialized=JSON.stringify(receiptRows);
     for(const secret of [pin,newPin,heirPin]) assert.ok(!serialized.includes('"'+secret+'"'));
-    assert.equal(receiptReads,5);
+    assert.equal(receiptReads,6);
     await writeFile(join(evidence,'cross-end-result.json'),JSON.stringify({passed:true,checks:steps,originalOwner:managerId,
       successor:heirId,teacher:teacher.id,originalClass:classId,photoId,receiptReads,oauth:'real KV handoff through isolated HLY'},null,2));
   } finally {

@@ -10,6 +10,7 @@
     </Border>
     <Grid Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="8" Margin="13,8">
       <TextBlock x:Name="ManagementStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+      <TextBlock x:Name="ManagementOtherPending" Text="本校另有一笔操作待核对。请关闭此页，从「账号与权限」打开原回执。" TextWrapping="Wrap" IsVisible="False"/>
       <Grid Grid.Row="1">
         <Grid x:Name="ManagementPanes" ColumnDefinitions="*,1.2*" ColumnSpacing="10">
           <Border x:Name="ManagementListPane" Classes="card" Padding="10">

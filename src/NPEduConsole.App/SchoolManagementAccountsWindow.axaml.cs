@@ -17,11 +17,12 @@ public sealed partial class SchoolManagementAccountsWindow : Window
     private sealed record RoleChoice(string Key, string Name) { public override string ToString() => Name; }
     private sealed record PendingAccountOperation(Guid Id, SchoolManagementCommand Command, SchoolManagementPreview Preview,
         string ActorId, bool CheckedMissing = false);
-    private sealed record PinDelivery(string AccountId, string Pin);
+    private sealed record PinDelivery(Guid RequestId, SchoolManagementPinProof Proof, InitialPinDelivery<int> Material);
     private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<string, PendingAccountOperation>> Operations = new();
     private static readonly RoleChoice[] Roles = [new("OWNER","学校所有者"),new("ADMIN","学校管理员"),new("MANAGER","学校 MANAGER"),new("VIEWER","普通学校成员")];
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
+    private string? _requestedAccountId;
     private readonly CancellationTokenSource _lifetime = new();
     private SchoolManagementDirectory? _directory;
     private SchoolManagementCommand? _command;
@@ -38,9 +39,10 @@ public sealed partial class SchoolManagementAccountsWindow : Window
     {
         _client = client;
         _school = school;
+        _requestedAccountId = accountId;
         _selectedId = accountId;
         _detail = accountId is not null;
-        ManagementScope.Text = school.Name + " · 全校账号";
+        ManagementScope.Text = school.Name + (accountId is null ? " · 全校账号" : $" · 待办账号编号 {accountId}");
         ManagementFilter.ItemsSource = new[] {"管理账号","全部账号","待接任登录"};
         ManagementFilter.SelectedIndex = accountId is null ? 0 : 1;
         ManagementNewRole.ItemsSource = Roles.Take(2).Reverse().ToArray();
@@ -74,9 +76,12 @@ public sealed partial class SchoolManagementAccountsWindow : Window
     internal bool Changed { get; private set; }
     internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }
     internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectRosterFile { private get; set; }
+    internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectPinFile { private get; set; }
     internal void CloseForScopeChange() { _writing = false; Close(); }
     private Dictionary<string, PendingAccountOperation> PendingBySchool => Operations.GetOrCreateValue(_client);
-    private PendingAccountOperation? Pending => PendingBySchool.GetValueOrDefault(_school.Id);
+    private PendingAccountOperation? SchoolPending => PendingBySchool.GetValueOrDefault(_school.Id);
+    private PendingAccountOperation? Pending => SchoolPending is { } pending &&
+        (_requestedAccountId is null || pending.Command.AccountId == _requestedAccountId) ? pending : null;
     private SchoolManagementAccount? Current => _directory?.Accounts.SingleOrDefault(account => account.Id == _selectedId);
 
     private async Task LoadAsync()
@@ -85,7 +90,6 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         if (_closed) return;
         _directory = directory;
         _matchesOwner = directory.ActorRole == "OWNER";
-        ManagementScope.Text = $"{_school.Name} · 当前会话为{RoleText(directory.ActorRole)}";
         ManagementRole.SelectedItem = Roles.FirstOrDefault(choice => choice.Key == Current?.Role) ?? Roles[^1];
         Filter();
     }
@@ -98,7 +102,7 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         var query = ManagementSearch.Text?.Trim() ?? "";
         var rows = _directory?.Accounts.Where(account =>
             (ManagementFilter.SelectedIndex == 1 || (ManagementFilter.SelectedIndex == 2 ? account.AwaitsManagementLogin : account.IsManagement)) &&
-            account.Display.Contains(query, StringComparison.OrdinalIgnoreCase))
+            (account.Display.Contains(query, StringComparison.OrdinalIgnoreCase) || account.Id.Contains(query, StringComparison.Ordinal)))
             .Select(account => new ManagementAccountRow(account, account.Display, AccountLabel(account))).ToArray() ?? [];
         _binding = true;
         ManagementRows.ItemsSource = rows;
@@ -110,6 +114,7 @@ public sealed partial class SchoolManagementAccountsWindow : Window
     private void AccountChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_binding || ManagementRows.SelectedItem is not ManagementAccountRow row) return;
+        if (_requestedAccountId is { } requested && row.Account.Id != requested) _requestedAccountId = null;
         if (_selectedId != row.Account.Id) _pinDelivery = null;
         _selectedId = row.Account.Id;
         _create = _ownPin = false;
@@ -144,7 +149,7 @@ public sealed partial class SchoolManagementAccountsWindow : Window
     private void LayoutPanes()
     {
         bool narrow = ClientSize.Width < 900;
-        bool detail = _detail && (Current is not null || _create);
+        bool detail = _detail && (Current is not null || _create || _requestedAccountId is not null);
         ManagementPanes.ColumnDefinitions = new(narrow ? "*" : "*,1.2*");
         ManagementListPane.IsVisible = !narrow || !detail;
         ManagementDetailPane.IsVisible = !narrow || detail;
@@ -162,7 +167,9 @@ public sealed partial class SchoolManagementAccountsWindow : Window
     {
         if (_client is null || _closed) return;
         var account = Current;
-        bool editing = !_busy && Pending is null && _directory is not null;
+        ManagementScope.Text = _school.Name + (_directory is { } directory ? $" · 当前会话为{RoleText(directory.ActorRole)}" : "") +
+            (_requestedAccountId is { } requested ? $" · 待办账号编号 {requested}" : "");
+        bool editing = !_busy && SchoolPending is null && _directory is not null;
         bool self = account?.Id == _directory?.ActorId;
         bool otherCanEdit = account is not null && !self && (_matchesOwner || !account.IsManagement);
         bool details = account is not null && !_create;
@@ -189,7 +196,7 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         ManagementConfirmation.IsVisible = _preview is not null;
         ManagementConfirmation.IsEnabled = !_busy;
         ManagementPinFields.IsVisible = _preview is {NeedsPin: true,CanConfirm:true};
-        ManagementCreate.IsVisible = _matchesOwner && _preview is null;
+        ManagementCreate.IsVisible = _matchesOwner && _preview is null && _requestedAccountId is null;
         ManagementCreate.IsEnabled = editing;
         ManagementRefresh.IsEnabled = !_busy && Pending is null && _preview is null;
         ManagementSchoolProfile.IsVisible = OpenSchoolProfile is not null && _preview is null;
@@ -197,6 +204,7 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         ManagementExportRoster.IsVisible = _preview is null && Pending is null && _directory is not null;
         ManagementExportRoster.IsEnabled = editing;
         ManagementReceipt.IsVisible = Pending is not null;
+        ManagementOtherPending.IsVisible = SchoolPending is not null && Pending is null;
         ManagementReceipt.IsEnabled = !_busy;
         ManagementRetryPane.IsVisible = Pending is { } && _preview is null;
         ManagementRetryPane.IsEnabled = !_busy;
@@ -336,13 +344,17 @@ public sealed partial class SchoolManagementAccountsWindow : Window
             }
             catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
             {
-                await RecoverAsync(pending, retry ? null : pin);
+                _writing = false;
+                Render();
+                await RecoverAsync(pending);
                 return;
             }
             catch (ConsoleApiException)
             {
                 if (retry)
                 {
+                    _writing = false;
+                    Render();
                     await RecoverAsync(pending);
                     if (Pending is null || _closed) return;
                 }
@@ -363,11 +375,11 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         ManagementStatus.Text = Pending is {CheckedMissing:true} ? "保存结果待核对" : "保存回执待核对。请重新读取原请求回执。";
     }
 
-    private async Task RecoverAsync(PendingAccountOperation operation, string? originalPin = null)
+    private async Task RecoverAsync(PendingAccountOperation operation)
     {
         var result = await _client.GetSchoolManagementReceiptAsync(_school.Id, operation.Command, operation.Id, _lifetime.Token);
         if (_closed) return;
-        if (result is not null) await FinishAsync(operation, result, originalPin);
+        if (result is not null) await FinishAsync(operation, result, null);
         else
         {
             PendingBySchool[_school.Id] = operation with {CheckedMissing = true};
@@ -385,9 +397,10 @@ public sealed partial class SchoolManagementAccountsWindow : Window
         _create = false;
         _selectedId = result.AccountId;
         _detail = true;
-        _pinDelivery = pin is null ? null : new(result.AccountId, pin);
+        _pinDelivery = pin is not null && result.CredentialDelivery is { } proof
+            ? new(result.RequestId, proof, new(proof.AccountId, proof.Username, pin, proof.CredentialVersion)) : null;
         ManagementNewName.Text = ManagementNewUsername.Text = "";
-        ManagementStatus.Text = pending.Preview.NeedsPin && pin is null
+        ManagementStatus.Text = pending.Preview.NeedsPin && _pinDelivery is null
             ? "服务器已确认原操作。无法确认这次输入的 PIN 已生效，请勿交付。需要新 PIN 时请另行重置。"
             : "服务器已确认本次操作。";
         if (self && result.Action == "ROLE" && result.Role is not ("OWNER" or "ADMIN"))
@@ -479,17 +492,18 @@ public sealed partial class SchoolManagementAccountsWindow : Window
 
     private async void ExportPin(object? sender, RoutedEventArgs e)
     {
-        if (_pinDelivery is not { } delivery || _directory?.Accounts.SingleOrDefault(row => row.Id == delivery.AccountId)?.Username is not { } username) return;
+        if (_pinDelivery is not { } delivery || _directory is not { SchoolCode: { Length: > 0 } code } directory ||
+            Current?.Id != delivery.Proof.AccountId) return;
         await RunAsync(async () =>
         {
-            using var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-                {Title = "另存本次交付的账号与 PIN", SuggestedFileName = $"账号交付-{username}.txt", DefaultExtension = "txt"});
-            _lifetime.Token.ThrowIfCancellationRequested();
-            if (file is null) return;
-            await using var stream = await file.OpenWriteAsync();
-            if (stream.CanSeek) stream.SetLength(0);
-            await using var writer = new StreamWriter(stream);
-            await writer.WriteAsync($"{_school.Name}\r\n短账号 {username}\r\n个人 PIN {delivery.Pin}".AsMemory(), _lifetime.Token);
+            async Task<bool> Verify()
+            {
+                try { await _client.VerifySchoolManagementPinDeliveryAsync(directory, delivery.RequestId, delivery.Proof, _lifetime.Token); }
+                catch (ConsoleApiException error) when (error.StatusCode is 401 or 403 or 404 or 409)
+                { _pinDelivery = null; throw; }
+                return !_closed && _pinDelivery == delivery && Current?.Id == delivery.Proof.AccountId;
+            }
+            if (!await delivery.Material.DeliverAsync(this, true, _school.Name, code, "短账号", Verify, _lifetime.Token, SelectPinFile)) return;
             _pinDelivery = null;
             ManagementStatus.Text = "已另存本次凭据，窗口中的临时 PIN 已清除。";
         });

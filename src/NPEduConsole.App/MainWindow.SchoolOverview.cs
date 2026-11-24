@@ -59,6 +59,12 @@ public sealed partial class MainWindow
                 if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
+            if (task.Action == "OPEN_MANAGEMENT_ACCOUNT" && task.AccountId is { } accountId)
+            {
+                await ShowSchoolManagementAccountsAsync(this, client, school, accountId);
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
+                return;
+            }
             if (task.Action == "OPEN_SCREEN_DUTY" && task.ScreenId is { } dutyBinding)
             {
                 await ShowScreenDutyAsync(client, school, dutyBinding, task.ClassId, restoreTask: true);
@@ -183,7 +189,8 @@ public sealed partial class MainWindow
     private void OpenOverviewWebTask(ConsoleClient client, School school, SchoolOverview overview, SchoolOverviewTask task)
     {
         if (OverviewTaskItem.WebSection(task) is not { } section) return;
-        if (SchoolAdminBrowser.Link(overview.AdminUrl, school.Id, task.SourceTermId ?? overview.Term?.Id, section, task.ScreenId, task.ClassId) is not { } link)
+        if (SchoolAdminBrowser.Link(overview.AdminUrl, school.Id, task.SourceTermId ?? overview.Term?.Id, section,
+                task.ScreenId, task.ClassId, task.AccountId) is not { } link)
         {
             SchoolOverviewWorkspace.ShowNavigationMessage("KV 未提供网页地址。请在原 NPClassworks 网页的「学校管理」打开对应入口。");
             return;

@@ -262,6 +262,7 @@ public sealed partial class SchoolOverviewView : UserControl
             "OPEN_COURSE_GROUP_SOURCE" => "核对走班来源",
             "OPEN_TERM_PREPARATION" => "打开学期管理",
             "OPEN_TEACHER_ACCOUNT" => "查看教师账号",
+            "OPEN_MANAGEMENT_ACCOUNT" => "核对原账号与权限",
             "OPEN_CLASS_RESPONSIBILITY" => "办理班主任",
             "OPEN_GRADE_RESPONSIBILITY" => "办理年级组长",
             "OPEN_STAFF_REVIEW" => "打开师资核对",
