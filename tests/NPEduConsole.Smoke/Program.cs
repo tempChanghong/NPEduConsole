@@ -1,6 +1,12 @@
 using System.Text.Json;
 using NPEduConsole.Core;
 
+if (args is ["--teacher-pin-csv"])
+{
+    await TeacherPinCsvChecks.VerifyAsync();
+    return;
+}
+
 if (args is ["--class-rule-source-review"])
 {
     ClassRuleSourceReviewChecks.Verify();

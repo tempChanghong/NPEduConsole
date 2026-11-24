@@ -472,18 +472,10 @@ public sealed partial class SchoolManagementAccountsWindow : Window
                 account.Source == "LOCAL" ? "本地" : "OAuth", RoleText(account.Role),
                 account.Disabled ? "已停用" : account.AwaitsManagementLogin ? "待管理登录" : "可登录",
                 account.LastLoginAt?.ToString("O"), workspaces];
-            await writer.WriteLineAsync(string.Join(',', cells.Select(CsvCell)).AsMemory(), _lifetime.Token);
+            await writer.WriteLineAsync(string.Join(',', cells.Select(SpreadsheetCsv.Cell)).AsMemory(), _lifetime.Token);
         }
         ManagementStatus.Text = "已导出全校名册。当前列表筛选不影响导出范围。";
     });
-
-    private static string CsvCell(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return "\"\"";
-        var first = value.AsSpan().TrimStart();
-        if (first.Length > 0 && first[0] is '=' or '+' or '-' or '@' || value[0] is '\t' or '\r' or '\n') value = "'" + value;
-        return "\"" + value.Replace("\"", "\"\"") + "\"";
-    }
 
     private async void ExportPin(object? sender, RoutedEventArgs e)
     {

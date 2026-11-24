@@ -42,11 +42,13 @@ public sealed partial class ConsoleClient
         CheckCreationSession(session, ct);
         if (data.SchoolId != school || term is not null && data.TermId != term || data.GradeId != grade ||
             data.Mode is not ("LOCAL_PIN" or "SHARED_PASSWORD" or "OAUTH_EMAIL") ||
-            data.Terms.Any(row => row.Status is not ("ACTIVE" or "DRAFT") && !(archivedCorrection && row.Status == "ARCHIVED")) ||
+            data.Terms.Any(row => row is null || row.Status is not ("ACTIVE" or "DRAFT") && !(archivedCorrection && row.Status == "ARCHIVED")) ||
+            data.Terms.Select(row => row.Id).Distinct().Count() != data.Terms.Length ||
+            data.Grades.Any(row => row is null) || data.Accounts.Any(row => row is null) ||
             archivedCorrection && !data.Terms.Any(row => row.Id == term && row.Status == "ARCHIVED") ||
             data.TermId is not null && !data.Terms.Any(row => row.Id == data.TermId) ||
             data.GradeId is not null && !data.Grades.Any(row => row.Id == data.GradeId) ||
-            data.Workspaces.Any(row => row.TermId != data.TermId || grade is not null && row.GradeId != grade))
+            data.Workspaces.Any(row => row is null || row.TermId != data.TermId || grade is not null && row.GradeId != grade))
             throw InvalidResponse();
         return data;
     }
@@ -77,7 +79,8 @@ public sealed partial class ConsoleClient
             VerifyAllocationReceipt(receipt, draft, requestId);
             if (data.AppliedPins is { } proofs &&
                 (draft.Mode != "LOCAL_PIN" || draft.ArchivedCorrection ||
-                    proofs.Any(item => item.Version < 0) ||
+                    proofs.Any(item => item is null || item.Version < 0 || string.IsNullOrWhiteSpace(item.AccountId)) ||
+                    proofs.Select(item => item.AccountId).Distinct().Count() != proofs.Length ||
                     !proofs.Select(item => item.AccountId).Order().SequenceEqual(receipt.Teachers
                         .Where(row => row.Created).Select(row => row.AccountId).Order())))
                 throw InvalidResponse();
@@ -125,13 +128,16 @@ public sealed partial class ConsoleClient
     private static void VerifyAllocationReceipt(TeacherAllocationReceipt receipt, TeacherAllocationDraft draft, Guid requestId)
     {
         if (receipt.RequestId != requestId || receipt.TermId != draft.TermId || receipt.TermStatus != draft.TermStatus ||
-            receipt.GradeId != draft.GradeId || receipt.Teachers.Length != draft.Teachers.Length)
+            receipt.GradeId != draft.GradeId || receipt.Teachers.Length != draft.Teachers.Length || receipt.Teachers.Any(row => row is null))
             throw InvalidResponse();
+        var accounts = new HashSet<string>(StringComparer.Ordinal);
         for (var i = 0; i < draft.Teachers.Length; i++)
         {
             var input = draft.Teachers[i];
             var result = receipt.Teachers[i];
-            if (input.AccountId is not null && result.AccountId != input.AccountId || result.Created && (draft.ArchivedCorrection || result.AccountId is null) ||
+            if (result.AccountId is { } id && (string.IsNullOrWhiteSpace(id) || !accounts.Add(id)) ||
+                input.AccountId is not null && result.AccountId != input.AccountId ||
+                result.Created && (draft.ArchivedCorrection || input.AccountId is not null || string.IsNullOrWhiteSpace(result.AccountId)) ||
                 input.Username is not null && !string.Equals(input.Username.Trim(), result.Username, StringComparison.OrdinalIgnoreCase) ||
                 input.Email is not null && !string.Equals(input.Email.Trim(), result.Email, StringComparison.OrdinalIgnoreCase) ||
                 input.Access.Length != result.Access.Length)
@@ -140,7 +146,7 @@ public sealed partial class ConsoleClient
             {
                 var row = input.Access[j];
                 var confirmed = result.Access[j];
-                if (row.WorkspaceId is not null && confirmed.WorkspaceId != row.WorkspaceId ||
+                if (confirmed is null || row.WorkspaceId is not null && confirmed.WorkspaceId != row.WorkspaceId ||
                     confirmed.State is not ("MEMBER" or "INVITED" or "REMOVED" or "REVOKED") ||
                     row.Operation == "SET" && (confirmed.Role != row.Role || confirmed.State is not ("MEMBER" or "INVITED") ||
                         draft.ArchivedCorrection && confirmed.State != "MEMBER") ||
