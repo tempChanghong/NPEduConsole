@@ -153,7 +153,7 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   }
 }
 
-export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent, afterSelection, realtime = false}) {
+export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent, afterSelection, realtime = false, separateApi = false}) {
   const require = createRequire(join(web, 'package.json'));
   const {chromium} = require('@playwright/test');
   const outDir = join(directory, 'walking-web-build');
@@ -162,15 +162,16 @@ export async function verifyStudentBrowser({origin, web, directory, evidence, sc
   const proxy = {'/api': origin, '/accounts': origin};
   if (realtime) proxy['/socket.io'] = {target: origin, ws: true};
   const frontend = await preview({configFile: false, root: web, build: {outDir}, preview: {
-    host: '127.0.0.1', port: 0, proxy
+    host: '127.0.0.1', port: 0, proxy: separateApi ? undefined : proxy
   }});
   const url = 'http://127.0.0.1:' + frontend.httpServer.address().port;
+  const api = separateApi ? origin : url;
   let browser, page;
   try {
     await new Promise((resolve, reject) => {
       const build = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'warn', '--outDir', outDir], {
-        cwd: web, env: {...process.env, VITE_DEFAULT_KV_SERVER: url, VITE_DEFAULT_AUTH_SERVER: url,
-          VITE_SERVER_URL: url, VITE_ENABLE_ANALYTICS: 'false'}, stdio: 'inherit', windowsHide: true
+        cwd: web, env: {...process.env, VITE_DEFAULT_KV_SERVER: api, VITE_DEFAULT_AUTH_SERVER: api,
+          VITE_SERVER_URL: api, VITE_ENABLE_ANALYTICS: 'false'}, stdio: 'inherit', windowsHide: true
       });
       build.once('error', reject);
       build.once('exit', code => code === 0 ? resolve() : reject(new Error('Student web build failed')));

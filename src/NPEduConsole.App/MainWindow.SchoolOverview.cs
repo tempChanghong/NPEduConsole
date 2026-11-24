@@ -105,6 +105,13 @@ public sealed partial class MainWindow
                 else await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
+            if (task is {Action: "OPEN_WEB", Code: "ADMIN_CLASS_SCREEN_INACTIVE", ClassId: { } inactiveClass} &&
+                overview.Term is { } inactiveTerm)
+            {
+                await ShowScreenDutyAsync(client, school, null, inactiveClass, restoreTask: true,
+                    inactiveTermId: inactiveTerm.Id, adminUrl: overview.AdminUrl);
+                return;
+            }
             if (task.Action == "OPEN_WEB")
             {
                 OpenOverviewWebTask(client, school, overview, task);

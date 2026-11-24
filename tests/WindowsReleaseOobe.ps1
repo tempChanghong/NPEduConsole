@@ -3,13 +3,15 @@ param(
     [Parameter(Mandatory)][string] $FixturePath,
     [Parameter(Mandatory)][string] $ZipPath,
     [Parameter(Mandatory)][string] $EvidenceDirectory,
-    [string] $ManifestPath
+    [string] $ManifestPath,
+    [switch] $ManagementLogin
 )
 
 $ErrorActionPreference = 'Stop'
 $fixture = Get-Content -LiteralPath $FixturePath -Raw | ConvertFrom-Json
 if (!$fixture.isolated) { throw 'This acceptance test requires disposable school servers.' }
-foreach ($address in @($fixture.same.url, $fixture.split.url, $fixture.split.website)) {
+$origins = if ($ManagementLogin) { @($fixture.login.url, $fixture.login.website) } else { @($fixture.same.url, $fixture.split.url, $fixture.split.website) }
+foreach ($address in $origins) {
     $uri = [Uri] $address
     if (!$uri.IsAbsoluteUri -or $uri.Scheme -ne 'http' -or $uri.Host -ne '127.0.0.1' -or $uri.UserInfo -or $uri.Query -or $uri.Fragment) {
         throw 'The fixture must use uncredentialed IPv4 loopback origins.'
@@ -221,6 +223,20 @@ function Complete-School($instance) {
 try {
     [IO.Compression.ZipFile]::ExtractToDirectory($zipItem.FullName, $expanded)
     Start-ReleaseConsole
+    if ($ManagementLogin) {
+        Size-ReleaseWindow 1160 780
+        Set-Field 'ServerAddress' $fixture.login.url
+        Set-Field 'SchoolCode' $fixture.login.code
+        Set-Field 'Username' $fixture.login.username
+        Set-Field 'Password' $fixture.login.pin -Secret
+        Invoke-Control 'LoginButton'
+        Wait-Text 'OverviewFeedback' '核对时间'
+        Save-ReleaseScreenshot 'windows-school-overview' 'OpenSchoolOpeningButton'
+        [ordered]@{version = $manifest.version; zipSha256 = $actualHash; api = $fixture.login.url; code = $fixture.login.code;
+            runs = $moduleEvidence; screenshots = $screenEvidence} | ConvertTo-Json -Depth 8 |
+            Set-Content -LiteralPath (Join-Path $evidence 'windows-login.json') -Encoding utf8
+        return
+    }
     Size-ReleaseWindow 840 480
     Save-ReleaseScreenshot '01-narrow-released-first-launch' 'OpenFirstSchoolSetup'
     Open-Connection $fixture.split
@@ -289,7 +305,7 @@ finally {
     Stop-ReleaseConsole
     if (Test-Path -LiteralPath $preference -PathType Leaf) {
         $written = [IO.File]::ReadAllText($preference).TrimEnd('/')
-        if ($written -in @($fixture.same.url, $fixture.split.url)) {
+        if ($written -in $origins) {
             if ($null -eq $previousPreference) { Remove-Item -LiteralPath $preference }
             else { [IO.File]::WriteAllText($preference, $previousPreference) }
         }

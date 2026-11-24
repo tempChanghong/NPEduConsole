@@ -22,11 +22,13 @@ public sealed partial class MainWindow
     }
 
     private async Task ShowScreenDutyAsync(ConsoleClient client, School school, string? bindingId, string? classId, Control? anchor = null,
-        bool restoreTask = false, Func<ScreenDutyDetail, Task>? openNative = null)
+        bool restoreTask = false, Func<ScreenDutyDetail, Task>? openNative = null, string? inactiveTermId = null, string? adminUrl = null)
     {
         if (_screenDutyWindow is not null || _client != client || _school != school) return;
-        var window = new ScreenDutyWindow(client, school, bindingId, classId)
+        var window = new ScreenDutyWindow(client, school, bindingId, classId, inactiveTermId)
         {
+            OpenLegacyBinding = id => SchoolAdminBrowser.Link(adminUrl, school.Id, inactiveTermId, "screens", id, classId) is { } link &&
+                (DesktopBrowserLauncher ?? SchoolAdminBrowser.Open)(link),
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
         };
         _screenDutyWindow = window;

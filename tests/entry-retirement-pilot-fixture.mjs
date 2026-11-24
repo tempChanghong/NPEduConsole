@@ -27,11 +27,15 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
   ]);
   await prisma.administrativeClassSubject.createMany({data: [current, historic, peer].map(room => ({administrativeClassId: room.id,
     subjectId: subject.id, deliveryMode: 'ADMIN_CLASS', isCompulsory: true}))});
-  const addScreen = (name, loginCode) => prisma.classroomScreenBinding.create({data: {
-    schoolId: school.id, administrativeClassId: current.id, createdByAccountId: managerId, name, loginCode, tokenHash: randomUUID()
+  const addScreen = (name, loginCode, room = current, isActive = true) => prisma.classroomScreenBinding.create({data: {
+    schoolId: school.id, administrativeClassId: room.id, createdByAccountId: managerId, name, loginCode, isActive, tokenHash: randomUUID()
   }});
   const front = await addScreen('八班试点前屏', 'PILOT.FRONT');
   const rear = await addScreen('八班试点后屏', 'PILOT.REAR');
+  const inactiveFront = await addScreen('九班前屏', 'NINE.FRONT', peer, false);
+  const inactiveRear = await addScreen('九班后屏', 'NINE.REAR', peer, false);
+  const neighbor = await addScreen('G2-C09 九班后屏', 'EIGHT.INACTIVE', current, false);
+  const past = await addScreen('九班后屏', 'ARCH.INACTIVE', historic, false);
   const actor = await prisma.account.create({data: {name: '同邮箱已有教师', email: 'pilot-existing@example.test',
     provider: 'hly', providerId: 'retirement-pilot-teacher', providerData: {email: 'pilot-existing@example.test', email_verified: true}}});
   await prisma.schoolMember.create({data: {schoolId: school.id, accountId: actor.id, role: 'VIEWER'}});
@@ -53,6 +57,7 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
 
   const marks = [];
   let legacyOverview = false;
+  let legacyDuty = false, dutyWrites = 0;
   let holdOverview = false;
   let releaseOverview;
   let recordedWrite = 0;
@@ -90,7 +95,22 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
       try {
         if (mark === 'legacy-overview-on') legacyOverview = true;
         else if (mark === 'legacy-overview-off') legacyOverview = false;
-        else if (mark === 'only-target-revoked') {
+        else if (mark === 'legacy-duty-on') legacyDuty = true;
+        else if (mark === 'legacy-duty-off') { legacyDuty = false; assert.equal(dutyWrites, 0); }
+        else if (mark === 'move-disabled-to-neighbor' || mark === 'return-disabled-to-class') {
+          const destination = mark === 'move-disabled-to-neighbor' ? current : peer;
+          const binding = await api(base + '/classroom-screens/' + inactiveRear.id, {method: 'PATCH', token: token2,
+            body: {administrativeClassId: destination.id}});
+          assert.equal(binding.administrativeClassId, destination.id);
+          assert.equal(binding.isActive, false);
+          assert.equal(dutyWrites, 0);
+        }
+        else if (mark === 'inactive-rear-restored') {
+          assert.equal(dutyWrites, 1);
+          const read = id => prisma.classroomScreenBinding.findUniqueOrThrow({where: {id}});
+          assert.equal((await read(inactiveRear.id)).isActive, true);
+          for (const screen of [inactiveFront, neighbor, past]) assert.equal((await read(screen.id)).isActive, false);
+        } else if (mark === 'only-target-revoked') {
           assert.equal(await readInvite(target.id), null);
           assert.deepEqual(await readInvite(sameEmail.id), sameEmail);
           assert.deepEqual(await prisma.workspaceMember.findUnique({where: {workspaceId_accountId: {workspaceId: historic.id, accountId: actor.id}}}), direct);
@@ -130,6 +150,13 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
       return;
     }
     const targetUrl = new URL(req.url, upstream);
+    if (targetUrl.pathname === base + '/screen-duty') {
+      if (req.method === 'POST') dutyWrites++;
+      if (req.method === 'GET' && legacyDuty) {
+        res.writeHead(404, {'Content-Type': 'application/json'}).end(JSON.stringify({code: 'NOT_FOUND'}));
+        return;
+      }
+    }
     if (targetUrl.pathname === base + '/management-overview/current') targetUrl.searchParams.delete('screenDuty');
     if (legacyOverview && targetUrl.pathname.endsWith('/management-overview')) targetUrl.searchParams.delete('desktop');
     const forwarded = request(targetUrl, {method: req.method, headers: {...req.headers, host: upstream.host}}, reply => {
@@ -164,7 +191,7 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
     await writeFile(desktopFixture, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id, schoolCode: school.code,
       password: pin, archivedTermId: archive.id, activeTermId: active.id, archivedClassId: historic.id, activeClassId: current.id,
       subjectId: subject.id, peerId: peer.id, teacherId: candidate.id, inviteId: target.id, raceInviteId: race.id,
-      emptySchoolId: empty.id, auditDate, auditId, rearScreenId: rear.id}));
+      emptySchoolId: empty.id, auditDate, auditId, rearScreenId: rear.id, inactiveRearId: inactiveRear.id, inactiveFrontId: inactiveFront.id}));
     const exact = await api(base + '/management-overview?desktop=1&termId=' + archive.id, {token});
     assert.equal(exact.term.id, archive.id);
     assert.equal(exact.activeTerm.id, active.id);
@@ -187,6 +214,11 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
       assert.equal(screenLink.pathname, '/classworks-admin');
       assert.deepEqual(Object.fromEntries(screenLink.searchParams),
         {school: school.id, section: 'screens', term: active.id, screen: rear.id, classId: current.id});
+      const inactiveLink = new URL(await readFile(join(evidence, 'console-inactive-link.txt'), 'utf8'));
+      assert.equal(inactiveLink.origin, url);
+      assert.equal(inactiveLink.pathname, '/classworks-admin');
+      assert.deepEqual(Object.fromEntries(inactiveLink.searchParams),
+        {school: school.id, section: 'screens', term: active.id, screen: inactiveRear.id, classId: peer.id});
       const manifestPath = join(directory, 'walking-web-build', '.well-known', 'npclassworks-deployment.json');
       const deployment = JSON.parse(await readFile(manifestPath, 'utf8'));
       assert.equal(deployment.schemaVersion, 1);
@@ -275,6 +307,11 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
         await screenPanel.getByRole('button', {name: '查看全部大屏'}).click();
         await page.getByText(front.name, {exact: true}).first().waitFor();
         marks.push('old-kv-open-web-exact-rear-binding-and-class');
+        await page.goto(inactiveLink.href);
+        await screenPanel.getByText(inactiveRear.name, {exact: true}).first().waitFor();
+        assert.equal(await screenPanel.getByText(inactiveFront.name, {exact: true}).count(), 0);
+        assert.equal(await screenPanel.getByText(neighbor.name, {exact: true}).count(), 0);
+        marks.push('class-only-task-selected-original-binding-in-web');
         await pilot(false);
         await page.goto(bookmark);
         await page.getByText(auditTitle, {exact: true}).waitFor();
@@ -351,7 +388,8 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
     assert.deepEqual(await readInvite(statusInvite.id), updatedInvite);
     marks.push('archive-switch-cross-school-changed-role-withdrawn-authority-and-missing-rejected');
     await writeFile(join(evidence, 'entry-pilot-result.json'), JSON.stringify({marks, auditId, schoolId: school.id,
-      emptySchoolId: empty.id, historicClassId: historic.id, currentClassId: current.id, withdrawnInvitationId: target.id,
+      emptySchoolId: empty.id, historicClassId: historic.id, currentClassId: current.id, inactiveClassId: peer.id,
+      restoredScreenId: inactiveRear.id, retainedDisabledScreenIds: [inactiveFront.id, neighbor.id, past.id], withdrawnInvitationId: target.id,
       untouchedInvitationId: sameEmail.id, claimedInvitationId: race.id}, null, 2));
     console.log('PASS: Windows and Edge retirement pilot, selected-term diagnostics, independent archived invitation and matching school audit.');
   } finally {

@@ -8,6 +8,7 @@ public sealed record ScreenDutyRoom(string Id, string Name, string Code, string?
 }
 
 public sealed record ScreenDutyBinding(string Id, string Name, string? LoginCode, bool HasPin, bool Active, bool BrowserBound, ScreenDutyRoom Room);
+public sealed record InactiveClassScreen(string Id, string Name, string ClassName, string TermName);
 public sealed record ScreenDutyCommand(string Id, string Type, string State, DateTimeOffset CreatedAt, DateTimeOffset? DeliveredAt,
     DateTimeOffset? AcknowledgedAt, DateTimeOffset ExpiresAt);
 public sealed record ScreenDutyDetail(string Id, string Name, string? LoginCode, bool HasPin, bool Active, bool BrowserBound, ScreenDutyRoom Room,
@@ -28,6 +29,22 @@ public sealed record ScreenDutyReceipt(Guid RequestId, string Action, string Bin
 
 public sealed partial class ConsoleClient
 {
+    private sealed record LegacyScreenClass(string Id, string TermId, string Name, bool IsActive, SchoolOverviewTerm? Term);
+    private sealed record LegacyClassScreen(string Id, string SchoolId, string Name, bool? IsActive, string AdministrativeClassId,
+        LegacyScreenClass? AdministrativeClass);
+
+    public async Task<IReadOnlyList<InactiveClassScreen>> GetLegacyInactiveClassScreensAsync(string schoolId, string termId, string classId, CancellationToken ct)
+    {
+        var session = CurrentSession;
+        var rows = await RequestAsync<LegacyClassScreen[]>(HttpMethod.Get,
+            $"api/v2/admin/schools/{Segment(schoolId)}/classroom-screens", session.Token, ct);
+        CheckCreationSession(session, ct);
+        return rows.Where(row => row.SchoolId == schoolId && row.IsActive == false && !string.IsNullOrWhiteSpace(row.Id) && row.AdministrativeClassId == classId &&
+                row.AdministrativeClass is {IsActive: true, Term.Status: "ACTIVE"} room && room.Id == classId &&
+                room.TermId == termId && room.Term.Id == termId)
+            .Select(row => new InactiveClassScreen(row.Id, row.Name, row.AdministrativeClass!.Name, row.AdministrativeClass.Term!.Name)).ToArray();
+    }
+
     private static string ScreenDutyPath(string schoolId) => $"api/v2/admin/schools/{Segment(schoolId)}/screen-duty";
     private static bool IsScreenDutyPath(string path) => path.StartsWith("api/v2/admin/schools/", StringComparison.Ordinal) &&
         (path.EndsWith("/screen-duty", StringComparison.Ordinal) || path.Contains("/screen-duty/", StringComparison.Ordinal) ||

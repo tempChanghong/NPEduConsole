@@ -85,6 +85,9 @@ public sealed partial class MainWindow
             case OpeningAction.CourseGroups:
                 await ShowCourseGroupsAsync(client, school, term.Id, target.GroupId, target.ClassId, target.SubjectId);
                 break;
+            case OpeningAction.InactiveScreens when target.ClassId is { } inactiveClass:
+                await ShowScreenDutyAsync(client, school, null, inactiveClass, inactiveTermId: term.Id, adminUrl: latest.AdminUrl);
+                break;
             case OpeningAction.Screen:
                 if (target.BindingId is { } exact && !latest.Screens.Any(row => row.ScreenId == exact && row.ClassId == target.ClassId))
                     throw new ConsoleApiException(409, "这台大屏的归属已变化。请从更新后的清单重新选择。");

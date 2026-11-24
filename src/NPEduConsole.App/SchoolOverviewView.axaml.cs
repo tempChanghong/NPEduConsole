@@ -265,6 +265,7 @@ public sealed partial class SchoolOverviewView : UserControl
             "OPEN_CLASS_RESPONSIBILITY" => "办理班主任",
             "OPEN_GRADE_RESPONSIBILITY" => "办理年级组长",
             "OPEN_STAFF_REVIEW" => "打开师资核对",
+            "OPEN_WEB" when task.Code == "ADMIN_CLASS_SCREEN_INACTIVE" && task.ClassId is not null => "核对本班停用大屏",
             _ => "网页办理"
         };
         string source = task.Source switch
