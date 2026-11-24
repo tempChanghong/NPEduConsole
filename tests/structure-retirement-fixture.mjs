@@ -100,7 +100,7 @@ export async function verifyStructureRetirement({prisma, origin, fixture, direct
         await page.addInitScript(token => localStorage.setItem('classworks-v2-access-token', token), actor);
         let sections = ['structure', 'accounts'], oldKv = true;
         await page.route(`${site}/.well-known/npclassworks-deployment.json`, route => route.fulfill({
-          json: {schemaVersion: 1, apiBaseUrl: site, adminRetiredSections: sections},
+          json: {schemaVersion: 1, adminLegacyManagementEnabled: true, apiBaseUrl: site, adminRetiredSections: sections},
         }));
         await page.route(`${site}/downloads/npeduconsole/**`, route => route.request().url().endsWith('/console-release.json') ?
           route.fulfill({json: manifest}) : route.fulfill({contentType: 'application/zip',

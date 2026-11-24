@@ -244,7 +244,7 @@ export async function verifyScopedTermTeaching({prisma, origin, fixture, directo
   });
   await new Promise(resolve => relay.listen(0, '127.0.0.1', resolve));
   try {
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, url) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, url) => {
       browser = edge;
       site = url;
       const config = join(directory, 'term-teaching-desktop.json');

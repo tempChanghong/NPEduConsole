@@ -190,7 +190,7 @@ export async function verifyGradeTeachingPlan({prisma, origin, fixture, director
     await writeFile(accessPath, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id, schoolCode: school.code,
       password: pin, gradeId: grade.id, sevenId: seven.id, eightId: eight.id, nineId: nine.id, subjectId: physics.id,
       teacherId: teacher.id, a1Id: a1.id, consoleHistoryGroupId: consoleHistory.id, allowGradePlanTestWrites: true}), {mode: 0o600});
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [seven], expectedTermId: term.id,
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [seven], expectedTermId: term.id,
       afterSelection: async ({page, dialog, browser, url}) => {
         const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('classworks-v2-student-selection')));
         assert.equal((await saved()).courseGroupIds[physics.id], a1.id);

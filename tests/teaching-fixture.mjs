@@ -238,7 +238,7 @@ async function verifyBrowser({web, origin, school, term, admin, evidence}) {
     assert.ok((await response.json()).data.some(row => row.schoolId === school.id));
     await new Promise((resolve, reject) => {
       const build = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'warn', '--outDir', outDir],
-        {cwd: web, env: {...process.env, VITE_DEFAULT_KV_SERVER: url, VITE_DEFAULT_AUTH_SERVER: url,
+        {cwd: web, env: {...process.env, VITE_ADMIN_LEGACY_MANAGEMENT_ENABLED: 'true', VITE_DEFAULT_KV_SERVER: url, VITE_DEFAULT_AUTH_SERVER: url,
           VITE_SERVER_URL: url, VITE_ENABLE_ANALYTICS: 'false'},
           stdio: 'inherit', windowsHide: true});
       build.once('error', reject);

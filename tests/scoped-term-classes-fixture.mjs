@@ -216,7 +216,7 @@ export async function verifyScopedTermClasses({prisma, origin, fixture, director
   });
   await new Promise(resolve => relay.listen(0, '127.0.0.1', resolve));
   try {
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [],
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [],
       afterStudent: async (edge, base) => {
         browser = edge;
         site = base;

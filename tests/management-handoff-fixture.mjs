@@ -17,7 +17,7 @@ export async function verifyManagementHandoff({prisma, origin, directory, fixtur
   for (const separateApi of [false, true]) {
     const output = join(evidence, separateApi ? 'split' : 'same');
     await mkdir(output, {recursive: true});
-    await verifyStudentBrowser({origin, web, directory, evidence: output, rooms: [], separateApi,
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence: output, rooms: [], separateApi,
       afterStudent: async (browser, website) => {
         const api = separateApi ? origin : website;
         const build = join(directory, 'walking-web-build');

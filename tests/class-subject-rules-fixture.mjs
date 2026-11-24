@@ -264,7 +264,7 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
   });
   await new Promise(resolve => relay.listen(0, '127.0.0.1', resolve));
   try {
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, address) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, address) => {
       browser = edge;
       site = address;
       const config = join(directory, 'class-rules-desktop.json');

@@ -229,7 +229,7 @@ async function prepareManagementBrowser({web,directory,evidence,origin,school,ow
   try {
     await new Promise((resolve,reject)=>{
       const child=spawn(process.execPath,['node_modules/vite/bin/vite.js','build','--logLevel','error','--outDir',outDir],
-        {cwd:web,env:{...process.env,VITE_DEFAULT_KV_SERVER:url,VITE_DEFAULT_AUTH_SERVER:url,VITE_SERVER_URL:url,VITE_ENABLE_ANALYTICS:'false'},
+        {cwd:web,env:{...process.env,VITE_ADMIN_LEGACY_MANAGEMENT_ENABLED: 'true', VITE_DEFAULT_KV_SERVER:url,VITE_DEFAULT_AUTH_SERVER:url,VITE_SERVER_URL:url,VITE_ENABLE_ANALYTICS:'false'},
           windowsHide:true,stdio:'inherit'});
       child.once('error',reject);child.once('exit',code=>code===0?resolve():reject(new Error('Legacy web build failed')));
     });

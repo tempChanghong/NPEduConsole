@@ -191,7 +191,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, native
     await writeFile(access, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id, schoolCode: school.code,
       termId: term.id, termName: term.name, otherSchoolId: other.id, sameNameId: sameNameHistory.id, forceTermId: forceDraft.id,
       frontId: front.id, rearId: rear.id, unmatchedId: unmatchedScreenId, username: 'admin', password: pin, allowTermStatusWrites: true}), {mode: 0o600});
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, frontend) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, frontend) => {
       browser = edge;
       url = frontend;
       await runDesktop(['--live-term-status', access, evidence]);

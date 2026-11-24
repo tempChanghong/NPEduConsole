@@ -50,7 +50,7 @@ export async function verifyTeacherScreenRelease({prisma, fixture, origin, fromK
     const access = join(directory, 'released-teacher-screen.json');
     try {
       await page.route(`${site}/.well-known/npclassworks-deployment.json`, route => route.fulfill({json: {
-        schemaVersion: 1, apiBaseUrl: null, adminRetiredSections: ['teachers', 'screens']}}));
+        schemaVersion: 1, adminLegacyManagementEnabled: true, apiBaseUrl: null, adminRetiredSections: ['teachers', 'screens']}}));
       await page.route(`${site}/downloads/npeduconsole/**`, route => route.request().url().endsWith('/console-release.json') ?
         route.fulfill({json: manifest}) : route.fulfill({contentType: 'application/zip', headers: {'Content-Length': String(artifact.length)},
           body: route.request().method() === 'HEAD' ? undefined : artifact}));

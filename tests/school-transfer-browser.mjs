@@ -25,7 +25,7 @@ export async function verifyLegacyTransferWeb({web, directory, evidence, origin:
   const pilotRelease = {name: 'isolated-transfer-release', configurePreviewServer(server) {
     server.middlewares.use((req, res, next) => {
       if (req.url === '/.well-known/npclassworks-deployment.json') {
-        return res.writeHead(200, jsonHeaders).end(JSON.stringify({schemaVersion: 1, apiBaseUrl: null, adminRetiredSections: ['migration']}));
+        return res.writeHead(200, jsonHeaders).end(JSON.stringify({schemaVersion: 1, adminLegacyManagementEnabled: true, apiBaseUrl: null, adminRetiredSections: ['migration']}));
       }
       const prefix = '/downloads/npeduconsole/';
       if (req.url === prefix + 'console-release.json') return res.writeHead(200, jsonHeaders).end(JSON.stringify(pilot.manifest));

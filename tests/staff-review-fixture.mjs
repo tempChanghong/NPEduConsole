@@ -317,7 +317,7 @@ export async function verifyStaffReview({prisma, origin, fixture, directory, evi
   await new Promise(resolve => relay.listen(0, '127.0.0.1', resolve));
   const config = join(directory, 'staff-review-desktop.json');
   try {
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, address) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, address) => {
       browser = edge;
       site = address;
       await writeFile(config, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id,

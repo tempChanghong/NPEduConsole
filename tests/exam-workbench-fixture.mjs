@@ -254,7 +254,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       schoolCode: school.code, schoolId: school.id, pin, roomId: room.id, frontId: front.id, rearId: rear.id,
       frontDeviceId: frontDevice.id, rearDeviceId: rearDevice.id, modeOnlyId: modeOnly.id, modeOnlyDeviceId: modeOnlyDevice.id, allowWrites: true}));
 
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (browser, site) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (browser, site) => {
       legacyContext = await browser.newContext({viewport: {width: 1280, height: 900}, serviceWorkers: 'block',
         storageState: {cookies: [], origins: [{origin: site, localStorage: [
           {name: 'classworks-v2-access-token', value: second.access_token},

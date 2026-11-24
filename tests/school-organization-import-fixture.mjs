@@ -366,7 +366,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       schoolCode: school.code, password: pin, draftId: draft.id, draftName: draft.name, activeId: term.id, otherSchoolId: other.id, draftFile, wrongGradeFile,
       newTermFile, blankName, renamedActive: rename.name, allowOrganizationTestWrites: true}), {mode: 0o600});
     // Use the same real Edge instance for old administration and post-import student selection.
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (b, frontend) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (b, frontend) => {
       browser = b;
       url = frontend;
       await runDesktop(['--live-organization-import', desktopAccess, evidence]);

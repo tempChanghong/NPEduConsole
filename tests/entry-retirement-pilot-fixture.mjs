@@ -200,7 +200,7 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
     const main = await api(base + '/management-overview/current?staffReview=1&courseGroupActions=1', {token});
     assert.equal(main.term.id, active.id);
     assert.ok(main.tasks.every(row => row.classId !== historic.id));
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (browser, url) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (browser, url) => {
       const frontend = process.env.FRONTEND_URL;
       try {
         process.env.FRONTEND_URL = url;

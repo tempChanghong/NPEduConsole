@@ -394,7 +394,7 @@ export async function verifyDeviceFieldActions({prisma, origin, fixture, fromKv,
     await writeFile(access, JSON.stringify({origin: relayOrigin, schoolCode: school.code, schoolId: school.id, pin, roomId: room.id,
       frontId: front.binding.id, rearId: rear.binding.id, frontDeviceId: front.device.id, rearDeviceId: rear.device.id, frontReportId,
       otherSchoolId: fixture.other.id, withReports, allowWrites: true}), {mode: 0o600});
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, site) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, site) => {
       browser = await edge.newContext({viewport: {width: 1280, height: 900}, serviceWorkers: 'block', storageState: {cookies: [], origins: [{origin: site,
         localStorage: [{name: 'classworks-v2-access-token', value: second.access_token}, {name: 'classworks-v2-refresh-token', value: second.refresh_token},
           {name: 'classworks-v2-oobe', value: JSON.stringify({version: 1, completed: true, roleHint: 'teacher'})}]}]}});

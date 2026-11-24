@@ -99,7 +99,7 @@ export async function verifyReleasedTermRetirement({prisma, origin, fixture, fro
       try {
         await page.addInitScript(token => localStorage.setItem('classworks-v2-access-token', token), auth);
         await page.route(`${site}/.well-known/npclassworks-deployment.json`, route =>
-          route.fulfill({json: {schemaVersion: 1, apiBaseUrl: site, adminRetiredSections: ['terms']}}));
+          route.fulfill({json: {schemaVersion: 1, adminLegacyManagementEnabled: true, apiBaseUrl: site, adminRetiredSections: ['terms']}}));
         await page.route(`${site}/downloads/npeduconsole/**`, route => route.request().url().endsWith('/console-release.json') ?
           route.fulfill({json: manifest}) : route.fulfill({contentType: 'application/zip', headers: {'Content-Length': String(manifest.sizeBytes)}}));
         page.on('request', request => {

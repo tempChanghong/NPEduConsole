@@ -396,7 +396,7 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       schoolCode: school.code, password: pin, draftId: draft.id, activeId: term.id, groupId: a1.id,
       oauthSchoolId: oauthSchool.id, newPin, ignoredPin, inviteEmail, revokeEmail, wrongTermFile, wrongSchoolFile, matchingFile,
       noTermSchoolId: noTermSchool.id, batchFile, noTermFile, allowAllocationWrites: true}), {mode: 0o600});
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (b, webOrigin) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (b, webOrigin) => {
       browser = b; frontend = webOrigin;
       await runDesktop(['--live-teacher-allocation', desktopAccess, evidence]);
       const page = await browser.newPage();

@@ -162,7 +162,7 @@ export async function verifyHomeworkSettings({prisma, origin, fixture, directory
     const access = join(directory, 'homework-settings-desktop.json');
     await writeFile(access, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id,
       otherSchoolId: other.id, schoolCode: school.code, pin, physicsId: physics.id, allowWrites: true}), {mode: 0o600});
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, site) => {
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [], afterStudent: async (edge, site) => {
       edgeOrigin = site;
       const authenticated = await edge.newContext({viewport: {width: 1360, height: 920}, serviceWorkers: 'block',
         storageState: {cookies: [], origins: [{origin: site, localStorage: [

@@ -175,6 +175,7 @@ export async function verifyOwnerRecovery({prisma, origin, directory, fixture, b
               try {
                 await page.route('**/*', route => [website, api].includes(new URL(route.request().url()).origin) ? route.continue() : route.abort());
                 await page.goto(website + '/classworks-admin?school=' + other.id);
+                await page.getByRole('link', {name: '管理员登录与 OWNER 恢复'}).click();
                 await page.getByRole('button', {name: /忘记 OWNER PIN/}).click();
                 await page.getByLabel('OWNER 短账号').fill('web-owner');
                 const replacement = nextPin();

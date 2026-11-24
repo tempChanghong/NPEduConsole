@@ -270,7 +270,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, native
     assert.equal(await prisma.administrativeClassStudent.count({where: {administrativeClassId: seven.id}}), 1);
     await prisma.schoolMember.create({data: {schoolId: other.id, accountId: managerId, role: 'ADMIN'}});
     const legacy = await verifyLegacyWebScope();
-    await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [newSeven], expectedTermId: draftId,
+    await verifyStudentBrowser({legacyWebManagement: true, origin, web, directory, evidence, school, rooms: [newSeven], expectedTermId: draftId,
       afterStudent: (browser, url) => verifyLegacyWeb(browser, url, legacy)});
     const confirmation = await api(base + '/activation-receipts/' + lostReceipt.requestId, {token});
     await writeFile(join(evidence, 'server-result.json'), JSON.stringify({checks: stepLog, activeTerm: confirmation.activeTerm,

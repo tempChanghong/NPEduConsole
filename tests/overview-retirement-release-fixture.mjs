@@ -5,7 +5,7 @@ import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
-import {siteSections, prepareTermOperation, publishSiteRelease, verifySiteDestinations} from './site-retirement-fixture.mjs';
+import {prepareTermOperation, publishSiteRelease, verifySiteDestinations} from './site-retirement-fixture.mjs';
 
 export async function verifyReleasedOverviewRetirement({prisma, origin, fixture, directory, evidence, web, zip, manifestPath, siteCutover = false}) {
   const {school, term, classes: [classId], managerId, pin} = fixture;
@@ -92,8 +92,9 @@ export async function verifyReleasedOverviewRetirement({prisma, origin, fixture,
   const legacyReads = [];
   if (siteCutover) {
     pendingOperation = await prepareTermOperation({prisma, origin, school, token});
-    process.env.VITE_ADMIN_MANAGEMENT_HANDOFF_PILOT = 'true';
-    process.env.VITE_ADMIN_RETIRED_SECTIONS = siteSections.join(',');
+    delete process.env.VITE_ADMIN_LEGACY_MANAGEMENT_ENABLED;
+    delete process.env.VITE_ADMIN_MANAGEMENT_HANDOFF_PILOT;
+    delete process.env.VITE_ADMIN_RETIRED_SECTIONS;
   }
   await verifyStudentBrowser({origin, directory, web, evidence, school, rooms: [], afterStudent: async (browser, site) => {
     const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: siteCutover ? 'allow' : 'block'});
@@ -104,7 +105,7 @@ export async function verifyReleasedOverviewRetirement({prisma, origin, fixture,
         await publishSiteRelease({directory, site, zip, manifestPath, manifest});
       } else {
         await page.route(`${site}/.well-known/npclassworks-deployment.json`, route => route.fulfill({json: {
-          schemaVersion: 1, apiBaseUrl: null, adminManagementHandoffPilot: true, adminRetiredSections: ['overview'],
+          schemaVersion: 1, adminLegacyManagementEnabled: true, apiBaseUrl: null, adminManagementHandoffPilot: true, adminRetiredSections: ['overview'],
         }}));
         await page.route(`${site}/downloads/npeduconsole/**`, route => route.request().url().endsWith('/console-release.json')
           ? route.fulfill({json: manifest})
@@ -116,13 +117,45 @@ export async function verifyReleasedOverviewRetirement({prisma, origin, fixture,
         if (path.endsWith('/management-overview')) legacyReads.push(path);
       };
       page.on('request', observeRetiredOverview);
+      if (siteCutover) {
+        await page.goto(site + '/classworks-admin');
+        const entry = page.getByRole('region', {name: '学校管理办理去向'});
+        await entry.getByRole('button', {name: '获取 Windows 管理端'}).waitFor();
+        assert.equal(await entry.getByText('查看原书签对象', {exact: true}).count(), 0);
+        await page.screenshot({path: join(evidence, 'edge-fresh-upgrade-wide.png'), animations: 'disabled'});
+        const parameters = new URLSearchParams({section: 'screens', school: school.id, term: term.id,
+          screen: online.id, classId, extra: 'ignored'});
+        await page.goto(site + '/classworks-admin?' + parameters);
+        await entry.getByText('查看原书签对象', {exact: true}).click();
+        await entry.getByText('大屏绑定编号：' + online.id, {exact: true}).waitFor();
+        await entry.getByText('班级编号：' + classId, {exact: true}).waitFor();
+        const recovery = new URL(await entry.getByRole('link', {name: '管理员登录与 OWNER 恢复'}).getAttribute('href'), site);
+        parameters.delete('extra');
+        assert.deepEqual(Object.fromEntries(recovery.searchParams), {...Object.fromEntries(parameters), access: '1'});
+      }
       await page.goto(`${site}/classworks-admin?section=overview&school=${school.id}&term=${archive.id}`);
+      if (siteCutover) {
+        const username = page.getByLabel('管理员短账号', {exact: true});
+        await username.or(page.getByRole('region', {name: '学校管理办理去向'})).first().waitFor();
+        await page.screenshot({path: join(evidence, 'edge-default-bookmark.png'), animations: 'disabled'});
+        assert.equal(await username.count(), 0, 'An ordinary pre-upgrade bookmark must open guidance, without mounting the web admin login.');
+        await page.getByRole('link', {name: /管理员登录与 OWNER 恢复/}).click();
+      }
       await page.getByLabel('管理员短账号', {exact: true}).fill('admin');
       await page.getByLabel('个人 PIN', {exact: true}).fill(pin);
       await page.getByRole('button', {name: '登录', exact: true}).click();
+      if (siteCutover) {
+        await page.getByLabel('管理员短账号', {exact: true}).waitFor({state: 'hidden'});
+        await page.goto(`${site}/classworks-admin?section=overview&school=${school.id}&term=${archive.id}`);
+      }
       const guide = page.getByRole('region', {name: '学校管理办理去向'});
-      await guide.getByRole('heading', {name: '网页版已停止办理管理总览'}).waitFor();
-      await guide.getByText(`原学期：${archive.name}（编号 ${archive.id}）`, {exact: true}).waitFor();
+      if (siteCutover) {
+        await guide.getByRole('heading', {name: '学校管理', exact: true}).waitFor();
+        await guide.getByText('原学期编号：' + archive.id, {exact: true}).waitFor();
+      } else {
+        await guide.getByRole('heading', {name: '网页版已停止办理管理总览'}).waitFor();
+        await guide.getByText(`原学期：${archive.name}（编号 ${archive.id}）`, {exact: true}).waitFor();
+      }
       await page.screenshot({path: join(evidence, 'edge-original-archive-wide.png'), animations: 'disabled'});
       await page.setViewportSize({width: 390, height: 900});
       await guide.getByRole('link', {name: '浏览器故障诊断'}).waitFor();

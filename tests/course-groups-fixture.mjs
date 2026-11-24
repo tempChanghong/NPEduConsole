@@ -153,7 +153,7 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   }
 }
 
-export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent, afterSelection, realtime = false, separateApi = false}) {
+export async function verifyStudentBrowser({origin, web, directory, evidence, school, rooms, expectedTermId, afterStudent, afterSelection, realtime = false, separateApi = false, legacyWebManagement = false}) {
   const require = createRequire(join(web, 'package.json'));
   const {chromium} = require('@playwright/test');
   const outDir = join(directory, 'walking-web-build');
@@ -170,7 +170,8 @@ export async function verifyStudentBrowser({origin, web, directory, evidence, sc
   try {
     await new Promise((resolve, reject) => {
       const build = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--logLevel', 'warn', '--outDir', outDir], {
-        cwd: web, env: {...process.env, VITE_DEFAULT_KV_SERVER: api, VITE_DEFAULT_AUTH_SERVER: api,
+        cwd: web, env: {...process.env, ...(legacyWebManagement && {VITE_ADMIN_LEGACY_MANAGEMENT_ENABLED: 'true'}),
+          VITE_DEFAULT_KV_SERVER: api, VITE_DEFAULT_AUTH_SERVER: api,
           VITE_SERVER_URL: api, VITE_ENABLE_ANALYTICS: 'false'}, stdio: 'inherit', windowsHide: true
       });
       build.once('error', reject);

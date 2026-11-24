@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {copyFile, mkdir, open, readFile, writeFile} from 'node:fs/promises';
+import {copyFile, mkdir, open, readFile, rename, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 export const siteSections = ['audit', 'students', 'npep-seating', 'npep-study', 'organization', 'migration',
@@ -16,8 +16,7 @@ export async function publishSiteRelease({directory, site, zip, manifestPath, ma
   const response = await fetch(site + declarationPath);
   assert.equal(response.status, 200);
   const declaration = await response.json();
-  assert.equal(declaration.adminManagementHandoffPilot, true);
-  assert.deepEqual(new Set(declaration.adminRetiredSections), new Set(siteSections), 'The actual site build must emit all 13 switches.');
+  assert.notEqual(declaration.adminLegacyManagementEnabled, true, 'A default deployment may not enable the legacy workspace.');
 }
 
 // A genuine server receipt and its matching browser session record represent a tab left open during cutover.
@@ -57,7 +56,7 @@ async function verifyRejectedDownload({page, directory, evidence, manifest}) {
     const zipResponse = page.waitForResponse(response => response.url().endsWith(manifest.fileName) && response.request().method() === 'GET');
     await page.getByRole('button', {name: '获取 Windows 管理端'}).click();
     assert.equal((await zipResponse).status(), 200);
-    await page.getByRole('status').filter({hasText: /均已停办/}).waitFor();
+    await page.getByRole('status').filter({hasText: /未完成/}).waitFor();
     await page.getByRole('button', {name: /重试下载/}).waitFor();
     assert.equal(await page.getByRole('link', {name: /继续使用网页版|查看网页版可办栏目/}).count(), 0);
     await page.getByRole('link', {name: '浏览器故障诊断'}).waitFor();
@@ -92,15 +91,47 @@ export async function verifySiteDestinations({page, site, directory, evidence, s
     await page.getByRole('button', {name: '获取 Windows 管理端'}).waitFor();
     await page.screenshot({path: join(evidence, 'edge-entire-site.png')});
     await verifyRejectedDownload({page, directory, evidence, manifest});
+    const adminBookmark = section => site + '/classworks-admin?' + new URLSearchParams({section, school: school.id, term: archive.id});
+    const guide = page.getByRole('region', {name: '学校管理办理去向'});
+    for (const section of siteSections) {
+      await page.goto(adminBookmark(section));
+      await guide.getByRole('heading', {name: '学校管理', exact: true}).waitFor();
+      await guide.getByText('原学期编号：' + archive.id, {exact: true}).waitFor();
+      assert.equal(await page.getByRole('combobox').count(), 0, 'Unexpected business selector on ' + section);
+    }
+    await page.goto(adminBookmark('teachers') + '&access=1');
+    await guide.getByText('学校管理请使用 Windows 管理端 NPEduConsole。').waitFor();
+    assert.equal(await page.getByRole('combobox', {name: '管理页面'}).count(), 0);
+    const manifestFile = join(directory, 'walking-web-build', 'downloads', 'npeduconsole', 'console-release.json');
+    const withheld = manifestFile + '.fixture';
+    await rename(manifestFile, withheld);
+    try {
+      for (const previousDeclaration of [
+        JSON.stringify({schemaVersion: 1, apiBaseUrl: site, adminManagementHandoffPilot: false, adminRetiredSections: ['audit']}),
+        JSON.stringify({schemaVersion: 1, apiBaseUrl: new URL('/another-kv', site).href, adminLegacyManagementEnabled: true}),
+        'temporarily unavailable',
+      ]) {
+        await writeFile(switchFile, previousDeclaration);
+        await page.goto(adminBookmark('teachers'));
+        await guide.getByText(/本站暂未提供可校验的安装包/).waitFor();
+        assert.equal(await page.getByRole('button', {name: /下载.*管理端|获取 Windows/}).count(), 0);
+        assert.equal(await page.getByRole('link', {name: /继续使用网页版|查看网页版可办栏目/}).count(), 0);
+      }
+      await page.screenshot({path: join(evidence, 'edge-old-bookmark-no-release.png')});
+    } finally {
+      await rename(withheld, manifestFile);
+      await writeFile(switchFile, original);
+    }
     assert.deepEqual(requests, []);
 
+    await page.goto(destination);
     const key = 'npclassworks:web-term-operation:' + JSON.stringify([site, managerId, school.id]);
     await page.evaluate(({key, operation}) => sessionStorage.setItem(key, JSON.stringify(operation)), {key, operation});
     await page.reload();
     const pendingLink = page.getByRole('link', {name: '核对原网页学期操作'});
     await pendingLink.waitFor();
     const target = new URL(await pendingLink.getAttribute('href'), site);
-    assert.deepEqual(Object.fromEntries(target.searchParams), {school: school.id, section: 'terms', term: operation.term});
+    assert.deepEqual(Object.fromEntries(target.searchParams), {access: '1', school: school.id, section: 'terms', term: operation.term});
     await pendingLink.click();
     const receiptPath = '/api/v2/admin/schools/' + school.id + '/term-preparation/status-receipts/' + operation.body.requestId;
     const receiptResponse = page.waitForResponse(response => new URL(response.url()).pathname === receiptPath);
@@ -110,7 +141,9 @@ export async function verifySiteDestinations({page, site, directory, evidence, s
     assert.deepEqual(requests.filter(({path}) => path.includes('/term-preparation/')), [{method: 'GET', path: receiptPath, term: null}]);
     assert.equal(requests.filter(({method}) => method !== 'GET').length, 0);
     const declaration = JSON.parse(original);
-    declaration.adminRetiredSections = declaration.adminRetiredSections.filter(section => section !== 'overview');
+    declaration.adminLegacyManagementEnabled = true;
+    declaration.adminManagementHandoffPilot = true;
+    declaration.adminRetiredSections = siteSections.filter(section => section !== 'overview');
     await writeFile(switchFile, JSON.stringify(declaration));
     await page.goto(destination);
     const webLink = page.getByRole('link', {name: '查看网页版可办栏目'});
@@ -133,6 +166,7 @@ export async function verifySiteDestinations({page, site, directory, evidence, s
     await page.getByRole('region', {name: '学校管理办理去向'}).getByRole('heading', {name: /已停止办理/}).waitFor();
     assert.deepEqual(requests.slice(beforeAccounts).filter(({path}) => /accounts|management-overview/.test(path)), []);
     await writeFile(join(evidence, 'site-retirement-result.json'), JSON.stringify({
+      defaultUpgrade: true, originalBookmarksChecked: siteSections.length, originalBookmarkBusinessRequests: 0,
       school: school.id, sections: siteSections, archivedTerm: archive.id, recoveredReceipt: operation.body.requestId,
       readOnlyTerm: operation.term, requests, releasedSection: 'overview', accountsStillRetired: true,
       rejectedDownload: {http: 200, bytes: manifest.sizeBytes, filesSaved: 0},
