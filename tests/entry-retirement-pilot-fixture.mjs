@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {createServer, request} from 'node:http';
-import {mkdir, readFile, writeFile} from 'node:fs/promises';
+import {createHash, randomUUID} from 'node:crypto';
+import {copyFile, mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
 
@@ -26,6 +27,11 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
   ]);
   await prisma.administrativeClassSubject.createMany({data: [current, historic, peer].map(room => ({administrativeClassId: room.id,
     subjectId: subject.id, deliveryMode: 'ADMIN_CLASS', isCompulsory: true}))});
+  const addScreen = (name, loginCode) => prisma.classroomScreenBinding.create({data: {
+    schoolId: school.id, administrativeClassId: current.id, createdByAccountId: managerId, name, loginCode, tokenHash: randomUUID()
+  }});
+  const front = await addScreen('八班试点前屏', 'PILOT.FRONT');
+  const rear = await addScreen('八班试点后屏', 'PILOT.REAR');
   const actor = await prisma.account.create({data: {name: '同邮箱已有教师', email: 'pilot-existing@example.test',
     provider: 'hly', providerId: 'retirement-pilot-teacher', providerData: {email: 'pilot-existing@example.test', email_verified: true}}});
   await prisma.schoolMember.create({data: {schoolId: school.id, accountId: actor.id, role: 'VIEWER'}});
@@ -124,6 +130,7 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
       return;
     }
     const targetUrl = new URL(req.url, upstream);
+    if (targetUrl.pathname === base + '/management-overview/current') targetUrl.searchParams.delete('screenDuty');
     if (legacyOverview && targetUrl.pathname.endsWith('/management-overview')) targetUrl.searchParams.delete('desktop');
     const forwarded = request(targetUrl, {method: req.method, headers: {...req.headers, host: upstream.host}}, reply => {
       if (holdOverview && targetUrl.pathname === base + '/management-overview' && targetUrl.searchParams.get('termId') === active.id) {
@@ -157,7 +164,7 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
     await writeFile(desktopFixture, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id, schoolCode: school.code,
       password: pin, archivedTermId: archive.id, activeTermId: active.id, archivedClassId: historic.id, activeClassId: current.id,
       subjectId: subject.id, peerId: peer.id, teacherId: candidate.id, inviteId: target.id, raceInviteId: race.id,
-      emptySchoolId: empty.id, auditDate, auditId}));
+      emptySchoolId: empty.id, auditDate, auditId, rearScreenId: rear.id}));
     const exact = await api(base + '/management-overview?desktop=1&termId=' + archive.id, {token});
     assert.equal(exact.term.id, archive.id);
     assert.equal(exact.activeTerm.id, active.id);
@@ -166,8 +173,36 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
     const main = await api(base + '/management-overview/current?staffReview=1&courseGroupActions=1', {token});
     assert.equal(main.term.id, active.id);
     assert.ok(main.tasks.every(row => row.classId !== historic.id));
-    await runDesktop(['--live-entry-retirement-pilot', desktopFixture, evidence]);
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (browser, url) => {
+      const frontend = process.env.FRONTEND_URL;
+      try {
+        process.env.FRONTEND_URL = url;
+        await runDesktop(['--live-entry-retirement-pilot', desktopFixture, evidence]);
+      } finally {
+        if (frontend === undefined) delete process.env.FRONTEND_URL;
+        else process.env.FRONTEND_URL = frontend;
+      }
+      const screenLink = new URL(await readFile(join(evidence, 'console-screen-link.txt'), 'utf8'));
+      assert.equal(screenLink.origin, url);
+      assert.equal(screenLink.pathname, '/classworks-admin');
+      assert.deepEqual(Object.fromEntries(screenLink.searchParams),
+        {school: school.id, section: 'screens', term: active.id, screen: rear.id, classId: current.id});
+      const manifestPath = join(directory, 'walking-web-build', '.well-known', 'npclassworks-deployment.json');
+      const deployment = JSON.parse(await readFile(manifestPath, 'utf8'));
+      assert.equal(deployment.schemaVersion, 1);
+      const pilot = enabled => writeFile(manifestPath, JSON.stringify({...deployment, adminAuditNavigationPilot: enabled}));
+      await pilot(true);
+      let release;
+      const releaseDirectory = process.env.NP_CONSOLE_ENTRY_RELEASE_DIR;
+      if (releaseDirectory) {
+        release = JSON.parse(await readFile(join(releaseDirectory, 'console-release.json'), 'utf8'));
+        assert.match(release.version, /^[0-9][A-Za-z0-9.+-]{0,63}$/);
+        assert.equal(release.fileName, `NPEduConsole-${release.version}-win-x64.zip`);
+        const downloads = join(directory, 'walking-web-build', 'downloads', 'npeduconsole');
+        await mkdir(downloads, {recursive: true});
+        for (const file of ['console-release.json', release.fileName])
+          await copyFile(join(releaseDirectory, file), join(downloads, file));
+      }
       const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: 'block', acceptDownloads: true,
         timezoneId: 'Asia/Shanghai'});
       try {
@@ -176,6 +211,10 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
         await page.addInitScript(schoolId => window.localStorage.setItem('npclassworks-admin-context:v1',
           JSON.stringify({schoolId, tab: 'overview'})), school.id);
         await page.goto(bookmark);
+        const recovery = page.getByRole('button', {name: /忘记 OWNER PIN/});
+        await recovery.click();
+        await page.getByLabel('服务器 BOOTSTRAP_SETUP_KEY').waitFor();
+        await recovery.click();
         await page.getByLabel('管理员短账号', {exact: true}).fill('admin');
         await page.getByLabel('个人 PIN', {exact: true}).fill(pin);
         const loginSchool = page.locator('.v-select').filter({hasText: '学校'}).locator('.v-field').first();
@@ -183,7 +222,21 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
         await page.getByRole('option', {name: school.name, exact: true}).click();
         await page.getByRole('button', {name: '登录', exact: true}).click();
         await page.getByText(auditTitle, {exact: true}).waitFor();
+        await page.locator('summary:visible').filter({hasText: '网页版兼容'}).waitFor();
         assert.equal(new URL(page.url()).searchParams.get('school'), empty.id, 'explicit bookmark beats prior saved context');
+        if (release) {
+          const nextDownload = page.waitForEvent('download');
+          await page.getByRole('button', {name: '获取 Windows 管理端', exact: true}).click();
+          const download = await nextDownload;
+          assert.equal(download.suggestedFilename(), release.fileName);
+          const bytes = await readFile(await download.path());
+          const sha256 = createHash('sha256').update(bytes).digest('hex');
+          assert.equal(bytes.length, release.sizeBytes);
+          assert.equal(sha256, release.sha256);
+          await writeFile(join(evidence, 'edge-release.json'), JSON.stringify({file: download.suggestedFilename(),
+            sizeBytes: bytes.length, sha256}, null, 2));
+          marks.push('edge-downloaded-published-console-matches-release');
+        }
         await page.getByRole('button', {name: '继续使用网页版', exact: true}).click();
         await page.getByLabel('开始日期', {exact: true}).fill(auditDate);
         await page.getByLabel('结束日期', {exact: true}).fill(auditDate);
@@ -191,14 +244,56 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
         await page.getByRole('option', {name: '失败', exact: true}).click();
         await page.getByRole('button', {name: '查看详情'}).click();
         await page.getByText(auditId, {exact: true}).waitFor();
+        await page.locator('dd').filter({hasText: /^HTTP 409 · 失败$/}).waitFor();
+        await page.locator('dt').filter({hasText: /^时间$/}).locator('xpath=following-sibling::dd[1]')
+          .filter({hasText: /2026\/4\/15 12:00:00/}).waitFor();
         await page.screenshot({path: join(evidence, 'edge-audit-same-id.png'), animations: 'disabled'});
         await page.reload();
         await page.getByRole('button', {name: '继续使用网页版'}).waitFor();
         await page.getByText(auditTitle, {exact: true}).waitFor();
         marks.push('edge-pin-bookmark-no-term-same-audit-id');
+        async function visitOtherSchool() {
+          // A fragment visit adds a real entry; the in-page school picker then replaces only that entry.
+          await page.evaluate(() => { window.location.hash = 'audit-query'; });
+          await page.waitForURL(current => current.hash === '#audit-query');
+          await page.locator('.admin-navigation-panel .v-select').filter({hasText: '学校'}).first().locator('.v-field').click();
+          const read = page.waitForResponse(response => response.url().includes(`${base}/audit-logs`) && response.ok());
+          await page.getByRole('option', {name: `${school.name} · 管理员`, exact: true}).click();
+          await read;
+          await page.waitForURL(current => current.searchParams.get('school') === school.id);
+        }
+        await visitOtherSchool();
+        await page.goBack();
+        await page.waitForURL(current => current.searchParams.get('school') === empty.id);
+        await page.getByText(auditTitle, {exact: true}).waitFor({timeout: 8000});
+        marks.push('browser-back-restores-explicit-audit-school');
+        await page.goto(screenLink.href);
+        const screenPanel = page.locator('.v-window-item--active').filter({hasText: '正在查看待办对应的大屏'});
+        await screenPanel.getByText(rear.name, {exact: true}).first().waitFor();
+        assert.equal(await screenPanel.getByText(front.name, {exact: true}).count(), 0);
+        await page.screenshot({path: join(evidence, 'edge-legacy-rear-screen.png'), animations: 'disabled'});
+        await screenPanel.getByRole('button', {name: '查看全部大屏'}).click();
+        await page.getByText(front.name, {exact: true}).first().waitFor();
+        marks.push('old-kv-open-web-exact-rear-binding-and-class');
+        await pilot(false);
+        await page.goto(bookmark);
+        await page.getByText(auditTitle, {exact: true}).waitFor();
+        await page.locator('.admin-navigation-panel:visible').getByText('审计记录', {exact: true}).waitFor();
+        assert.equal(await page.locator('summary:visible').filter({hasText: '网页版兼容'}).count(), 0);
+        await page.screenshot({path: join(evidence, 'edge-restored-audit-navigation.png'), animations: 'disabled'});
+        await pilot(true);
+        marks.push('same-build-runtime-rollback-restores-default-navigation-and-bookmark');
+        await page.reload();
+        await page.getByText(auditTitle, {exact: true}).waitFor();
+        await visitOtherSchool();
         await prisma.schoolMember.delete({where: {schoolId_accountId: {schoolId: empty.id, accountId: managerId}}});
         const auditRequests = [];
         page.on('request', req => { if (req.url().includes('/audit-logs')) auditRequests.push(req.url()); });
+        await page.goBack();
+        const denied = page.getByText('原学校不可访问。请选择你有权限的学校以查看审计记录。', {exact: true});
+        await denied.waitFor();
+        assert.deepEqual(auditRequests, []);
+        marks.push('browser-back-rechecks-revoked-school-before-audit');
         await page.goto(bookmark);
         await page.getByText('原学校不可访问。请选择你有权限的学校以查看审计记录。', {exact: true}).waitFor();
         assert.deepEqual(auditRequests, []);
@@ -212,6 +307,10 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
         await page.waitForURL(url => url.searchParams.get('school') === school.id);
         assert.ok(auditRequests.every(url => url.includes(`${base}/audit-logs`)));
         marks.push('denied-bookmark-does-not-open-other-school');
+        const previousRequests = auditRequests.length;
+        await page.goto(bookmark + '&school=' + school.id);
+        await denied.waitFor();
+        assert.equal(auditRequests.length, previousRequests, 'ambiguous school does not fall back to the last school');
 
         await page.goto(url + '/settings');
         await page.getByText('故障诊断', {exact: true}).first().click();

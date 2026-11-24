@@ -16,7 +16,8 @@ internal static partial class Program
 {
     private sealed record EntryRetirementAccess(string Origin, string SchoolId, string SchoolCode, string Password,
         string ArchivedTermId, string ActiveTermId, string ArchivedClassId, string ActiveClassId, string SubjectId,
-        string PeerId, string TeacherId, string InviteId, string RaceInviteId, string EmptySchoolId, string AuditId, string AuditDate);
+        string PeerId, string TeacherId, string InviteId, string RaceInviteId, string EmptySchoolId, string AuditId, string AuditDate,
+        string RearScreenId);
 
     private static int StartEntryRetirementPilot(string fixture, string output)
     {
@@ -46,6 +47,22 @@ internal static partial class Program
             await PickSchool(access.SchoolId);
             var hwnd = main.TryGetPlatformHandle();
             Check(hwnd is { HandleDescriptor: "HWND" } && hwnd.Handle != IntPtr.Zero, "main window has a real Windows handle");
+            var overview = Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace");
+            var overviewTasks = Find<ListBox>(overview, "OverviewTasksList");
+            await Until(() => overviewTasks.Items.OfType<OverviewTaskItem>().Any(item =>
+                item.Task.ScreenId == access.RearScreenId && item.Task.Action == "OPEN_WEB"), "old KV rear-screen web task");
+            var rear = overviewTasks.Items.OfType<OverviewTaskItem>().Single(item =>
+                item.Task.ScreenId == access.RearScreenId && item.Task.Code == "SCREEN_NOT_ACTIVATED");
+            overviewTasks.ScrollIntoView(rear);
+            Button? RearButton() => overview.GetVisualDescendants().OfType<Button>().FirstOrDefault(button =>
+                button.IsEffectivelyVisible && AutomationProperties.GetAutomationId(button) == rear.AutomationId);
+            await Until(() => RearButton() is not null, "rear screen action is reachable");
+            Uri? webTarget = null;
+            main.DesktopBrowserLauncher = uri => { webTarget = uri; return true; };
+            Click(RearButton()!);
+            await Until(() => webTarget is not null, "legacy task passes the original rear screen to the browser");
+            main.DesktopBrowserLauncher = null;
+            await File.WriteAllTextAsync(Path.Combine(output, "console-screen-link.txt"), webTarget!.AbsoluteUri);
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
             Click(Find<Button>(main, "OpenTermPreparationButton"));
             var terms = await AcademicPageAsync<TermPreparationView>(main);
@@ -291,6 +308,10 @@ internal static partial class Program
             auditRows.SelectedIndex = 0;
             auditRows.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
             await Until(() => Find<SelectableTextBlock>(audit, "AuditDetailId").Text == access.AuditId, "same audit id in desktop detail");
+            var when = DateTimeOffset.Parse(access.AuditDate + "T12:00:00+08:00").LocalDateTime;
+            Check(Find<SelectableTextBlock>(audit, "AuditDetailTime").Text == when.ToString("yyyy-MM-dd HH:mm:ss") &&
+                Find<SelectableTextBlock>(audit, "AuditDetailResult").Text == "HTTP 409 · 失败",
+                "audit time and result match the original school record");
             await Capture(main, output, "06-console-audit-id-without-term");
             Console.WriteLine($"PASS: main HWND 0x{hwnd!.Handle:X}, wide and narrow teacher workflows, stale and lost replies, school isolation, permissions, historical diagnostics, and no-term audit.");
             desktop.Shutdown(0);

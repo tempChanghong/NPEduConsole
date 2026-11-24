@@ -181,7 +181,7 @@ public sealed partial class MainWindow
             SchoolOverviewWorkspace.ShowNavigationMessage("KV 未提供网页地址。请在原 NPClassworks 网页的「学校管理」打开对应入口。");
             return;
         }
-        if (SchoolAdminBrowser.Open(link))
+        if ((DesktopBrowserLauncher ?? SchoolAdminBrowser.Open)(link))
         {
             _overviewWebReturn = (client, school);
             SchoolOverviewWorkspace.ShowNavigationMessage("已打开网页学校管理。办理后返回此窗口即可核对最新状态。");
