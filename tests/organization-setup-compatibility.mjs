@@ -80,8 +80,10 @@ export async function verifyOrganizationSetupCompatibility(context) {
           await page.getByText('管理员已验证', {exact: true}).waitFor();
           await page.getByLabel(/我已下载、复制或打印/).check();
           await page.screenshot({path: join(evidence, `${mode.toLowerCase()}-owner-verified.png`)});
+          await page.getByText(/请在 NPEduConsole 打开「学校总览 → 开学配置」/).waitFor();
           await page.getByRole('button', {name: '完成并锁定初始化'}).click();
           await page.waitForURL('**/classworks-admin');
+          await page.getByRole('region', {name: '学校管理办理去向'}).getByText('学校管理请使用 Windows 管理端 NPEduConsole。').waitFor();
           const status = await fetch(backend + '/api/v2/setup/status').then(response => response.json());
           assert.equal(status.data.state, 'COMPLETED');
           assert.equal(status.data.supportsOrganizationRetirement, true);
