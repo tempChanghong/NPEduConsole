@@ -31,6 +31,7 @@ import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
 import { verifyStaffResponsibilities } from './staff-responsibilities-fixture.mjs';
 import { verifyTermActivation } from './term-activation-fixture.mjs';
 import { verifyTermPreparation } from './term-preparation-fixture.mjs';
+import { verifyReleasedTermRetirement } from './term-retirement-fixture.mjs';
 import {verifyTermStatus} from './term-status-fixture.mjs';
 import { verifyCourseGroups } from './course-groups-fixture.mjs';
 import { verifyGradeTeachingPlan } from './grade-teaching-plan-fixture.mjs';
@@ -63,7 +64,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview', '--school-opening', '--staff-configuration',
   '--first-screen', '--serve-first-screen', '--screen-replacement', '--current-teaching', '--current-subject-setup', '--school-subjects',
-  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-status', '--term-status-db', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
+  '--current-staff', '--teacher-accounts', '--current-course-groups', '--term-preparation', '--term-activation', '--term-activation-db', '--term-status', '--term-status-db', '--term-retirement-release', '--term-screen-placement', '--grade-teaching-plan-db', '--grade-teaching-plan', '--school-study', '--school-study-db',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
@@ -969,6 +970,12 @@ async function runFixture() {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     return verifyScopedTermClasses({prisma, origin, fixture, directory, evidence, web: join(kv, '..', 'NPClassworks'),
       runDesktop: args => runDesktop(project, args)});
+  }
+  if (mode === '--term-retirement-release') {
+    assert.ok(process.env.NP_CONSOLE_RELEASE_ZIP && process.env.NP_CONSOLE_RELEASE_MANIFEST, 'Provide the published ZIP and its manifest.');
+    return verifyReleasedTermRetirement({prisma, origin, fixture, fromKv, bcrypt, directory, web: join(kv, '..', 'NPClassworks'),
+      evidence: resolve(process.env.NP_CONSOLE_TERM_RETIREMENT_EVIDENCE || '.artifacts/term-retirement/released'),
+      zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP), manifestPath: resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST)});
   }
   if (termStatus) {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
