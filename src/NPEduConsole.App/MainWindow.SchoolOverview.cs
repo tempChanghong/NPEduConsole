@@ -59,6 +59,17 @@ public sealed partial class MainWindow
                 if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;
             }
+            if (task.Action == "OPEN_TEACHER_ACCESS" && overview.Term is { } accessTerm &&
+                task.AccountId is { } accessAccount && task.SubjectId is { } accessSubject && (task.CourseGroupId ?? task.ClassId) is { } space)
+            {
+                var window = new TeacherAccessWindow(client, school, new("REPAIR", accessTerm.Id, space, accessAccount, SubjectId: accessSubject))
+                {
+                    AccessLost = error => { if (StillHere()) ReturnToLoginIfExpired(error); }
+                };
+                await window.ShowDialog(this);
+                if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
+                return;
+            }
             if (task.Action == "OPEN_MANAGEMENT_ACCOUNT" && task.AccountId is { } accountId)
             {
                 await ShowSchoolManagementAccountsAsync(this, client, school, accountId);

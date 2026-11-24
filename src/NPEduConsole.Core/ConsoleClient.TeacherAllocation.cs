@@ -32,7 +32,7 @@ public sealed partial class ConsoleClient
         CancellationToken ct, bool archivedCorrection = false)
     {
         var session = CurrentSession;
-        var options = new List<string>();
+        var options = new List<string> { "targetedAccess=true" };
         if (term is not null) options.Add($"termId={Segment(term)}");
         if (grade is not null) options.Add($"gradeId={Segment(grade)}");
         if (accountsOnly) options.Add("accountsOnly=true");

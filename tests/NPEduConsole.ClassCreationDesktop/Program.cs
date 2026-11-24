@@ -82,6 +82,8 @@ internal static partial class Program
             return StartExamWorkbench(examFixture, examOutput);
         if (args is ["--live-homework-settings", var homeworkFixture, var homeworkOutput])
             return StartHomeworkSettings(homeworkFixture, homeworkOutput);
+        if (args is ["--live-teacher-retirement", var retirementFixture, var retirementOutput])
+            return StartTeacherRetirement(retirementFixture, retirementOutput);
         if (args is ["--live-structure-retirement", var structureFixture, var structureOutput])
             return StartStructureRetirement(structureFixture, structureOutput);
         if (args is ["--live-grade-teaching-plan", var gradePlanFixture, var gradePlanOutput])

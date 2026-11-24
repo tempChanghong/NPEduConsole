@@ -67,7 +67,10 @@
           </WrapPanel>
         </StackPanel>
       </Border>
-      <WrapPanel Grid.Row="3" x:Name="AllocationPendingActions" ItemSpacing="6" LineSpacing="4" IsVisible="False"/>
+      <StackPanel Grid.Row="3" Spacing="3">
+        <WrapPanel x:Name="AllocationPendingActions" ItemSpacing="6" LineSpacing="4" IsVisible="False"/>
+        <WrapPanel x:Name="AllocationAccessPendingActions" ItemSpacing="6" LineSpacing="4" IsVisible="False"/>
+      </StackPanel>
     </Grid>
     <Panel Grid.Row="2" Margin="14,5,14,7">
       <Grid x:Name="AllocationEditLayout" ColumnDefinitions="3*,2*" ColumnSpacing="9">

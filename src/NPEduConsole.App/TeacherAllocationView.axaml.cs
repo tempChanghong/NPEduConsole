@@ -54,7 +54,11 @@ public sealed partial class TeacherAllocationView : UserControl
     internal Action? CloseRequested { get; set; }
     private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
 
-    internal static void EndSession(ConsoleClient client) => Requests.Remove(client);
+    internal static void EndSession(ConsoleClient client)
+    {
+        Requests.Remove(client);
+        TeacherAccessWindow.Forget(client);
+    }
 
     internal static void ForgetPending(ConsoleClient client, string schoolId)
     {
@@ -161,6 +165,7 @@ public sealed partial class TeacherAllocationView : UserControl
         _staffConfigurationFile = null;
         ClearPinDeliveries();
         _archiveInvitationConfirmation?.Close();
+        _targetedAccess?.CloseForScopeChange();
         _pasteDialog?.Close();
         _retryPinDialog?.Close();
         _lifetime.Cancel();
@@ -181,6 +186,7 @@ public sealed partial class TeacherAllocationView : UserControl
         AllocationSpaceDetails.Children.Clear();
         AllocationAccessRows.Children.Clear();
         AllocationPendingActions.Children.Clear();
+        AllocationAccessPendingActions.Children.Clear();
     }
 
     private async Task LoadAsync(string? termId, string? gradeId, bool accountsOnly = false)
@@ -627,6 +633,7 @@ public sealed partial class TeacherAllocationView : UserControl
             if (error.StatusCode == 403)
             {
                 ForgetPending(_client, _school.Id);
+                TeacherAccessWindow.Forget(_client, _school.Id);
                 Pending = null;
                 _rescope = true;
                 _catalog = null;
@@ -719,6 +726,7 @@ public sealed partial class TeacherAllocationView : UserControl
         AllocationFooter.Text = $"{_teachers.Count} 位教师 · {_teachers.Sum(row => row.Access.Count)} 项分配";
         RenderReceiptActions();
         UpdatePendingActions();
+        UpdateAccessPendingActions();
     }
 
     private bool HasDocumentConflict => _unsupportedFile is not null || _rejectedTarget is not null || _fileTarget is { } target && TargetDifferences(target).Length > 0;

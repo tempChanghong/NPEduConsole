@@ -29,7 +29,7 @@ public sealed partial class ConsoleClient
     {
         var session = CurrentSession;
         var overview = await RequestAsync<SchoolOverview>(HttpMethod.Get,
-            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1&staffReview=1&teacherAccountActions=1&managementAccountActions=1&courseGroupActions=1&termPreparation=1&screenPlacement=1&screenDuty=1&structureActions=1", session.Token, ct);
+            $"api/v2/admin/schools/{Segment(schoolId)}/management-overview/current?staffActions=1&staffReview=1&teacherAccountActions=1&managementAccountActions=1&courseGroupActions=1&termPreparation=1&screenPlacement=1&screenDuty=1&structureActions=1&teacherAccessActions=1", session.Token, ct);
         CheckCreationSession(session, ct);
         return ValidateOverview(overview, schoolId);
     }
@@ -80,7 +80,7 @@ public sealed partial class ConsoleClient
     private static bool KnownOverviewAction(string? action) => action is "OPEN_WEB" or "OPEN_SCREEN" or "PREPARE_SCREEN" or "CREATE_GRADE" or
         "CREATE_CLASS" or "OPEN_TEACHING" or "OPEN_CLASS_RESPONSIBILITY" or "OPEN_GRADE_RESPONSIBILITY" or "OPEN_STAFF_REVIEW" or
         "OPEN_TEACHER_ACCOUNT" or "OPEN_MANAGEMENT_ACCOUNT" or "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING" or "OPEN_TERM_PREPARATION" or
-        "OPEN_TERM_SCREEN_PLACEMENT" or "OPEN_SCREEN_DUTY" or "OPEN_TERM_TEACHING" or "INSPECT";
+        "OPEN_TERM_SCREEN_PLACEMENT" or "OPEN_SCREEN_DUTY" or "OPEN_TERM_TEACHING" or "OPEN_TEACHER_ACCESS" or "INSPECT";
 
     private static SchoolOverview ValidateOverview(SchoolOverview overview, string schoolId)
     {
@@ -114,6 +114,8 @@ public sealed partial class ConsoleClient
                 task.Action == "OPEN_COURSE_GROUP_SOURCE" && (overview.Term is null || string.IsNullOrWhiteSpace(task.SubjectId) ||
                     string.IsNullOrWhiteSpace(task.ClassId) && string.IsNullOrWhiteSpace(task.CourseGroupId)) ||
                 task.Action is "OPEN_TEACHER_ACCOUNT" or "OPEN_MANAGEMENT_ACCOUNT" && string.IsNullOrWhiteSpace(task.AccountId) ||
+                task.Action == "OPEN_TEACHER_ACCESS" && (overview.Term is null || string.IsNullOrWhiteSpace(task.SubjectId) ||
+                    string.IsNullOrWhiteSpace(task.AccountId) || string.IsNullOrWhiteSpace(task.ClassId) && string.IsNullOrWhiteSpace(task.CourseGroupId)) ||
                 task.Action == "OPEN_TERM_TEACHING" && !overview.Scoped && (overview.Term is null ||
                     string.IsNullOrWhiteSpace(task.GradeId) || string.IsNullOrWhiteSpace(task.SubjectId) ||
                     string.IsNullOrWhiteSpace(task.ClassId) && string.IsNullOrWhiteSpace(task.CourseGroupId)) ||

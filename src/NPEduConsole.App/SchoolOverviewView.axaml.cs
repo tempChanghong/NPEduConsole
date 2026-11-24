@@ -27,7 +27,7 @@ public sealed record OverviewTaskItem(SchoolOverviewTask Task, string ActionLabe
         _ => null
     };
     public string AutomationId => "SchoolOverviewTask-" + Task.Code + "-" + (Task.ScreenId ?? Task.CourseGroupId ?? Task.ClassId ?? Task.GradeId ?? "school") +
-        (Task.Action == "OPEN_TERM_TEACHING" ? $"-{Task.SubjectId}" + (Task.AccountId is { } teacher ? $"-{teacher}" : "") :
+        (Task.Action is "OPEN_TERM_TEACHING" or "OPEN_TEACHER_ACCESS" ? $"-{Task.SubjectId}" + (Task.AccountId is { } teacher ? $"-{teacher}" : "") :
             Task.Action is "OPEN_TEACHING" or "OPEN_COURSE_GROUP_SOURCE" or "OPEN_COURSE_GROUP_TEACHING" ?
             "-" + Task.SubjectId + (Task.CourseGroupId is not null && Task.ClassId is not null ? "-" + Task.ClassId : "") :
             Task.AccountId is { } accountId ? "-" + accountId : "");
@@ -266,6 +266,7 @@ public sealed partial class SchoolOverviewView : UserControl
             "OPEN_COURSE_GROUP_SOURCE" => "核对走班来源",
             "OPEN_TERM_PREPARATION" => "打开学期管理",
             "OPEN_TEACHER_ACCOUNT" => "查看教师账号",
+            "OPEN_TEACHER_ACCESS" => "核对原教师的教学空间访问",
             "OPEN_MANAGEMENT_ACCOUNT" => "核对原账号与权限",
             "OPEN_CLASS_RESPONSIBILITY" => "办理班主任",
             "OPEN_GRADE_RESPONSIBILITY" => "办理年级组长",

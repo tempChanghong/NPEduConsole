@@ -15,6 +15,8 @@ public sealed partial class TeacherAllocationView
         public override string ToString() => $"{Name}（{Username ?? Email ?? Id}）{(Disabled ? " · 已停用" : "")}";
     }
     private TeacherAllocationReceipt? _lastReceipt;
+    private TeacherAccessWindow? _targetedAccess;
+    private Guid[] _visibleAccessRequests = [];
     private string _appliedTeacherQuery = "", _appliedSpaceQuery = "";
 
     private void FocusInvitation(string invitationId)
@@ -184,11 +186,25 @@ public sealed partial class TeacherAllocationView
             remove.Click += (_, _) => AddDirectoryAction(teacher, new(room.Id, room.Code, "REMOVE", null));
             actions.Children.Add(remove);
         }
+        else if (data.CanManageTargetedAccess && teacher.Id is { } account && member is { Role: "VIEWER" or "TEACHER" or "ASSISTANT" } &&
+            data.Accounts.Any(row => row.Id == account && row.CanRemoveDirectAccess))
+        {
+            var remove = new Button {Content = "核对并移除直接访问", Classes = {"action"}};
+            remove.Click += async (_, _) => await OpenTargetedAccessAsync(data, new("REMOVE", room.TermId, room.Id, AccountId: account), remove);
+            actions.Children.Add(remove);
+        }
         if (!_archivedCorrection && invite is {ClaimedAt: null, Role: not "OWNER"} pending && data.Mode == "OAUTH_EMAIL")
         {
             var revoke = new Button {Content = "把撤回加入教师表", Classes = { "action" }};
             revoke.Click += (_, _) => AddDirectoryAction(new(null, "邮箱邀请", null, pending.NormalizedEmail, false, true),
                 new(room.Id, room.Code, "REVOKE", null, InvitationId: pending.Id));
+            actions.Children.Add(revoke);
+        }
+        else if (!_archivedCorrection && data.CanManageTargetedAccess && invite is {ClaimedAt: null, Role: "VIEWER" or "TEACHER" or "ASSISTANT"} otherMode)
+        {
+            var revoke = new Button {Content = "核对并撤回这条邀请", Classes = {"action"}};
+            Avalonia.Automation.AutomationProperties.SetAutomationId(revoke, "TargetedInvitation-" + otherMode.Id);
+            revoke.Click += async (_, _) => await OpenTargetedAccessAsync(data, new("REVOKE", room.TermId, room.Id, InvitationId: otherMode.Id), revoke);
             actions.Children.Add(revoke);
         }
         if (_archivedCorrection && invite is {ClaimedAt: null} archived)
@@ -212,6 +228,50 @@ public sealed partial class TeacherAllocationView
         }
         if (actions.Children.Count > 0) content.Children.Add(actions);
         return new Border {Classes = { "card" }, Padding = new Thickness(8), Child = content, Tag = invite?.Id, Focusable = invite is not null};
+    }
+
+    private async Task OpenTargetedAccessAsync(TeacherAllocationCatalog catalog, TeacherAccessTarget target, Control anchor)
+    {
+        if (_closed || _targetedAccess is not null || !ReferenceEquals(_catalog, catalog)) return;
+        var window = new TeacherAccessWindow(_client, _school, target) { AccessLost = SessionExpired };
+        _targetedAccess = window;
+        try { await window.ShowDialog(HostWindow); }
+        finally { _targetedAccess = null; }
+        if (_closed || !ReferenceEquals(_catalog, catalog)) return;
+        if (!window.Changed) { Render(); anchor.Focus(); return; }
+        AccessChanged = true;
+        await RunAsync(async () =>
+        {
+            await LoadAsync(catalog.TermId, catalog.GradeId);
+            if (!_closed) Status(target.Action == "REVOKE" ? "已撤回原邀请。其他访问与邀请按原规则保留。" :
+                "已移除原直接成员。任课和职责未改动。");
+        });
+    }
+
+    private void UpdateAccessPendingActions()
+    {
+        if (AllocationAccessPendingActions is null || _closed || _client is null) return;
+        var catalog = _catalog;
+        var pending = catalog is {CanManageTargetedAccess: true, TermId: { } term} ?
+            TeacherAccessWindow.PendingFor(_client, _school.Id, term) : [];
+        var ids = pending.Select(row => row.Id).ToArray();
+        AllocationAccessPendingActions.IsVisible = ids.Length > 0 && !_discard;
+        AllocationAccessPendingActions.IsEnabled = !_busy;
+        if (_visibleAccessRequests.SequenceEqual(ids)) return;
+        _visibleAccessRequests = ids;
+        AllocationAccessPendingActions.Children.Clear();
+        foreach (var request in pending)
+        {
+            var button = new Button {Classes = {"action"}, Content = new TextBlock {TextWrapping = TextWrapping.Wrap,
+                Text = $"核对本人原请求 · {request.Label} · {request.Id:D}"}};
+            Avalonia.Automation.AutomationProperties.SetAutomationId(button, $"TeacherAccessPending-{request.Id:D}");
+            button.Click += async (_, _) =>
+            {
+                if (_catalog is {CanManageTargetedAccess: true} current && current.TermId == request.Target.TermId)
+                    await OpenTargetedAccessAsync(current, request.Target, button);
+            };
+            AllocationAccessPendingActions.Children.Add(button);
+        }
     }
 
     private void AddDirectoryAction(DirectoryPerson person, AllocationAccess change)

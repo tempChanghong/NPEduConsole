@@ -14,7 +14,8 @@ internal static class SchoolAdminBrowser
         var link = new UriBuilder(url) { Query = $"school={Uri.EscapeDataString(schoolId)}&section={section}" };
         if (termId is not null && section != "accounts") link.Query += "&term=" + Uri.EscapeDataString(termId);
         if (section == "accounts" && accountId is not null) link.Query += "&account=" + Uri.EscapeDataString(accountId);
-        if (section == "structure" && termId is not null && (courseGroupId ?? classId) is { } space && subjectId is not null)
+        if (section is "structure" or "teachers" && termId is not null && (courseGroupId ?? classId) is { } space &&
+            subjectId is not null && (section != "teachers" || accountId is not null))
         {
             link.Query += "&space=" + Uri.EscapeDataString(space) + "&subject=" + Uri.EscapeDataString(subjectId);
             if (accountId is not null) link.Query += "&teacher=" + Uri.EscapeDataString(accountId);

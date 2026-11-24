@@ -1,6 +1,7 @@
 namespace NPEduConsole.Core;
 
-public sealed record AllocationAccount(string Id, string Name, string? Username, string? Email, bool Disabled, bool Manageable, int? CredentialVersion = null)
+public sealed record AllocationAccount(string Id, string Name, string? Username, string? Email, bool Disabled, bool Manageable,
+    int? CredentialVersion = null, bool CanRemoveDirectAccess = false)
 {
     public override string ToString() => $"{Name}（{Username ?? Email ?? Id}）{(Disabled ? " · 已停用" : "")}";
 }
@@ -24,7 +25,7 @@ public sealed record AllocationDuty(string AccountId, string Position, string Ty
 public sealed record TeacherAllocationCatalog(string SchoolId, string Mode, OrganizationTerm[] Terms, string? TermId,
     OrganizationGradeOption[] Grades, string? GradeId, AllocationAccount[] Accounts, AllocationWorkspace[] Workspaces,
     AllocationMember[] Members, AllocationInvitation[] Invitations, AllocationTeaching[] Teaching, AllocationDuty[] Duties,
-    bool CanRevokeArchivedInvitations = false, string? SchoolCode = null);
+    bool CanRevokeArchivedInvitations = false, string? SchoolCode = null, bool CanManageTargetedAccess = false);
 public sealed record AllocationAccess(string? WorkspaceId, string? WorkspaceCode, string Operation, string? Role,
     bool ConfirmReduction = false, string? InvitationId = null);
 public sealed record AllocationTeacher(string? Username, string? Email, string? AccountId, string? Name, string? Pin,
