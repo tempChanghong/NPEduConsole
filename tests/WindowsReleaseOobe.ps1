@@ -4,13 +4,14 @@ param(
     [Parameter(Mandatory)][string] $ZipPath,
     [Parameter(Mandatory)][string] $EvidenceDirectory,
     [string] $ManifestPath,
-    [switch] $ManagementLogin
+    [switch] $ManagementLogin,
+    [switch] $OwnerRecovery
 )
 
 $ErrorActionPreference = 'Stop'
 $fixture = Get-Content -LiteralPath $FixturePath -Raw | ConvertFrom-Json
 if (!$fixture.isolated) { throw 'This acceptance test requires disposable school servers.' }
-$origins = if ($ManagementLogin) { @($fixture.login.url, $fixture.login.website) } else { @($fixture.same.url, $fixture.split.url, $fixture.split.website) }
+$origins = if ($ManagementLogin -or $OwnerRecovery) { @($fixture.login.url, $fixture.login.website) } else { @($fixture.same.url, $fixture.split.url, $fixture.split.website) }
 foreach ($address in $origins) {
     $uri = [Uri] $address
     if (!$uri.IsAbsoluteUri -or $uri.Scheme -ne 'http' -or $uri.Host -ne '127.0.0.1' -or $uri.UserInfo -or $uri.Query -or $uri.Fragment) {
@@ -121,7 +122,7 @@ function Set-Field([string] $id, [string] $value, [switch] $Secret) {
         $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($value)
         return
     }
-    if ($id -notin @('SetupKey', 'SetupPin', 'SetupOwnerPin', 'Password') -or $value -notmatch '^[a-zA-Z0-9_-]+$') {
+    if ($id -notin @('SetupKey', 'SetupPin', 'SetupOwnerPin', 'Password', 'OwnerRecoverySetupKey', 'OwnerRecoveryNewPin', 'OwnerRecoveryRepeatPin') -or $value -notmatch '^[a-zA-Z0-9_-]+$') {
         throw 'Invalid target or input for the fixture credential.'
     }
     try { $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($value) }
@@ -223,6 +224,48 @@ function Complete-School($instance) {
 try {
     [IO.Compression.ZipFile]::ExtractToDirectory($zipItem.FullName, $expanded)
     Start-ReleaseConsole
+    if ($OwnerRecovery) {
+        $credential = [Console]::In.ReadToEnd() | ConvertFrom-Json
+        $login = $fixture.login
+        Size-ReleaseWindow $login.width $login.height
+        Set-Field 'ServerAddress' $login.url
+        Set-Field 'SchoolCode' $login.code
+        Set-Field 'Username' $login.username
+        Invoke-Control 'OpenOwnerRecoveryButton'
+        Invoke-Control 'OwnerRecoveryCheckServer'
+        Invoke-Control 'OwnerRecoveryConfirmTarget'
+        Wait-Text 'OwnerRecoveryVerifiedSchool' $login.code
+        Wait-Text 'OwnerRecoveryVerifiedAddress' $login.url
+        Save-ReleaseScreenshot '01-confirmed-target' 'OwnerRecoverySave'
+        Set-Field 'OwnerRecoverySetupKey' $credential.setupKey -Secret
+        Set-Field 'OwnerRecoveryNewPin' $credential.pin -Secret
+        Set-Field 'OwnerRecoveryRepeatPin' $credential.pin -Secret
+        Invoke-Control 'OwnerRecoverySave'
+        $notice = if ($login.confirmed) { '服务器已确认恢复' } else { '恢复结果暂未确认' }
+        Wait-Text 'OwnerRecoveryNotice' $notice
+        Save-ReleaseScreenshot '02-server-result' 'OwnerRecoveryReturnToLogin'
+        Invoke-Control 'OwnerRecoveryReturnToLogin'
+        foreach ($field in @{SchoolCode = $login.code; Username = $login.username}.GetEnumerator()) {
+            $textBox = Wait-For $field.Key { Get-Control $field.Key -Enabled }
+            if ($textBox.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).Current.Value -cne $field.Value) {
+                throw "Wrong recovery login target in $($field.Key)."
+            }
+        }
+        Set-Field 'Password' $credential.pin -Secret
+        Invoke-Control 'LoginButton'
+        if ($login.expectLogin) {
+            $null = Wait-For 'signed-in school selector' { Get-Control 'SchoolPicker' -Onscreen -Enabled }
+        } else {
+            $null = Wait-For 'ordinary login rejected' {
+                $label = Get-Control 'LoginMessage' -Onscreen
+                $label -and $label.Current.Name -match '错误|失败|有误|不正确|未接受'
+            }
+        }
+        [ordered]@{version = $manifest.version; zipSha256 = $actualHash; code = $login.code; confirmed = $login.confirmed;
+            loginAccepted = $login.expectLogin; runs = $moduleEvidence; screenshots = $screenEvidence} | ConvertTo-Json -Depth 8 |
+            Set-Content -LiteralPath (Join-Path $evidence 'released-recovery.json') -Encoding utf8
+        return
+    }
     if ($ManagementLogin) {
         Size-ReleaseWindow 1160 780
         Set-Field 'ServerAddress' $fixture.login.url

@@ -44,6 +44,7 @@ import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs
 import { verifyArchivedBatchCorrection } from './archived-batch-correction-fixture.mjs';
 import { verifyEntryRetirementPilot } from './entry-retirement-pilot-fixture.mjs';
 import { verifyManagementHandoff } from './management-handoff-fixture.mjs';
+import {verifyOwnerRecovery} from './owner-recovery-fixture.mjs';
 import { verifyTeacherAccounts } from './teacher-accounts-fixture.mjs';
 import { verifyScreenDuty } from './screen-duty-fixture.mjs';
 import { verifyExamWorkbench } from './exam-workbench-fixture.mjs';
@@ -65,7 +66,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
-  '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console', '--windows-release-oobe', '--management-handoff',
+  '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console', '--windows-release-oobe', '--management-handoff', '--owner-recovery',
   '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching',
   '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db', '--study-display', '--study-display-db',
   '--device-field-actions', '--device-field-actions-db', '--device-run-reports'].includes(mode)),
@@ -198,7 +199,7 @@ async function createDatabase() {
   });
   delete process.env.NPEP_UPDATE_CATALOG_FILE;
   if (studyMonitoring || mode === '--device-run-reports' || managementAccounts || mode?.startsWith('--school-transfer')) process.env.NPEP_PHOTO_STORAGE_DIR = join(directory, 'photos');
-  if (managementAccounts || mode === '--school-login-profile-setup' || mode?.startsWith('--school-transfer') || ['--first-school-console', '--windows-release-oobe'].includes(mode))
+  if (managementAccounts || mode === '--school-login-profile-setup' || mode?.startsWith('--school-transfer') || ['--first-school-console', '--windows-release-oobe', '--owner-recovery'].includes(mode))
     process.env.BOOTSTRAP_SETUP_KEY = randomBytes(32).toString('hex');
   if (mode === '--server-status') process.env.ACCESS_TOKEN_EXPIRES_IN = '15s';
   if (softwareUpdate) {
@@ -667,6 +668,12 @@ async function runFixture() {
     return verifyWindowsReleaseOobe({prisma, origin, directory, evidence, fixtureRunner: fileURLToPath(import.meta.url),
       kv, binaries, kvRequire, zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP),
       manifest: process.env.NP_CONSOLE_RELEASE_MANIFEST ? resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST) : null});
+  }
+  if (mode === '--owner-recovery') {
+    assert.ok(process.env.NP_CONSOLE_ENTRY_RELEASE_DIR, 'Provide the Windows release directory to test.');
+    return verifyOwnerRecovery({prisma, origin, directory, fixture, bcrypt, web: join(kv, '..', 'NPClassworks'),
+      evidence: resolve(process.env.NP_CONSOLE_RECOVERY_EVIDENCE || '.artifacts/owner-recovery/released'),
+      releaseDirectory: resolve(process.env.NP_CONSOLE_ENTRY_RELEASE_DIR)});
   }
   if (mode === '--management-handoff') {
     assert.ok(process.env.NP_CONSOLE_ENTRY_RELEASE_DIR, 'Provide the Windows release directory to test.');

@@ -356,6 +356,8 @@ public sealed partial class ConsoleClient : IDisposable
             if (!response.IsSuccessStatusCode)
             {
                 int status = (int)response.StatusCode;
+                if (path == OwnerRecoveryPath)
+                    throw OwnerRecoveryError(status, await AcademicErrorCodeAsync(response, ct));
                 if (IsSchoolProfilePath(path))
                     throw SchoolProfileError(status, await AcademicErrorCodeAsync(response, ct));
                 if (path.StartsWith(DesktopOAuthPath, StringComparison.Ordinal))
@@ -443,6 +445,9 @@ public sealed partial class ConsoleClient : IDisposable
                 }
                 throw HttpError(status, token is null);
             }
+            if (path == OwnerRecoveryPath && (response.StatusCode != HttpStatusCode.OK ||
+                !string.Equals(response.Content.Headers.ContentType?.MediaType, "application/json", StringComparison.OrdinalIgnoreCase)))
+                throw UnconfirmedOwnerRecovery();
             var envelope = await ReadEnvelopeAsync(response.Content, ct) ?? throw InvalidResponse();
             if (version is null ? envelope.Success != true :
                 envelope.ProtocolVersion != version || envelope.RequestId != requestId || envelope.ServerTime is null)
