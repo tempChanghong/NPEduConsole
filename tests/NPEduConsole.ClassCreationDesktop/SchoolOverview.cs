@@ -250,12 +250,37 @@ internal static partial class Program
             classQuery.Text = "高二 g2-8";
             await Until(() => classes.ItemCount == 1 && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId, "class search combines grade and code");
             var rosterEntry = Find<Button>(main, "OpenClassRosterButton");
+            var refreshClasses = Find<Button>(main, "RefreshClassDirectoryButton");
+            await Command("devicepagefailed");
+            Click(refreshClasses);
+            await Until(() => classes.SelectedItem is Classroom room && room.Id == access.ClassEightId &&
+                room.Screens.Count == 2 && room.Screens.All(screen => screen.DeviceOverviewUnavailable && screen.Devices.Count == 0),
+                "a failed second device page keeps the original class and marks both screens unverified");
+            Check(classQuery.Text == "高二 g2-8" && classes.ItemCount == 1 && rosterEntry.IsEffectivelyEnabled,
+                "class filter and roster access survive the device directory outage");
+            var screenCards = Find<StackPanel>(main, "ScreenCards");
+            Check(screenCards.GetVisualDescendants().OfType<TextBlock>().Count(label => label.Text == "设备状态暂不可用") == 2 &&
+                !screenCards.GetVisualDescendants().OfType<Button>().Any(button => Equals(button.Content, "配置口令接入")),
+                "an incomplete device list is never presented as a confirmed unpaired screen");
             Click(rosterEntry);
             var rosterPage = await AcademicPageAsync<ClassRosterView>(main);
             Check(TopLevel.GetTopLevel(rosterPage) == main, "class roster opens in the same main window");
             Click(Find<Button>(rosterPage, "CloseRosterButton"));
             await Until(() => rosterEntry.IsFocused && classes.ItemCount == 1 && (classes.SelectedItem as Classroom)?.Id == access.ClassEightId,
                 "roster returns focus without clearing the class filter");
+            await Capture(main, output, "class-with-device-service-down", includeFrame: true);
+            foreach (var failure in new[] { "devicedenied", "structurefailed" })
+            {
+                await Command(failure);
+                Click(refreshClasses);
+                await Until(() => Find<TextBlock>(main, "ClassListMessage").Text?.Contains("读取失败") == true &&
+                    classes.ItemCount == 0 && classes.SelectedItem is null, "no class data is presented after " + failure);
+                Click(refreshClasses);
+                await Until(() => classes.Items.OfType<Classroom>().Any(room => room.Id == access.ClassEightId &&
+                    room.Screens.Any(screen => screen.Id == access.ReadyScreenId && !screen.DeviceOverviewUnavailable && screen.Devices.Count == 1)),
+                    "refresh reads the confirmed front screen by ID");
+                classes.SelectedItem = classes.Items.OfType<Classroom>().Single(room => room.Id == access.ClassEightId);
+            }
             var teacherEntry = Find<Button>(main, "OpenTeachingButton");
             Click(teacherEntry);
             var teaching = await AcademicPageAsync<TeachingView>(main);

@@ -177,7 +177,11 @@ public sealed partial class ConsoleClient : IDisposable
     private async Task<List<DeviceRow>?> ReadOptionalDevicesAsync(string schoolId, string token, CancellationToken ct)
     {
         try { return await ReadDevicesAsync(schoolId, token, ct); }
-        catch (ConsoleApiException ex) when (ex.StatusCode is 404 or 426 or 503) { return null; }
+        catch (ConsoleApiException ex) when (ex.StatusCode is 0 or 404 or 408 or 426 or 429 or >= 500 and <= 599)
+        {
+            // The screen registrations are authoritative even if a page of native device evidence is unavailable.
+            return null;
+        }
     }
 
     private async Task<List<DeviceRow>> ReadDevicesAsync(string schoolId, string token, CancellationToken ct)

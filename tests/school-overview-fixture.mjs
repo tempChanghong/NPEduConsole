@@ -79,7 +79,12 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
   let heldResponse;
   const membership = {schoolId_accountId: {schoolId: school.id, accountId: managerId}};
   let gatewayDenied = false, deniedReads = 0;
+  let directoryFault;
+  const directoryFaultsSeen = [];
   const commands = {
+    devicepagefailed() { directoryFault = 'second-device-page'; },
+    devicedenied() { directoryFault = 'device-denied'; },
+    structurefailed() { directoryFault = 'structure'; },
     gatewaydenied() { gatewayDenied = true; },
     revoke() { return prisma.schoolMember.update({where: membership, data: {role: 'VIEWER'}}); },
     restore() { return prisma.schoolMember.update({where: membership, data: {role: 'ADMIN'}}); },
@@ -150,7 +155,19 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
       }
       return;
     }
-    const isOverview = req.method === 'GET' && new URL(req.url, destination).pathname === overviewPath;
+    const target = new URL(req.url, destination);
+    const deviceDirectory = req.method === 'GET' && target.pathname === `/api/v2/npep/schools/${school.id}/device-overview`;
+    if (deviceDirectory && directoryFault === 'second-device-page') target.searchParams.set('limit', '1');
+    const failedDevicePage = deviceDirectory && directoryFault === 'second-device-page' && target.searchParams.has('cursor');
+    const deniedDevicePage = deviceDirectory && directoryFault === 'device-denied';
+    const failedStructure = directoryFault === 'structure' && target.pathname === `/api/v2/admin/schools/${school.id}/academic-structure`;
+    if (failedDevicePage || deniedDevicePage || failedStructure) {
+      directoryFaultsSeen.push(directoryFault);
+      directoryFault = undefined;
+      res.writeHead(deniedDevicePage ? 403 : 502).end();
+      return;
+    }
+    const isOverview = req.method === 'GET' && target.pathname === overviewPath;
     if (isOverview) {
       overviewReads++;
       if (gatewayDenied) {
@@ -163,7 +180,7 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
     const hold = (isOverview && holdNext === 'overview') ||
       (req.method === 'POST' && req.url.endsWith('/first-screen') && holdNext === 'registration');
     if (hold) holdNext = false;
-    const upstream = request({hostname: '127.0.0.1', port: destination.port, path: req.url, method: req.method,
+    const upstream = request({hostname: '127.0.0.1', port: destination.port, path: target.pathname + target.search, method: req.method,
       headers: {...req.headers, host: destination.host}}, response => {
       if (isOverview && response.statusCode === 403) deniedReads++;
       if (hold) {
@@ -223,6 +240,7 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
       classSevenId: seven.id, classEightId: eight.id, waitingScreenId: waiting.id, readyScreenId: ready.id,
       restoredScreenId: repaired.id, allowOverviewTestWrites: true}), {mode: 0o600});
     await runDesktop(['--live-school-overview', access, evidence]);
+    assert.deepEqual(directoryFaultsSeen, ['second-device-page', 'device-denied', 'structure']);
     assert.equal(deniedReads, 2, 'both revoked overview reads reached the real service');
     await commands.restore();
     assert.ok(overviewReads >= 7 && released && accepted.receivedAt && newcomer.id, 'all live stages ran');
