@@ -45,6 +45,10 @@ public sealed partial class StaffConfigurationView : UserControl
         _entryTerm = entryTerm;
         _requests = requests;
         _document = document;
+        DetachedFromVisualTree += (_, _) => ClearStaffPins();
+        StaffPlanPinBatch.CloseOrOpenReview += Render;
+        StaffPlanPinBatch.ReadWebsiteRequested += ReadBatchWebsite;
+        StaffPlanPinBatch.SaveRequested += SaveBatchPins;
         SizeChanged += (_, _) => Arrange();
         AddHandler(KeyDownEvent, PageKeyDown, RoutingStrategies.Tunnel);
         Render();
@@ -55,6 +59,7 @@ public sealed partial class StaffConfigurationView : UserControl
     internal Func<StaffConfigurationIssue, StaffConfigurationTeacher?, string, CancellationToken, Task>? ResolveIssue { get; set; }
     internal Func<CancellationToken, Task<string?>>? SelectDocumentText { private get; set; }
     internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectPinFile { private get; set; }
+    internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectBatchPinFile { private get; set; }
     internal bool Applied { get; private set; }
     private bool Compact => Bounds.Width is > 0 and < 820;
     private StaffPlanRow? Selected => StaffPlanRows.SelectedItem as StaffPlanRow;
@@ -95,7 +100,7 @@ public sealed partial class StaffConfigurationView : UserControl
         _lifetime.Cancel();
         _lifetime.Dispose();
         _document = null;
-        _pins.Clear();
+        ClearStaffPins();
         _preview = null;
         _receipt = null;
         _scope = null;
@@ -321,8 +326,9 @@ public sealed partial class StaffConfigurationView : UserControl
         _preview = null;
         _receipt = receipt;
         _detail = false;
-        _pins.Clear();
+        ClearStaffPins();
         foreach (var pin in pins ?? []) _pins.Add(pin.AccountId, new(pin.AccountId, pin.Username, pin.Pin, pin.Version));
+        BindStaffPins(receipt);
         Status(pins is { Length: > 0 } ? "已保存。选择新建教师可交付本次初始 PIN。" : "已核对本人申请及服务端回执。");
         if (_pending is { } request) ClearRequest(request);
         SetRows(receipt.Teachers.Select((teacher, index) => new StaffPlanRow(index, teacher.Name,
@@ -401,7 +407,7 @@ public sealed partial class StaffConfigurationView : UserControl
     private void NewClicked(object? sender, RoutedEventArgs args)
     {
         _receipt = null;
-        _pins.Clear();
+        ClearStaffPins();
         Status(null);
         ClearPreview();
         Render();

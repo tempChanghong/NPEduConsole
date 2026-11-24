@@ -24,7 +24,10 @@
         <Button x:Name="StaffPlanPendingOpen" Content="核对原申请" Classes="action" Click="PendingClicked"/>
       </WrapPanel>
     </StackPanel>
-    <Grid x:Name="StaffPlanPanes" Grid.Row="2" ColumnDefinitions="2*,3*" ColumnSpacing="8">
+    <Grid Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="4">
+      <local:TeacherBatchPinView x:Name="StaffPlanPinBatch" IsVisible="False"/>
+      <Grid Grid.Row="1" x:Name="StaffPlanReceiptContent">
+    <Grid x:Name="StaffPlanPanes" ColumnDefinitions="2*,3*" ColumnSpacing="8">
       <Border x:Name="StaffPlanListPane" Classes="card" Padding="8">
         <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6">
           <TextBox x:Name="StaffPlanSearch" Classes="search-field" PlaceholderText="查找姓名或短账号" AutomationProperties.Name="查找教师" TextChanged="SearchChanged"/>
@@ -55,12 +58,14 @@
         </Grid>
       </Border>
     </Grid>
-    <Border Grid.Row="2" x:Name="StaffPlanEmpty" Classes="card" Padding="12">
+    <Border x:Name="StaffPlanEmpty" Classes="card" Padding="12">
       <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
         <TextBlock x:Name="StaffPlanEmptyText" TextWrapping="Wrap" LineHeight="23"/>
       </ScrollViewer>
     </Border>
-    <Grid Grid.Row="3" RowDefinitions="Auto,Auto" RowSpacing="4">
+      </Grid>
+    </Grid>
+    <Grid x:Name="StaffPlanMainActions" Grid.Row="3" RowDefinitions="Auto,Auto" RowSpacing="4">
       <TextBlock x:Name="StaffPlanSummary" Classes="muted" TextWrapping="Wrap"/>
       <WrapPanel Grid.Row="1" ItemSpacing="7" LineSpacing="4">
         <Button x:Name="StaffPlanOpen" Classes="action" Content="选择完整师资 JSON" Click="OpenClicked"/>

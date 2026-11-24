@@ -26,11 +26,16 @@ public sealed partial class StaffConfigurationView
         StaffPlanFile.Text = _document is { } doc
             ? $"文件声明：{doc.SchoolCode ?? "未填学校代码"} · {(doc.AcademicYear is { } year ? $"{year} 学年" : "未填学年")} · {(doc.Semester is { } number ? $"第 {number} 学期" : "未填学期")} · {doc.TeacherCount} 位教师"
             : _pending is { } request ? $"原申请编号：{request.Id:D}" : _receipt is { } saved ? $"本人回执：{saved.RequestId:D}" : null;
-        StaffPlanFile.IsVisible = StaffPlanFile.Text is not null;
+        StaffPlanFile.IsVisible = StaffPlanFile.Text is not null && !StaffPlanPinBatch.Reviewing;
+        StaffPlanStatus.IsVisible = !string.IsNullOrEmpty(StaffPlanStatus.Text) && !StaffPlanPinBatch.Reviewing;
         StaffPlanPendingBar.IsVisible = _pending is null && _receipt is null && _available.Length > 0;
         StaffPlanPendingBar.IsEnabled = !_busy;
         StaffPlanEmpty.IsVisible = !HasRows;
         StaffPlanPanes.IsVisible = HasRows;
+        StaffPlanReceiptContent.IsVisible = StaffPlanMainActions.IsVisible = !StaffPlanPinBatch.Reviewing;
+        StaffPlanClose.IsVisible = !StaffPlanPinBatch.Reviewing;
+        Grid.SetRowSpan(StaffPlanPinBatch, StaffPlanPinBatch.Reviewing ? 2 : 1);
+        StaffPlanPinBatch.Render(_busy);
         StaffPlanEmptyText.Text = _scope switch
         {
             null => _busy ? "正在核对所选学校及启用学期…" : "无法读取办理范围。请返回后重新打开。",
@@ -260,7 +265,7 @@ public sealed partial class StaffConfigurationView
 
     private async Task DeliverAsync(StaffConfigurationSavedTeacher teacher, InitialPinDelivery<int> delivery, bool save)
     {
-        if (_busy || _receipt is not { } receipt || _scope is not { Mode: "LOCAL_PIN" } scope || _pins.GetValueOrDefault(teacher.AccountId) != delivery ||
+        if (_busy || StaffPlanPinBatch.Reviewing || _receipt is not { } receipt || _scope is not { Mode: "LOCAL_PIN" } scope || _pins.GetValueOrDefault(teacher.AccountId) != delivery ||
             TopLevel.GetTopLevel(this) is not Window owner) return;
         await RunAsync(async ct =>
         {
@@ -270,11 +275,13 @@ public sealed partial class StaffConfigurationView
                 if (_closed || _receipt != receipt || Selected?.Saved?.AccountId != teacher.AccountId || _pins.GetValueOrDefault(teacher.AccountId) != delivery) return false;
                 if (TeacherAllocationView.TeacherPinMatches(catalog, delivery) && catalog.SchoolCode == scope.SchoolCode) return true;
                 _pins.Remove(teacher.AccountId);
+                StaffPlanPinBatch.RecordIndividualResult(teacher.AccountId, delivered: false);
                 return false;
             }
 
             if (!await delivery.DeliverAsync(owner, save, _school.Name, scope.SchoolCode, "教师短账号", Verify, ct, SelectPinFile)) return;
             _pins.Remove(teacher.AccountId);
+            StaffPlanPinBatch.RecordIndividualResult(teacher.AccountId, delivered: true);
             if (!_closed) Status(save ? "已另存所选教师的账号和 PIN。" : "已复制所选教师的账号和 PIN。");
         });
     }
@@ -317,6 +324,12 @@ public sealed partial class StaffConfigurationView
 
     private void PageKeyDown(object? sender, KeyEventArgs args)
     {
+        if (args.Key == Key.Escape && StaffPlanPinBatch.Reviewing)
+        {
+            StaffPlanPinBatch.CancelReview();
+            args.Handled = true;
+            return;
+        }
         if (args.Key == Key.Escape && Compact && _detail)
         {
             BackToList();

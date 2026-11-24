@@ -102,7 +102,11 @@ public sealed partial class TeacherAllocationView : UserControl
         AllocationScope.Text = school.Name;
         AllocationFilter.ItemsSource = new[] { "全部", "新增", "修改或移除", "阻断与待复核", "一致" };
         AllocationFilter.SelectedIndex = 0;
-        DetachedFromVisualTree += (_, _) => _deliveries.Clear();
+        DetachedFromVisualTree += (_, _) => ClearPinDeliveries();
+        AllocationPinBatch.CloseOrOpenReview += Render;
+        AllocationPinBatch.ReadWebsiteRequested += ReadBatchWebsite;
+        AllocationPinBatch.RefreshRequested += RefreshBatchDirectory;
+        AllocationPinBatch.SaveRequested += SaveBatchPins;
         SizeChanged += (_, _) => ArrangeAllocationLayout();
         AddHandler(KeyDownEvent, AllocationKeyDown, RoutingStrategies.Tunnel);
         Render();
@@ -155,7 +159,7 @@ public sealed partial class TeacherAllocationView : UserControl
         if (_closed) return;
         _closed = true;
         _staffConfigurationFile = null;
-        _deliveries.Clear();
+        ClearPinDeliveries();
         _archiveInvitationConfirmation?.Close();
         _pasteDialog?.Close();
         _retryPinDialog?.Close();
@@ -233,7 +237,7 @@ public sealed partial class TeacherAllocationView : UserControl
             Status("请先保存或放弃当前教师表，再切换办理范围。");
             return;
         }
-        _deliveries.Clear();
+        ClearPinDeliveries();
         ClearReview();
         await RunAsync(async () =>
         {
@@ -496,7 +500,7 @@ public sealed partial class TeacherAllocationView : UserControl
         ClearPending(request);
         if (result.Receipt is { } receipt)
         {
-            _deliveries.Clear();
+            ClearPinDeliveries();
             if (draft.Mode == "LOCAL_PIN" && !draft.ArchivedCorrection && result.AppliedPins is { } applied)
                 for (var i = 0; i < receipt.Teachers.Length; i++)
                 {
@@ -505,6 +509,7 @@ public sealed partial class TeacherAllocationView : UserControl
                         applied.FirstOrDefault(item => item.AccountId == id) is {Version: >= 0} proof)
                         _deliveries[id] = new(id, username, pin, proof.Version);
                 }
+            BindPinBatch(receipt);
             await ShowReceiptAsync(receipt, recovered: false);
         }
         else if (result.Preview is { } observed)
@@ -546,7 +551,7 @@ public sealed partial class TeacherAllocationView : UserControl
 
     private async Task ShowReceiptAsync(TeacherAllocationReceipt receipt, bool recovered)
     {
-        if (recovered) _deliveries.Clear();
+        if (recovered) ClearPinDeliveries();
         AccessChanged = true;
         _dirty = false;
         ClearPins();
@@ -554,16 +559,31 @@ public sealed partial class TeacherAllocationView : UserControl
         _lastReceipt = receipt;
         AllocatedAccountId = receipt.Teachers.Length == 1 ? receipt.Teachers[0].AccountId : null;
         ShowReceiptRows(receipt);
+        _writing = false;
         SetStage(Stage.Receipt);
+        await ReadReceiptDirectoryAsync(receipt, recovered);
+    }
+
+    private async Task ReadReceiptDirectoryAsync(TeacherAllocationReceipt receipt, bool recovered = false)
+    {
         try { await LoadAsync(receipt.TermId, receipt.GradeId, receipt.TermId is null); }
-        catch (ConsoleApiException error)
+        catch (ConsoleApiException error) when (!_closed && error.StatusCode is not (401 or 403))
         {
-            _deliveries.Clear();
-            SessionExpired?.Invoke(error);
-            if (!_closed) Status("服务器已确认成功；当前目录暂未刷新。请重读实际账号和访问。");
+            if (IsScopeError(error) || error.StatusCode is 404 or 409 or 426) ClearPinDeliveries();
+            else AllocationPinBatch.SetDirectoryPending(true);
+            Status("服务器已确认成功；当前目录暂未刷新。");
             return;
         }
         if (_closed) return;
+        if (_deliveries.Count != 0 && (_catalog is not { Mode: "LOCAL_PIN" } data || data.TermId != receipt.TermId ||
+            receipt.TermId is not null && !data.Terms.Any(row => row.Id == receipt.TermId && row.Status == receipt.TermStatus)))
+        {
+            ClearPinDeliveries();
+            ShowReceiptRows(receipt);
+            Status("服务器已确认成功。原学期或登录方式已变化，本次 PIN 已清除。");
+            return;
+        }
+        AllocationPinBatch.SetDirectoryPending(false);
         ShowReceiptRows(receipt);
         FocusLater(AllocationReceiptRows);
         var accounts = receipt.Teachers.Count(row => row.Created);
@@ -603,7 +623,7 @@ public sealed partial class TeacherAllocationView : UserControl
         }
         catch (ConsoleApiException error) when (!_closed)
         {
-            if (error.StatusCode is 401 or 403) _deliveries.Clear();
+            if (error.StatusCode is 401 or 403) ClearPinDeliveries();
             if (error.StatusCode == 403)
             {
                 ForgetPending(_client, _school.Id);
@@ -656,6 +676,10 @@ public sealed partial class TeacherAllocationView : UserControl
         AllocationTeacherDirectoryLayout.IsVisible = _stage == Stage.ByTeacher && !pending;
         AllocationSpaceDirectoryLayout.IsVisible = _stage == Stage.BySpace && !pending;
         AllocationReceiptLayout.IsVisible = _stage == Stage.Receipt && !pending;
+        Grid.SetRowSpan(AllocationPinBatch, AllocationPinBatch.Reviewing ? 2 : 1);
+        AllocationReceiptContent.IsVisible = AllocationMainActions.IsVisible = !AllocationPinBatch.Reviewing;
+        AllocationStatus.IsVisible = !AllocationPinBatch.Reviewing && !string.IsNullOrWhiteSpace(AllocationStatus.Text);
+        AllocationPinBatch.Render(_busy);
         AllocationTargetFields.IsVisible = editing && !pending;
         AllocationTerm.IsEnabled = !_fixedScope && !_busy && !pending && _catalog is not null;
         AllocationGrade.IsEnabled = AllocationTerm.IsEnabled && Term is not null && !_rescope;

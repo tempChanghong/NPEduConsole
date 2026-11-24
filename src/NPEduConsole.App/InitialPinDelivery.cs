@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Input.Platform;
 using Avalonia.Platform.Storage;
+using System.Text;
+using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
@@ -10,6 +12,8 @@ internal sealed class InitialPinDelivery<TVersion>(string id, string username, s
     public string Id { get; } = id;
     public string Username { get; } = username;
     public TVersion Version { get; } = version;
+
+    internal TeacherPinCsvRow CsvRow(string name, string workspaces) => new(name, Username, pin, workspaces);
 
     internal async Task<bool> DeliverAsync(Window owner, bool save, string schoolName, string schoolCode,
         string kind, Func<Task<bool>> stillAuthorized, CancellationToken token,
@@ -36,21 +40,8 @@ internal sealed class InitialPinDelivery<TVersion>(string id, string username, s
             }
             else
             {
-                string path = file.TryGetLocalPath() ?? throw new IOException();
-                string temp = Path.Combine(Path.GetDirectoryName(path)!, $".np-handoff-{Guid.NewGuid():N}.tmp");
-                bool created = false;
-                try
-                {
-                    await using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-                    {
-                        created = true;
-                        await using var writer = new StreamWriter(stream);
-                        await writer.WriteAsync(content.AsMemory(), token);
-                    }
-                    token.ThrowIfCancellationRequested();
-                    File.Move(temp, path, overwrite: true);
-                }
-                finally { if (created) File.Delete(temp); }
+                await PinHandoffFile.WriteAsync(file, new UTF8Encoding(false),
+                    writer => writer.WriteAsync(content.AsMemory(), token), token);
             }
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.ExternalException)

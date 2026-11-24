@@ -3,6 +3,7 @@ import {mkdir, mkdtemp, readdir, readFile, realpath, rm, rmdir, writeFile} from 
 import {createServer, request} from 'node:http';
 import {join} from 'node:path';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
+import {readTeacherPinBatch} from './teacher-pin-batch-fixture.mjs';
 
 export async function verifyStaffConfiguration({prisma, origin, fixture, directory, evidence, web, bcrypt, runDesktop}) {
   directory = await realpath(directory);
@@ -34,7 +35,7 @@ export async function verifyStaffConfiguration({prisma, origin, fixture, directo
     position: 'PRIMARY'}});
   const duty = await prisma.administrativeClassLeadership.create({data: {administrativeClassId: current.id,
     accountId: incumbent.id, position: 'HEAD_TEACHER'}});
-  const newPin = pin === '472683' ? '472684' : '472683';
+  const newPin = '047268';
   const otherPin = pin === '659427' ? '659428' : '659427';
   const document = teachers => ({schemaVersion: 1, schoolCode: school.code, term: {academicYear: term.academicYear, semester: term.semester}, teachers});
   const file = (username, name, extra = {}) => ({username, name, credential: {mode: 'FIXED_PIN', pin: otherPin}, ...extra});
@@ -42,7 +43,8 @@ export async function verifyStaffConfiguration({prisma, origin, fixture, directo
     teachingAssignments: [{workspaceCode: current.code, subjectCode: subject.code, position: 'PRIMARY'}],
     responsibilities: {classLeaderships: [{classCode: current.code, position: 'HEAD_TEACHER'}]}
   }), file('staff-same-b', '周老师', {credential: {mode: 'FIXED_PIN', pin: newPin},
-    teachingAssignments: [{workspaceCode: current.code, subjectCode: subject.code, position: 'CO_TEACHER'}]})]);
+    teachingAssignments: [{workspaceCode: current.code, subjectCode: subject.code, position: 'CO_TEACHER'}]}),
+  file('staff-generated', '方"老师', {credential: {mode: 'GENERATE_PIN'}})]);
   const savedInput = join(directory, 'staff-plan.json');
   const wrongInput = join(directory, 'staff-plan-archived.json');
   const interruptedInput = join(directory, 'staff-plan-interrupted.json');
@@ -50,7 +52,7 @@ export async function verifyStaffConfiguration({prisma, origin, fixture, directo
   const lostInput = join(directory, 'staff-plan-lost.json');
   // The restricted PostgreSQL directory is read-only to the desktop runner. Keep its mutable scratch separate.
   const clientDirectory = await mkdtemp(join(evidence, 'temporary-staff-client-'));
-  const handoff = join(clientDirectory, 'temporary-handoff.txt');
+  const handoff = join(clientDirectory, 'temporary-handoff.csv');
   await Promise.all([
     writeFile(savedInput, JSON.stringify(plan)),
     writeFile(wrongInput, JSON.stringify({...plan, term: {...plan.term, academicYear: old.academicYear}})),
@@ -192,7 +194,12 @@ export async function verifyStaffConfiguration({prisma, origin, fixture, directo
     const established = await fetch(origin + '/api/v2/me/workspaces', {headers: {Authorization: `Bearer ${original.access_token}`}});
     assert.ok(established.ok);
     assert.deepEqual((await established.json()).data.map(row => row.workspace.id), [current.id]);
-    assert.equal((await readFile(handoff, 'utf8')).split('\n').at(-1), 'PIN ' + newPin);
+    const exported = await readTeacherPinBatch(handoff);
+    assert.deepEqual(exported.map(row => row[3]), ['staff-same-b', 'staff-generated']);
+    assert.ok(exported.every(row => row[0] === school.name && row[1] === school.code));
+    assert.ok(exported[0][4] === newPin && /^[0-9]{6}$/.test(exported[1][4]), 'the fixed and generated PINs are both delivered');
+    assert.ok(exported[0][5].includes(current.code) && exported[1][2] === '方"老师' && exported[1][5] === '');
+    for (const row of exported) assert.equal((await login(row[3], row[4])).account.id, (await byUsername(row[3])).id);
     await rm(handoff, {force: true});
 
     let browserIds;
@@ -205,8 +212,8 @@ export async function verifyStaffConfiguration({prisma, origin, fixture, directo
         await page.getByText('登录教师工作台', {exact: true}).waitFor();
         await page.locator('.v-select').filter({hasText: '学校'}).locator('.v-field').click();
         await page.getByRole('option', {name: school.name, exact: true}).click();
-        await page.getByLabel('教师短账号').fill('staff-same-b');
-        await page.getByLabel('个人 PIN').fill(newPin);
+        await page.getByLabel('教师短账号').fill(exported[0][3]);
+        await page.getByLabel('个人 PIN').fill(exported[0][4]);
         const list = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v2/me/workspaces' && response.ok());
         await page.getByRole('button', {name: '登录', exact: true}).click();
         browserIds = (await (await list).json()).data.map(row => row.workspace.id);
@@ -216,7 +223,7 @@ export async function verifyStaffConfiguration({prisma, origin, fixture, directo
       } finally { await page.close(); }
     }});
     await writeFile(join(evidence, 'staff-configuration-result.json'), JSON.stringify({passed: true, ...counters,
-      current: current.id, archived: archived.id, browserIds}, null, 2));
+      current: current.id, archived: archived.id, browserIds, exportedTeachers: exported.map(row => row[3])}, null, 2));
   } finally {
     await rm(handoff, {force: true});
     await rm(join(clientDirectory, 'last-server.txt'), {force: true});

@@ -7,6 +7,49 @@ namespace NPEduConsole.App;
 public sealed partial class TeacherAllocationView
 {
     internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectPinFile { private get; set; }
+    internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectBatchPinFile { private get; set; }
+
+    private void ClearPinDeliveries()
+    {
+        _deliveries.Clear();
+        AllocationPinBatch.Clear();
+    }
+
+    private void BindPinBatch(TeacherAllocationReceipt receipt)
+    {
+        if (_deliveries.Count == 0 || _catalog is not { SchoolCode.Length: > 0 } catalog) return;
+        var scope = _client.CaptureTeacherPinBatchScope(_school.Id, catalog.SchoolCode, receipt.TermId,
+            receipt.TermStatus, receipt.GradeId, receipt.RequestId);
+        var spaces = catalog.Workspaces.ToDictionary(room => room.Id, room => room.Code);
+        var people = receipt.Teachers.Select(teacher => new TeacherPinBatchPerson(teacher.AccountId,
+            teacher.Name, teacher.Username ?? teacher.Email ?? teacher.AccountId ?? "",
+            string.Join("、", teacher.Access.Where(access => access.State == "MEMBER")
+                .Select(access => spaces.GetValueOrDefault(access.WorkspaceId, access.WorkspaceId))), teacher.Created)).ToArray();
+        string target = Term is { } term ? $"{term.Name}（{(term.Status == "DRAFT" ? "草稿" : "启用中")}）" : "无指定学期，只建账号";
+        AllocationPinBatch.Bind(scope, _school.Name, $"{_school.Name} · {target}", people, _deliveries);
+    }
+
+    private async void ReadBatchWebsite()
+    {
+        await RunAsync(() => AllocationPinBatch.ReadWebsiteAsync(_client, _lifetime.Token));
+        if (!_closed) AllocationPinBatch.FocusReviewReturn();
+    }
+
+    private async void RefreshBatchDirectory()
+    {
+        if (_stage == Stage.Receipt && _lastReceipt is { } receipt)
+            await RunAsync(() => ReadReceiptDirectoryAsync(receipt));
+    }
+
+    private async void SaveBatchPins()
+    {
+        if (_stage != Stage.Receipt || !AllocationPinBatch.Reviewing) return;
+        bool saved = false;
+        await RunAsync(async () => saved = await AllocationPinBatch.SaveAsync(_client, HostWindow, SelectBatchPinFile, _lifetime.Token));
+        if (_closed) return;
+        if (saved) FocusSelected(AllocationReceiptRows);
+        else if (AllocationPinBatch.Reviewing) AllocationPinBatch.FocusAfterFilePicker();
+    }
 
     internal static bool TeacherPinMatches(TeacherAllocationCatalog? catalog, InitialPinDelivery<int> delivery) =>
         catalog is {Mode: "LOCAL_PIN", SchoolCode.Length: > 0} &&
@@ -16,7 +59,7 @@ public sealed partial class TeacherAllocationView
     private void RenderPinDelivery(AllocationSavedTeacher? teacher)
     {
         var delivery = teacher?.AccountId is { } id ? _deliveries.GetValueOrDefault(id) : null;
-        bool canDeliver = delivery is not null && TeacherPinMatches(_catalog, delivery);
+        bool canDeliver = delivery is not null && !AllocationPinBatch.DirectoryPending && TeacherPinMatches(_catalog, delivery);
         AllocationCopyPin.IsVisible = AllocationSavePin.IsVisible = canDeliver;
         AllocationCopyPin.IsEnabled = AllocationSavePin.IsEnabled = !_busy;
         AllocationPinHint.IsVisible = teacher is not null && !_archivedCorrection;
@@ -32,7 +75,8 @@ public sealed partial class TeacherAllocationView
 
     private async void DeliverPinClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy || _stage != Stage.Receipt || _catalog is not {SchoolCode: { } schoolCode} catalog ||
+        if (_busy || _stage != Stage.Receipt || AllocationPinBatch.Reviewing || AllocationPinBatch.DirectoryPending ||
+            _catalog is not {SchoolCode: { } schoolCode} catalog ||
             AllocationReceiptRows.SelectedItem is not ReceiptRow {Teacher.AccountId: { } id} ||
             !_deliveries.TryGetValue(id, out var delivery) || !TeacherPinMatches(catalog, delivery)) return;
         await RunAsync(async () =>
@@ -45,6 +89,7 @@ public sealed partial class TeacherAllocationView
                 if (!TeacherPinMatches(current, delivery) || current.SchoolCode != schoolCode)
                 {
                     _deliveries.Remove(id);
+                    AllocationPinBatch.RecordIndividualResult(id, delivered: false);
                     return false;
                 }
                 return AllocationReceiptRows.SelectedItem is ReceiptRow row && row.Teacher.AccountId == id;
@@ -52,6 +97,7 @@ public sealed partial class TeacherAllocationView
             bool save = sender == AllocationSavePin;
             if (!await delivery.DeliverAsync(HostWindow, save, _school.Name, schoolCode, "教师短账号", Verify, _lifetime.Token, SelectPinFile)) return;
             _deliveries.Remove(id);
+            AllocationPinBatch.RecordIndividualResult(id, delivered: true);
             if (!_closed) Status(save ? "已另存所选教师的账号与 PIN。" : "已将所选教师的账号与 PIN 复制到剪贴板。");
         });
     }

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {createServer, request} from 'node:http';
-import {mkdir, writeFile} from 'node:fs/promises';
+import {mkdir, mkdtemp, rm, rmdir, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
+import {readTeacherPinBatch} from './teacher-pin-batch-fixture.mjs';
 
 export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, directory, evidence, web, bcrypt, runDesktop}) {
   await mkdir(evidence, {recursive: true});
@@ -27,6 +28,8 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   const shared = await prisma.school.create({data: {code: 'SHARED', name: '通用口令试验学校', teacherAuthMode: 'SHARED_PASSWORD',
     teacherSharedPasswordHash: await bcrypt.hash(sharedPassword, 10)}});
   await prisma.schoolMember.create({data: {schoolId: shared.id, accountId: managerId, role: 'ADMIN'}});
+  const noTermSchool = await prisma.school.create({data: {code: 'NOTERM', name: '无学期配发试验学校', teacherAuthMode: 'LOCAL_PIN'}});
+  await prisma.schoolMember.create({data: {schoolId: noTermSchool.id, accountId: managerId, role: 'ADMIN'}});
   const physics = await prisma.subject.create({data: {schoolId: school.id, code: 'PHY', name: '物理', category: 'CORE'}});
   const room = (targetTerm, targetGrade, code, name, type = 'ADMIN_CLASS', subjectId = null) =>
     prisma.workspace.create({data: {termId: targetTerm.id, gradeId: targetGrade.id, code, name, type, subjectId}});
@@ -66,10 +69,12 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   const ignoredPin = String(pin === '682492' ? 682493 : 682492);
   const path = schoolId => '/api/v2/admin/schools/' + schoolId + '/teacher-allocation';
   const primaryPath = path(school.id), oauthPath = path(oauthSchool.id);
+  const overviewPath = `/api/v2/admin/schools/${school.id}/management-overview/current`;
+  const teacherPath = `/api/v2/admin/schools/${school.id}/teacher-accounts`;
   const inviteEmail = 'claim-teacher@example.invalid', revokeEmail = 'revoke-teacher@example.invalid';
   const state = {steps: [], stale: 0, lost: false, receiptReads: 0, draftReads: [], oauthCodes: []};
   let draftReceipt;
-  let dropNextPinnedWrite = false, droppedPinnedId, retryPinnedReceipt;
+  let dropNextPinnedWrite = false, droppedPinnedId, retryPinnedReceipt, failNextReceiptDirectory = false;
   let holdNextCreate = false, heldCreate, racedReceipt;
   let dropNextRoleChange = false, droppedRoleChangeId;
   const droppedPinnedReads = [], droppedRoleChangeReads = [];
@@ -79,6 +84,10 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
   const memberKey = (workspaceId, accountId) => ({workspaceId_accountId: {workspaceId, accountId}});
   const findMember = (board, account = teacher.id) => prisma.workspaceMember.findUnique({where: memberKey(board.id, account)});
   const findTeacher = username => prisma.account.findUnique({where: {provider_providerId: {provider: 'school-local', providerId: school.code + ':' + username}}});
+  const batches = await mkdtemp(join(evidence, 'temporary-teacher-pin-'));
+  const batchFile = join(batches, 'teacher.csv'), noTermFile = join(batches, 'no-term.csv');
+  await Promise.all([writeFile(batchFile, 'original'), writeFile(noTermFile, 'original')]);
+  let batchLogin;
 
   async function oldWebRemove() {
     const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: 'block'});
@@ -233,6 +242,42 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       assert.equal((await findMember(seven, teacherCreatedByRetry.id)).role, 'TEACHER');
       break;
     }
+    case 'batch-reset-during-picker': {
+      const catalog = await api(teacherPath, {token: browserManager.access_token});
+      const row = catalog.accounts.find(account => account.username === 'delivery-changed');
+      assert.ok(row);
+      await api(`${teacherPath}/${row.id}`, {method: 'PATCH', token: browserManager.access_token, body: {
+        requestId: randomUUID(), expectedMode: catalog.mode, expectedVersion: row.version, action: 'RESET_PIN', pin: '023941'}});
+      break;
+    }
+    case 'batch-ordinary-file': {
+      const rows = await readTeacherPinBatch(batchFile);
+      assert.deepEqual(rows.map(row => row[3]), ['delivery-a', 'delivery-b']);
+      assert.ok(rows.every(row => row[0] === school.name && row[1] === school.code && row[2] === "'=周,老师" && row[5] === seven.code));
+      assert.ok(rows[0][4] === '012340' && rows[1][4] === '003482', 'saved PINs preserve leading zeros');
+      for (const row of rows) {
+        const authentic = await localLogin(row[3], row[4]);
+        assert.deepEqual((await myWorkspaces(authentic.access_token)).map(item => item.workspace.id), [seven.id]);
+      }
+      batchLogin = {username: rows[1][3], pin: rows[1][4]};
+      assert.ok((await myWorkspaces(originalSession)).some(row => row.workspace.id === seven.id));
+      assert.deepEqual(await prisma.teachingAssignment.findMany({where: {workspace: {termId: term.id}}}), teachingBefore);
+      break;
+    }
+    case 'batch-no-term-file': {
+      const rows = await readTeacherPinBatch(noTermFile);
+      assert.deepEqual(rows.map(row => row[3]), ['noterm-a', 'noterm-b']);
+      assert.ok(rows.every(row => row[1] === noTermSchool.code && row[5] === ''));
+      for (const row of rows) {
+        const authentic = await localLogin(row[3], row[4], noTermSchool.code);
+        assert.deepEqual(await myWorkspaces(authentic.access_token), []);
+      }
+      assert.equal(await prisma.academicTerm.count({where: {schoolId: noTermSchool.id}}), 0);
+      break;
+    }
+    case 'batch-revoke-during-picker':
+      await prisma.schoolMember.delete({where: {schoolId_accountId: {schoolId: noTermSchool.id, accountId: managerId}}});
+      break;
     case 'invitation-pending':
       assert.equal(await prisma.workspaceMemberInvite.count({where: {workspaceId: {in: [oauthSeven.id, oauthEight.id]}, claimedAt: null}}), 2);
       break;
@@ -284,7 +329,23 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
       else if (id === droppedRoleChangeId) droppedRoleChangeReads.push(id);
       else state.receiptReads++;
     }
+    if (failNextReceiptDirectory && req.method === 'GET' && new URL(req.url, upstreamOrigin).pathname === primaryPath) {
+      failNextReceiptDirectory = false;
+      state.failedReceiptDirectory = true;
+      res.writeHead(502).end();
+      return;
+    }
     const upstream = request(new URL(req.url, upstreamOrigin), {method: req.method, headers: {...req.headers, host: upstreamOrigin.host}}, reply => {
+      if (req.method === 'GET' && new URL(req.url, upstreamOrigin).pathname === overviewPath && reply.statusCode === 200) {
+        const chunks = [];
+        reply.on('data', chunk => chunks.push(chunk));
+        reply.on('end', () => {
+          const payload = JSON.parse(Buffer.concat(chunks));
+          payload.data.adminUrl = 'https://school.test/campus/classworks-admin';
+          res.writeHead(200, {'Content-Type': 'application/json'}).end(JSON.stringify(payload));
+        });
+        return;
+      }
       if (req.method !== 'POST' || req.url !== primaryPath || reply.statusCode !== 200) {
         res.writeHead(reply.statusCode, reply.headers); reply.pipe(res);
         return;
@@ -305,8 +366,10 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
           res.destroy();
           return;
         }
-        if (result?.state === 'APPLIED' && result.receipt.teachers.some(row => row.username === 'retry-office'))
+        if (result?.state === 'APPLIED' && result.receipt.teachers.some(row => row.username === 'retry-office')) {
           retryPinnedReceipt = result.receipt;
+          failNextReceiptDirectory = true;
+        }
         res.writeHead(reply.statusCode, reply.headers);
         res.end(response);
       });
@@ -332,21 +395,42 @@ export async function verifyTeacherAllocation({prisma, origin, fixture, fromKv, 
     await writeFile(desktopAccess, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id,
       schoolCode: school.code, password: pin, draftId: draft.id, activeId: term.id, groupId: a1.id,
       oauthSchoolId: oauthSchool.id, newPin, ignoredPin, inviteEmail, revokeEmail, wrongTermFile, wrongSchoolFile, matchingFile,
-      allowAllocationWrites: true}), {mode: 0o600});
+      noTermSchoolId: noTermSchool.id, batchFile, noTermFile, allowAllocationWrites: true}), {mode: 0o600});
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (b, webOrigin) => {
       browser = b; frontend = webOrigin;
       await runDesktop(['--live-teacher-allocation', desktopAccess, evidence]);
+      const page = await browser.newPage();
+      try {
+        assert.ok(batchLogin);
+        await page.route('**/*', route => new URL(route.request().url()).origin === frontend ? route.continue() : route.abort());
+        await page.goto(frontend);
+        await page.getByText('教师登录', {exact: true}).click();
+        await page.getByText('登录教师工作台', {exact: true}).waitFor();
+        await page.locator('.v-select').filter({hasText: '学校'}).locator('.v-field').click();
+        await page.getByRole('option', {name: school.name, exact: true}).click();
+        await page.getByLabel('教师短账号').fill(batchLogin.username);
+        await page.getByLabel('个人 PIN').fill(batchLogin.pin);
+        const spaces = page.waitForResponse(response => new URL(response.url()).pathname === '/api/v2/me/workspaces' && response.ok());
+        await page.getByRole('button', {name: '登录', exact: true}).click();
+        assert.deepEqual((await (await spaces).json()).data.map(row => row.workspace.id), [seven.id]);
+        await page.getByText(/已授权 .* 个教学空间/).first().waitFor();
+        await page.screenshot({path: join(evidence, 'edge-teacher-from-batch-file.png')});
+      } finally { await page.close(); }
     }});
     assert.deepEqual(state.steps, ['draft-pending', 'draft-isolated-from-active', 'document-scope-zero', 'legacy-remove',
       'stale-zero', 'primary-applied', 'teaching-return', 'duty-only', 'drop-next-pinned-write', 'pinned-write-never-arrived',
       'cancelled-pinned-retry', 'pinned-retry-applied', 'hold-late-create', 'apply-late-original', 'replay-cannot-deliver', 'drop-next-role-change', 'change-role-scope-before-retry',
-      'stale-retry-left-role-untouched', 'draft-access', 'invitation-pending', 'oauth-complete']);
+      'stale-retry-left-role-untouched', 'batch-reset-during-picker', 'batch-ordinary-file', 'batch-no-term-file', 'batch-revoke-during-picker',
+      'draft-access', 'invitation-pending', 'oauth-complete']);
     await writeFile(join(evidence, 'teacher-allocation-cross-end.json'), JSON.stringify({passed: true, ...state,
       discardedInitialPost: droppedPinnedId, discardedInitialPostReceiptReads: droppedPinnedReads,
       sharedLocalLogin: true, originalLocalSession: 'valid', retainedDuty: 'HEAD_TEACHER', unchangedTeachingRows: teachingBefore.length,
       oauthProvider: 'loopback HLY fixture, real KV OAuth callback and browser-bound exchange routes'}, null, 2));
     console.log('PASS: Windows teacher allocation, Edge legacy mutation, actual local logins and OAuth callback/exchange.');
   } finally {
+    await rm(batchFile, {force: true});
+    await rm(noTermFile, {force: true});
+    await rmdir(batches).catch(() => {});
     relay.closeAllConnections();
     await new Promise(resolve => relay.close(resolve));
     await probe.close();

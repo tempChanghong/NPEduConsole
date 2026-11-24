@@ -149,6 +149,12 @@ public sealed partial class TeacherAllocationView
     private void AllocationKeyDown(object? sender, KeyEventArgs args)
     {
         if (_closed || _busy || _discard) return;
+        if (args.Key == Key.Escape && AllocationPinBatch.Reviewing)
+        {
+            AllocationPinBatch.CancelReview();
+            args.Handled = true;
+            return;
+        }
         if (_stage is Stage.ByTeacher or Stage.BySpace)
         {
             if (!_compact) return;

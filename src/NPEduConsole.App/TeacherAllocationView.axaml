@@ -1,5 +1,5 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:core="using:NPEduConsole.Core" x:Class="NPEduConsole.App.TeacherAllocationView"
+        xmlns:core="using:NPEduConsole.Core" xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.TeacherAllocationView"
         Focusable="True">
   <UserControl.Styles>
     <Style Selector="ListBox.allocation-review > ListBoxItem">
@@ -169,8 +169,10 @@
           </ScrollViewer>
         </Grid>
       </Grid>
-      <Grid x:Name="AllocationReceiptLayout" IsVisible="False" RowDefinitions="Auto,*,Auto" RowSpacing="6">
-        <StackPanel><TextBlock x:Name="AllocationReceiptSummary" Classes="label" TextWrapping="Wrap"/>
+      <Grid x:Name="AllocationReceiptLayout" IsVisible="False" RowDefinitions="Auto,*" RowSpacing="4">
+        <local:TeacherBatchPinView x:Name="AllocationPinBatch" IsVisible="False"/>
+        <Grid x:Name="AllocationReceiptContent" Grid.Row="1" RowDefinitions="Auto,*,Auto" RowSpacing="6">
+          <StackPanel><TextBlock x:Name="AllocationReceiptSummary" Classes="label" TextWrapping="Wrap"/>
           <TextBlock x:Name="AllocationPinHint" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
         </StackPanel>
         <ListBox Grid.Row="1" x:Name="AllocationReceiptRows" Classes="object-list" Background="Transparent"
@@ -181,10 +183,11 @@
           <Button x:Name="AllocationReceiptPerson" Classes="action" Content="查看该教师" Click="ReceiptPersonClicked"/>
           <Button x:Name="AllocationReceiptSpace" Classes="action" Content="查看该教学空间" Click="ReceiptSpaceClicked"/>
           <Button x:Name="AllocationReceiptTeaching" Classes="action accent" Content="继续分配任课" Click="ReceiptTeachingClicked"/>
-        </WrapPanel>
+          </WrapPanel>
+        </Grid>
       </Grid>
     </Panel>
-    <Border Grid.Row="3" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="13,6">
+    <Border x:Name="AllocationMainActions" Grid.Row="3" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="13,6">
       <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="7">
         <Button x:Name="AllocationClose" Classes="action" Content="返回" Click="CloseClicked"/>
         <TextBlock Grid.Column="1" x:Name="AllocationFooter" Classes="muted" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>

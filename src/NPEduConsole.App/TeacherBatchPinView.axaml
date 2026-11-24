@@ -1,0 +1,47 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.TeacherBatchPinView">
+  <UserControl.Styles>
+    <Style Selector="Button.action">
+      <Setter Property="FocusAdorner">
+        <Template><Border CornerRadius="8" BorderThickness="2" BorderBrush="{DynamicResource FocusBrush}" IsHitTestVisible="False"/></Template>
+      </Setter>
+    </Style>
+    <Style Selector="ListBox.pin-review-rows > ListBoxItem">
+      <Setter Property="MinHeight" Value="31"/>
+      <Setter Property="Padding" Value="9,3"/>
+    </Style>
+  </UserControl.Styles>
+  <Grid>
+    <WrapPanel x:Name="TeacherBatchPinActions" ItemSpacing="7" LineSpacing="4" AutomationProperties.AutomationId="TeacherBatchPinActions" AutomationProperties.Name="初始 PIN 交付">
+      <Button x:Name="TeacherBatchPinOpen" AutomationProperties.AutomationId="TeacherBatchPinOpen" Classes="action accent" Click="OpenClicked"/>
+      <Button x:Name="TeacherBatchPinRefresh" AutomationProperties.AutomationId="TeacherBatchPinRefresh" Classes="action" Content="重新核对可交付账号" Click="RefreshClicked"/>
+      <TextBlock x:Name="BatchPinResult" Classes="muted" VerticalAlignment="Center" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+    </WrapPanel>
+    <Border x:Name="TeacherBatchPinReview" Classes="card" Padding="11" IsVisible="False" AutomationProperties.AutomationId="TeacherBatchPinReview" AutomationProperties.Name="核对本次初始 PIN 交付">
+      <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="6">
+        <StackPanel Spacing="3">
+          <TextBlock Text="核对本次初始 PIN 交付" Classes="label" FontSize="18"/>
+          <TextBlock x:Name="BatchPinTarget" TextWrapping="Wrap" Classes="label"/>
+          <TextBlock x:Name="BatchPinWebsite" TextWrapping="Wrap" Classes="muted"/>
+          <TextBlock Text="CSV 含明文 PIN，请只交给负责发放的人。用 Excel 导入时，将短账号和 PIN 列设为文本。" TextWrapping="Wrap"/>
+        </StackPanel>
+        <TextBlock Grid.Row="1" x:Name="TeacherBatchPinStatus" AutomationProperties.AutomationId="TeacherBatchPinStatus" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+        <ListBox Grid.Row="2" x:Name="TeacherBatchPinRows" Classes="object-list pin-review-rows" Background="Transparent"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.AutomationId="TeacherBatchPinRows" AutomationProperties.Name="本批教师的交付资格">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="local:TeacherPinBatchDisplay">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBlock Text="{Binding Identity}" TextWrapping="Wrap" Classes="label"/>
+                <TextBlock Grid.Column="1" Text="{Binding State}" TextWrapping="Wrap" Classes="muted"/>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+        <WrapPanel Grid.Row="3" ItemSpacing="7" LineSpacing="4" HorizontalAlignment="Right">
+          <Button x:Name="TeacherBatchPinCancel" AutomationProperties.AutomationId="TeacherBatchPinCancel" Classes="action" Content="返回结果" Click="CancelClicked"/>
+          <Button x:Name="TeacherBatchPinSave" AutomationProperties.AutomationId="TeacherBatchPinSave" Classes="action accent" Click="SaveClicked"/>
+        </WrapPanel>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

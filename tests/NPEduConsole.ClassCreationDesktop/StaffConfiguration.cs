@@ -56,7 +56,8 @@ internal static partial class Program
                 Click(Find<Button>(recovered, "StaffPlanCheck"));
                 await Until(() => Ready(recovered, "StaffPlanNew"), "本人原编号取回一次真实回执");
                 Check(PlanRows(recovered).Single().Saved?.Username == "staff-lost" && !Find<WrapPanel>(recovered, "StaffPlanPendingBar").IsVisible &&
-                    PlanAction(recovered, "StaffPlanSavePin") is null, "进程重开后原办理人只读取同一回执而不能再交付 PIN");
+                    PlanAction(recovered, "StaffPlanSavePin") is null && !BatchPinReady(recovered, "Open"),
+                    "进程重开后原办理人只读取同一回执而不能再交付 PIN");
                 var changes = PlanRows(recovered).Single().Saved!.Changes ?? [];
                 Check(changes.Any(row => row.Kind == "TEACHING" && row.TargetId == fixture.CurrentId) &&
                     changes.Any(row => row.Kind == "TEACHING" && row.Label.Contains("走班 A1")) &&
@@ -129,9 +130,21 @@ internal static partial class Program
             Find<ListBox>(plan, "StaffPlanRows").SelectedItem = PlanRows(plan).Single(row => row.Saved?.Username == "staff-same-b");
             await Until(() => PlanAction(plan, "StaffPlanSavePin") is { IsEffectivelyVisible: true }, "仅新账号能交付本次实际 PIN");
             await CaptureWithFrame(main, output, "04-wide-applied-and-initial-credential-action");
-            plan.SelectPinFile = _ => main.StorageProvider.TryGetFileFromPathAsync(new Uri(fixture.Handoff));
-            Click(PlanAction(plan, "StaffPlanSavePin")!);
-            await Until(() => Text(plan, "StaffPlanStatus").Contains("已另存") && PlanAction(plan, "StaffPlanSavePin") is null, "单次交付并移除动作");
+            var savePins = await ReviewBatchPinAsync(plan, 2);
+            var rowsToDeliver = BatchPinElement<ListBox>(plan, "Rows").Items.OfType<TeacherPinBatchDisplay>().ToArray();
+            Check(rowsToDeliver.Any(row => row.Identity.Contains("staff-same-a") && row.State == "沿用原凭据") &&
+                rowsToDeliver.Any(row => row.Identity.Contains("staff-same-b") && row.State == "可交付") &&
+                rowsToDeliver.Any(row => row.Identity.Contains("staff-generated") && row.State == "可交付"),
+                "完整方案同时核对原短账号、同名新账号与服务器生成的初始 PIN");
+            await CaptureWithFrame(main, output, "07-wide-staff-batch-review");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 } && FitsBatchWindow(main, savePins), "完整师资窄窗主操作可达");
+            await CaptureWithFrame(main, output, "08-narrow-staff-batch-review");
+            plan.SelectBatchPinFile = _ => main.StorageProvider.TryGetFileFromPathAsync(new Uri(fixture.Handoff));
+            Click(savePins);
+            await Until(() => !BatchPinElement<Border>(plan, "Review").IsEffectivelyVisible && !BatchPinReady(plan, "Open") &&
+                PlanAction(plan, "StaffPlanSavePin") is null, "一次交付后批量及个人动作均结束");
             Click(Find<Button>(plan, "StaffPlanClose"));
             await Until(() => ordinary.IsEffectivelyVisible && Ready(ordinary, "AllocationPreviewButton"), "返回同一普通分配原表");
             Check(Text(ordinary, "AllocationFooter").Contains("1 位教师"), "原教师表和目标继续保留");

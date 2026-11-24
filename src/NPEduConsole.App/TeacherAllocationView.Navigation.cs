@@ -26,7 +26,7 @@ public sealed partial class TeacherAllocationView
 
     private void SetStage(Stage stage, bool showDirectoryDetail = false)
     {
-        if (stage != Stage.Receipt) _deliveries.Clear();
+        if (stage != Stage.Receipt) ClearPinDeliveries();
         _stage = stage;
         _showDirectoryDetail = showDirectoryDetail;
         if (stage != Stage.Edit) _compactDetail = false;
@@ -140,7 +140,7 @@ public sealed partial class TeacherAllocationView
     {
         var selected = AllocationReceiptRows.SelectedItem as ReceiptRow;
         RenderPinDelivery(selected?.Teacher);
-        var directory = _lastReceipt is { } receipt && _catalog is { } data &&
+        var directory = !AllocationPinBatch.DirectoryPending && _lastReceipt is { } receipt && _catalog is { } data &&
             data.TermId == receipt.TermId && data.GradeId == receipt.GradeId;
         var room = selected?.Access is { } access && directory
             ? _catalog!.Workspaces.FirstOrDefault(row => row.Id == access.WorkspaceId) : null;
@@ -226,7 +226,7 @@ public sealed partial class TeacherAllocationView
             }
 
             TeachingTarget = (term.Id, room.Id, room.SubjectId, accountId, room.IsGroup);
-            _deliveries.Clear();
+            ClearPinDeliveries();
             try { await open(); }
             finally { TeachingTarget = null; }
         });

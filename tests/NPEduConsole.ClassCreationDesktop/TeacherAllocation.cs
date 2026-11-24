@@ -14,7 +14,8 @@ internal static partial class Program
 {
     private sealed record TeacherAllocationAccess(string Origin, string SchoolId, string SchoolCode, string Password,
         string DraftId, string ActiveId, string GroupId, string OauthSchoolId, string NewPin, string IgnoredPin,
-        string InviteEmail, string RevokeEmail, string WrongTermFile, string WrongSchoolFile, string MatchingFile, bool AllowAllocationWrites);
+        string InviteEmail, string RevokeEmail, string WrongTermFile, string WrongSchoolFile, string MatchingFile, bool AllowAllocationWrites,
+        string NoTermSchoolId, string BatchFile, string NoTermFile);
 
     private static int StartTeacherAllocation(string fixture, string output)
     {
@@ -192,6 +193,7 @@ internal static partial class Program
             await Save(window, () => Status(window).Contains("找回原回执"));
             Check(!Find<Button>(window, "AllocationSavePin").IsVisible && !Find<Button>(window, "AllocationCopyPin").IsVisible,
                 "a recovered receipt cannot deliver a PIN");
+            Check(!BatchPinReady(window, "Open"), "a recovered receipt cannot start batch PIN delivery");
             await Signal("primary-applied");
             await CaptureWithFrame(main, output, "04-wide-teacher-results");
             var receiptRows = Find<ListBox>(window, "AllocationReceiptRows");
@@ -273,6 +275,13 @@ internal static partial class Program
             Click(retryDialog.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "按原编号重试")));
             await Until(() => window.DisplayedStage == TeacherAllocationView.Stage.Receipt && Status(window).Contains("服务器已确认"),
                 "the original local-account request completed");
+            var batchRefresh = window.GetVisualDescendants().OfType<Button>()
+                .SingleOrDefault(button => AutomationProperties.GetAutomationId(button) == "TeacherBatchPinRefresh");
+            Check(batchRefresh is not null && batchRefresh.IsEffectivelyEnabled && batchRefresh.IsEffectivelyVisible,
+                "a transient directory failure after an acknowledged write leaves a supported way to recheck the fresh PIN");
+            Click(batchRefresh!);
+            await Until(() => Find<Button>(window, "AllocationSavePin").IsEffectivelyVisible,
+                "a successful directory recheck restores delivery in the original result");
             var handoffFile = Path.Combine(output, "temporary-teacher-handoff.txt");
             await File.WriteAllTextAsync(handoffFile, "");
             try
@@ -303,7 +312,8 @@ internal static partial class Program
             await Until(() => window.DisplayedStage == TeacherAllocationView.Stage.Receipt && Status(window).Contains("服务器已确认"),
                 "idempotent replay returns the original teacher");
             Check(!Find<Button>(window, "AllocationCopyPin").IsVisible && !Find<Button>(window, "AllocationSavePin").IsVisible &&
-                (Find<TextBlock>(window, "AllocationPinHint").Text ?? "").Contains("没有可再次交付"), "a replay never delivers the retyped PIN");
+                !BatchPinReady(window, "Open") && (Find<TextBlock>(window, "AllocationPinHint").Text ?? "").Contains("没有可再次交付"),
+                "a replay never delivers the retyped PIN");
             await CaptureWithFrame(main, output, "13-late-original-no-pin-delivery");
             await Signal("replay-cannot-deliver");
             await PressScoped(window, "AllocationEdit");
@@ -337,11 +347,58 @@ internal static partial class Program
             await PressScoped(window, "AllocationClose");
             await PressScoped(window, "AllocationDiscard");
             window = await AcademicPageAsync<TeacherAllocationView>(main);
+            await VerifyLiveBatchAsync(window);
             await PressScoped(window, "AllocationClose");
             await Until(() => Find<Button>(activeOrganization, "OrgTeacherAllocation").IsFocused &&
                 Find<ListBox>(activeOrganization, "OrgReceiptClasses").SelectedItem?.ToString()?.Contains("G2-C15") == true,
                 "active organization receipt restores its selected original row and focus");
             await PressScoped(activeOrganization, "OrgClose");
+
+            await SelectSchool(access.NoTermSchoolId);
+            var (noTermDirectory, noTermWorkbench) = await OpenTeacherBulk();
+            var noTermView = noTermWorkbench.View;
+            await Until(() => Find<TextBlock>(noTermView, "AllocationScope").Text?.Contains("无班级分配") == true, "the school with no term loads");
+            await Paste(noTermView, "noterm-a\t无学期甲\t048291\t\t\nnoterm-b\t无学期乙\t048292\t\t");
+            await Preview(noTermView, () => Find<CheckBox>(noTermView, "AllocationApprove").IsEffectivelyEnabled);
+            await Save(noTermView, () => BatchPinReady(noTermView, "Open"));
+            var noTermSave = await ReviewBatchPinAsync(noTermView, 2);
+            Check(noTermView.GetVisualDescendants().OfType<TextBlock>().Any(row => row.IsEffectivelyVisible && row.Text?.Contains("无指定学期，只建账号") == true),
+                "the no-term export names its account-only scope");
+            noTermView.SelectBatchPinFile = _ => noTermWorkbench.StorageProvider.TryGetFileFromPathAsync(new Uri(access.NoTermFile));
+            Click(noTermSave);
+            await Until(() => !BatchPinElement<Border>(noTermView, "Review").IsEffectivelyVisible && !BatchPinReady(noTermView, "Open"),
+                "account-only batch PIN export completes");
+            await Signal("batch-no-term-file");
+            await PressScoped(noTermView, "AllocationEdit");
+            await Paste(noTermView, "noterm-leave\t离页核对\t048293\t\t");
+            await Preview(noTermView, () => Find<CheckBox>(noTermView, "AllocationApprove").IsEffectivelyEnabled);
+            await Save(noTermView, () => BatchPinReady(noTermView, "Open"));
+            await PressScoped(noTermView, "AllocationClose");
+            await Until(() => !noTermWorkbench.IsVisible && !Find<TeacherBatchPinView>(noTermView, "AllocationPinBatch").IsVisible &&
+                !BatchPinReady(noTermView, "Open"), "the result and its PIN actions are cleared when the Windows page closes");
+            await Until(() => Find<Button>(noTermDirectory, "TeacherAccountBulk").IsEffectivelyEnabled, "return to the account directory");
+            Click(Find<Button>(noTermDirectory, "TeacherAccountBulk"));
+            noTermWorkbench = await WindowOf<TeacherAllocationWindow>();
+            noTermView = noTermWorkbench.View;
+            await Until(() => Find<Button>(noTermView, "AllocationPaste").IsEffectivelyEnabled, "reopened account-only workflow is ready");
+            Check(!BatchPinReady(noTermView, "Open"), "reopening the same school cannot reissue an old PIN");
+            await Paste(noTermView, "noterm-revoked\t撤权核对\t048294\t\t");
+            await Preview(noTermView, () => Find<CheckBox>(noTermView, "AllocationApprove").IsEffectivelyEnabled);
+            await Save(noTermView, () => BatchPinReady(noTermView, "Open"));
+            var revokedSave = await ReviewBatchPinAsync(noTermView, 1);
+            var priorFile = await File.ReadAllBytesAsync(access.NoTermFile);
+            noTermView.SelectBatchPinFile = async _ =>
+            {
+                await Signal("batch-revoke-during-picker");
+                return await noTermWorkbench.StorageProvider.TryGetFileFromPathAsync(new Uri(access.NoTermFile));
+            };
+            Click(revokedSave);
+            await Until(() => !BatchPinReady(noTermView, "Open") && !BatchPinElement<Border>(noTermView, "Review").IsEffectivelyVisible &&
+                Find<ListBox>(noTermView, "AllocationReceiptRows").Items.Count == 0, "school revocation clears the result and blocks the pending file operation");
+            Check((await File.ReadAllBytesAsync(access.NoTermFile)).SequenceEqual(priorFile), "revocation keeps the existing CSV intact");
+            if (noTermWorkbench.IsVisible) await PressScoped(noTermView, "AllocationClose");
+            if (noTermDirectory.IsVisible) noTermDirectory.Close();
+            await SelectSchool(access.SchoolId);
 
             var (accounts, regular) = await OpenTeacherBulk();
             var regularView = regular.View;
@@ -422,6 +479,75 @@ internal static partial class Program
             var classes = Find<Button>(main, "OpenClassWorkspaceButton");
             await Until(() => classes.IsEffectivelyVisible && classes.IsEnabled, "school class hub available");
             Click(classes);
+        }
+
+        async Task VerifyLiveBatchAsync(TeacherAllocationView page)
+        {
+            if (page.DisplayedStage != TeacherAllocationView.Stage.Edit) await PressScoped(page, "AllocationEdit");
+            await Paste(page, "短账号\t姓名\t初始 PIN\t班级代码\t角色\n" +
+                "delivery-a\t=周,老师\t012340\tG2-C07\t教师\n" +
+                "delivery-b\t=周,老师\t003482\tG2-C07\t教师\n" +
+                "delivery-solo\t另存一位\t018341\tG2-C07\t教师\n" +
+                "delivery-changed\t随后重置\t019341\tG2-C07\t教师\n" +
+                $"viewer\tviewer\t{access.IgnoredPin}\tG2-C08\t助教");
+            await Preview(page, () => Find<CheckBox>(page, "AllocationApprove").IsEffectivelyEnabled);
+            await Save(page, () => BatchPinReady(page, "Open"));
+            var receiptList = Find<ListBox>(page, "AllocationReceiptRows");
+            receiptList.SelectedItem = receiptList.Items.Cast<object>().Single(row => row.ToString()!.Contains("delivery-solo"));
+            var soloFile = access.BatchFile + ".single.txt";
+            try
+            {
+                await File.WriteAllTextAsync(soloFile, "");
+                page.SelectPinFile = _ => main.StorageProvider.TryGetFileFromPathAsync(new Uri(soloFile));
+                await PressScoped(page, "AllocationSavePin");
+                await Until(() => Status(page).Contains("已另存"), "the single teacher was delivered before the batch");
+                Check((await File.ReadAllTextAsync(soloFile)).EndsWith("PIN 018341", StringComparison.Ordinal), "one-time individual delivery used the applied PIN");
+            }
+            finally { File.Delete(soloFile); }
+            main.Width = 1160;
+            main.Height = 780;
+            var save = await ReviewBatchPinAsync(page, 3);
+            var rows = BatchPinElement<ListBox>(page, "Rows").Items.OfType<TeacherPinBatchDisplay>().ToArray();
+            Check(rows.Count(row => row.Identity.StartsWith("=周,老师", StringComparison.Ordinal)) == 2 &&
+                rows.Any(row => row.Identity.Contains("delivery-solo") && row.State == "已交付") &&
+                rows.Any(row => row.Identity.Contains("viewer") && row.State == "沿用原凭据"),
+                "the batch distinguishes identical names and excludes delivered and existing accounts");
+            Check(page.GetVisualDescendants().OfType<TextBlock>().Any(row => row.IsEffectivelyVisible && row.Text == "师生网页 https://school.test/campus/"),
+                "the school address preserves the configured website path, independent of the KV origin");
+            await CaptureWithFrame(main, output, "14-wide-teacher-batch-review");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 } && FitsBatchWindow(main, save) &&
+                FitsBatchWindow(main, BatchPinElement<Button>(page, "Cancel")), "narrow batch review keeps both actions in view");
+            await CaptureWithFrame(main, output, "15-narrow-teacher-batch-review");
+            await CancelOrganizationPickerAsync(main, save, "另存本次教师初始 PIN");
+            Check(await File.ReadAllTextAsync(access.BatchFile) == "original", "cancelling the actual Windows save dialog leaves the file intact");
+            page.SelectBatchPinFile = async _ =>
+            {
+                await Signal("batch-reset-during-picker");
+                return await main.StorageProvider.TryGetFileFromPathAsync(new Uri(access.BatchFile));
+            };
+            Click(save);
+            await Until(() => BatchPinElement<TextBlock>(page, "Status").Text?.Contains("文件未修改") == true && !save.IsEffectivelyVisible,
+                "reset during file selection refuses the entire preview instead of silently exporting a subset");
+            Check(await File.ReadAllTextAsync(access.BatchFile) == "original", "a changed account leaves the destination byte-for-byte intact");
+            await CaptureWithFrame(main, output, "16-narrow-teacher-batch-reset-conflict");
+            Click(BatchPinElement<Button>(page, "Cancel"));
+            save = await ReviewBatchPinAsync(page, 2);
+            page.SelectBatchPinFile = _ => main.StorageProvider.TryGetFileFromPathAsync(new Uri(access.BatchFile));
+            using (var locked = File.Open(access.BatchFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                Click(save);
+                await Until(() => BatchPinReady(page, "Save") && BatchPinElement<TextBlock>(page, "Status").Text?.Contains("文件未保存") == true,
+                    "a locked destination retains the review and permits retry");
+            }
+            Check(await File.ReadAllTextAsync(access.BatchFile) == "original" &&
+                !Directory.EnumerateFiles(Path.GetDirectoryName(access.BatchFile)!, ".np-handoff-*.tmp").Any(),
+                "file write failure preserves existing content and cleans temporary output");
+            Click(save);
+            await Until(() => !BatchPinElement<Border>(page, "Review").IsEffectivelyVisible && !BatchPinReady(page, "Open"),
+                "the approved two-row file was saved and consumed");
+            await Signal("batch-ordinary-file");
         }
 
         async Task<(TeacherAccountsWindow Owner, TeacherAllocationWindow Window)> OpenTeacherBulk()
