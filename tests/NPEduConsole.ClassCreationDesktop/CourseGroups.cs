@@ -12,7 +12,8 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record CourseAccess(string Origin, string SchoolId, string SchoolCode, string Password, string AlternateSchoolId,
-        string SevenId, string EightId, string NineId, string TenId, string SubjectId, string TeacherId, string A2Id, bool AllowCourseTestWrites);
+        string SevenId, string EightId, string NineId, string TenId, string SubjectId, string TeacherId, string A2Id, string NextRoomId,
+        bool AllowCourseTestWrites);
 
     private static int StartCourseGroups(string path, string output)
     {
@@ -96,7 +97,64 @@ internal static partial class Program
             await Until(() => !scope.IsVisible, "closing during receipt lookup returns to the main window");
             await Signal("receipt-read-canceled");
 
+            scope = await OpenTask("WALKING_SUBJECT_WITHOUT_GROUP", access.TenId, false);
+            primary = Find<Button>(scope, "CoursePrimary");
+            await Until(() => primary.IsEffectivelyEnabled, "the second source entry has finished opening");
+            Check(Find<ScrollViewer>(scope, "CourseEditorScroll").IsEffectivelyVisible &&
+                Source(scope, access.TenId).IsChecked == true && Source(scope, access.EightId).IsChecked == false &&
+                string.IsNullOrEmpty(Find<TextBox>(scope, "CourseName").Text) && primary.Content?.ToString() == "预览改动",
+                "同科另一来源班打开自己的草稿，未接管先前班级的原请求");
+            await Signal("other-source-opened");
+            await CaptureWithFrame(scope, output, "02b-other-source-keeps-exact-target");
+            Find<TextBox>(scope, "CourseName").Text = "物理 B1";
+            Find<TextBox>(scope, "CourseCode").Text = "PHY-B1";
+            Click(primary);
+            await Until(() => primary.Content?.ToString() == "确认保存" && primary.IsEffectivelyEnabled, "the other source has its own preview");
+            Click(primary);
+            var secondGroups = Find<ListBox>(scope, "CourseGroupRows");
+            await Until(() => secondGroups.SelectedItem is CourseGroupDirectoryRow row && row.Group.Code == "PHY-B1" &&
+                CourseText(scope, "CourseNotice").Contains("已确认"), "the second source saves a different server group");
+            string otherGroupId = ((CourseGroupDirectoryRow)secondGroups.SelectedItem!).Group.Id;
+            await Signal("other-source-saved");
+            Click(Find<Button>(scope, "CourseBack"));
+            await Until(() => !scope.IsVisible, "the second source can close after saving");
+
+            scope = await OpenTask("COURSE_GROUP_WITHOUT_TEACHER", otherGroupId, true);
+            teaching = await WindowOf<TeachingWindow>();
+            await Until(() => CourseText(teaching, "TeachingContext").Contains("物理 B1"), "the exact second group reaches its own teaching window");
+            await Signal("other-group-opened");
+            Click(Find<Button>(teaching, "CloseTeachingButton"));
+            await Until(() => !teaching.IsVisible && Find<Button>(scope, "CourseEdit").IsEffectivelyEnabled, "return to the second group");
+            Click(Find<Button>(scope, "CourseBack"));
+            await Until(() => !scope.IsVisible && FindTask("COURSE_GROUP_WITHOUT_TEACHER", otherGroupId, true) is not null,
+                "original-term group action remains in the loaded overview");
+
+            await Signal("switch-term-for-bookmark");
+            scope = await OpenTask("COURSE_GROUP_WITHOUT_TEACHER", otherGroupId, true);
+            await Until(() => CourseText(scope, "CourseNotice").Contains("启用学期已切换"), "the original group task reports its now inactive term");
+            await Signal("original-term-rejected");
+            Click(Find<Button>(scope, "CourseBack"));
+            await Until(() => !scope.IsVisible, "the stale-term entry closes");
+
+            scope = await OpenTask("WALKING_SUBJECT_WITHOUT_GROUP", access.NextRoomId, false);
+            primary = Find<Button>(scope, "CoursePrimary");
+            await Until(() => primary.IsEffectivelyEnabled, "the new-term source entry has finished opening");
+            Check(CourseText(scope, "CourseScope").Contains("切换后的学期") &&
+                Source(scope, access.NextRoomId).IsChecked == true && primary.Content?.ToString() == "预览改动",
+                "不同学期同名来源班的待办仍按实际 ID 打开自己的草稿");
+            await Signal("different-term-opened");
+            await CaptureWithFrame(scope, output, "02c-new-term-same-named-source");
+            var newTermBack = Find<Button>(scope, "CourseBack");
+            Click(newTermBack);
+            await Until(() => newTermBack.Content?.ToString() == "关闭", "an untouched new-term editor returns to its directory");
+            Click(newTermBack);
+            await Until(() => !scope.IsVisible, "the new-term source closes without writing");
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+
             await PressScoped(main, "OpenClassWorkspaceButton");
+            await Until(() => main.IsActive && !Find<ProgressBar>(main, "WorkspaceProgress").IsEffectivelyVisible &&
+                Find<ListBox>(main, "ClassPicker").Items.OfType<Classroom>().Any(row => row.Id == access.EightId),
+                "the original school's class directory is ready again");
             await PressScoped(main, "OpenCourseGroupsButton");
             scope = await WindowOf<CourseGroupsWindow>();
             var list = Find<ListBox>(scope, "CourseGroupRows");
@@ -188,8 +246,42 @@ internal static partial class Program
             Find<Border>(scope, "CourseReviewCard").BringIntoView();
             await Capture(scope, output, "05-narrow-source-supplement");
             Click(primary);
-            await Until(() => list.SelectedItem is CourseGroupDirectoryRow row && row.Group.Id == groupId &&
-                row.Group.Code == "PHY-A1-EDIT" && row.Group.SourceClassIds.Contains(access.TenId), "the same group now includes class 10 under the updated code");
+            await Signal("existing-edit-read-held");
+            Click(Find<Button>(scope, "CourseBack"));
+            await Until(() => !scope.IsVisible, "the pending existing-group edit can close during read");
+            await Signal("existing-edit-read-canceled");
+
+            await PressScoped(main, "OpenSchoolOverviewButton");
+            scope = await OpenTask("COURSE_GROUP_WITHOUT_TEACHER", otherGroupId, true);
+            teaching = await WindowOf<TeachingWindow>();
+            await Until(() => CourseText(teaching, "TeachingContext").Contains("物理 B1"), "the other group still opens while the existing edit is pending");
+            Click(Find<Button>(teaching, "CloseTeachingButton"));
+            await Until(() => !teaching.IsVisible && Find<Button>(scope, "CourseEdit").IsEffectivelyEnabled, "the other group returns to its directory");
+            list = Find<ListBox>(scope, "CourseGroupRows");
+            directorySubject = Find<ComboBox>(scope, "CourseSubjectFilter");
+            directorySubject.SelectedItem = directorySubject.Items.OfType<CourseGroupLabel>().Single(row => row.Id == access.SubjectId);
+            list.SelectedItem = list.Items.OfType<CourseGroupDirectoryRow>().Single(row => row.Group.Id == groupId);
+            Click(Find<Button>(scope, "CourseEdit"));
+            var name = Find<TextBox>(scope, "CourseName");
+            name.Text = "尚未提交的修改";
+            primary = Find<Button>(scope, "CoursePrimary");
+            Click(primary);
+            var verify = Find<Button>(scope, "CourseRefresh");
+            await Until(() => verify.Content?.ToString() == "核对原申请" && verify.IsEffectivelyEnabled && !primary.IsEffectivelyEnabled,
+                "an existing group cannot be saved with a new number before the original request is checked");
+            Check(name.Text == "尚未提交的修改" && CourseText(scope, "CourseNotice").Contains("原编号"),
+                "the operator sees the original application and retains input until explicitly opening it");
+            await Signal("same-group-blocked");
+            await CaptureWithFrame(scope, output, "06-narrow-same-group-original-request");
+            name.Text = "继续编辑也须先核对";
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            Check(verify.Content?.ToString() == "核对原申请" && !primary.IsEffectivelyEnabled &&
+                CourseText(scope, "CourseNotice").Contains("原编号"), "editing the same group does not dismiss its original request");
+            Click(verify);
+            await Until(() => list.IsEffectivelyVisible && CourseText(scope, "CourseNotice").Contains("已确认") &&
+                list.SelectedItem is CourseGroupDirectoryRow row && row.Group.Id == groupId &&
+                row.Group.Code == "PHY-A1-EDIT" && row.Group.SourceClassIds.Contains(access.TenId),
+                "the original receipt confirms the same group now includes class 10 under the updated code");
             Check(directorySubject.SelectedItem is CourseGroupLabel kept && kept.Id == access.SubjectId, "compatible directory filters survive saving");
             await Signal("supplemented");
             Click(Find<Button>(scope, "CourseBack"));
@@ -202,7 +294,7 @@ internal static partial class Program
             await Until(() => CourseText(scope, "CourseDirectoryEmpty").Contains("没有启用学期"), "no class or group leaks into the alternate school");
             Check(Find<ListBox>(scope, "CourseGroupRows").ItemCount == 0, "alternate school remains empty");
             Click(Find<Button>(scope, "CourseBack"));
-            Finish("PASS: Windows 1160×780 / 840×480, exact source and A1 tasks, teacher conflict blocks write, save stays protected, cancel the slow receipt read and recover the same request after reopening, separate assignment, supplement original sources, school switch.", 0);
+            Finish("PASS: Windows 1160×780 / 840×480, save protected and receipt wait cancellable, same-subject second source and group open precisely, stale term rejected, original request recovered, teacher conflict and assignment, original sources, school switch.", 0);
 
             OverviewTaskItem? FindTask(string code, string target, bool group) => tasks.Items.Cast<OverviewTaskItem>()
                 .FirstOrDefault(row => row.Task.Code == code && (group ? row.Task.CourseGroupId : row.Task.ClassId) == target && row.Task.SubjectId == access.SubjectId);

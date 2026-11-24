@@ -18,7 +18,7 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   const physics = await prisma.subject.create({data: {schoolId: school.id, code: 'WALK-PHY', name: '物理'}});
   const math = await prisma.subject.create({data: {schoolId: school.id, code: 'WALK-MATH', name: '数学'}});
   await prisma.administrativeClassSubject.createMany({data: [
-    ...[seven, eight, nine].map(room => ({administrativeClassId: room.id, subjectId: physics.id,
+    ...[seven, eight, nine, ten].map(room => ({administrativeClassId: room.id, subjectId: physics.id,
       deliveryMode: room.id === nine.id ? 'ADMIN_CLASS' : 'COURSE_GROUP', isCompulsory: true})),
     {administrativeClassId: seven.id, subjectId: math.id, deliveryMode: 'ADMIN_CLASS', isCompulsory: true}
   ]});
@@ -52,8 +52,18 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
   const task = async (code, group) => (await api(schoolPath + '/management-overview/current?courseGroupActions=1', {token: admin})).tasks
     .find(row => row.code === code && (row.courseGroupId === group || row.classId === group) && row.subjectId === physics.id);
   const student = room => '/api/v2/catalog/administrative-classes/' + room.id;
-  let a1, lost, releaseCommit, requestId, firstReceipt, firstReadCanceled = false, savePosts = 0, postsAtRecovery;
+  const nextTerm = await prisma.academicTerm.create({data: {schoolId: school.id, name: '切换后的学期',
+    academicYear: term.academicYear + 1, semester: term.semester, status: 'DRAFT'}});
+  const nextGrade = await prisma.grade.create({data: {termId: nextTerm.id, code: 'G2', name: '高二'}});
+  const nextRoom = await prisma.workspace.create({data: {termId: nextTerm.id, gradeId: nextGrade.id, type: 'ADMIN_CLASS',
+    name: ten.name, code: ten.code}});
+  await prisma.administrativeClassSubject.create({data: {administrativeClassId: nextRoom.id,
+    subjectId: physics.id, deliveryMode: 'COURSE_GROUP', isCompulsory: true}});
+  let a1, b1, lost, releaseCommit, requestId, firstReceipt, firstReadCanceled = false, savePosts = 0, postsAtRecovery;
+  let editRequestId, editReceipt, editReadCanceled = false;
+  let switchTermOnCourseRead = false;
   const receiptReads = [];
+  const courseReads = [];
   async function waitFor(condition, step) {
     for (let i = 0; i < 200 && !condition(); i++) await delay(20);
     assert.ok(condition(), step);
@@ -85,11 +95,44 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
       assert.equal(savePosts, 1);
       assert.equal(receiptReads.length, 1);
       break;
+    case 'other-source-opened':
+      assert.equal(savePosts, 1);
+      assert.equal(receiptReads.length, 1);
+      assert.ok(await task('WALKING_SUBJECT_WITHOUT_GROUP', ten.id));
+      break;
+    case 'other-source-saved':
+      b1 = await prisma.workspace.findUniqueOrThrow({where: {termId_code: {termId: term.id, code: 'PHY-B1'}}});
+      assert.deepEqual((await prisma.workspaceSourceClass.findMany({where: {workspaceId: b1.id}})).map(row => row.administrativeClassId), [ten.id]);
+      assert.equal(savePosts, 2);
+      assert.equal(receiptReads.length, 1);
+      break;
+    case 'other-group-opened':
+      assert.equal(savePosts, 2);
+      assert.equal(receiptReads.length, 1);
+      assert.ok(await task('COURSE_GROUP_WITHOUT_TEACHER', b1.id));
+      break;
+    case 'switch-term-for-bookmark':
+      switchTermOnCourseRead = true;
+      break;
+    case 'original-term-rejected':
+      assert.deepEqual(courseReads.at(-1), {termId: term.id, status: 409});
+      assert.equal(savePosts, 2);
+      assert.equal(receiptReads.length, 1);
+      break;
+    case 'different-term-opened':
+      assert.deepEqual(courseReads.at(-1), {termId: nextTerm.id, status: 200});
+      assert.equal(savePosts, 2);
+      assert.equal(receiptReads.length, 1);
+      await prisma.$transaction([
+        prisma.academicTerm.update({where: {id: nextTerm.id}, data: {status: 'DRAFT'}}),
+        prisma.academicTerm.update({where: {id: term.id}, data: {status: 'ACTIVE'}}),
+      ]);
+      break;
     case 'created': {
       a1 = await prisma.workspace.findUniqueOrThrow({where: {termId_code: {termId: term.id, code: 'PHY-A1'}}});
       assert.equal(a1.name, '物理 A1');
       postsAtRecovery = savePosts;
-      assert.ok(lost && firstReadCanceled && postsAtRecovery === 1);
+      assert.ok(lost && firstReadCanceled && postsAtRecovery === 2);
       assert.deepEqual(receiptReads, [requestId, requestId]);
       assert.equal(firstReceipt.groupId, a1.id);
       assert.deepEqual((await prisma.workspaceSourceClass.findMany({where: {workspaceId: a1.id}})).map(row => row.administrativeClassId).sort(), [seven.id, eight.id].sort());
@@ -126,8 +169,24 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
       assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: {in: [a2.id, nine.id]}, accountId: fixedTeacher.id}}), 2);
       break;
     }
+    case 'existing-edit-read-held':
+      await waitFor(() => editReceipt, 'the actual existing group receipt reached the relay');
+      assert.equal(editReceipt.requestId, editRequestId);
+      assert.equal(editReceipt.groupId, a1.id);
+      assert.equal(savePosts, 3);
+      break;
+    case 'existing-edit-read-canceled':
+      await waitFor(() => editReadCanceled, 'closing canceled the existing group receipt read');
+      break;
+    case 'same-group-blocked':
+      assert.equal(savePosts, 3);
+      assert.deepEqual(receiptReads, [requestId, requestId, editRequestId]);
+      assert.equal((await prisma.workspace.findUniqueOrThrow({where: {id: a1.id}})).name, '物理 A1');
+      break;
     case 'supplemented': {
-      assert.equal(await prisma.workspace.count({where: {termId: term.id, type: 'COURSE_GROUP'}}), 2);
+      assert.equal(savePosts, 3);
+      assert.deepEqual(receiptReads, [requestId, requestId, editRequestId, editRequestId]);
+      assert.equal(await prisma.workspace.count({where: {termId: term.id, type: 'COURSE_GROUP'}}), 3);
       assert.equal((await prisma.workspace.findUniqueOrThrow({where: {id: a1.id}})).code, 'PHY-A1-EDIT');
       const roomIds = (await prisma.workspaceSourceClass.findMany({where: {workspaceId: a1.id}})).map(row => row.administrativeClassId).sort();
       assert.deepEqual(roomIds, [seven.id, eight.id, ten.id].sort());
@@ -147,21 +206,37 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
       catch (error) { console.error(error.message); res.writeHead(500).end(); }
       return;
     }
-    if (req.method === 'POST' && req.url === newPath) savePosts++;
+    const target = new URL(req.url, backend);
+    if (switchTermOnCourseRead && req.method === 'GET' && target.pathname === newPath) {
+      switchTermOnCourseRead = false;
+      try {
+        await prisma.$transaction([
+          prisma.academicTerm.update({where: {id: term.id}, data: {status: 'ARCHIVED'}}),
+          prisma.academicTerm.update({where: {id: nextTerm.id}, data: {status: 'ACTIVE'}}),
+        ]);
+      } catch (error) { console.error(error.message); res.writeHead(500).end(); return; }
+    }
+    const saveSequence = req.method === 'POST' && req.url === newPath ? ++savePosts : null;
     const readsReceipt = req.method === 'GET' && req.url.startsWith(newPath + '/receipts/');
     if (readsReceipt) receiptReads.push(req.url.split('/').at(-1));
     const holdFirstRead = readsReceipt && receiptReads.length === 1;
+    const holdEditRead = readsReceipt && receiptReads.length === 3;
     const upstream = request(new URL(req.url, backend), {method: req.method, headers: {...req.headers, host: backend.host}}, reply => {
-      if (!lost && req.method === 'POST' && req.url === newPath && reply.statusCode === 200) {
+      if (req.method === 'GET' && target.pathname === newPath)
+        courseReads.push({termId: target.searchParams.get('termId'), status: reply.statusCode});
+      if ((saveSequence === 1 || saveSequence === 3) && reply.statusCode === 200) {
         const chunks = [];
         reply.on('data', chunk => chunks.push(chunk));
         reply.on('end', () => {
           const body = Buffer.concat(chunks);
           const result = JSON.parse(body).data;
-          if (result?.state === 'APPLIED') {
+          if (result?.state === 'APPLIED' && saveSequence === 1) {
             lost = true;
             requestId = result.receipt.requestId;
             releaseCommit = () => res.destroy();
+          } else if (result?.state === 'APPLIED' && saveSequence === 3) {
+            editRequestId = result.receipt.requestId;
+            res.destroy();
           }
           else { res.writeHead(reply.statusCode, reply.headers); res.end(body); }
         });
@@ -170,6 +245,11 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
         res.once('close', () => { firstReadCanceled = !res.writableEnded; });
         reply.on('data', chunk => chunks.push(chunk));
         reply.on('end', () => { firstReceipt = JSON.parse(Buffer.concat(chunks)).data; });
+      } else if (holdEditRead && reply.statusCode === 200) {
+        const chunks = [];
+        res.once('close', () => { editReadCanceled = !res.writableEnded; });
+        reply.on('data', chunk => chunks.push(chunk));
+        reply.on('end', () => { editReceipt = JSON.parse(Buffer.concat(chunks)).data; });
       } else { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); }
     });
     upstream.on('error', () => res.destroy());
@@ -180,14 +260,16 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
     const accessPath = join(directory, 'course-groups-desktop.json');
     await writeFile(accessPath, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id, schoolCode: school.code,
       alternateSchoolId: other.id, password: pin, sevenId: seven.id, eightId: eight.id, nineId: nine.id, tenId: ten.id,
-      subjectId: physics.id, teacherId: walkTeacher.id, a2Id: a2.id, allowCourseTestWrites: true}), {mode: 0o600});
+      subjectId: physics.id, teacherId: walkTeacher.id, a2Id: a2.id, nextRoomId: nextRoom.id, allowCourseTestWrites: true}), {mode: 0o600});
     await runDesktop(['--live-course-groups', accessPath, evidence]);
     assert.deepEqual(checks, ['blocked', 'commit-response-held', 'drop-commit-response', 'receipt-response-held',
-      'receipt-read-canceled', 'created', 'assigned', 'supplemented']);
+      'receipt-read-canceled', 'other-source-opened', 'other-source-saved', 'other-group-opened', 'switch-term-for-bookmark',
+      'original-term-rejected', 'different-term-opened', 'created', 'assigned', 'existing-edit-read-held',
+      'existing-edit-read-canceled', 'same-group-blocked', 'supplemented']);
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [seven, eight, nine]});
     await runDatabase();
     await writeFile(join(evidence, 'server-result.json'), JSON.stringify({checks, savePosts, postsAtRecovery, requestId,
-      receiptReads, firstReadCanceled, groupId: a1.id,
+      receiptReads, firstReadCanceled, editRequestId, editReadCanceled, groupId: a1.id, otherGroupId: b1.id, courseReads,
       actualStudentBrowser: true, passed: true}, null, 2));
     console.log('PASS: Windows course-group setup, real Edge student selection, teacher / homeroom / direct member access, and transactional walking regressions.');
   } finally {

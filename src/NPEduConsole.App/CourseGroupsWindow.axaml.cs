@@ -19,11 +19,12 @@ public sealed record CourseGroupDirectoryRow(ManagedCourseGroup Group, string Su
 
 public sealed partial class CourseGroupsWindow : Window
 {
-    private sealed record PendingOperation(CourseGroupDraft Draft, CourseGroupPreview Preview, Guid RequestId);
+    private sealed record PendingOperation(string SchoolId, string? SourceEntryClassId, CourseGroupDraft Draft,
+        CourseGroupPreview Preview, Guid RequestId);
 
     /** 预览里每个班级的容器，以及（如有）能直接跳到该班任课的按钮。 */
     private sealed record PreviewRowView(Border Container, Button? Action);
-    private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<string, PendingOperation>> PendingByClient = new();
+    private static readonly ConditionalWeakTable<ConsoleClient, List<PendingOperation>> PendingByClient = new();
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
     private readonly CancellationTokenSource _lifetime = new();
@@ -36,9 +37,10 @@ public sealed partial class CourseGroupsWindow : Window
     private Dictionary<string, string> _courseClassNames = new(StringComparer.Ordinal);
     private Dictionary<string, string> _courseSubjectNames = new(StringComparer.Ordinal);
     private CourseGroupPreview? _preview;
+    private PendingOperation? _sameTargetPending;
     private TeachingWindow? _teaching;
     private ManagedCourseGroup? _editingGroup;
-    private string? _directoryId, _editorGrade;
+    private string? _directoryId, _editorGrade, _editorSourceEntry;
     private Vector _directoryOffset;
     private bool _editing, _readyToSave, _canRetry, _binding, _dirty, _scopeLost, _busy, _writing, _closed, _allowClose;
 
@@ -75,17 +77,50 @@ public sealed partial class CourseGroupsWindow : Window
     }
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
-    private Dictionary<string, PendingOperation> Operations => PendingByClient.GetOrCreateValue(_client);
-    private PendingOperation? Pending => Operations.GetValueOrDefault(_school.Id);
+    private List<PendingOperation> Operations => PendingByClient.GetOrCreateValue(_client);
+    private PendingOperation? Pending { get; set; }
     private CourseGroupLabel? Grade => CourseGrade.SelectedItem as CourseGroupLabel;
     private CourseGroupLabel? Subject => CourseSubject.SelectedItem as CourseGroupLabel;
     private CourseGroupDirectoryRow? DirectorySelection => CourseGroupRows.SelectedItem as CourseGroupDirectoryRow;
+    private string? SelectedSourceEntry => _editorSourceEntry is { } source && _selected.Contains(source) ? source : null;
     private bool CanGoBack => !_writing && (!_busy || Pending is not null || !_editing);
+
+    private PendingOperation? FindPendingForEntry()
+    {
+        var atSchool = Operations.Where(operation => operation.SchoolId == _school.Id);
+        if (_initialTeaching) return null;
+        if (_initialTerm is null && _initialGroup is null && _initialClass is null && _initialSubject is null)
+            return atSchool.FirstOrDefault();
+        if (_initialTerm is null || _initialSubject is null || (_initialGroup is null && _initialClass is null)) return null;
+
+        return atSchool.FirstOrDefault(operation => operation.Draft.TermId == _initialTerm &&
+            operation.Draft.SubjectId == _initialSubject && operation.Draft.GroupId == _initialGroup &&
+            operation.SourceEntryClassId == _initialClass);
+    }
+
+    private void ClearPending()
+    {
+        if (Pending is { } operation) Operations.Remove(operation);
+        Pending = null;
+    }
+
+    private PendingOperation? FindPendingForEditor()
+    {
+        var term = _catalog?.TermId;
+        var group = _editingGroup?.Id;
+        var source = SelectedSourceEntry;
+        var subject = Subject?.Id;
+        return Operations.FirstOrDefault(operation => operation.SchoolId == _school.Id && operation.Draft.TermId == term &&
+            (group is not null ? operation.Draft.GroupId == group :
+                source is not null && operation.Draft.GroupId is null && operation.SourceEntryClassId == source &&
+                operation.Draft.SubjectId == subject));
+    }
 
     private async Task OpenInitialAsync()
     {
         Feedback("正在读取当前学期走班教学班…");
-        await LoadAsync(Pending is null ? _initialTerm : null);
+        Pending = FindPendingForEntry();
+        await LoadAsync(_initialTerm);
         if (_closed) return;
         if (Pending is { } pending)
         {
@@ -192,6 +227,8 @@ public sealed partial class CourseGroupsWindow : Window
         RememberPosition();
         _editing = true;
         _editingGroup = group;
+        _editorSourceEntry = sourceId;
+        _sameTargetPending = null;
         _dirty = false;
         _scopeLost = false;
         _selected.Clear();
@@ -219,7 +256,7 @@ public sealed partial class CourseGroupsWindow : Window
     private void RestoreEditor(PendingOperation pending)
     {
         var draft = pending.Draft;
-        OpenEditor(_catalog?.Groups.FirstOrDefault(row => row.Id == draft.GroupId), draft.GradeId, draft.SubjectId);
+        OpenEditor(_catalog?.Groups.FirstOrDefault(row => row.Id == draft.GroupId), draft.GradeId, draft.SubjectId, pending.SourceEntryClassId);
         _binding = true;
         CourseName.Text = draft.Name;
         CourseCode.Text = draft.Code;
@@ -317,11 +354,12 @@ public sealed partial class CourseGroupsWindow : Window
 
     private void DraftChanged()
     {
-        if (_binding || !_editing) return;
+        if (_binding || !_editing || Pending is not null) return;
         _dirty = true;
         CourseDiscard.IsVisible = false;
+        if (_sameTargetPending is not null) _sameTargetPending = FindPendingForEditor();
         ClearPreview();
-        Feedback(null);
+        if (_sameTargetPending is null) Feedback(null);
         Render();
     }
 
@@ -364,13 +402,23 @@ public sealed partial class CourseGroupsWindow : Window
             await RunAsync(() => _canRetry ? SubmitAsync(pending) : ReadReceiptAsync(pending));
             return;
         }
+        if (FindPendingForEditor() is { } original)
+        {
+            _sameTargetPending = original;
+            Feedback($"本目标还有一笔保存待核对（原编号 {original.RequestId:D}）。请先核对原申请。打开原申请会替换当前未保存的输入。");
+            Render();
+            Focus(CourseRefresh);
+            return;
+        }
         if (MakeDraft() is not { } draft) return;
+        var sourceEntry = SelectedSourceEntry;
         await RunAsync(async () =>
         {
             if (_readyToSave && _preview is { } confirmed)
             {
-                var operation = new PendingOperation(draft, confirmed, Guid.NewGuid());
-                Operations[_school.Id] = operation;
+                var operation = new PendingOperation(_school.Id, sourceEntry, draft, confirmed, Guid.NewGuid());
+                Operations.Add(operation);
+                Pending = operation;
                 await SubmitAsync(operation);
                 return;
             }
@@ -501,7 +549,7 @@ public sealed partial class CourseGroupsWindow : Window
         {
             if (!_closed)
             {
-                Operations.Remove(_school.Id);
+                ClearPending();
                 _readyToSave = false;
             }
             throw;
@@ -511,7 +559,7 @@ public sealed partial class CourseGroupsWindow : Window
         Render();
         if (result is null) { await ReadReceiptAsync(pending); return; }
         if (result.Receipt is { } receipt) { await CompleteAsync(receipt); return; }
-        Operations.Remove(_school.Id);
+        ClearPending();
         ShowPreview(result.Preview!, false);
         if (result.State == "STALE") Feedback("服务器安排已变化，整次零写入。请核对后重新预览。");
         if (!result.Preview!.CanApply)
@@ -542,12 +590,12 @@ public sealed partial class CourseGroupsWindow : Window
 
     private async Task CompleteAsync(CourseGroupReceipt receipt)
     {
-        Operations.Remove(_school.Id);
+        ClearPending();
         _dirty = _canRetry = false;
         _directoryId = receipt.GroupId;
         ShowDirectory();
         Feedback("已收到本次走班办理回执，正在刷新教学班列表…");
-        try { await LoadAsync(); }
+        try { await LoadAsync(_initialTerm); }
         catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
         {
             if (!_closed) Feedback($"走班已保存。教学班列表暂未刷新，请点击刷新。编号：{receipt.GroupId}");
@@ -629,7 +677,14 @@ public sealed partial class CourseGroupsWindow : Window
     private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
     {
         if (Pending is { } pending) { await ReadReceiptAsync(pending); return; }
-        if (!_editing) { _scopeLost = false; await LoadAsync(); if (!_closed) Feedback(null); return; }
+        if (_sameTargetPending is { } original)
+        {
+            Pending = original;
+            RestoreEditor(original);
+            await ReadReceiptAsync(original);
+            return;
+        }
+        if (!_editing) { _scopeLost = false; await LoadAsync(_initialTerm); if (!_closed) Feedback(null); return; }
         if (_catalog?.TermId is not { } term) return;
         await LoadAsync(term);
         if (!_closed) { ClearPreview(); BindSources(); Feedback("已刷新原学期的来源列表，草稿已保留。请重新预览。"); }
@@ -639,6 +694,8 @@ public sealed partial class CourseGroupsWindow : Window
     {
         _editing = _dirty = false;
         _editingGroup = null;
+        _editorSourceEntry = null;
+        _sameTargetPending = null;
         CourseDiscard.IsVisible = false;
         CourseHeading.Text = "走班教学班";
         Render();
@@ -671,7 +728,7 @@ public sealed partial class CourseGroupsWindow : Window
     {
         if (_busy) return;
         if (Pending is not null && _canRetry) return;
-        Operations.Remove(_school.Id);
+        ClearPending();
         ShowDirectory();
         Feedback("已返回教学班列表。可刷新读取服务器当前安排。");
     }
@@ -717,13 +774,13 @@ public sealed partial class CourseGroupsWindow : Window
         CourseEdit.IsVisible = CourseTeaching.IsVisible = !_editing && !pending;
         CourseGradePlan.IsEnabled = CourseEdit.IsEnabled = CourseTeaching.IsEnabled = editable && existing;
         CourseRefresh.IsEnabled = !_busy;
-        CourseRefresh.Content = pending ? "核对回执" : "刷新";
+        CourseRefresh.Content = pending ? "核对回执" : _sameTargetPending is not null ? "核对原申请" : "刷新";
         CourseBack.IsEnabled = CanGoBack;
         CourseBack.Content = pending ? "关闭，稍后核对" : _editing ? "返回列表" : "关闭";
         CoursePrimary.Content = pending ? _canRetry ? "按原编号重试" : "核对原请求" :
             !_editing ? "新建教学班" : _readyToSave ? "确认保存" : _preview is null ? "预览改动" : "重新预览";
         CoursePrimary.IsVisible = !pending || _canRetry;
-        CoursePrimary.IsEnabled = !_busy && (pending || !_scopeLost && _catalog?.TermId is not null &&
+        CoursePrimary.IsEnabled = !_busy && _sameTargetPending is null && (pending || !_scopeLost && _catalog?.TermId is not null &&
             (_editing || _catalog.Grades.Length > 0 && _catalog.Subjects.Length > 0));
         if (pending) CourseDiscard.Content = "结束核对";
         LayoutEditor();
