@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import {randomBytes, randomUUID, createHash} from 'node:crypto';
-import {fork} from 'node:child_process';
+import {fork, spawn} from 'node:child_process';
 import {mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile} from 'node:fs/promises';
 import {createServer, request} from 'node:http';
-import {dirname, join} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {verifyFreshExportAuthentication, verifyLegacyTransferWeb} from './school-transfer-browser.mjs';
 
 const setupPath = '/api/v2/setup';
@@ -23,6 +24,88 @@ async function json(origin, path, {body, method = body === undefined ? 'GET' : '
 
 async function login(origin, schoolCode, username, password) {
   return (await json(origin, '/accounts/local/login', {body: {schoolCode, username, password}})).data.access_token;
+}
+
+export async function verifyReleasedMigrationRetirement(context) {
+  const {prisma, origin, fixture, directory, evidence, fromKv, bcrypt, kvRequire, zip, manifestPath} = context;
+  const {school, other, term, managerId, pin, classes: [classId]} = fixture;
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const zipBytes = await readFile(zip);
+  assert.equal(manifest.version, '0.1.8');
+  assert.equal(manifest.sha256, makeDigest(zipBytes));
+  assert.equal(manifest.sizeBytes, zipBytes.length);
+  await mkdir(evidence, {recursive: true});
+  await prisma.schoolMember.update({where: {schoolId_accountId: {schoolId: school.id, accountId: managerId}}, data: {role: 'OWNER'}});
+  const {localProviderId} = await fromKv('domain/localAccount.js');
+  const teacher = await prisma.account.findUniqueOrThrow({where: {provider_providerId: {
+    provider: 'school-local', providerId: localProviderId(school.code, 'viewer')}}});
+  await prisma.workspaceMember.create({data: {workspaceId: classId, accountId: teacher.id, role: 'TEACHER'}});
+  for (const [memberSchool, username, role] of [[school, 'read-admin', 'ADMIN'], [other, 'empty-owner', 'OWNER']]) {
+    const account = await prisma.account.create({data: {provider: 'school-local', providerId: localProviderId(memberSchool.code, username),
+      localUsername: username, name: username, localPasswordHash: await bcrypt.hash(pin, 10), providerData: {schoolCode: memberSchool.code}}});
+    await prisma.schoolMember.create({data: {schoolId: memberSchool.id, accountId: account.id, role}});
+  }
+  const file = join(await realpath(evidence), `released-owner-export-${randomUUID()}.npcw-transfer`);
+  const passphrase = 'np-check-' + credentials();
+  const migrationPath = id => `/api/v2/admin/schools/${id}/migration/`;
+  const readonly = await login(origin, school.code, 'read-admin', pin);
+  assert.equal((await json(origin, migrationPath(school.id) + 'readiness', {token: readonly})).data.role, 'ADMIN');
+  await json(origin, migrationPath(school.id) + 'export', {token: readonly, body: {currentPin: pin, passphrase}, status: 403});
+  const inactive = await login(origin, other.code, 'empty-owner', pin);
+  assert.equal((await json(origin, migrationPath(other.id) + 'readiness', {token: inactive})).data.hasActiveTerm, false);
+  const denied = await json(origin, migrationPath(other.id) + 'export', {token: inactive, body: {currentPin: pin, passphrase}, status: 422});
+  assert.equal(denied.data.code, 'MIGRATION_ACTIVE_TERM_MISSING');
+  const owner = await login(origin, school.code, 'admin', pin);
+  const target = await startTarget(context);
+  const {Client} = kvRequire('pg');
+  const targetDb = new Client({connectionString: target.databaseUrl});
+  let packageProof;
+  try {
+    await targetDb.connect();
+    assert.equal((await targetDb.query('SELECT count(*)::int AS count FROM "School"')).rows[0].count, 0);
+    const outcome = await verifyLegacyTransferWeb({...context, school, token: owner, pin, file, passphrase, target,
+      pilot: {manifest, zip, classId, teacher: teacher.localUsername, async exportPackage() {
+        const access = join(directory, 'release-transfer-fixture.json');
+        await writeFile(access, JSON.stringify({isolated: true, login: {url: origin, website: origin, code: school.code,
+          username: 'admin', pin}, transfer: {file, passphrase}}));
+        try {
+          await new Promise((complete, reject) => {
+            const child = spawn('pwsh.exe', ['-NoProfile', '-STA', '-File', fileURLToPath(new URL('./WindowsReleaseOobe.ps1', import.meta.url)),
+              '-ManagementLogin', '-FixturePath', access, '-ZipPath', zip, '-ManifestPath', manifestPath, '-EvidenceDirectory', evidence],
+            {windowsHide: true, stdio: 'inherit'});
+            child.once('error', reject);
+            child.once('exit', code => code === 0 ? complete() : reject(Error(`The release export check exited (${code})`)));
+          });
+        } finally {
+          await rm(access, {force: true});
+        }
+        const packageBytes = await readFile(file);
+        const {decryptMigrationPackage} = await fromKv('services/schoolMigrationService.js');
+        const {manifest: exported} = await decryptMigrationPackage(packageBytes, passphrase);
+        assert.equal(exported.school.id, school.id);
+        packageProof = {digest: makeDigest(packageBytes), size: packageBytes.length, format: exported.formatVersion,
+          id: exported.migrationId};
+        return packageProof.id;
+      }}});
+    assert.equal(outcome.migrationId, packageProof.id);
+    assert.equal(outcome.schoolId, school.id);
+    const receipt = await targetDb.query('SELECT "migrationId", "packageDigest" FROM "InstanceSchoolTransfer" WHERE "migrationId"=$1', [outcome.migrationId]);
+    assert.equal(receipt.rows[0].packageDigest, packageProof.digest);
+    const original = await targetDb.query('SELECT id FROM "Workspace" WHERE id=$1 AND "termId"=$2', [classId, term.id]);
+    assert.equal(original.rowCount, 1);
+    assert.equal((await targetDb.query('SELECT count(*)::int AS count FROM "School"')).rows[0].count, 1);
+    const targetSetup = await json(target.origin, setupPath + '/status');
+    assert.equal(targetSetup.data.state, 'COMPLETED');
+    await writeFile(join(evidence, 'released-migration-result.json'), JSON.stringify({releaseSha256: manifest.sha256, releaseBytes: manifest.sizeBytes,
+      packageSha256: packageProof.digest, packageBytes: packageProof.size, exportFormat: packageProof.format, sourceSchoolId: school.id,
+      sourceTermId: term.id, targetWorkspaceId: classId, adminReadOnly: true, noActiveTermBlocked: true, ...outcome}, null, 2));
+    await verifyFreshExportAuthentication({...context, school, passphrase});
+    console.log('PASS: the released EXE exported; Edge restored the identical package and the original teacher entered the original class.');
+  } finally {
+    await rm(file, {force: true});
+    await targetDb.end();
+    await target.close();
+  }
 }
 
 export async function verifyConsoleFirstSchool({prisma, origin, directory, evidence, runDesktop}) {

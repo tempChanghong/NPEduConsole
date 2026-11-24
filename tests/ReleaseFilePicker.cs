@@ -98,6 +98,18 @@ public static class ReleaseFilePicker
         return IntPtr.Zero;
     }
 
+    public static IntPtr VisibleOwnedWindow(uint process, IntPtr owner)
+    {
+        IntPtr window = IntPtr.Zero;
+        while ((window = FindWindowEx(IntPtr.Zero, window, null, null)) != IntPtr.Zero)
+        {
+            uint pid;
+            GetWindowThreadProcessId(window, out pid);
+            if (pid == process && GetWindow(window, 4) == owner && IsWindowVisible(window)) return window;
+        }
+        return IntPtr.Zero;
+    }
+
     public static bool ClickSave(uint process, string title, int x, int y)
     {
         var dialog = VisibleDialog(process, title);

@@ -2,14 +2,15 @@ import assert from 'node:assert/strict';
 import {createHash, generateKeyPairSync, randomBytes, randomUUID} from 'node:crypto';
 import {createServer} from 'node:http';
 import {createRequire} from 'node:module';
+import {createReadStream} from 'node:fs';
 import {spawn} from 'node:child_process';
 import {dirname, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {writeFile} from 'node:fs/promises';
+import {readFile, writeFile} from 'node:fs/promises';
 
 const jsonHeaders = {'Content-Type': 'application/json'};
 
-export async function verifyLegacyTransferWeb({web, directory, evidence, origin: source, school, token, pin, file, passphrase, target}) {
+export async function verifyLegacyTransferWeb({web, directory, evidence, origin: source, school, token, pin, file, passphrase, target, pilot}) {
   const require = createRequire(join(web, 'package.json'));
   const {chromium} = require('@playwright/test');
   const {preview} = await import(pathToFileURL(join(dirname(require.resolve('vite/package.json')), 'dist/node/index.js')).href);
@@ -21,9 +22,22 @@ export async function verifyLegacyTransferWeb({web, directory, evidence, origin:
     child.once('error', reject);
     child.once('exit', code => code === 0 ? resolve() : reject(new Error('Legacy web build failed')));
   });
-  const open = backend => preview({configFile: false, root: web, build: {outDir},
+  const pilotRelease = {name: 'isolated-transfer-release', configurePreviewServer(server) {
+    server.middlewares.use((req, res, next) => {
+      if (req.url === '/.well-known/npclassworks-deployment.json') {
+        return res.writeHead(200, jsonHeaders).end(JSON.stringify({schemaVersion: 1, apiBaseUrl: null, adminRetiredSections: ['migration']}));
+      }
+      const prefix = '/downloads/npeduconsole/';
+      if (req.url === prefix + 'console-release.json') return res.writeHead(200, jsonHeaders).end(JSON.stringify(pilot.manifest));
+      if (req.url !== prefix + pilot.manifest.fileName) return next();
+      res.writeHead(200, {'Content-Type': 'application/zip', 'Content-Length': pilot.manifest.sizeBytes});
+      if (req.method === 'HEAD') return res.end();
+      createReadStream(pilot.zip).pipe(res);
+    });
+  }};
+  const open = (backend, plugins = []) => preview({configFile: false, root: web, build: {outDir}, plugins,
     preview: {host: '127.0.0.1', port: 0, proxy: {'/api': backend, '/accounts': backend}}});
-  const [from, to] = await Promise.all([open(source), open(target.origin)]);
+  const [from, to] = await Promise.all([open(source, pilot ? [pilotRelease] : []), open(target.origin)]);
   const browser = await chromium.launch({channel: 'msedge', headless: true});
   try {
     const localPage = async server => {
@@ -33,20 +47,36 @@ export async function verifyLegacyTransferWeb({web, directory, evidence, origin:
       return {origin, page};
     };
     const sourceWeb = await localPage(from);
+    const migrationRequests = [];
+    sourceWeb.page.on('request', request => {
+      if (/\/api\/v2\/admin\/schools\/[^/]+\/migration\//.test(new URL(request.url()).pathname))
+        migrationRequests.push(request.method() + ' ' + new URL(request.url()).pathname);
+    });
     await sourceWeb.page.addInitScript(accessToken => localStorage.setItem('classworks-v2-access-token', accessToken), token);
     await sourceWeb.page.goto(sourceWeb.origin + '/classworks-admin?section=migration&school=' + school.id);
-    const primary = sourceWeb.page.getByRole('button', {name: '生成并下载迁移包'});
-    await sourceWeb.page.getByText(/1 张在期自习照片/).waitFor();
-    assert.ok(await primary.isDisabled(), 'legacy webpage requires owner confirmation');
-    await sourceWeb.page.screenshot({path: join(evidence, '05-edge-legacy-download.png')});
-    await sourceWeb.page.getByLabel('迁移密码', {exact: true}).fill(passphrase);
-    await sourceWeb.page.getByLabel('当前管理员 PIN', {exact: true}).fill(pin);
-    await sourceWeb.page.getByRole('checkbox', {name: /我明白该文件包含整校业务数据/}).check();
-    const download = sourceWeb.page.waitForEvent('download');
-    await primary.click();
-    const downloaded = await download;
-    assert.match(downloaded.suggestedFilename(), /\.npcw-transfer$/);
-    await downloaded.delete();
+    let migrationId;
+    if (pilot) {
+      const guide = sourceWeb.page.getByRole('region', {name: '学校管理办理去向'});
+      await guide.getByRole('heading', {name: '网页版已停止办理服务器迁移'}).waitFor();
+      await guide.getByText(`原学校：${school.name}（编号 ${school.id}）`).waitFor();
+      assert.equal(await sourceWeb.page.getByRole('button', {name: '生成并下载迁移包'}).count(), 0);
+      assert.deepEqual(migrationRequests, []);
+      await sourceWeb.page.screenshot({path: join(evidence, 'edge-source-migration-retired.png')});
+      migrationId = await pilot.exportPackage();
+    } else {
+      const primary = sourceWeb.page.getByRole('button', {name: '生成并下载迁移包'});
+      await sourceWeb.page.getByText(/1 张在期自习照片/).waitFor();
+      assert.ok(await primary.isDisabled(), 'legacy webpage requires owner confirmation');
+      await sourceWeb.page.screenshot({path: join(evidence, '05-edge-legacy-download.png')});
+      await sourceWeb.page.getByLabel('迁移密码', {exact: true}).fill(passphrase);
+      await sourceWeb.page.getByLabel('当前管理员 PIN', {exact: true}).fill(pin);
+      await sourceWeb.page.getByRole('checkbox', {name: /我明白该文件包含整校业务数据/}).check();
+      const download = sourceWeb.page.waitForEvent('download');
+      await primary.click();
+      const downloaded = await download;
+      assert.match(downloaded.suggestedFilename(), /\.npcw-transfer$/);
+      await downloaded.delete();
+    }
 
     const targetWeb = await localPage(to);
     const page = targetWeb.page;
@@ -67,6 +97,18 @@ export async function verifyLegacyTransferWeb({web, directory, evidence, origin:
     const reply = await imported;
     assert.equal(reply.status(), 201);
     assert.ok(reply.request().headers()['x-npclassworks-migration-preview'], 'legacy setup sends the confirmed preview');
+    let receiptSchoolId;
+    if (pilot) {
+      assert.ok(migrationId);
+      const setupToken = reply.request().headers()['x-classworks-setup-token'];
+      assert.ok(setupToken);
+      const receipt = await page.request.get(targetWeb.origin + '/api/v2/setup/migration/receipts/' + migrationId,
+        {headers: {'X-Classworks-Setup-Token': setupToken}});
+      assert.equal(receipt.status(), 200);
+      const recovered = (await receipt.json()).data;
+      assert.equal(recovered.manifest.migrationId, migrationId);
+      receiptSchoolId = recovered.school.id;
+    }
     await page.getByLabel('短账号', {exact: true}).fill('admin');
     await page.getByLabel('PIN', {exact: true}).fill(pin);
     await page.getByRole('button', {name: '验证登录凭据', exact: true}).click();
@@ -74,6 +116,25 @@ export async function verifyLegacyTransferWeb({web, directory, evidence, origin:
     const completed = page.waitForResponse(response => response.url().endsWith('/setup/desktop-complete'));
     await page.getByRole('button', {name: '完成并锁定初始化', exact: true}).click();
     assert.equal((await completed).status(), 200);
+    if (pilot) {
+      const teacher = (await localPage(to)).page;
+      await teacher.goto(targetWeb.origin);
+      await teacher.getByText('教师登录', {exact: true}).click();
+      await teacher.getByText('登录教师工作台', {exact: true}).waitFor();
+      await teacher.locator('.v-select').filter({hasText: '学校'}).locator('.v-field').click();
+      await teacher.getByRole('option', {name: school.name, exact: true}).click();
+      await teacher.getByLabel('教师短账号').fill(pilot.teacher);
+      await teacher.getByLabel('个人 PIN').fill(pin);
+      const workspaces = teacher.waitForResponse(res => new URL(res.url()).pathname === '/api/v2/me/workspaces' && res.ok());
+      await teacher.getByRole('button', {name: '登录', exact: true}).click();
+      const workspaceIds = (await (await workspaces).json()).data.map(row => row.workspace.id);
+      assert.deepEqual(workspaceIds, [pilot.classId]);
+      await teacher.getByText(/已授权 .* 个教学空间/).first().waitFor();
+      await teacher.screenshot({path: join(evidence, 'edge-target-original-teacher.png')});
+      assert.deepEqual(migrationRequests, []);
+      return {migrationId, schoolId: receiptSchoolId, workspaceIds, targetReceiptRead: true,
+        retiredSourceRequests: migrationRequests, targetOwnerLoggedIn: true, targetSetupCompleted: true};
+    }
     return {legacySourceReadiness: true, legacyOwnerExportedPackage: true, legacySetupImportedOriginalSchool: true, legacyOwnerRealLogin: true};
   } finally {
     await browser.close();

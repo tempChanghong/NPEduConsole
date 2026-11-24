@@ -39,7 +39,7 @@ import { verifyStudyMonitoring } from './study-monitoring-fixture.mjs';
 import { verifyManagementAccounts } from './management-accounts-fixture.mjs';
 import { verifyDesktopOAuth } from './desktop-oauth-fixture.mjs';
 import { verifySchoolLoginProfile, verifyFirstSchoolSetup } from './school-login-profile-fixture.mjs';
-import { verifyConsoleFirstSchool, verifyConsoleSchoolTransfer } from './school-transfer-fixture.mjs';
+import { verifyConsoleFirstSchool, verifyConsoleSchoolTransfer, verifyReleasedMigrationRetirement } from './school-transfer-fixture.mjs';
 import { verifyOrganizationImport } from './school-organization-import-fixture.mjs';
 import { verifyTeacherAllocation } from './school-teacher-allocation-fixture.mjs';
 import { verifyArchivedBatchCorrection } from './archived-batch-correction-fixture.mjs';
@@ -67,7 +67,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
-  '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console', '--windows-release-oobe', '--organization-retirement-setup', '--management-handoff', '--teacher-batch-release', '--owner-recovery',
+  '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--school-transfer-retirement', '--first-school-console', '--windows-release-oobe', '--organization-retirement-setup', '--management-handoff', '--teacher-batch-release', '--owner-recovery',
   '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching',
   '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db', '--study-display', '--study-display-db',
   '--device-field-actions', '--device-field-actions-db', '--device-run-reports'].includes(mode)),
@@ -684,6 +684,13 @@ async function runFixture() {
     return verifyManagementHandoff({prisma, origin, directory, fixture, web: join(kv, '..', 'NPClassworks'),
       evidence: resolve(process.env.NP_CONSOLE_HANDOFF_EVIDENCE || '.artifacts/management-handoff/released'),
       releaseDirectory: resolve(process.env.NP_CONSOLE_ENTRY_RELEASE_DIR), teacherBatch: mode === '--teacher-batch-release'});
+  }
+  if (mode === '--school-transfer-retirement') {
+    assert.ok(process.env.NP_CONSOLE_RELEASE_ZIP && process.env.NP_CONSOLE_RELEASE_MANIFEST, 'Provide the original ZIP and its manifest.');
+    return verifyReleasedMigrationRetirement({prisma, origin, fixture, fromKv, kvRequire, bcrypt, directory,
+      fixtureRunner: fileURLToPath(import.meta.url), kv, binaries, web: join(kv, '..', 'NPClassworks'),
+      evidence: resolve(process.env.NP_CONSOLE_TRANSFER_EVIDENCE || '.artifacts/migration-retirement'),
+      zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP), manifestPath: resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST)});
   }
   if (mode === '--first-school-console' || mode === '--school-transfer') {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));

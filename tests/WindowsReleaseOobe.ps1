@@ -125,7 +125,8 @@ function Set-Field([string] $id, [string] $value, [switch] $Secret) {
         $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($value)
         return
     }
-    if ($id -notin @('SetupKey', 'SetupPin', 'SetupOwnerPin', 'Password', 'OwnerRecoverySetupKey', 'OwnerRecoveryNewPin', 'OwnerRecoveryRepeatPin') -or $value -notmatch '^[a-zA-Z0-9_-]+$') {
+    if ($id -notin @('SetupKey', 'SetupPin', 'SetupOwnerPin', 'Password', 'OwnerRecoverySetupKey', 'OwnerRecoveryNewPin', 'OwnerRecoveryRepeatPin',
+        'TransferExportPin', 'TransferExportPassword') -or $value -notmatch '^[a-zA-Z0-9_-]+$') {
         throw 'Invalid target or input for the fixture credential.'
     }
     try { $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern).SetValue($value) }
@@ -281,6 +282,7 @@ try {
         if ($fixture.batch) { . (Join-Path $PSScriptRoot 'WindowsReleaseTeacherPins.ps1') }
         if ($fixture.studyReports) { . (Join-Path $PSScriptRoot 'WindowsReleaseStudyReports.ps1') }
         if ($fixture.organization) { . (Join-Path $PSScriptRoot 'WindowsReleaseOrganization.ps1') }
+        if ($fixture.transfer) { . (Join-Path $PSScriptRoot 'WindowsReleaseSchoolTransfer.ps1') }
         [ordered]@{version = $manifest.version; zipSha256 = $actualHash; api = $fixture.login.url; code = $fixture.login.code;
             runs = $moduleEvidence; screenshots = $screenEvidence} | ConvertTo-Json -Depth 8 |
             Set-Content -LiteralPath (Join-Path $evidence 'windows-login.json') -Encoding utf8
