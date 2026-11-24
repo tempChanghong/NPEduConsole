@@ -88,6 +88,8 @@
               CornerRadius="7" Padding="8,4" IsVisible="False">
         <DockPanel LastChildFill="True">
           <Button x:Name="OrgKeepOriginal" DockPanel.Dock="Right" Classes="action" Content="保留原表" Click="KeepOrganizationDraftClicked" Margin="6,0,0,0"/>
+          <Button x:Name="OrgCreateDeclaredTerm" DockPanel.Dock="Right" Classes="action" Content="为此文件建立空白草稿"
+                  Click="CreateDeclaredTermClicked" Margin="6,0,0,0" IsVisible="False"/>
           <TextBlock x:Name="OrgFileMismatchText" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
         </DockPanel>
       </Border>

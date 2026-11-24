@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import {createHash, randomBytes} from 'node:crypto';
+import {spawn} from 'node:child_process';
+import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {createServer, request} from 'node:http';
 import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {dirname, basename, join, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
 
 export async function verifyOrganizationImport(options) {
@@ -21,6 +23,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   await prisma.schoolMember.create({data: {schoolId: other.id, accountId: managerId, role: 'ADMIN'}});
   const path = '/api/v2/admin/schools/' + school.id;
   const importPath = path + '/organization-import';
+  const detailsPath = path + '/term-preparation/details';
   const marks = [];
   async function api(relative, {method = 'GET', token, body, status = 200} = {}) {
     const response = await fetch(origin + relative, {method, headers: {'Content-Type': 'application/json',
@@ -31,6 +34,36 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   }
   const login = username => api('/accounts/local/login', {method: 'POST', body: {schoolCode: school.code, username, password: pin}});
   const [admin, browserAdmin, teacherSession] = await Promise.all(['admin', 'admin2', 'viewer'].map(login));
+  await prisma.$executeRaw`UPDATE "AcademicTerm" SET "startsAt"='2026-09-01 08:15:30.123456+08',
+    "endsAt"='2027-01-30 17:30:45.654321+08' WHERE id=${term.id}`;
+  const dates = () => prisma.$queryRaw`SELECT "startsAt"::text AS starts, "endsAt"::text AS ends FROM "AcademicTerm" WHERE id=${term.id}`;
+  const exactDates = await dates();
+  const activationRequestId = randomUUID();
+  const activation = {requestId: activationRequestId, term, operation: 'ACTIVATE', archivedTerm: null, screens: [], reboundScreens: 0};
+  await prisma.$transaction(async tx => {
+    await tx.$executeRaw`INSERT INTO "TermActivationReceipt" ("schoolId", "requestId", "actorId", "termId", result, digest)
+      VALUES (${school.id}, ${activationRequestId}::uuid, ${managerId}, ${term.id}, ${JSON.stringify(activation)}::jsonb, ${'a'.repeat(64)})`;
+    await tx.$executeRaw`INSERT INTO "SchoolTermActivation" ("schoolId", "termId", "requestId")
+      VALUES (${school.id}, ${term.id}, ${activationRequestId}::uuid)`;
+  });
+  const assertActivationRound = async () => {
+    const [row] = await prisma.$queryRaw`SELECT "termId", "requestId" FROM "SchoolTermActivation" WHERE "schoolId"=${school.id}`;
+    assert.deepEqual(row, {termId: term.id, requestId: activationRequestId});
+  };
+  const rename = {termId: term.id, name: term.name + ' · 资料已更正'};
+  const termDetailsPreview = (body, token = admin.access_token, status = 200) => api(detailsPath + '/preview', {method: 'POST', token, body, status});
+  await termDetailsPreview(rename, teacherSession.access_token, 403);
+  await termDetailsPreview({termId: 'foreign-or-missing-term', name: '不得误写'}, admin.access_token, 404);
+  const noTerm = {termId: null, name: '首份空白草稿', academicYear: 2090, semester: 3};
+  const otherPath = '/api/v2/admin/schools/' + other.id + '/term-preparation/details';
+  assert.equal(await prisma.academicTerm.count({where: {schoolId: other.id}}), 0);
+  const emptyPreview = await api(otherPath + '/preview', {method: 'POST', token: admin.access_token, body: noTerm});
+  const emptyResult = await api(otherPath, {method: 'POST', token: admin.access_token,
+    body: {...noTerm, expectedVersion: emptyPreview.version, requestId: randomUUID()}});
+  assert.equal(emptyPreview.before, null);
+  assert.equal(emptyResult.receipt.term.status, 'DRAFT');
+  assert.equal(await prisma.grade.count({where: {termId: emptyResult.receipt.term.id}}), 0);
+  await termDetailsPreview({termId: emptyResult.receipt.term.id, name: '不得跨学校改名'}, admin.access_token, 404);
   const teacher = await prisma.account.findFirstOrThrow({where: {localUsername: 'viewer', schoolMemberships: {some: {schoolId: school.id}}}});
   const activeGrade = await prisma.grade.findFirstOrThrow({where: {termId: term.id, code: 'G2'}});
   const draft = await prisma.academicTerm.create({data: {schoolId: school.id, name: '2027 春季筹备',
@@ -91,9 +124,14 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   const wrongGradeFile = join(directory, 'wrong-grade-organization.json');
   await writeFile(wrongGradeFile, JSON.stringify({...file, grade: {code: otherGrade.code, name: otherGrade.name},
     administrativeClasses: [{code: 'G1-C01', name: '高一（01）班', subjectRules: {PHY: 'ADMIN_CLASS'}}], courseGroups: []}), {mode: 0o600});
+  const newTermFile = join(directory, 'new-term-organization.json');
+  const blankName = '2088 独立筹备';
+  await writeFile(newTermFile, JSON.stringify({...file, term: {name: blankName, academicYear: 2088, semester: 3, status: 'ACTIVE', startsAt: '2088-09-01'},
+    administrativeClasses: [{code: oldSeven.code, name: '新草稿同码七班', subjectRules: {PHY: {deliveryMode: 'ADMIN_CLASS'}}}], courseGroups: []}), {mode: 0o600});
 
   let browser, url, firstReceipt, staleCommits = 0, currentReceipt, holdCatalog = false;
   const receiptRequests = [];
+  let droppedDetails, detailReceiptReads = 0, droppedDetailWrites = 0;
   let dropCurrent = false, droppedCurrentId;
   const droppedCurrentReads = [];
   const catalogHeld = Promise.withResolvers();
@@ -133,7 +171,37 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       requestId: crypto.randomUUID(), expectedVersion: preview.version, expectedEvidence: preview.evidence}})};
   };
   async function checkpoint(step) {
-    if (step === 'wrong-grade-zero-write') {
+    if (step === 'race-term-details') {
+      const body = {termId: term.id, name: term.name + ' · 第二位管理员'};
+      const preview = await termDetailsPreview(body, browserAdmin.access_token);
+      const result = await api(detailsPath, {method: 'POST', token: browserAdmin.access_token,
+        body: {...body, requestId: randomUUID(), expectedVersion: preview.version}});
+      assert.equal(result.state, 'APPLIED');
+      const dateOnly = await termDetailsPreview({termId: term.id, endsAt: '2027-02-03'});
+      assert.equal(dateOnly.before.name, body.name);
+      assert.equal(dateOnly.after.name, body.name, 'omitted name preserves a concurrent rename made before the first preview');
+    } else if (step === 'renamed-active-term') {
+      const actual = await prisma.academicTerm.findUniqueOrThrow({where: {id: term.id}});
+      assert.equal(actual.name, rename.name);
+      assert.equal(actual.status, 'ACTIVE');
+      assert.deepEqual(await dates(), exactDates);
+      await assertActivationRound();
+      assert.equal(detailReceiptReads, 1);
+      assert.equal(droppedDetailWrites, 1);
+      await api(detailsPath + '/receipts/' + droppedDetails.requestId, {token: browserAdmin.access_token, status: 404});
+    } else if (step === 'blank-term-no-copy') {
+      const blank = await prisma.academicTerm.findFirstOrThrow({where: {schoolId: school.id, academicYear: 2088, semester: 3}});
+      assert.equal(blank.status, 'DRAFT');
+      assert.equal(await prisma.workspace.count({where: {termId: blank.id}}), 0);
+      assert.equal(await prisma.grade.count({where: {termId: blank.id}}), 0);
+    } else if (step === 'blank-term-applied') {
+      const blank = await prisma.academicTerm.findFirstOrThrow({where: {schoolId: school.id, academicYear: 2088, semester: 3}});
+      const original = await prisma.workspace.findUniqueOrThrow({where: {id: oldSeven.id}});
+      const created = await prisma.workspace.findFirstOrThrow({where: {termId: blank.id, code: oldSeven.code}, include: {subjectRules: true}});
+      assert.equal(original.termId, term.id);
+      assert.notEqual(original.id, created.id);
+      assert.equal(created.subjectRules[0].isCompulsory, false);
+    } else if (step === 'wrong-grade-zero-write') {
       assert.equal(await prisma.workspace.count({where: {termId: draft.id, gradeId: otherGrade.id}}), 0);
       assert.deepEqual((await prisma.workspace.findMany({where: {termId: draft.id, gradeId: grade.id}})).map(row => row.id), [draftEight.id]);
       assert.equal((await prisma.$queryRaw`SELECT count(*)::int AS n FROM "SchoolOrganizationImportReceipt" WHERE "schoolId"=${school.id}`)[0].n, 0);
@@ -224,6 +292,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       return;
     }
     const pathname = new URL(req.url, upstreamOrigin).pathname;
+    if (droppedDetails && req.method === 'GET' && pathname === detailsPath + '/receipts/' + droppedDetails.requestId) detailReceiptReads++;
     if (dropCurrent && req.method === 'POST' && pathname === importPath) {
       dropCurrent = false;
       const chunks = [];
@@ -244,6 +313,19 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
     const delayed = holdCatalog && req.method === 'GET' && pathname === importPath;
     if (delayed) holdCatalog = false;
     const upstream = request(new URL(req.url, upstreamOrigin), {method: req.method, headers: {...req.headers, host: upstreamOrigin.host}}, reply => {
+      if (!droppedDetails && req.method === 'POST' && pathname === detailsPath && reply.statusCode === 200) {
+        const chunks = [];
+        reply.on('data', chunk => chunks.push(chunk));
+        reply.on('end', () => {
+          const body = Buffer.concat(chunks), result = JSON.parse(body).data;
+          if (result.state === 'APPLIED' && result.receipt.term.id === term.id) {
+            droppedDetails = result.receipt;
+            droppedDetailWrites++;
+            res.destroy();
+          } else res.writeHead(reply.statusCode, reply.headers).end(body);
+        });
+        return;
+      }
       if (delayed) {
         const chunks = [];
         reply.on('data', piece => chunks.push(piece));
@@ -282,7 +364,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
     const desktopAccess = join(directory, 'organization-desktop.json');
     await writeFile(desktopAccess, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolId: school.id,
       schoolCode: school.code, password: pin, draftId: draft.id, draftName: draft.name, activeId: term.id, otherSchoolId: other.id, draftFile, wrongGradeFile,
-      allowOrganizationTestWrites: true}), {mode: 0o600});
+      newTermFile, blankName, renamedActive: rename.name, allowOrganizationTestWrites: true}), {mode: 0o600});
     // Use the same real Edge instance for old administration and post-import student selection.
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], afterStudent: async (b, frontend) => {
       browser = b;
@@ -290,6 +372,26 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       await runDesktop(['--live-organization-import', desktopAccess, evidence]);
       await verifyOriginalStudent(browser, url, evidence, school, term, oldSeven);
     }});
+    if (process.env.NP_CONSOLE_ORGANIZATION_RELEASE_ZIP) {
+      const releaseFile = join(directory, 'released-organization-file.json');
+      const releaseFixture = join(directory, 'released-organization-fixture.json');
+      const releaseName = '2089 发行版草稿';
+      await writeFile(releaseFile, JSON.stringify({...file, term: {name: releaseName, academicYear: 2089, semester: 3, status: 'ACTIVE'},
+        administrativeClasses: [{code: oldSeven.code, name: oldSeven.name, subjectRules: {PHY: 'ADMIN_CLASS'}}], courseGroups: []}));
+      await writeFile(releaseFixture, JSON.stringify({isolated: true, login: {url: origin, website: origin, code: school.code, username: 'admin2', pin},
+        organization: {file: releaseFile, term: releaseName}}));
+      const script = fileURLToPath(new URL('./WindowsReleaseOobe.ps1', import.meta.url));
+      await new Promise((resolve, reject) => {
+        const child = spawn('pwsh', ['-NoProfile', '-STA', '-File', script, '-ManagementLogin', '-FixturePath', releaseFixture,
+          '-ZipPath', process.env.NP_CONSOLE_ORGANIZATION_RELEASE_ZIP, '-EvidenceDirectory', join(evidence, 'release')], {stdio: 'inherit'});
+        child.once('error', reject);
+        child.once('close', code => code === 0 ? resolve() : reject(new Error(`Windows release organization acceptance failed (${code})`)));
+      });
+      const released = await prisma.academicTerm.findFirstOrThrow({where: {schoolId: school.id, academicYear: 2089, semester: 3}, include: {workspaces: true}});
+      assert.equal(released.status, 'DRAFT');
+      assert.deepEqual(released.workspaces.map(row => row.code), [oldSeven.code]);
+      marks.push('released-exe-created-and-imported');
+    }
     const teacherAfter = await login('viewer');
     assert.deepEqual(await originalAccess(teacherAfter.access_token), teacherBefore);
     await runNative(['report', nativeFixture, nativeRoot]);
@@ -302,7 +404,9 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
     }
     assert.equal((await prisma.academicTerm.findUniqueOrThrow({where: {id: draft.id}})).status, 'DRAFT');
     assert.equal(await prisma.administrativeClassStudent.count({where: {administrativeClassId: oldSeven.id}}), 1);
+    await assertActivationRound();
     await writeFile(join(evidence, 'organization-cross-end-result.json'), JSON.stringify({passed: true, marks, staleCommits,
+      detailReceiptReads, exactDates, detailRequestId: droppedDetails?.requestId, activationRequestId,
       receiptReads: receiptRequests.length, originalReceiptRequests: receiptRequests,
       discardedInitialPost: droppedCurrentId, discardedInitialPostReceiptReads: droppedCurrentReads,
       draftId: draft.id, draftRooms: firstReceipt.administrativeClasses.length, draftGroups: firstReceipt.courseGroups.length,

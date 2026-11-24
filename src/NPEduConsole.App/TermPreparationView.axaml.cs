@@ -81,6 +81,7 @@ public sealed partial class TermPreparationView : UserControl
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<ManagedAcademicTerm, Task<bool>>? OpenOrganizationImport { get; init; }
+    internal Func<ManagedAcademicTerm?, Task<ManagedAcademicTerm?>>? OpenTermDetails { get; init; }
     internal static bool HasPendingSchoolRequest(ConsoleClient client, string schoolId) =>
         PendingByClient.TryGetValue(client, out var drafts) && drafts.ContainsKey(schoolId) ||
         ActivationsByClient.TryGetValue(client, out var activations) && activations.ContainsKey(schoolId);
@@ -101,7 +102,8 @@ public sealed partial class TermPreparationView : UserControl
         ApplyTermFilter();
         ActiveTermName.Text = _activeTerm?.Name ?? "暂无启用学期";
         ActiveTermDates.Text = _activeTerm is { } term ? $"{term.Period} · {term.Dates}" :
-            catalog.HasAnyTerm ? "学生暂时没有启用学期。请选择已有学期继续办理。" : "本校尚无来源学期，请先完成初始化。";
+            catalog.HasAnyTerm ? "学生暂时没有启用学期。请选择已有学期继续办理。" :
+                catalog.DetailsSupported ? "本校尚无来源学期，可建立空白草稿。" : "本校尚无来源学期，请从初始化入口办理。";
         if (_page == Page.Create) _sourceUnavailable = !CatalogTerms.Any(term => term.Id == _sourceId);
         Render();
     }
@@ -716,6 +718,24 @@ public sealed partial class TermPreparationView : UserControl
         SetPage(Page.Directory);
     }
 
+    private async void TermDetailsClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_page != Page.Directory || _busy || OpenTermDetails is not { } open) return;
+        bool edit = ReferenceEquals(sender, TermEditDetails);
+        if (edit && SelectedTerm is null) return;
+        var saved = await open(edit ? SelectedTerm : null);
+        if (_closed) return;
+        if (saved is not null) await RunAsync(async () =>
+        {
+            await LoadCatalogAsync();
+            if (_closed) return;
+            PreparedTerms.SelectedItem = PreparedTerms.Items.OfType<ManagedAcademicTerm>().FirstOrDefault(row => row.Id == saved.Id);
+            Notice($"已确认学期：{saved.Name}。");
+        });
+        Render();
+        Focus(PreparedTerms.SelectedItem is null ? TermBlankDraft : PreparedTerms);
+    }
+
     private void Render()
     {
         if (_client is null || TermPrimary is null) return;
@@ -737,6 +757,11 @@ public sealed partial class TermPreparationView : UserControl
         TermCheckView.IsVisible = _page == Page.Check;
         TermScroll.IsVisible = _page is Page.Directory or Page.Create;
         var source = CatalogTerms.FirstOrDefault(term => term.Id == _sourceId);
+        var detailsPending = TermDetailsView.HasPending(_client, _school.Id);
+        var detailsAvailable = _page == Page.Directory && editable && _catalog?.DetailsSupported == true && OpenTermDetails is not null;
+        TermBlankDraft.IsVisible = detailsAvailable && !detailsPending;
+        TermEditDetails.IsVisible = detailsAvailable && !detailsPending && SelectedTerm is not null;
+        TermDetailsVerify.IsVisible = detailsAvailable && detailsPending;
         TermDraftSource.Text = source is null ? "来源需重新核对。学生名单需另行准备。" :
             $"从 {source.Name}（{source.Period} · {source.StatusText}）继承。学生名单需另行准备。";
         TermAccessNote.Text = (CarryTermMembers.IsChecked == true, CarryTermTeaching.IsChecked == true) switch

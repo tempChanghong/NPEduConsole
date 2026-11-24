@@ -50,6 +50,9 @@
                   <WrapPanel ItemSpacing="8" LineSpacing="5">
                     <Button x:Name="TermManageClasses" Classes="action" Content="班级与名单" Click="TermManageClassesClicked" IsVisible="False"/>
                     <Button x:Name="TermViewDiagnostics" Classes="action" Content="查看诊断" Click="TermDiagnosticsClicked" IsVisible="False"/>
+                    <Button x:Name="TermEditDetails" Classes="action" Content="更正名称与日期" Click="TermDetailsClicked" IsVisible="False"/>
+                    <Button x:Name="TermBlankDraft" Classes="action" Content="建立空白草稿" Click="TermDetailsClicked" IsVisible="False"/>
+                    <Button x:Name="TermDetailsVerify" Classes="action" Content="核对学期资料" Click="TermDetailsClicked" IsVisible="False"/>
                     <Button x:Name="TermManageTeaching" Classes="action" Content="教学安排与师资" Click="TermManageTeachingClicked" IsVisible="False"/>
                     <Button x:Name="TermStatusActivate" Classes="action" Content="预览启用" Click="StatusActivateClicked"/>
                     <Button x:Name="TermStatusReceiptButton" Classes="action" Content="核对学期操作" Click="StatusReceiptClicked" IsVisible="False"/>

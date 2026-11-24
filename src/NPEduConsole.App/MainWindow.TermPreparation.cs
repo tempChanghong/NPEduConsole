@@ -25,6 +25,7 @@ public sealed partial class MainWindow
             OpenOrganizationImport = initialDraftCheck is null ? term => ShowOrganizationImportAsync(client, school, term.Id, term.Status == "ARCHIVED") : null,
             OpenTermDiagnostics = (owner, term) => ShowTermDiagnosticsAsync(owner, client, school, term),
             OpenTermClassDirectory = term => ShowTermClassDirectoryAsync(client, school, term),
+            OpenTermDetails = term => ShowTermDetailsAsync(client, school, term),
         };
         _termPreparationView = view;
         view.CloseRequested = () => ReturnFromAcademicPage(view);
@@ -60,6 +61,18 @@ public sealed partial class MainWindow
             view.End();
         }
 
+    }
+
+    private async Task<ManagedAcademicTerm?> ShowTermDetailsAsync(ConsoleClient client, School school,
+        ManagedAcademicTerm? original, TermDetailsDraft? seed = null)
+    {
+        if (_client != client || _school != school) return null;
+        var view = new TermDetailsView(client, school, original, seed)
+        { SessionExpired = error => AcademicScopeUnavailable(error, client, school) };
+        view.CloseRequested = () => ReturnFromAcademicPage(view);
+        var exit = PushAcademicPage(view, view.CanClose, view.End);
+        await view.StartAsync();
+        return await exit && _client == client && _school == school ? view.Saved : null;
     }
 
     private void CloseTermPreparation()

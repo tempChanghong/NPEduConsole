@@ -60,7 +60,19 @@ internal static partial class Program
                 Find<TextBlock>(org, "OrgScope").Text!.Contains(access.ActiveName), "archive and active terms are distinct");
             grade.SelectedItem = grade.Items.Cast<object>().Single(item => item.ToString()!.Contains("高二（G2）"));
             var original = await File.ReadAllTextAsync(access.File);
+            var ambiguous = original.Replace("\"deliveryMode\":\"COURSE_GROUP\",\"isCompulsory\":true",
+                "\"deliveryMode\":\"ADMIN_CLASS\"", StringComparison.Ordinal);
+            Check(ambiguous != original, "archived fixture contains the old object-form rule");
+            org.LoadOrganizationText(ambiguous);
+            var rules = Find<StackPanel>(org, "OrgRules");
+            var compulsory = rules.GetVisualDescendants().OfType<ComboBox>().Single(control =>
+                Avalonia.Automation.AutomationProperties.GetName(control) == "请选择必修或选修");
+            Check(compulsory.SelectedIndex == -1 && !Find<Button>(org, "OrgPreview").IsEnabled, "ambiguous archived rule starts unchosen and cannot be previewed");
+            compulsory.SelectedIndex = 1;
+            Check(Find<Button>(org, "OrgPreview").IsEnabled, "explicit optional choice unblocks reviewing the archived rule");
+            await CaptureWithFrame(main, output, "00a-archive-compulsory-choice");
             org.LoadOrganizationText(original);
+            await PressScoped(org, "OrgConfirmReplacement");
             org.LoadOrganizationText(original.Replace("\"code\":\"G2\",\"name\":\"高二\"", "\"code\":\"G1\",\"name\":\"高一\"", StringComparison.Ordinal));
             var misfile = Find<TextBlock>(org, "OrgFileMismatchText");
             Check(misfile.IsEffectivelyVisible && misfile.Text!.Contains("高一（G1）") && misfile.Text.Contains("高二（G2）") &&

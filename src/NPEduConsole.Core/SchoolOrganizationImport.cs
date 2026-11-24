@@ -17,8 +17,13 @@ public sealed record OrganizationSubject(string Code, string Name, string Catego
 }
 public sealed record OrganizationClassOption(string Id, string Code, string Name, string? GradeId);
 public sealed record OrganizationImportCatalog(OrganizationSchool School, OrganizationTerm[] Terms, string? TermId,
-    OrganizationGradeOption[] Grades, OrganizationSubject[] Subjects, OrganizationClassOption[] AdministrativeClasses);
-public sealed record OrganizationSubjectRule(string SubjectCode, string DeliveryMode, bool IsCompulsory);
+    OrganizationGradeOption[] Grades, OrganizationSubject[] Subjects, OrganizationClassOption[] AdministrativeClasses,
+    OrganizationTerm[]? KnownTerms = null);
+public sealed record OrganizationSubjectRule(string SubjectCode, string DeliveryMode, bool IsCompulsory)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool NeedsCompulsoryChoice { get; init; }
+}
 public sealed record OrganizationClass(string Code, string Name, bool? IsStudentSelectable, bool ReplaceSubjectRules,
     OrganizationSubjectRule[] SubjectRules);
 public sealed record OrganizationGroup(string Code, string Name, string SubjectCode, bool? IsStudentSelectable,
@@ -27,7 +32,11 @@ public sealed record OrganizationDeclaration(string? SchoolId = null, string? Sc
     string? TermId = null, int? AcademicYear = null, int? Semester = null, string? TermName = null,
     string? GradeCode = null, string? GradeName = null);
 public sealed record OrganizationImportDocument(OrganizationGrade Grade, OrganizationSubject[] Subjects,
-    OrganizationClass[] AdministrativeClasses, OrganizationGroup[] CourseGroups, OrganizationDeclaration? Declaration);
+    OrganizationClass[] AdministrativeClasses, OrganizationGroup[] CourseGroups, OrganizationDeclaration? Declaration)
+{
+    public OrganizationLegacyMetadata? LegacyMetadata { get; init; }
+}
+public sealed record OrganizationLegacyMetadata(bool HasSchoolSettings, bool HasTermSettings, string? StartDate, string? EndDate);
 public sealed record OrganizationImportDraft(string TermId, string TermStatus, OrganizationGrade Grade,
     OrganizationSubject[] Subjects, OrganizationClass[] AdministrativeClasses, OrganizationGroup[] CourseGroups,
     OrganizationDeclaration? Declaration = null, bool ArchivedCorrection = false, string? TargetGradeId = null);

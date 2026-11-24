@@ -1,0 +1,42 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.TermDetailsView">
+  <Grid RowDefinitions="Auto,*,Auto" Margin="16" RowSpacing="10">
+    <StackPanel Spacing="4">
+      <TextBlock x:Name="DetailsHeading" Classes="heading" FontSize="22" TextWrapping="Wrap" />
+      <TextBlock x:Name="DetailsScope" Classes="muted" TextWrapping="Wrap" />
+    </StackPanel>
+    <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="10" MaxWidth="700" HorizontalAlignment="Left" Margin="0,0,8,0">
+        <Border Classes="card" Padding="12" IsVisible="True">
+          <StackPanel x:Name="DetailsInputs" Spacing="8">
+            <WrapPanel x:Name="DetailsPeriod" ItemSpacing="12" LineSpacing="8">
+              <StackPanel Spacing="4" Width="136"><TextBlock Text="学年" Classes="label"/><TextBox x:Name="DetailsYear" AutomationProperties.Name="学年" MaxLength="4" TextChanged="Edited" /></StackPanel>
+              <StackPanel Spacing="4" Width="136"><TextBlock Text="期序（1 至 3）" Classes="label"/><TextBox x:Name="DetailsSemester" AutomationProperties.Name="期序" MaxLength="1" TextChanged="Edited" /></StackPanel>
+            </WrapPanel>
+            <TextBlock Text="学期名称" Classes="label" />
+            <TextBox x:Name="DetailsName" AutomationProperties.Name="学期名称" MaxLength="191" TextChanged="Edited" />
+            <WrapPanel ItemSpacing="12" LineSpacing="8">
+              <StackPanel Spacing="4" Width="178"><TextBlock Text="开始日期" Classes="label"/><TextBox x:Name="DetailsStartsAt" AutomationProperties.Name="开始日期" PlaceholderText="YYYY-MM-DD" MaxLength="10" TextChanged="Edited" /></StackPanel>
+              <StackPanel Spacing="4" Width="178"><TextBlock Text="结束日期" Classes="label"/><TextBox x:Name="DetailsEndsAt" AutomationProperties.Name="结束日期" PlaceholderText="YYYY-MM-DD" MaxLength="10" TextChanged="Edited" /></StackPanel>
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+        <Border x:Name="DetailsReview" Classes="card" Padding="12" IsVisible="False">
+          <StackPanel Spacing="5">
+            <TextBlock Text="核对更改" Classes="label" />
+            <TextBlock x:Name="DetailsBefore" TextWrapping="Wrap" />
+            <TextBlock x:Name="DetailsAfter" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+    <StackPanel Grid.Row="2" Spacing="6">
+      <TextBlock x:Name="DetailsStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+      <WrapPanel ItemSpacing="8" LineSpacing="6">
+        <Button x:Name="DetailsBack" Classes="action" Content="返回" Click="BackClicked" />
+        <Button x:Name="DetailsVerify" Classes="action" Content="只读核对原编号" Click="VerifyClicked" IsVisible="False" />
+        <Button x:Name="DetailsApply" Classes="action accent" Content="预览" Click="ApplyClicked" />
+      </WrapPanel>
+    </StackPanel>
+  </Grid>
+</UserControl>

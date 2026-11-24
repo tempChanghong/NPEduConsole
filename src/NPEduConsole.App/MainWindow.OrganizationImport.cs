@@ -29,6 +29,12 @@ public sealed partial class MainWindow
             SessionExpired = error => AcademicScopeUnavailable(error, client, school),
             OpenSubjects = archived ? popup => OpenCorrectionSubjectsAsync(popup, client, school) : null
         };
+        if (!archived && termId is null) view.OpenDeclaredTerm = draft =>
+        {
+            if (!TermDetailsView.HasPending(client, school.Id)) return ShowTermDetailsAsync(client, school, null, draft);
+            view.NavigationNotice("学期管理中有操作待核对。请先从学期管理核对原操作，再为此文件建立草稿。");
+            return Task.FromResult<ManagedAcademicTerm?>(null);
+        };
         view.OpenTeacherAllocation = OpenTeachersAsync;
         GradeTeachingPlanWindow? historyTeaching = null;
         view.OpenReceiptTarget = async current =>

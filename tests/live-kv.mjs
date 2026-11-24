@@ -24,6 +24,7 @@ import { verifySchoolOverview } from './school-overview-fixture.mjs';
 import { verifySchoolOpening } from './school-opening-fixture.mjs';
 import { verifyStaffConfiguration } from './staff-configuration-fixture.mjs';
 import { verifyWindowsReleaseOobe } from './windows-release-fixture.mjs';
+import { verifyOrganizationSetupCompatibility } from './organization-setup-compatibility.mjs';
 import { verifyCurrentTeaching } from './teaching-fixture.mjs';
 import { verifySubjectSetup } from './subject-setup-fixture.mjs';
 import { verifySchoolSubjects } from './school-subjects-fixture.mjs';
@@ -66,7 +67,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--organization-import', '--organization-import-db', '--teacher-allocation', '--teacher-allocation-db', '--archived-batch-correction', '--archived-batch-correction-db', '--entry-retirement-pilot', '--screen-duty', '--screen-duty-db', '--exam-workbench', '--exam-workbench-db',
   '--homework-settings', '--homework-settings-db', '--study-monitoring', '--management-accounts', '--management-accounts-db', '--desktop-oauth',
   '--school-login-profile', '--school-login-profile-db', '--school-login-profile-setup',
-  '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console', '--windows-release-oobe', '--management-handoff', '--teacher-batch-release', '--owner-recovery',
+  '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--first-school-console', '--windows-release-oobe', '--organization-retirement-setup', '--management-handoff', '--teacher-batch-release', '--owner-recovery',
   '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching',
   '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db', '--study-display', '--study-display-db',
   '--device-field-actions', '--device-field-actions-db', '--device-run-reports'].includes(mode)),
@@ -199,7 +200,7 @@ async function createDatabase() {
   });
   delete process.env.NPEP_UPDATE_CATALOG_FILE;
   if (studyMonitoring || mode === '--device-run-reports' || managementAccounts || mode?.startsWith('--school-transfer')) process.env.NPEP_PHOTO_STORAGE_DIR = join(directory, 'photos');
-  if (managementAccounts || mode === '--school-login-profile-setup' || mode?.startsWith('--school-transfer') || ['--first-school-console', '--windows-release-oobe', '--owner-recovery'].includes(mode))
+  if (managementAccounts || mode === '--school-login-profile-setup' || mode?.startsWith('--school-transfer') || ['--first-school-console', '--windows-release-oobe', '--organization-retirement-setup', '--owner-recovery'].includes(mode))
     process.env.BOOTSTRAP_SETUP_KEY = randomBytes(32).toString('hex');
   if (mode === '--server-status') process.env.ACCESS_TOKEN_EXPIRES_IN = '15s';
   if (softwareUpdate) {
@@ -634,7 +635,7 @@ async function runFixture() {
     finally { await copyFile(join(directory, log), join(evidence, log)); }
     return;
   }
-  const emptySetup = ['--school-login-profile-setup', '--school-transfer-target', '--first-school-console', '--windows-release-oobe'].includes(mode) || termStatusDatabase;
+  const emptySetup = ['--school-login-profile-setup', '--school-transfer-target', '--first-school-console', '--windows-release-oobe', '--organization-retirement-setup'].includes(mode) || termStatusDatabase;
   const fixture = emptySetup ? null : await seed();
   let transferIdentity;
   if (mode === '--school-transfer-target') {
@@ -669,6 +670,9 @@ async function runFixture() {
       kv, binaries, kvRequire, zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP),
       manifest: process.env.NP_CONSOLE_RELEASE_MANIFEST ? resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST) : null});
   }
+  if (mode === '--organization-retirement-setup') return verifyOrganizationSetupCompatibility({prisma, origin, directory, kv, binaries, kvRequire,
+    fixtureRunner: fileURLToPath(import.meta.url), web: join(kv, '..', 'NPClassworks'),
+    evidence: resolve(process.env.NP_CONSOLE_ORGANIZATION_SETUP_EVIDENCE || '.artifacts/organization-retirement/setup')});
   if (mode === '--owner-recovery') {
     assert.ok(process.env.NP_CONSOLE_ENTRY_RELEASE_DIR, 'Provide the Windows release directory to test.');
     return verifyOwnerRecovery({prisma, origin, directory, fixture, bcrypt, web: join(kv, '..', 'NPClassworks'),

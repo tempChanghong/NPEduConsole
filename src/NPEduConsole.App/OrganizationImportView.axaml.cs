@@ -33,6 +33,9 @@ public sealed partial class OrganizationImportView : UserControl
     private OrganizationImportReceipt? _receipt;
     private OrganizationDifference[] _visibleReview = [];
     private string? _fileMismatch;
+    private (OrganizationImportDocument Document, TermDetailsDraft Target)? _declaredTerm;
+    private string? _declaredTermSaved;
+    private bool _confirmDeclaredReplacement;
     private bool _binding, _busy, _writing, _closed, _allowClose, _dirty, _reviewed, _discard, _scopeUnavailable, _retryMissingReceipt;
     private WorkStage _stage;
     private (OrganizationImportDocument Document, string Source)? _replacement;
@@ -80,7 +83,7 @@ public sealed partial class OrganizationImportView : UserControl
     {
         if (_allowClose) return true;
         if (_writing) return false;
-        if (_replacement is not null) { CancelReplacement(); return false; }
+        if (_replacement is not null || _confirmDeclaredReplacement) { CancelReplacement(); return false; }
         if (_showExcel) { EndExcel(); return false; }
         if (!_dirty || Pending is not null) return true;
         _discard = true;
@@ -112,12 +115,15 @@ public sealed partial class OrganizationImportView : UserControl
     }
 
     private bool CanEdit => _catalog is not null && _term is not null && !_busy && !_scopeUnavailable && Pending is null;
+    private bool CanOpenFile => _catalog is not null && (_term is not null || !_archivedCorrection && _fixedTermId is null) &&
+        !_busy && !_scopeUnavailable && Pending is null;
     private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal Func<Window, Task<SchoolSubject?>>? OpenSubjects { get; init; }
     internal Func<string, string, string?, Task>? OpenTeacherAllocation { get; set; }
     internal Func<OrganizationImportView, Task>? OpenReceiptTarget { get; set; }
     internal Action? CloseRequested { get; set; }
+    internal Func<TermDetailsDraft, Task<ManagedAcademicTerm?>>? OpenDeclaredTerm { get; set; }
     internal bool ActiveTermChanged { get; private set; }
     internal string? GoToDraftId { get; private set; }
     internal (string TermId, string WorkspaceId, bool IsGroup)? GoToTeaching { get; private set; }
@@ -144,7 +150,7 @@ public sealed partial class OrganizationImportView : UserControl
         finally { _binding = false; }
         UpdateScope();
         RebuildDetails();
-        if (!catalog.Terms.Any()) Status("没有可导入的学期。请先在学期管理建立草稿，或使用学校初始化入口。");
+        if (!catalog.Terms.Any()) Status("没有可导入的学期。可打开声明了学年和期序的旧 JSON 建立空白草稿，也可从学期管理办理。");
     }
 
     private static GradeChoice[] GradeChoices(OrganizationImportCatalog catalog) =>
@@ -244,7 +250,7 @@ public sealed partial class OrganizationImportView : UserControl
 
     private async void OpenFileClicked(object? sender, RoutedEventArgs args)
     {
-        if (!CanEdit || TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
+        if (!CanOpenFile || TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
         await RunAsync(async () =>
         {
             var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -265,8 +271,11 @@ public sealed partial class OrganizationImportView : UserControl
 
     internal void LoadOrganizationText(string text)
     {
-        if (_closed || _term is not { } term || _catalog is not { } catalog) return;
-        var file = OrganizationImportDocumentReader.ReadLegacy(text);
+        if (_closed || _catalog is not { } catalog) return;
+        var term = _term;
+        var file = OrganizationImportDocumentReader.ReadLegacy(text, _archivedCorrection);
+        _declaredTerm = null;
+        _declaredTermSaved = null;
         var current = CurrentGrade();
         if (file.Declaration is { } declared)
         {
@@ -275,14 +284,24 @@ public sealed partial class OrganizationImportView : UserControl
                 declared.SchoolCode is { } schoolCode && !SameCode(schoolCode, catalog.School.Code) ||
                 declared.SchoolName is { } schoolName && schoolName.Trim() != catalog.School.Name)
                 declarations.Add($"学校　所选：{catalog.School.Name}（{catalog.School.Code}）　文件：{declared.SchoolName} {declared.SchoolCode} {declared.SchoolId}".TrimEnd());
-            if (declared.TermId is { } termId && termId != term.Id ||
-                declared.AcademicYear is { } year && year != term.AcademicYear ||
-                declared.Semester is { } semester && semester != term.Semester ||
-                declared.TermName is { } termName && termName.Trim() != term.Name)
-                declarations.Add($"学期　所选：{term.Name}（{term.AcademicYear}/{term.Semester}）　文件：{declared.TermName} {declared.AcademicYear}/{declared.Semester} {declared.TermId}".TrimEnd());
             if (current.Code.Length > 0 && file.Grade.Code.Length > 0 && !SameCode(current.Code, file.Grade.Code) ||
                 !_archivedCorrection && current.Name.Length > 0 && file.Grade.Name.Length > 0 && current.Name != file.Grade.Name)
                 declarations.Add($"年级　所选：{current.Name}（{current.Code}）　文件：{file.Grade.Name}（{file.Grade.Code}）");
+            if (declarations.Count == 0 && OpenDeclaredTerm is not null && declared.TermId is null &&
+                declared is { AcademicYear: >= 2000 and <= 2200, Semester: >= 1 and <= 3, TermName: { } name } &&
+                !string.IsNullOrWhiteSpace(name) && catalog.KnownTerms is { } known &&
+                !known.Any(row => row.AcademicYear == declared.AcademicYear && row.Semester == declared.Semester))
+            {
+                var metadata = file.LegacyMetadata;
+                _declaredTerm = (file, new(null, name.Trim(), declared.AcademicYear.Value, declared.Semester.Value,
+                    metadata?.StartDate is not null, metadata?.StartDate, metadata?.EndDate is not null, metadata?.EndDate));
+                declarations.Add($"本校没有 {declared.AcademicYear}/{declared.Semester}「{name}」。可以先建立空白草稿，确认后继续此文件。");
+            }
+            else if (term is null || declared.TermId is { } termId && termId != term.Id ||
+                declared.AcademicYear is { } year && year != term.AcademicYear ||
+                declared.Semester is { } semester && semester != term.Semester ||
+                declared.TermName is { } termName && termName.Trim() != term.Name)
+                declarations.Add($"学期　所选：{term?.ToString() ?? "无"}　文件：{declared.TermName} {declared.AcademicYear}/{declared.Semester} {declared.TermId}。名称与日期可从学期管理更正。".TrimEnd());
             if (declarations.Count > 0)
             {
                 _fileMismatch = string.Join("\n", declarations);
@@ -294,6 +313,7 @@ public sealed partial class OrganizationImportView : UserControl
                 return;
             }
         }
+        if (term is null) { Status("请明确选择目标学期，或加载声明了学年、期序及学期名称的旧文件。"); return; }
         var target = new OrganizationGrade(current.Code.Length == 0 ? file.Grade.Code : current.Code,
             current.Name.Length == 0 ? file.Grade.Name : current.Name, current.Code.Length == 0 ? file.Grade.SortOrder : current.SortOrder);
         if (_archivedCorrection && SameCode(target.Code, file.Grade.Code)) target = file.Grade;
@@ -305,9 +325,47 @@ public sealed partial class OrganizationImportView : UserControl
     private void KeepOrganizationDraftClicked(object? sender, RoutedEventArgs args)
     {
         _fileMismatch = null;
+        _declaredTerm = null;
+        _declaredTermSaved = null;
         Status("已保留原表，请重新预览。");
         Render();
         FocusLater(OrgOpenFile);
+    }
+
+    private async void CreateDeclaredTermClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || _declaredTerm is null) return;
+        if (_dirty && _declaredTermSaved is null)
+        {
+            _confirmDeclaredReplacement = true;
+            OrgReplacementMessage.Text = "继续后会建立文件声明的草稿，并替换原学期中尚未导入的表格。取消会保留原学期和原表。";
+            Render();
+            FocusLater(OrgCancelReplacement);
+            return;
+        }
+        await CreateDeclaredTermAsync();
+    }
+
+    private async Task CreateDeclaredTermAsync()
+    {
+        if (_declaredTerm is not { } proposal || OpenDeclaredTerm is not { } open) return;
+        await RunAsync(async () =>
+        {
+            if (_declaredTermSaved is null)
+            {
+                var saved = await open(proposal.Target);
+                if (_closed || saved is null) return;
+                if (saved.Status != "DRAFT" || saved.AcademicYear != proposal.Target.AcademicYear || saved.Semester != proposal.Target.Semester)
+                { Status("原操作回执已核对。此文件声明的学年及期序仍需单独办理。"); return; }
+                _declaredTermSaved = saved.Id;
+            }
+            await LoadAsync(_declaredTermSaved);
+            if (_closed || _term is not { Status: "DRAFT" } target || target.Id != _declaredTermSaved) return;
+            _declaredTerm = null;
+            _declaredTermSaved = null;
+            var document = proposal.Document with { Declaration = proposal.Document.Declaration! with { TermId = target.Id, TermName = target.Name } };
+            ApplyReplacement(document, "所选 JSON 文件");
+        });
     }
 
     private void LoadExampleClicked(object? sender, RoutedEventArgs args)
@@ -342,15 +400,27 @@ public sealed partial class OrganizationImportView : UserControl
     {
         _replacement = null;
         _fileMismatch = null;
+        _declaredTerm = null;
+        _declaredTermSaved = null;
         SetStage(WorkStage.Table);
         SetDocument(document);
         OrgSections.SelectedIndex = 0;
-        Status($"已载入{source}。请预览并核对差异。");
+        var guidance = new List<string>();
+        if (_classes.Any(row => row.Rules.Any(rule => rule.NeedsCompulsoryChoice))) guidance.Add("请逐班为旧文件未标明的随班科目选择必修或选修。");
+        if (document.LegacyMetadata?.HasSchoolSettings == true) guidance.Add("校名和教师认证请从「账号与权限 → 教师登录设置」办理。");
+        if (document.LegacyMetadata?.HasTermSettings == true) guidance.Add("学期状态、名称及日期由「学期管理」办理。");
+        Status($"已载入{source}。请预览并核对差异。{string.Concat(guidance)}");
         FocusLater(OrgPreview);
     }
 
-    private void ConfirmReplacementClicked(object? sender, RoutedEventArgs args)
+    private async void ConfirmReplacementClicked(object? sender, RoutedEventArgs args)
     {
+        if (_confirmDeclaredReplacement && !_busy)
+        {
+            _confirmDeclaredReplacement = false;
+            await CreateDeclaredTermAsync();
+            return;
+        }
         if (_replacement is { } incoming && !_busy) ApplyReplacement(incoming.Document, incoming.Source);
     }
 
@@ -358,6 +428,7 @@ public sealed partial class OrganizationImportView : UserControl
 
     private void CancelReplacement()
     {
+        _confirmDeclaredReplacement = false;
         var trigger = _replacement?.Source == "七班制示例" ? OrgExample : OrgOpenFile;
         _replacement = null;
         Status("已取消替换，原表和目标已保留。");
@@ -376,7 +447,8 @@ public sealed partial class OrganizationImportView : UserControl
 
     private async void PreviewClicked(object? sender, RoutedEventArgs args)
     {
-        if (!CanEdit || HasUnresolvedTarget || _fileMismatch is not null || !_archivedCorrection && _classes.Count + _groups.Count == 0) return;
+        if (!CanEdit || HasUnresolvedTarget || _fileMismatch is not null || !_archivedCorrection && _classes.Count + _groups.Count == 0 ||
+            _classes.Any(row => row.Rules.Any(rule => rule.NeedsCompulsoryChoice))) return;
         await RunAsync(async () =>
         {
             var draft = Snapshot();
@@ -687,10 +759,10 @@ public sealed partial class OrganizationImportView : UserControl
         bool table = _stage == WorkStage.Table;
         bool difference = _stage == WorkStage.Difference;
         bool result = _stage == WorkStage.Result;
-        bool confirming = _replacement is not null || _discard;
+        bool confirming = _replacement is not null || _confirmDeclaredReplacement || _discard;
         bool editingTable = table && !_showExcel;
         bool edit = CanEdit && !confirming;
-        bool canPreview = !pending && !HasUnresolvedTarget && _fileMismatch is null &&
+        bool canPreview = !pending && !HasUnresolvedTarget && _fileMismatch is null && !_classes.Any(row => row.Rules.Any(rule => rule.NeedsCompulsoryChoice)) &&
             (_archivedCorrection ? !string.IsNullOrWhiteSpace(OrgGradeCode.Text) : _classes.Count + _groups.Count > 0);
         OrgStageLabel.Text = _showExcel ? "录入" : _stage switch
         {
@@ -705,7 +777,8 @@ public sealed partial class OrganizationImportView : UserControl
         OrgGrade.IsEnabled = OrgGradeName.IsEnabled = OrgGradeOrder.IsEnabled = edit;
         OrgGradeCode.IsEnabled = edit && (!_archivedCorrection || (OrgGrade.SelectedItem as GradeChoice)?.Id is null);
         OrgSchoolSubjects.IsEnabled = edit && OpenSubjects is not null;
-        OrgOpenFile.IsEnabled = OrgExample.IsEnabled = OrgExcel.IsEnabled = edit;
+        OrgOpenFile.IsEnabled = CanOpenFile && !confirming;
+        OrgExample.IsEnabled = OrgExcel.IsEnabled = edit;
         OrgClassTable.IsEnabled = OrgClassEditor.IsEnabled = OrgGroupTable.IsEnabled = OrgGroupEditor.IsEnabled = edit;
         OrgExistingSubject.IsEnabled = OrgSubjects.IsEnabled = OrgAddSubject.IsEnabled = edit;
         OrgPreview.IsVisible = !pending && (editingTable || difference && !_reviewed);
@@ -714,6 +787,9 @@ public sealed partial class OrganizationImportView : UserControl
         OrgFileMismatch.IsVisible = editingTable && _fileMismatch is not null;
         OrgFileMismatchText.Text = _fileMismatch;
         OrgKeepOriginal.IsEnabled = !confirming && !_busy;
+        OrgCreateDeclaredTerm.IsVisible = _declaredTerm is not null;
+        OrgCreateDeclaredTerm.IsEnabled = !_busy && !confirming;
+        OrgCreateDeclaredTerm.Content = _declaredTermSaved is null ? "为此文件建立空白草稿" : "载入已建立的空白草稿";
         OrgPreview.IsEnabled = edit && canPreview;
         OrgVerify.IsVisible = pending;
         OrgVerify.IsEnabled = !_busy;
@@ -735,7 +811,8 @@ public sealed partial class OrganizationImportView : UserControl
         OrgBackToReview.IsEnabled = !_busy;
         OrgClose.IsEnabled = !_writing;
         OrgClose.Content = "返回";
-        OrgReplaceActions.IsVisible = _replacement is not null;
+        OrgReplaceActions.IsVisible = _replacement is not null || _confirmDeclaredReplacement;
+        OrgConfirmReplacement.Content = _confirmDeclaredReplacement ? "继续建立草稿" : "替换原表";
         OrgDiscardActions.IsVisible = _discard;
         OrgStandardActions.IsVisible = !confirming && !_showExcel;
         OrgFooter.Text = $"{_classes.Count} 个行政班 · {_groups.Count} 个教学班";

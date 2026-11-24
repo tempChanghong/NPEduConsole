@@ -17,7 +17,7 @@ public sealed record ManagedAcademicTerm(string Id, string Name, int AcademicYea
 }
 public sealed record TermPreparationCatalog(string SchoolId, ManagedAcademicTerm? ActiveTerm, ManagedAcademicTerm[] Drafts,
     bool HasAnyTerm, string? AdminUrl, string? SetupUrl, Guid? LatestActivationRequestId = null, ManagedAcademicTerm[]? Terms = null,
-    Guid? LatestStatusRequestId = null, TermStatusHistoryEntry[]? StatusHistory = null);
+    Guid? LatestStatusRequestId = null, TermStatusHistoryEntry[]? StatusHistory = null, bool DetailsSupported = false);
 public sealed record TermDraftSettings(int AcademicYear, int Semester, string Name, string? StartsAt, string? EndsAt,
     bool CarryWorkspaceMembers = true, bool CarryTeachingAssignments = true, bool CarryLeaderships = true, bool CarryPendingInvitations = false);
 public sealed record TermDraftTarget(string Name, int AcademicYear, int Semester, DateTimeOffset? StartsAt, DateTimeOffset? EndsAt);
@@ -104,6 +104,9 @@ public sealed partial class ConsoleClient
             "TERM_DRAFT_RECEIPT_NOT_FOUND" => "暂未找到原请求的草稿回执。",
             "TERM_DRAFT_REQUEST_INVALID" => "请先核对继承预览，再建立草稿。",
             "TERM_DRAFT_REQUEST_CONFLICT" => "该请求编号已用于其他操作，请先核对原结果。",
+            "TERM_DETAILS_RECEIPT_NOT_FOUND" => "暂未找到本次学期资料回执。",
+            "TERM_DETAILS_REQUEST_INVALID" => "请先预览学期资料，再确认保存。",
+            "TERM_DETAILS_REQUEST_CONFLICT" => "此编号已用于其他操作，请核对原结果。",
             "TERM_ACTIVATION_CHANGED" => "当前学期或启用依据已变化，请重新核对。",
             "TERM_ACTIVATION_REQUEST_INVALID" => "请重新读取启用检查后再确认。",
             "TERM_ACTIVATION_REQUEST_CONFLICT" => "启用请求编号已用于其他操作，请先核对原结果。",

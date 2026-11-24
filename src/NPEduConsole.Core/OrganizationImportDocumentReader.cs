@@ -8,28 +8,38 @@ public static class OrganizationImportDocumentReader
 {
     public const int MaximumCharacters = 1_000_000;
 
-    public static OrganizationImportDocument ReadLegacy(string text)
+    public static OrganizationImportDocument ReadLegacy(string text, bool archivedCorrection = false)
     {
         if (text.Length > MaximumCharacters) throw new ArgumentException("文件超过可导入大小，请按一个年级拆分。");
         try
         {
             using var json = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 24 });
             var root = json.RootElement;
+            if (root.ValueKind == JsonValueKind.Array || Has(root, "assignments"))
+                throw new ArgumentException("这是教师分配文件，请从「教师账号 → 批量导入与分配」办理。");
             if (root.ValueKind != JsonValueKind.Object) throw new FormatException();
+            if (Has(root, "teachers")) throw new ArgumentException("这是完整师资文件，请从「开学配置 → 教师与岗位 → 导入完整师资方案」办理。");
+            if (Has(root, "format") || Has(root, "ciphertext"))
+                throw new ArgumentException("整校迁移包请从登录页「首次配置学校服务器 → 从迁移包恢复」办理。");
             var school = Property(root, "school");
             var term = Property(root, "term");
             var grade = Property(root, "grade");
-            return new(
+            if (grade.ValueKind != JsonValueKind.Object || !Has(root, "administrativeClasses") && !Has(root, "courseGroups")) throw new FormatException();
+            return new OrganizationImportDocument(
                 new(Value(grade, "code"), Value(grade, "name"), Number(grade, "sortOrder") ?? 0),
                 Rows(root, "subjects").Select((row, index) => new OrganizationSubject(Value(row, "code"), Value(row, "name"),
                     String(row, "category") ?? "OTHER", Number(row, "sortOrder") ?? index)).ToArray(),
                 Rows(root, "administrativeClasses").Select(row => new OrganizationClass(Value(row, "code"), Value(row, "name"),
-                    Boolean(row, "isStudentSelectable"), false, Rules(row))).ToArray(),
+                    Boolean(row, "isStudentSelectable"), false, Rules(row, archivedCorrection))).ToArray(),
                 Rows(root, "courseGroups").Select(row => new OrganizationGroup(Value(row, "code"), Value(row, "name"), Value(row, "subject"),
                     Boolean(row, "isStudentSelectable"), false, Rows(row, "sourceClasses").Select(source => source.GetString() ?? "").ToArray())).ToArray(),
                 new(String(school, "id"), String(school, "code"), String(school, "name"),
                     String(term, "id"), Number(term, "academicYear"), Number(term, "semester"), String(term, "name"),
-                    String(grade, "code"), String(grade, "name")));
+                    String(grade, "code"), String(grade, "name")))
+            {
+                LegacyMetadata = new(Has(school, "name") || Has(school, "teacherAuth") || Has(school, "teacherAuthMode") || Has(school, "allowOAuthTeacherLogin"),
+                    Has(term, "status") || Has(term, "startsAt") || Has(term, "endsAt"), LegacyDay(term, "startsAt"), LegacyDay(term, "endsAt")),
+            };
         }
         catch (Exception error) when (error is JsonException or FormatException or InvalidOperationException or OverflowException)
         {
@@ -104,6 +114,14 @@ public static class OrganizationImportDocumentReader
 
     private static JsonElement Property(JsonElement row, string field) =>
         row.ValueKind == JsonValueKind.Object && row.TryGetProperty(field, out var value) ? value : default;
+    private static bool Has(JsonElement row, string field) => Property(row, field).ValueKind != JsonValueKind.Undefined;
+    private static string? LegacyDay(JsonElement row, string field)
+    {
+        var value = Property(row, field);
+        if (value.ValueKind != JsonValueKind.String) return null;
+        return DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var date)
+            ? date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : null;
+    }
     private static string? String(JsonElement row, string field)
     {
         var value = Property(row, field);
@@ -127,16 +145,17 @@ public static class OrganizationImportDocumentReader
         var value = Property(row, field);
         return value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null ? [] : value.EnumerateArray().ToArray();
     }
-    private static OrganizationSubjectRule[] Rules(JsonElement row)
+    private static OrganizationSubjectRule[] Rules(JsonElement row, bool archivedCorrection)
     {
         var rules = Property(row, "subjectRules");
         if (rules.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return [];
         return rules.EnumerateObject().Select(item =>
         {
             var mode = item.Value.ValueKind == JsonValueKind.String ? item.Value.GetString()! : Value(item.Value, "deliveryMode");
-            var required = item.Value.ValueKind == JsonValueKind.String ?
-                string.Equals(mode.Trim(), "ADMIN_CLASS", StringComparison.OrdinalIgnoreCase) : Boolean(item.Value, "isCompulsory") ?? false;
-            return new OrganizationSubjectRule(item.Name, mode, required);
+            bool adminClass = string.Equals(mode.Trim(), "ADMIN_CLASS", StringComparison.OrdinalIgnoreCase);
+            bool? required = item.Value.ValueKind == JsonValueKind.String ? adminClass : Boolean(item.Value, "isCompulsory");
+            return new OrganizationSubjectRule(item.Name, mode, required ?? false)
+            { NeedsCompulsoryChoice = archivedCorrection && adminClass && required is null };
         }).ToArray();
     }
     private static ArgumentException RowError(long line, string message) => new($"第 {line} 行：{message}");

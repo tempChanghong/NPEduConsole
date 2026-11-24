@@ -280,6 +280,7 @@ try {
         Save-ReleaseScreenshot 'windows-school-overview' 'OpenSchoolOpeningButton'
         if ($fixture.batch) { . (Join-Path $PSScriptRoot 'WindowsReleaseTeacherPins.ps1') }
         if ($fixture.studyReports) { . (Join-Path $PSScriptRoot 'WindowsReleaseStudyReports.ps1') }
+        if ($fixture.organization) { . (Join-Path $PSScriptRoot 'WindowsReleaseOrganization.ps1') }
         [ordered]@{version = $manifest.version; zipSha256 = $actualHash; api = $fixture.login.url; code = $fixture.login.code;
             runs = $moduleEvidence; screenshots = $screenEvidence} | ConvertTo-Json -Depth 8 |
             Set-Content -LiteralPath (Join-Path $evidence 'windows-login.json') -Encoding utf8

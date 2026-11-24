@@ -13,7 +13,8 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record OrganizationImportAccess(string Origin, string SchoolId, string SchoolCode, string Password, string DraftId,
-        string DraftName, string ActiveId, string OtherSchoolId, string DraftFile, string WrongGradeFile, bool AllowOrganizationTestWrites);
+        string DraftName, string ActiveId, string OtherSchoolId, string DraftFile, string WrongGradeFile,
+        string NewTermFile, string BlankName, string RenamedActive, bool AllowOrganizationTestWrites);
 
     private static int StartOrganizationImport(string fixture, string output)
     {
@@ -48,6 +49,23 @@ internal static partial class Program
             var termManager = await AcademicPageAsync<TermPreparationView>(main);
             var terms = Find<ListBox>(termManager, "PreparedTerms");
             await Until(() => terms.Items.OfType<ManagedAcademicTerm>().Any(row => row.Id == access.DraftId), "existing draft shown in term manager");
+            terms.SelectedItem = terms.Items.OfType<ManagedAcademicTerm>().Single(row => row.Id == access.ActiveId);
+            await PressScoped(termManager, "TermEditDetails");
+            var details = await AcademicPageAsync<TermDetailsView>(main);
+            Find<TextBox>(details, "DetailsName").Text = access.RenamedActive;
+            await PressScoped(details, "DetailsApply");
+            await Until(() => Find<TextBlock>(details, "DetailsAfter").Text?.Contains("保留学期状态与大屏绑定") == true, "exact term metadata preview");
+            await CaptureWithFrame(main, output, "00-wide-metadata-preview");
+            await Signal("race-term-details");
+            await PressScoped(details, "DetailsApply");
+            await Until(() => Find<TextBlock>(details, "DetailsStatus").Text?.Contains("本次未保存") == true, "another administrator made the metadata preview stale");
+            Check(Find<TextBox>(details, "DetailsName").Text == access.RenamedActive, "stale rename retains the operator draft");
+            await PressScoped(details, "DetailsApply");
+            await Until(() => Find<TextBlock>(details, "DetailsStatus").Text?.Contains("请核对预览后确认") == true, "next metadata preview is ready");
+            await PressScoped(details, "DetailsApply");
+            await Until(() => termManager.IsEffectivelyVisible && terms.Items.OfType<ManagedAcademicTerm>()
+                .Any(row => row.Id == access.ActiveId && row.Name == access.RenamedActive), "lost response reconciles the original term details without reposting");
+            await Signal("renamed-active-term");
             terms.SelectedItem = terms.Items.OfType<ManagedAcademicTerm>().Single(row => row.Id == access.DraftId);
             await PressScoped(termManager, "TermOrganizationImport");
 
@@ -255,6 +273,35 @@ internal static partial class Program
             await Until(() => Find<Button>(active, "OrgContinue").IsFocused, "teaching returns to the original class receipt");
             await PressScoped(active, "OrgClose");
             await Until(() => Find<Button>(main, "OpenOrganizationImportButton").IsFocused, "return restores the regular route anchor");
+
+            var blankImport = await OpenNormal(access.ActiveId);
+            SelectGrade(blankImport);
+            await PressScoped(blankImport, "OrgExample");
+            blankImport.LoadOrganizationText(await File.ReadAllTextAsync(access.NewTermFile));
+            await PressScoped(blankImport, "OrgCreateDeclaredTerm");
+            await PressScoped(blankImport, "OrgCancelReplacement");
+            Check(Find<ComboBox>(blankImport, "OrgTerm").SelectedItem is OrganizationTerm currentTerm && currentTerm.Id == access.ActiveId &&
+                Find<ListBox>(blankImport, "OrgClasses").ItemCount == 7, "cancel preserves the seven-row original table under the active term");
+            await PressScoped(blankImport, "OrgCreateDeclaredTerm");
+            await PressScoped(blankImport, "OrgConfirmReplacement");
+            var blankDetails = await AcademicPageAsync<TermDetailsView>(main);
+            await PressScoped(blankDetails, "DetailsApply");
+            await Until(() => Find<TextBlock>(blankDetails, "DetailsAfter").Text?.Contains("空白草稿") == true, "file declares a not-yet-created period");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "compact blank-term confirmation");
+            await CaptureWithFrame(main, output, "08a-compact-empty-draft-preview");
+            await PressScoped(blankDetails, "DetailsApply");
+            await Until(() => blankImport.IsEffectivelyVisible && Find<ComboBox>(blankImport, "OrgTerm").SelectedItem is OrganizationTerm created &&
+                created.Status == "DRAFT" && created.Name == access.BlankName && Find<ListBox>(blankImport, "OrgClasses").ItemCount == 1,
+                "same file resumes against server-confirmed blank draft");
+            await Signal("blank-term-no-copy");
+            await PressScoped(blankImport, "OrgPreview");
+            await Commit(blankImport);
+            await Until(() => Status(blankImport).Contains("由服务器确认"), "organization is written to the newly created term only");
+            await Signal("blank-term-applied");
+            await CaptureWithFrame(main, output, "08b-compact-file-under-new-draft");
+            await PressScoped(blankImport, "OrgClose");
 
             await Signal("arm-delayed-catalog");
             await PressScoped(main, "OpenOrganizationImportButton");

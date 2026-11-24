@@ -228,8 +228,16 @@ public sealed partial class OrganizationImportView
                 var index = i;
                 var rule = room.Rules[index];
                 var key = path + $".subjectRules[{i}]";
-                var required = new CheckBox { Content = "必修", IsChecked = rule.IsCompulsory };
-                required.IsCheckedChanged += (_, _) => { room.Rules[index] = room.Rules[index] with { IsCompulsory = required.IsChecked == true }; Edited(); };
+                Control required;
+                if (rule.NeedsCompulsoryChoice)
+                    required = Select(key + ".isCompulsory", ["必修", "选修"], -1, "请选择必修或选修",
+                        value => room.Rules[index] = room.Rules[index] with { IsCompulsory = value == 0, NeedsCompulsoryChoice = false });
+                else
+                {
+                    var optional = new CheckBox { Content = "必修", IsChecked = rule.IsCompulsory };
+                    optional.IsCheckedChanged += (_, _) => { room.Rules[index] = room.Rules[index] with { IsCompulsory = optional.IsChecked == true }; Edited(); };
+                    required = optional;
+                }
                 var grid = RowGrid("1*,1*,Auto,Auto",
                     Entry(key + ".subjectCode", rule.SubjectCode, "学科代码", 64,
                         value => room.Rules[index] = room.Rules[index] with { SubjectCode = value }),
