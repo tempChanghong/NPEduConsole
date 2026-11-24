@@ -77,7 +77,7 @@ assert.ok(checkout && binaries && (!mode || ['--serve', '--local-authorization',
   '--school-transfer', '--school-transfer-db', '--school-transfer-target', '--school-transfer-retirement', '--first-school-console', '--windows-release-oobe', '--organization-retirement-setup', '--management-handoff', '--teacher-batch-release', '--owner-recovery',
   '--scoped-term-classes', '--scoped-term-classes-db', '--staff-workspace-default-db', '--scoped-term-teaching-db', '--scoped-term-teaching',
   '--staff-review', '--staff-review-db', '--class-rules', '--class-rules-db', '--study-display', '--study-display-db',
-  '--device-field-actions', '--device-field-actions-db', '--device-run-reports'].includes(mode)),
+  '--device-field-actions', '--device-field-actions-db', '--device-run-reports', '--site-retirement-release'].includes(mode)),
   'Pass the KV checkout, PostgreSQL bin directory, and optionally a test mode.');
 const serve = mode?.startsWith('--serve') ?? false;
 const localAuthorization = mode === '--local-authorization' || mode === '--serve-local-authorization';
@@ -1016,10 +1016,13 @@ async function runFixture() {
       zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP), manifestPath: resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST),
       relay: lostReply, review, runNative: args => runDesktop(project, args)});
   }
-  if (mode === '--overview-retirement-release') {
+  if (mode === '--overview-retirement-release' || mode === '--site-retirement-release') {
     assert.ok(process.env.NP_CONSOLE_RELEASE_ZIP && process.env.NP_CONSOLE_RELEASE_MANIFEST, 'Provide the published ZIP and its manifest.');
-    return verifyReleasedOverviewRetirement({prisma, origin, fixture, directory, web: join(kv, '..', 'NPClassworks'),
-      evidence: resolve(process.env.NP_CONSOLE_OVERVIEW_RETIREMENT_EVIDENCE || '.artifacts/overview-retirement/released'),
+    const siteCutover = mode === '--site-retirement-release';
+    const evidence = siteCutover ? process.env.NP_CONSOLE_SITE_RETIREMENT_EVIDENCE || '.artifacts/site-retirement/released'
+      : process.env.NP_CONSOLE_OVERVIEW_RETIREMENT_EVIDENCE || '.artifacts/overview-retirement/released';
+    return verifyReleasedOverviewRetirement({prisma, origin, fixture, directory, siteCutover, web: join(kv, '..', 'NPClassworks'),
+      evidence: resolve(evidence),
       zip: resolve(process.env.NP_CONSOLE_RELEASE_ZIP), manifestPath: resolve(process.env.NP_CONSOLE_RELEASE_MANIFEST)});
   }
   if (termStatus) {

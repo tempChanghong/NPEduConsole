@@ -5,14 +5,15 @@ import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {verifyStudentBrowser} from './course-groups-fixture.mjs';
+import {siteSections, prepareTermOperation, publishSiteRelease, verifySiteDestinations} from './site-retirement-fixture.mjs';
 
-export async function verifyReleasedOverviewRetirement({prisma, origin, fixture, directory, evidence, web, zip, manifestPath}) {
+export async function verifyReleasedOverviewRetirement({prisma, origin, fixture, directory, evidence, web, zip, manifestPath, siteCutover = false}) {
   const {school, term, classes: [classId], managerId, pin} = fixture;
   await mkdir(evidence, {recursive: true});
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   const archiveBytes = await readFile(zip);
   const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-  assert.equal(manifest.version, '0.1.13');
+  assert.equal(manifest.version, siteCutover ? '0.1.14' : '0.1.13');
   assert.equal(manifest.sha256, digest(archiveBytes));
   assert.equal(manifest.sizeBytes, archiveBytes.length);
 
@@ -87,23 +88,34 @@ export async function verifyReleasedOverviewRetirement({prisma, origin, fixture,
   assert.ok(scoped.tasks.some(task => task.classId === historicalClass.id));
 
   let browserDigest;
+  let pendingOperation;
   const legacyReads = [];
+  if (siteCutover) {
+    pendingOperation = await prepareTermOperation({prisma, origin, school, token});
+    process.env.VITE_ADMIN_MANAGEMENT_HANDOFF_PILOT = 'true';
+    process.env.VITE_ADMIN_RETIRED_SECTIONS = siteSections.join(',');
+  }
   await verifyStudentBrowser({origin, directory, web, evidence, school, rooms: [], afterStudent: async (browser, site) => {
-    const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: 'block'});
+    const page = await browser.newPage({viewport: {width: 1360, height: 900}, serviceWorkers: siteCutover ? 'allow' : 'block'});
     const downloaded = join(directory, manifest.fileName);
     const input = join(directory, 'overview-retirement-windows.json');
     try {
-      await page.route(`${site}/.well-known/npclassworks-deployment.json`, route => route.fulfill({json: {
-        schemaVersion: 1, apiBaseUrl: null, adminManagementHandoffPilot: true, adminRetiredSections: ['overview'],
-      }}));
-      await page.route(`${site}/downloads/npeduconsole/**`, route => route.request().url().endsWith('/console-release.json')
-        ? route.fulfill({json: manifest})
-        : route.fulfill({contentType: 'application/zip', headers: {'Content-Length': String(archiveBytes.length)},
-          body: route.request().method() === 'HEAD' ? undefined : archiveBytes}));
-      page.on('request', request => {
+      if (siteCutover) {
+        await publishSiteRelease({directory, site, zip, manifestPath, manifest});
+      } else {
+        await page.route(`${site}/.well-known/npclassworks-deployment.json`, route => route.fulfill({json: {
+          schemaVersion: 1, apiBaseUrl: null, adminManagementHandoffPilot: true, adminRetiredSections: ['overview'],
+        }}));
+        await page.route(`${site}/downloads/npeduconsole/**`, route => route.request().url().endsWith('/console-release.json')
+          ? route.fulfill({json: manifest})
+          : route.fulfill({contentType: 'application/zip', headers: {'Content-Length': String(archiveBytes.length)},
+            body: route.request().method() === 'HEAD' ? undefined : archiveBytes}));
+      }
+      const observeRetiredOverview = request => {
         const path = new URL(request.url()).pathname;
         if (path.endsWith('/management-overview')) legacyReads.push(path);
-      });
+      };
+      page.on('request', observeRetiredOverview);
       await page.goto(`${site}/classworks-admin?section=overview&school=${school.id}&term=${archive.id}`);
       await page.getByLabel('管理员短账号', {exact: true}).fill('admin');
       await page.getByLabel('个人 PIN', {exact: true}).fill(pin);
@@ -121,6 +133,10 @@ export async function verifyReleasedOverviewRetirement({prisma, origin, fixture,
       browserDigest = digest(await readFile(downloaded));
       assert.equal(browserDigest, manifest.sha256);
       assert.deepEqual(legacyReads, []);
+      page.off('request', observeRetiredOverview);
+      if (siteCutover) {
+        await verifySiteDestinations({page, site, directory, evidence, school, archive, managerId, operation: pendingOperation, manifest});
+      }
 
       await writeFile(input, JSON.stringify({isolated: true, login: {url: origin, website: site, code: school.code, username: 'admin', pin},
         overviewRetirement: {activeName: term.name, archiveName: archive.name, active: active.metrics, archive: scoped.metrics}}));
