@@ -54,6 +54,11 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   const makeBinding = (room, name) => prisma.classroomScreenBinding.create({data: {schoolId: school.id, administrativeClassId: room.id,
     name, tokenHash: randomBytes(32).toString('hex'), createdByAccountId: managerId, npepPrepared: true}});
   const [rear, peer] = await Promise.all([makeBinding(seven, '七班后屏'), makeBinding(nine, '机房备用屏')]);
+  const archived = await prisma.academicTerm.create({data: {schoolId: school.id, name: '归档同码学期',
+    academicYear: term.academicYear - 1, semester: term.semester, status: 'ARCHIVED'}});
+  const original = await prisma.workspace.create({data: {termId: archived.id, code: seven.code, name: seven.name, type: 'ADMIN_CLASS'}});
+  const history = await prisma.classroomScreenBinding.create({data: {schoolId: school.id, administrativeClassId: original.id,
+    name: '归档七班后屏', deviceFingerprint: 'isolated-old-browser', tokenHash: randomBytes(32).toString('hex'), createdByAccountId: managerId}});
   const front = await prisma.classroomScreenBinding.update({where: {id: frontInit.id}, data: {npepPrepared: true}});
   const nativeFixture = join(directory, 'screen-duty-native.json'), nativeState = join(stateRoot, 'devices');
   const setScope = rearClass => writeFile(nativeFixture, JSON.stringify({kind: 'TERM_PREPARATION_DISPOSABLE_DATABASE',
@@ -75,6 +80,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   let browser, site, rearTab, frontTab, rearWebToken, frontWebToken, changedWebToken, allowMove = false, lost = null;
   let receiptReads = 0, movePosts = 0, navigations = 0, releaseReload, reloadGate;
   let createRequestId = null, guardCreate = false, createAttempts = 0;
+  let dropHistoryMove = false, historyReceipt = null, historyReads = 0, historyPosts = 0;
   let rearFirstLoginAt;
   let movedWebToken, nextWebToken, beforeLoginEdit, beforePinReset, pairingTicket, pinResetReportAt;
   const rearCode = 'DUTY-REAR', newCode = 'DUTY-REAR-RENAMED';
@@ -328,6 +334,37 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
         assert.ok((await binding(extra.id)).credentialVersion > extra.credentialVersion);
         break;
       }
+      case 'archived-unbind': {
+        const current = await binding(history.id);
+        assert.equal(current.administrativeClassId, original.id);
+        assert.equal(current.deviceFingerprint, null);
+        assert.equal(current.credentialVersion, history.credentialVersion + 1);
+        assert.equal(current.npepBindingRevision, history.npepBindingRevision);
+        await api(screenPath + '/session', {screenToken: frontWebToken});
+        await runNative(['report-first', nativeFixture, nativeState]);
+        break;
+      }
+      case 'archived-restored': {
+        const current = await binding(history.id);
+        assert.equal(current.isActive, true);
+        assert.equal(current.administrativeClassId, original.id);
+        assert.equal((await desktopApi(history.id)).browserState, 'DISABLED');
+        dropHistoryMove = true;
+        break;
+      }
+      case 'archived-moved':
+        assert.equal(historyPosts, 1);
+        assert.equal(historyReads, 1);
+        assert.equal((await binding(history.id)).administrativeClassId, eight.id);
+        break;
+      case 'other-scope-no-receipt':
+        assert.equal(historyReads, 1);
+        break;
+      case 'own-history-receipt':
+        assert.equal(historyReads, 2);
+        assert.equal(historyPosts, 1);
+        assert.equal((await binding(history.id)).administrativeClassId, eight.id);
+        break;
       default: throw new Error('Unknown screen-duty fixture checkpoint');
     }
     steps.push(step);
@@ -340,7 +377,11 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       catch (error) { console.error(error); res.writeHead(500).end(); }
       return;
     }
-    if (req.method === 'GET' && req.url.startsWith(duty + '/receipts/')) receiptReads++;
+    if (req.method === 'GET' && req.url.startsWith(duty + '/receipts/')) {
+      if (req.url.endsWith('/' + historyReceipt?.requestId)) {
+        if (++historyReads === 1) { res.writeHead(503, {'Content-Type': 'application/json'}).end('{}'); return; }
+      } else receiptReads++;
+    }
     let createBody;
     if (guardCreate && req.method === 'POST' && req.url === duty) {
       const chunks = [];
@@ -353,13 +394,16 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       guardCreate = false;
     }
     const upstream = request(new URL(req.url, target), {method: req.method, headers: {...req.headers, host: target.host}}, reply => {
-      if (!allowMove || lost || req.method !== 'POST' || req.url !== duty || reply.statusCode !== 200) {
+      if (!(allowMove && !lost || dropHistoryMove) || req.method !== 'POST' || req.url !== duty || reply.statusCode !== 200) {
         res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); return;
       }
       const chunks = [];
       reply.on('data', chunk => chunks.push(chunk));
       reply.on('end', () => {
         const body = Buffer.concat(chunks), result = JSON.parse(body).data;
+        if (dropHistoryMove && result?.action === 'MOVE' && result.bindingId === history.id) {
+          dropHistoryMove = false; historyReceipt = result; historyPosts++; res.destroy(); return;
+        }
         if (result?.action === 'MOVE') { lost = result; movePosts++; res.destroy(); return; }
         res.writeHead(reply.statusCode, reply.headers); res.end(body);
       });
@@ -372,7 +416,8 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   try {
     const access = join(directory, 'screen-duty-desktop.json');
     await writeFile(access, JSON.stringify({origin: 'http://127.0.0.1:' + relay.address().port, schoolCode: school.code,
-      schoolId: school.id, pin, resetPin, frontId: front.id, rearId: rear.id, sevenId: seven.id, eightId: eight.id, allowWrites: true}), {mode: 0o600});
+      schoolId: school.id, pin, resetPin, frontId: front.id, rearId: rear.id, sevenId: seven.id, eightId: eight.id,
+      archivedId: archived.id, originalClassId: original.id, historicalBindingId: history.id, allowWrites: true}), {mode: 0o600});
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [], realtime: true, afterStudent: async (edge, webOrigin) => {
       browser = edge; site = webOrigin;
       async function openPage() {
@@ -391,8 +436,8 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
         throw error;
       } finally { releaseReload?.(); }
     }});
-    assert.equal(steps.length, 19);
-    assert.equal(steps.at(-1), 'rotate-during-handoff');
+    assert.equal(steps.length, 24);
+    assert.equal(steps.at(-1), 'own-history-receipt');
     const [finalFront, finalRear] = await Promise.all([device(front.id), device(rear.id)]);
     await writeFile(join(evidence, 'screen-duty-cross-end.json'), JSON.stringify({passed: true, steps, commands,
       screens: {
@@ -403,7 +448,9 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       },
       nativeFrontOriginalCredential: true, nativeRearOldCredentialRejected: true, moveWrites: movePosts, receiptReads,
       afterPinReset: {oldPairingCodeRejected: true, originalNativeCredentialReportedAt: pinResetReportAt},
-      createAttemptsWithSameId: createAttempts, observedPageReload: navigations > 0}, null, 2));
+      createAttemptsWithSameId: createAttempts, observedPageReload: navigations > 0,
+      historical: {archiveId: archived.id, originalClassId: original.id, matchedCode: original.code, activeClassId: seven.id,
+        bindingId: history.id, destinationClassId: eight.id, requestId: historyReceipt?.requestId, writes: historyPosts, reads: historyReads}}, null, 2));
     console.log('PASS: Windows Console, real Edge screen login and commands, DPAPI native dual-screen credential checks.');
   } finally {
     relay.closeAllConnections();

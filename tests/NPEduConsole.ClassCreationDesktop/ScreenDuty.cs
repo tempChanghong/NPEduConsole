@@ -12,7 +12,8 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record ScreenDutyAccess(string Origin, string SchoolCode, string SchoolId, string Pin, string ResetPin,
-        string FrontId, string RearId, string SevenId, string EightId, bool AllowWrites);
+        string FrontId, string RearId, string SevenId, string EightId, string ArchivedId, string OriginalClassId, string HistoricalBindingId,
+        bool AllowWrites);
 
     private static int StartScreenDuty(string fixture, string output)
     {
@@ -216,7 +217,89 @@ internal static partial class Program
                 Check(await File.ReadAllTextAsync(handoffFile) == "保留原文件", "a stale PIN never replaces the destination file");
             }
             finally { File.Delete(handoffFile); }
+            await CloseDutyAndWaitForDirectory(window);
+
+            Click(dutyDirectory);
+            window = await Workbench();
+            var historyFilter = Find<CheckBox>(window, "DutyHistory");
+            var rows = Find<ListBox>(window, "DutyRows");
+            await Until(() => historyFilter.IsEffectivelyVisible && rows.Items.Cast<object>().Any(row => row.ToString()!.Contains(access.FrontId)),
+                "the default catalogue lists operational screens");
+            Check(rows.Items.Cast<object>().All(row => !row.ToString()!.Contains(access.HistoricalBindingId)), "historical bindings are opt-in");
+            historyFilter.IsChecked = true;
+            await Until(() => rows.Items.Cast<object>().Any(row => row.ToString()!.Contains(access.HistoricalBindingId)), "archived room appears by its binding ID");
+            rows.SelectedItem = rows.Items.Cast<object>().Single(row => row.ToString()!.Contains(access.HistoricalBindingId));
+            Click(Find<Button>(window, "DutyOpen"));
+            await Until(() => window.Detail?.Room.Id == access.OriginalClassId && window.Detail.Room.TermId == access.ArchivedId,
+                "the historical screen opens under the original same-code class and term");
+            Check(!Find<Button>(window, "DutyRefreshData").IsEffectivelyEnabled && !Find<Button>(window, "DutyResetPin").IsVisible,
+                "historical controls offer neither current web commands nor historical PIN editing");
+            window.Width = 1160;
+            window.Height = 780;
+            await CaptureWithFrame(window, output, "09-original-archived-binding-wide");
+            Click(Find<Button>(window, "DutyUnbindBrowser"));
+            await Review(window);
+            Check(Label(window, "DutyReviewWeb").Contains("归档期间无法网页登录") &&
+                !Label(window, "DutyReviewNative").Contains("可继续使用"), "unlink preview describes archival limits");
+            window.Width = 840;
+            window.Height = 480;
+            await CaptureWithFrame(window, output, "10-original-archived-unlink-narrow");
+            await Submit(window);
+            await Signal("archived-unbind");
+            await Apply(window, "DutyToggle");
+            Click(Find<Button>(window, "DutyPrimary"));
+            await Review(window);
+            Check(Label(window, "DutyReviewWeb").Contains("仅恢复原绑定") && Label(window, "DutyReviewWeb").Contains("归档期间无法网页登录"),
+                "restoring a historical binding does not imply login is available");
+            await Submit(window);
+            await Signal("archived-restored");
+
+            Click(Find<Button>(window, "DutyMove"));
+            SelectEight(window);
+            await Review(window);
+            Check(Label(window, "DutyReviewObject").Contains("归档同码学期") && Label(window, "DutyReviewObject").Contains("目标班"),
+                "the original and destination are displayed together before moving");
+            Click(Find<Button>(window, "DutyConfirm"));
+            await Until(() => Find<Button>(window, "DutyBack").IsEnabled && Find<Button>(window, "DutyConfirm") is
+                {IsEnabled: true, Content: "重试核对原回执"} && Find<TextBlock>(window, "DutyNotice").Classes.Contains("error"),
+                "a failed receipt read releases the close protection while retaining the operation");
+            await Signal("archived-moved");
+            await CloseDutyAndWaitForDirectory(window);
+
+            var newBinding = () => directory.GetVisualDescendants().OfType<Button>().FirstOrDefault(button =>
+                button.Classes.Contains("screen-duty-entry") && button.DataContext is OverviewScreenItem item &&
+                item.ScreenId == access.HistoricalBindingId && item.ClassId == access.EightId && button.IsEffectivelyVisible);
+            var directorySearch = directory.FindControl<TextBox>("DeviceSearch")!;
+            directorySearch.Text = access.HistoricalBindingId;
+            await Until(() => newBinding() is {IsEffectivelyEnabled: true}, "the moved screen is visible in the new classroom");
+            Click(newBinding()!);
+            window = await Workbench();
+            await Until(() => window.Detail?.Room.Id == access.EightId && Label(window, "DutyNotice").Contains("其他大屏操作待核对"),
+                "a different class cannot open the historical request of the same binding");
+            Check(!Find<Button>(window, "DutyConfirm").IsVisible && !Find<StackPanel>(window, "DutyRetryPanel").IsVisible,
+                "the new scope does not offer a receipt lookup or resend from the old scope");
+            await Signal("other-scope-no-receipt");
+            await CloseDutyAndWaitForDirectory(window);
+            Click(dutyDirectory);
+            window = await Workbench();
+            await Until(() => window.Detail?.Room.Id == access.EightId && Label(window, "DutyNotice").Contains("找回服务器确认的原回执"),
+                "the school-wide catalogue can still look up the original move");
+            await Signal("own-history-receipt");
             desktop.Shutdown(0);
+
+            async Task CloseDutyAndWaitForDirectory(ScreenDutyWindow active)
+            {
+                var refreshed = false;
+                void Refreshed(SchoolOverview? snapshot, string status) => refreshed |= snapshot is not null;
+                overview.SnapshotChanged += Refreshed;
+                try
+                {
+                    active.Close();
+                    await Until(() => refreshed && !active.IsVisible && main.IsEnabled && dutyDirectory.IsEffectivelyEnabled,
+                        "modal closed and the equipment directory consumed its refreshed snapshot");
+                }
+                finally { overview.SnapshotChanged -= Refreshed; }
+            }
         }
         catch (Exception error)
         {

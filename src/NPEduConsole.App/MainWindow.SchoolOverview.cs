@@ -86,7 +86,8 @@ public sealed partial class MainWindow
             }
             if (task.Action == "OPEN_SCREEN_DUTY" && task.ScreenId is { } dutyBinding)
             {
-                await ShowScreenDutyAsync(client, school, dutyBinding, task.ClassId, restoreTask: true);
+                await ShowScreenDutyAsync(client, school, dutyBinding, task.ClassId, restoreTask: true,
+                    scopeTermId: overview.Term?.Id);
                 return;
             }
             if (task.Action == "OPEN_STAFF_REVIEW" && overview.Term is { } reviewTerm)

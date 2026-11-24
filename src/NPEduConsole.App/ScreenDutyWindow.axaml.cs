@@ -24,13 +24,17 @@ public sealed partial class ScreenDutyWindow : Window
     private readonly DispatcherTimer _poll = new() {Interval = TimeSpan.FromSeconds(12)};
     private readonly bool _fromDirectory;
     private readonly string? _inactiveTermId;
+    private readonly string? _directoryTerm;
     private IReadOnlyList<InactiveClassScreen>? _legacyScreens;
     internal Func<string, bool>? OpenLegacyBinding { get; init; }
+    internal Func<ScreenDutyDetail, Task<bool>>? OpenPlacement { get; init; }
     private ScreenDutyCatalog? _catalog;
     private ScreenDutyDetail? _detail;
     private ScreenDutyPreview? _preview;
     private ScreenDutyPlan? _plan;
     private string? _bindingId, _action, _commandType, _commandId, _defaultClass;
+    private string? _expectedTerm, _expectedClass;
+    private Guid? _submittedHere;
     private InitialPinDelivery<int>? _delivery;
     private Control? _anchor;
     private bool _closed, _busy, _writing, _unavailable, _commandsExpanded, _directoryView, _applyingScope, _directoryInitialized, _canRetry;
@@ -40,14 +44,27 @@ public sealed partial class ScreenDutyWindow : Window
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     private PendingOperation? Pending => Requests.GetOrCreateValue(_client).GetValueOrDefault(_school.Id);
     private bool InScope(ScreenDutyRoom room) => room.Id == _defaultClass && room.TermId == _inactiveTermId && room.Active;
-    private bool OtherPending => _inactiveTermId is not null && Pending is { } pending &&
-        (pending.Plan.Action != "ENABLE" || pending.Preview.Screen is not { } screen || !InScope(screen.Room));
+    private bool OtherPending
+    {
+        get
+        {
+            if (Pending is not { } pending) return false;
+            if (pending.Id == _submittedHere) return false;
+            var origin = pending.Preview.Screen?.Room ?? pending.Preview.Target;
+            if (_inactiveTermId is not null) return pending.Plan.Action != "ENABLE" || origin is null || !InScope(origin);
+            if (!_directoryView && pending.Plan.BindingId != _bindingId) return true;
+            var termId = _directoryView ? _directoryTerm : _expectedTerm;
+            var classId = _directoryView ? _defaultClass : _expectedClass;
+            return termId is not null && origin?.TermId != termId || classId is not null && origin?.Id != classId;
+        }
+    }
     private bool LoginUnchanged => _action == "CHANGE_LOGIN" &&
         string.Equals(DutyCode.Text?.Trim(), _detail?.LoginCode?.Trim(), StringComparison.OrdinalIgnoreCase);
 
     public ScreenDutyWindow() => InitializeComponent();
 
-    internal ScreenDutyWindow(ConsoleClient client, School school, string? bindingId, string? classId, string? inactiveTermId = null) : this()
+    internal ScreenDutyWindow(ConsoleClient client, School school, string? bindingId, string? classId, string? inactiveTermId = null,
+        string? termId = null) : this()
     {
         _client = client;
         _school = school;
@@ -56,6 +73,8 @@ public sealed partial class ScreenDutyWindow : Window
         _directoryView = bindingId is null;
         _defaultClass = classId;
         _inactiveTermId = inactiveTermId;
+        _directoryTerm = termId;
+        if (bindingId is not null) { _expectedTerm = termId; _expectedClass = classId; }
         if (inactiveTermId is not null)
         {
             DutyHeading.Text = "本班停用大屏";
@@ -73,6 +92,8 @@ public sealed partial class ScreenDutyWindow : Window
                 {
                     if (OtherPending)
                     {
+                        await ReadAsync();
+                        if (_closed) return;
                         Notice("本校还有其他大屏操作待核对。请返回「教室设备 → 大屏账号与值守」查原回执。");
                         return;
                     }
@@ -111,7 +132,7 @@ public sealed partial class ScreenDutyWindow : Window
     private async Task ReadAsync()
     {
         ScreenDutyCatalog data;
-        try { data = await _client.GetScreenDutyAsync(_school.Id, _directoryView ? null : _bindingId, _lifetime.Token); }
+        try { data = await _client.GetScreenDutyAsync(_school.Id, _directoryView ? null : _bindingId, _lifetime.Token, includeHistorical: true); }
         catch (ConsoleApiException error) when (_inactiveTermId is not null && _directoryView &&
             error is {StatusCode: 404, Code: null or "NOT_FOUND"})
         {
@@ -133,6 +154,14 @@ public sealed partial class ScreenDutyWindow : Window
         DutyOpen.Content = "打开所选大屏";
         _catalog = data;
         _detail = _directoryView ? null : data.Screens.SingleOrDefault(item => item.Id == _bindingId);
+        if (_detail is { } exact && (_expectedClass is not null && exact.Room.Id != _expectedClass ||
+            _expectedTerm is not null && exact.Room.TermId != _expectedTerm))
+        {
+            _detail = null;
+            _delivery = null;
+            ClearEditor();
+            throw new ConsoleApiException(409, "大屏已离开原学期或原班，请返回目录核对原绑定与现归属。");
+        }
         if (_inactiveTermId is not null && (data.TermId != _inactiveTermId ||
             !data.Rooms.Any(InScope) || !_directoryView && (_detail is not {Active: false} selected || !InScope(selected.Room))))
         {
@@ -150,7 +179,7 @@ public sealed partial class ScreenDutyWindow : Window
         if (_directoryView && !_directoryInitialized)
         {
             _directoryInitialized = true;
-            if (_inactiveTermId is null) DutySearch.Text = data.Rooms.FirstOrDefault(room => room.Id == _defaultClass)?.Code ?? "";
+            DutyHistory.IsChecked = data.SupportsHistorical && data.TermId is null;
         }
         BindDirectory();
         RenderEvidence();
@@ -162,12 +191,14 @@ public sealed partial class ScreenDutyWindow : Window
         var selected = (DutyRows.SelectedItem as Choice)?.Id ?? _bindingId;
         var query = DutySearch.Text?.Trim() ?? "";
         var rows = _legacyScreens?.Select(row => new Choice(row.Id, $"{row.Name} · {row.Id} · 已停用")).ToArray() ??
-            (_catalog?.Screens ?? []).Where(row => (_inactiveTermId is null || !row.Active && InScope(row.Room)) &&
+            (_catalog?.Screens ?? []).Where(row => (_defaultClass is null || row.Room.Id == _defaultClass) &&
+                (_directoryTerm is null || row.Room.TermId == _directoryTerm) &&
+                (_inactiveTermId is null ? row.Room.Active || DutyHistory.IsChecked == true : !row.Active && InScope(row.Room)) &&
                 (DutyDisabledOnly.IsChecked != true || !row.Active) &&
                 $"{row.Display} {row.Room.Code} {row.LoginCode}".Contains(query, StringComparison.OrdinalIgnoreCase))
             .Select(row => new Choice(row.Id, row.Display)).ToArray();
         DutyRows.ItemsSource = rows;
-        DutyRows.SelectedItem = rows.FirstOrDefault(x => x.Id == selected) ?? (_inactiveTermId is null ? rows.FirstOrDefault() : null);
+        DutyRows.SelectedItem = rows.FirstOrDefault(x => x.Id == selected) ?? (_defaultClass is null ? rows.FirstOrDefault() : null);
         DutyOpen.IsEnabled = !_busy && DutyRows.SelectedItem is Choice;
     }
 
@@ -182,7 +213,7 @@ public sealed partial class ScreenDutyWindow : Window
 
     private async void OpenClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy || _unavailable || Pending is not null || DutyRows.SelectedItem is not Choice item) return;
+        if (_busy || _unavailable || Pending is not null && !OtherPending || DutyRows.SelectedItem is not Choice item) return;
         if (_legacyScreens is not null)
         {
             await RunAsync(async () =>
@@ -194,6 +225,9 @@ public sealed partial class ScreenDutyWindow : Window
             });
             return;
         }
+        var room = _catalog?.Screens.FirstOrDefault(row => row.Id == item.Id)?.Room;
+        _expectedTerm = room?.TermId;
+        _expectedClass = room?.Id;
         _bindingId = item.Id;
         _directoryView = false;
         _unavailable = false;
@@ -212,7 +246,8 @@ public sealed partial class ScreenDutyWindow : Window
             return;
         }
         DutyHeading.Text = row.Name;
-        DutyIdentity.Text = $"{_school.Name} · {row.Room.Label} · {row.Room.TermName} · 绑定编号 {row.Id}";
+        DutyIdentity.Text = $"{_school.Name} · {row.Room.TermLabel} · {row.Room} · 绑定编号 {row.Id}" +
+            (row.Active ? "" : " · 绑定停用");
         BrowserDutyState.Text = row.BrowserState switch
         {
             "NEEDS_ACCOUNT" => "网页账号待配置",
@@ -221,6 +256,7 @@ public sealed partial class ScreenDutyWindow : Window
             "ONLINE" => "近期收到网页值守心跳",
             "DEGRADED" => "网页值守需关注",
             "OFFLINE" => "近期未收到网页值守心跳",
+            "DISABLED" when !row.Room.Active => "原学期或班级未启用，无法网页登录",
             "DISABLED" => "网页值守已停用",
             _ => "网页值守待核对"
         };
@@ -230,7 +266,7 @@ public sealed partial class ScreenDutyWindow : Window
             $"\n待上传 {(row.PendingUploads?.ToString() ?? "待核对")} · " +
             (row.SyncProblem ? "心跳报告同步异常" : row.HeartbeatAt is null || row.BrowserState == "UNKNOWN" ?
                 "同步待核对" : "心跳未报告同步异常");
-        NativeDutyState.Text = row.NativeState switch
+        NativeDutyState.Text = !row.Room.Active ? "原班当前不能接入，请核对学期或安排新班" : row.NativeState switch
         {
             "REPORTED" => "已配对，已有有效上报",
             "AWAITING_PAIRING" => "等待现场配对",
@@ -239,7 +275,8 @@ public sealed partial class ScreenDutyWindow : Window
             "NOT_APPLICABLE" => "暂无原生接入证据",
             _ => "原生配对或上报待核对"
         };
-        NativeDutyEvidence.Text = $"当前配对记录 {Time(row.NativePairedAt)}\n最近有效上报 {Time(row.NativeReportedAt)}";
+        NativeDutyEvidence.Text = $"当前配对记录 {Time(row.NativePairedAt)}\n" +
+            $"{(row.Room.Active && row.Active ? "最近有效上报" : "历史上报")} {Time(row.NativeReportedAt)}";
         var chosen = row.Commands.FirstOrDefault(item => item.Id == _commandId);
         DutyCommandPicked.IsVisible = _commandId is not null;
         DutyCommandPicked.Text = chosen is null ? "本次指令尚未读到状态，请继续核对。" : $"本次指令 · {CommandLabel(chosen)}";
@@ -274,7 +311,7 @@ public sealed partial class ScreenDutyWindow : Window
         if (_detail is not { } row || _busy) return;
         if (!row.Active) { Begin("ENABLE", DutyPrimary); return; }
         if (!row.HasPin || row.LoginCode is null) { Begin("CONFIGURE", DutyPrimary); return; }
-        ToggleCommandsClicked(sender, args);
+        if (row.Room.Active) ToggleCommandsClicked(sender, args);
     }
 
     private void ToggleCommandsClicked(object? sender, RoutedEventArgs args)
@@ -295,6 +332,21 @@ public sealed partial class ScreenDutyWindow : Window
     private void ToggleClicked(object? sender, RoutedEventArgs args) => Begin(_detail?.Active == true ? "DISABLE" : "ENABLE", DutyToggle);
     private void NewClicked(object? sender, RoutedEventArgs args) =>
         Begin("CREATE", sender as Control, _detail?.Room.Id ?? _defaultClass);
+
+    private async void PlacementClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_busy || _detail is not {PlacementTermId: not null, ActivationRequestId: not null} row || OpenPlacement is null) return;
+        var arrange = OpenPlacement;
+        await RunAsync(async () =>
+        {
+            if (await arrange(row) && !_closed)
+            {
+                Changed = true;
+                Close();
+            }
+            else if (!_closed) await ReadAsync();
+        });
+    }
 
     private void Begin(string action, Control? anchor, string? target = null, string? command = null)
     {
@@ -360,10 +412,12 @@ public sealed partial class ScreenDutyWindow : Window
     private ScreenDutyPlan ReadPlan()
     {
         var action = _action ?? throw new InvalidOperationException();
+        var source = action == "CREATE" || _catalog?.SupportsHistorical != true ? null : _detail?.Room;
         return new(action, action == "CREATE" ? null : _bindingId,
             action is "CREATE" or "MOVE" ? (DutyTargetClass.SelectedItem as ScreenDutyRoom)?.Id : null,
             action is "CREATE" or "RENAME" ? DutyName.Text?.Trim() : null,
-            action is "CREATE" or "CONFIGURE" or "CHANGE_LOGIN" ? DutyCode.Text?.Trim().ToUpperInvariant() : null, _commandType);
+            action is "CREATE" or "CONFIGURE" or "CHANGE_LOGIN" ? DutyCode.Text?.Trim().ToUpperInvariant() : null, _commandType,
+            source?.TermId, source?.Id);
     }
 
     private async void ConfirmClicked(object? sender, RoutedEventArgs args)
@@ -399,6 +453,7 @@ public sealed partial class ScreenDutyWindow : Window
         var reviewed = _preview;
         var confirmed = _plan!;
         var intent = new PendingOperation(confirmed, reviewed, Guid.NewGuid());
+        _submittedHere = intent.Id;
         Requests.GetOrCreateValue(_client)[_school.Id] = intent;
         var pinToSubmit = NeedsPin(confirmed.Action) ? DutyPin.Text : null;
         DutyPin.Text = "";
@@ -428,6 +483,8 @@ public sealed partial class ScreenDutyWindow : Window
             }
             catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
             {
+                _writing = false;
+                if (!_closed) Render();
                 if (!_closed) await VerifyAsync(intent);
                 return;
             }
@@ -446,6 +503,8 @@ public sealed partial class ScreenDutyWindow : Window
                 throw;
             }
             if (_closed) return;
+            _writing = false;
+            Render();
             var username = intent.Plan.LoginCode ?? intent.Preview.Screen?.LoginCode;
             _delivery = pin is not null && username is not null && receipt.AppliedPinVersion is >= 0 and { } version
                 ? new(receipt.BindingId, username, pin, version) : null;
@@ -456,10 +515,10 @@ public sealed partial class ScreenDutyWindow : Window
     private void ShowReview(ScreenDutyPreview preview, ScreenDutyPlan plan)
     {
         DutyReviewTitle.Text = ActionLabel(plan.Action, plan.CommandType);
-        DutyReviewObject.Text = preview.Screen is { } source ? $"{source.Room.Label} · {source.Name} · 编号 {source.Id}" : $"新屏 · {plan.Name}";
+        DutyReviewObject.Text = preview.Screen is { } source ? $"{source.Room.TermLabel} · {source.Room} · {source.Name} · 编号 {source.Id}" : $"新屏 · {plan.Name}";
         if (plan.Name is not null && preview.Screen?.Name != plan.Name && plan.Action == "RENAME") DutyReviewObject.Text += $"\n新名称 {plan.Name}";
         if (plan.LoginCode is not null) DutyReviewObject.Text += $"\n网页短账号 {plan.LoginCode}";
-        if (preview.Target is { } target) DutyReviewObject.Text += $"\n目标班 {target}";
+        if (preview.Target is { } target) DutyReviewObject.Text += $"\n目标班 {target.TermLabel} · {target}";
         DutyReviewPeers.IsVisible = preview.Target is not null;
         DutyReviewPeers.Text = preview.TargetScreens.Length == 0 ? "目标班暂无其他大屏记录。" :
             "目标班已有大屏\n" + string.Join("\n", preview.TargetScreens.Select(row => $"{row.Name} · 编号 {row.Id}{(row.Active ? "" : " · 已停用")}"));
@@ -484,11 +543,18 @@ public sealed partial class ScreenDutyWindow : Window
 
     private async Task AcceptReceiptAsync(ScreenDutyReceipt receipt, bool recovered)
     {
+        var original = Pending?.Preview;
         Requests.GetOrCreateValue(_client).Remove(_school.Id);
         Changed = true;
         ClearEditor();
         _bindingId = receipt.BindingId;
         _directoryView = _inactiveTermId is not null;
+        if (original is { } proof)
+        {
+            var destination = proof.Target ?? proof.Screen?.Room;
+            _expectedClass = destination?.Id;
+            _expectedTerm = destination?.TermId;
+        }
         if (_detail?.Id != receipt.BindingId)
         {
             _detail = null;
@@ -543,7 +609,7 @@ public sealed partial class ScreenDutyWindow : Window
             Render();
             RestoreDutyFocus(_anchor);
         }
-        else if (Pending is null && !_directoryView && _fromDirectory)
+        else if ((Pending is null || OtherPending) && !_directoryView && _fromDirectory)
         {
             _delivery = null;
             _directoryView = true;
@@ -584,6 +650,16 @@ public sealed partial class ScreenDutyWindow : Window
         {
             if (_closed) return;
             _delivery = null;
+            if (error.StatusCode is 401 or 403)
+            {
+                Requests.GetOrCreateValue(_client).Remove(_school.Id);
+                _catalog = null;
+                _detail = null;
+                _legacyScreens = null;
+                ClearEditor();
+                BindDirectory();
+                RenderEvidence();
+            }
             SessionExpired?.Invoke(error);
             if (_closed) return;
             if (_action is null || quiet) _unavailable = true;
@@ -603,32 +679,41 @@ public sealed partial class ScreenDutyWindow : Window
         var canDeliver = CurrentPinMatches(_detail, _delivery) && !_directoryView && !_unavailable;
         DutyHandoffActions.IsVisible = DutyCopyPin.IsVisible = DutySavePin.IsVisible = canDeliver;
         DutyCopyPin.IsEnabled = DutySavePin.IsEnabled = !_busy;
-        var pending = Pending is not null;
+        var pending = Pending is not null && !OtherPending;
         var editing = _action is not null && _preview is null && !pending;
-        var canAct = !_busy && !_unavailable && !pending && _detail?.Room.Active == true;
+        var canAct = !_busy && !_unavailable && Pending is null && _detail is { } && (_detail.Room.Active || _catalog?.SupportsHistorical == true);
         var reviewing = _preview is not null && !pending;
         DutyDirectoryPanel.IsVisible = _directoryView && _action is null && !pending;
         DutyDetailPanel.IsVisible = !_directoryView && _detail is not null && _action is null && !pending;
-        DutyNew.IsEnabled = !_busy && !_unavailable && _catalog?.Rooms.Length > 0;
+        DutyNew.IsEnabled = !_busy && !_unavailable && Pending is null && _catalog?.Rooms.Length > 0;
+        DutyHistory.IsVisible = _inactiveTermId is null && _defaultClass is null && _catalog?.SupportsHistorical == true;
         DutyOpen.IsEnabled = !_busy && !_unavailable && DutyRows.SelectedItem is Choice;
+        DutyPrimary.IsVisible = _detail is { } primary && (primary.Room.Active || !primary.Active);
         DutyPrimary.IsEnabled = canAct;
         DutyPrimary.Content = _detail is { } row ? !row.Active ? "恢复大屏" : row.LoginCode is null || !row.HasPin ?
             "配置网页账号" : _commandsExpanded ? "收起同步情况" : "查看同步情况" : "";
         DutyMaintenance.IsVisible = _inactiveTermId is null;
         DutyMaintenance.IsEnabled = canAct;
-        DutyRename.IsEnabled = canAct;
+        var roomActive = _detail?.Room.Active == true;
+        DutyRename.IsVisible = DutyCodeChange.IsVisible = DutyResetPin.IsVisible = DutyAnother.IsVisible = roomActive;
+        DutyRename.IsEnabled = canAct && roomActive;
         var active = canAct && _detail?.Active == true;
-        var configured = active && _detail?.HasPin == true && _detail.LoginCode is not null;
-        var legacyBrowser = active && !configured && _detail?.BrowserBound == true;
+        var live = active && roomActive;
+        var configured = canAct && (active || _catalog?.SupportsHistorical == true) && _detail?.HasPin == true && _detail.LoginCode is not null;
+        var legacyBrowser = live && !configured && _detail?.BrowserBound == true;
         DutyLegacySync.IsVisible = legacyBrowser;
         DutyLegacySync.Content = _commandsExpanded ? "收起同步情况" : "查看同步情况";
-        DutyCodeChange.IsEnabled = DutyResetPin.IsEnabled = configured;
-        DutyUnbindBrowser.IsEnabled = configured && _detail?.BrowserBound == true;
-        DutyMove.IsEnabled = DutyAnother.IsEnabled = active;
+        DutyCodeChange.IsEnabled = DutyResetPin.IsEnabled = configured && roomActive;
+        DutyUnbindBrowser.IsEnabled = (configured || canAct && _catalog?.SupportsHistorical == true) && _detail?.BrowserBound == true;
+        DutyMove.IsEnabled = active && _catalog?.Rooms.Any(room => room.Id != _detail!.Room.Id) == true && _detail!.PlacementTermId is null;
+        DutyMove.IsVisible = roomActive || _catalog?.Rooms.Length > 0 && _detail?.PlacementTermId is null;
+        DutyAnother.IsEnabled = live;
+        DutyPlacement.IsVisible = _detail?.PlacementTermId is not null && OpenPlacement is not null;
+        DutyPlacement.IsEnabled = canAct;
         DutyToggle.Content = _detail?.Active == true ? "停用整台大屏" : "恢复大屏";
-        DutyNative.IsEnabled = active;
-        DutyCommandsPanel.IsVisible = _commandsExpanded;
-        DutyRefreshData.IsEnabled = DutyReloadWeb.IsEnabled = configured || legacyBrowser;
+        DutyNative.IsEnabled = live;
+        DutyCommandsPanel.IsVisible = _commandsExpanded && _detail?.Room.Active == true;
+        DutyRefreshData.IsEnabled = DutyReloadWeb.IsEnabled = live && configured || legacyBrowser;
         DutyEditPanel.IsVisible = editing;
         DutyRoomFields.IsVisible = _action is "CREATE" or "MOVE";
         DutyName.IsVisible = _action is "CREATE" or "RENAME";

@@ -8,10 +8,10 @@ public sealed partial class MainWindow
     private TermScreenPlacementWindow? _termScreenPlacementWindow;
 
     private async Task<TermPreparationView.ScreenDestination?> ShowTermScreenPlacementAsync(
-        Window owner, ConsoleClient client, School school, string termId, string bindingId)
+        Window owner, ConsoleClient client, School school, string termId, string bindingId, Guid? activationRequestId = null)
     {
         if (_termScreenPlacementWindow is not null || _client != client || _school != school) return null;
-        var window = new TermScreenPlacementWindow(client, school, termId, bindingId)
+        var window = new TermScreenPlacementWindow(client, school, termId, bindingId, activationRequestId)
         {
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
         };

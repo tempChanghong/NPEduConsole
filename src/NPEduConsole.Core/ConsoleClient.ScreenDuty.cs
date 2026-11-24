@@ -1,10 +1,18 @@
 namespace NPEduConsole.Core;
 
-public sealed record ScreenDutyRoom(string Id, string Name, string Code, string? GradeName, string TermId, string TermName, bool Active)
+public sealed record ScreenDutyRoom(string Id, string Name, string Code, string? GradeName, string TermId, string TermName, bool Active,
+    string? TermStatus = null, bool? ClassActive = null)
 {
     public string Label => string.IsNullOrWhiteSpace(GradeName) || Name.StartsWith(GradeName, StringComparison.Ordinal)
         ? Name : $"{GradeName} · {Name}";
     public override string ToString() => $"{Label}（{Code}）";
+    public string TermLabel => TermStatus switch
+    {
+        "ARCHIVED" => $"{TermName}（已归档）",
+        "DRAFT" => $"{TermName}（草稿）",
+        "ACTIVE" when ClassActive == false => $"{TermName}（班级已停用）",
+        _ => TermName
+    };
 }
 
 public sealed record ScreenDutyBinding(string Id, string Name, string? LoginCode, bool HasPin, bool Active, bool BrowserBound, ScreenDutyRoom Room);
@@ -14,13 +22,14 @@ public sealed record ScreenDutyCommand(string Id, string Type, string State, Dat
 public sealed record ScreenDutyDetail(string Id, string Name, string? LoginCode, bool HasPin, bool Active, bool BrowserBound, ScreenDutyRoom Room,
     string BrowserState, DateTimeOffset? FirstLoginAt, DateTimeOffset? HeartbeatAt, DateTimeOffset? PreviousHeartbeatAt,
     int? PendingUploads, bool SyncProblem, string NativeState, DateTimeOffset? NativeReportedAt, DateTimeOffset? NativePairedAt,
-    ScreenDutyCommand[] Commands, int? CredentialVersion = null)
+    ScreenDutyCommand[] Commands, int? CredentialVersion = null, string? PlacementTermId = null, Guid? ActivationRequestId = null)
 {
-    public string Display => $"{Room.Label} · {Name} · {Id}{(Active ? "" : " · 已停用")}";
+    public string Display => $"{Room.TermLabel} · {Room} · {Name} · {Id}{(Active ? "" : " · 绑定停用")}";
 }
-public sealed record ScreenDutyCatalog(string SchoolId, string? TermId, ScreenDutyRoom[] Rooms, ScreenDutyDetail[] Screens, string? SchoolCode = null);
+public sealed record ScreenDutyCatalog(string SchoolId, string? TermId, ScreenDutyRoom[] Rooms, ScreenDutyDetail[] Screens,
+    string? SchoolCode = null, bool SupportsHistorical = false);
 public sealed record ScreenDutyPlan(string Action, string? BindingId = null, string? ClassId = null, string? Name = null,
-    string? LoginCode = null, string? CommandType = null);
+    string? LoginCode = null, string? CommandType = null, string? SourceTermId = null, string? SourceClassId = null);
 public sealed record ScreenDutyPeer(string Id, string Name, bool Active);
 public sealed record ScreenDutyImpact(string Browser, string Native);
 public sealed record ScreenDutyPreview(string Version, string Action, ScreenDutyBinding? Screen, ScreenDutyRoom? Target,
@@ -54,6 +63,8 @@ public sealed partial class ConsoleClient
     {
         "SCREEN_DUTY_STALE" => "大屏、网页凭据或目标班级已有变化，请重新核对。本次未写入。",
         "SCREEN_DUTY_CLASS_CHANGED" => "大屏或目标班级已不在当前启用班级，请重新核对。未匹配的大屏请使用学期安排入口。",
+        "SCREEN_DUTY_PLACEMENT_REQUIRED" => "这台屏在本次启用的待安排清单中。请核对最新状态，再按原启用轮次办理。",
+        "SCREEN_DUTY_BROWSER_NOT_BOUND" => "这台屏没有待解除的浏览器绑定。",
         "SCREEN_DUTY_TARGET_INVALID" => "请选择准确的大屏和目标班级，调班时请选择与原班不同的班级。",
         "SCREEN_DUTY_INACTIVE" => "大屏已停用，可先核对并恢复原大屏。",
         "SCREEN_DUTY_ALREADY_ACTIVE" => "大屏已经启用，请核对最新状态。",
@@ -71,15 +82,20 @@ public sealed partial class ConsoleClient
         _ => HttpError(status, false).Message
     }, code);
 
-    public async Task<ScreenDutyCatalog> GetScreenDutyAsync(string schoolId, string? bindingId, CancellationToken ct)
+    public async Task<ScreenDutyCatalog> GetScreenDutyAsync(string schoolId, string? bindingId, CancellationToken ct, bool includeHistorical = false)
     {
         var session = CurrentSession;
         var path = ScreenDutyPath(schoolId) + (bindingId is null ? "" : "?bindingId=" + Segment(bindingId));
+        if (includeHistorical) path += (bindingId is null ? "?" : "&") + "includeHistorical=true";
         var data = await RequestAsync<ScreenDutyCatalog>(HttpMethod.Get, path, session.Token, ct);
         CheckCreationSession(session, ct);
-        if (data.SchoolId != schoolId || data.Rooms.Any(room => room.TermId != data.TermId || !room.Active) ||
+        if (data.SchoolId != schoolId || data.Rooms is null || data.Screens is null ||
+            data.Rooms.Any(room => room is null || room.TermId != data.TermId || !room.Active) ||
+            data.Screens.Any(screen => screen is null || screen.Room is null || screen.Commands is null ||
+                screen.ActivationRequestId.HasValue != (screen.PlacementTermId is not null) ||
+                screen.PlacementTermId is { } placementTerm && (placementTerm != data.TermId || screen.Room.Active)) ||
             bindingId is not null && (data.Screens.Length != 1 || data.Screens[0].Id != bindingId) ||
-            bindingId is null && data.Screens.Any(screen => screen.Room.TermId != data.TermId))
+            bindingId is null && !(includeHistorical && data.SupportsHistorical) && data.Screens.Any(screen => screen.Room.TermId != data.TermId))
             throw InvalidResponse();
         return data;
     }
@@ -99,7 +115,8 @@ public sealed partial class ConsoleClient
         CheckScreenDutyPreview(plan, preview);
         var session = CurrentSession;
         var receipt = await RequestAsync<ScreenDutyReceipt>(HttpMethod.Post, ScreenDutyPath(schoolId), session.Token, ct,
-            body: new {plan.Action, plan.BindingId, plan.ClassId, plan.Name, plan.LoginCode, plan.CommandType, pin, requestId, requestPinDelivery = pin is not null, expectedVersion = preview.Version});
+            body: new {plan.Action, plan.BindingId, plan.ClassId, plan.Name, plan.LoginCode, plan.CommandType, plan.SourceTermId, plan.SourceClassId,
+                pin, requestId, requestPinDelivery = pin is not null, expectedVersion = preview.Version});
         CheckCreationSession(session, ct);
         CheckScreenDutyReceipt(plan, requestId, receipt);
         return receipt;
@@ -125,7 +142,8 @@ public sealed partial class ConsoleClient
     private static void CheckScreenDutyPreview(ScreenDutyPlan plan, ScreenDutyPreview preview)
     {
         if (preview.Action != plan.Action || preview.Screen?.Id != plan.BindingId || preview.Target?.Id != plan.ClassId ||
-            preview.Version.Length != 64 || !preview.Version.All(Uri.IsHexDigit))
+            plan.SourceTermId is not null && (preview.Screen?.Room is not { } source || source.TermId != plan.SourceTermId || source.Id != plan.SourceClassId) ||
+            preview.TargetScreens is null || preview.Impact is null || preview.Version is not { Length: 64 } || !preview.Version.All(Uri.IsHexDigit))
             throw InvalidResponse();
     }
 

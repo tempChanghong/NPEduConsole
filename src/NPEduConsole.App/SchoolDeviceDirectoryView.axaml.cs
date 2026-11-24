@@ -18,7 +18,7 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
 
     public event Action? RefreshRequested;
     public event Action<SchoolOverview, OverviewScreenItem>? ScreenRequested;
-    public event Action<string?, string?, Control?>? DutyRequested;
+    public event Action<string?, string?, string?, Control?>? DutyRequested;
     public event Action<string, Control>? DiagnosticsRequested;
 
     public SchoolDeviceDirectoryView()
@@ -147,15 +147,15 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
         if (sender is Control anchor) DiagnosticsRequested?.Invoke(DeviceSearch.Text ?? "", anchor);
     }
 
-    private void OpenDutyDirectoryClicked(object? sender, RoutedEventArgs args) => DutyRequested?.Invoke(null, null, sender as Control);
+    private void OpenDutyDirectoryClicked(object? sender, RoutedEventArgs args) => DutyRequested?.Invoke(null, null, null, sender as Control);
 
     private void OpenDutyClicked(object? sender, RoutedEventArgs args)
     {
-        if (_snapshot is not null && sender is Button { DataContext: OverviewScreenItem row } button)
+        if (_snapshot?.Term is { } term && sender is Button { DataContext: OverviewScreenItem row } button)
         {
             var scroll = DeviceDirectoryRows.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
             _returnPosition = (row.ScreenId, scroll?.Offset ?? default, true);
-            DutyRequested?.Invoke(row.ScreenId, row.ClassId, button);
+            DutyRequested?.Invoke(row.ScreenId, row.ClassId, term.Id, button);
         }
     }
 

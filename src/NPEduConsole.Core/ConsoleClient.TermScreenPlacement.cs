@@ -41,13 +41,16 @@ public sealed partial class ConsoleClient
     private static string TermScreenPlacementPath(string school, string binding) =>
         $"{TermPreparationPath(school)}/screen-placements/{Segment(binding)}";
 
-    public async Task<TermScreenPlacementCheck> GetTermScreenPlacementAsync(string school, string term, string binding, CancellationToken ct)
+    public async Task<TermScreenPlacementCheck> GetTermScreenPlacementAsync(string school, string term, string binding, CancellationToken ct,
+        Guid? activationRequestId = null)
     {
         var session = CurrentSession;
-        var check = await RequestAsync<TermScreenPlacementCheck>(HttpMethod.Get,
-            $"{TermScreenPlacementPath(school, binding)}?termId={Segment(term)}", session.Token, ct);
+        var path = $"{TermScreenPlacementPath(school, binding)}?termId={Segment(term)}";
+        if (activationRequestId is { } round) path += $"&activationRequestId={round:D}";
+        var check = await RequestAsync<TermScreenPlacementCheck>(HttpMethod.Get, path, session.Token, ct);
         CheckCreationSession(session, ct);
         if (check.SchoolId != school || check.Term?.Id != term || check.BindingId != binding ||
+            (activationRequestId is not null && check.ActivationRequestId != activationRequestId) ||
             !ValidTerm(check.Term, check.CanArrange ? "ACTIVE" : check.Term.Status) ||
             string.IsNullOrWhiteSpace(check.Name) || check.FromClass is null || !HasValue(check.FromClass.Id) ||
             !ValidActivationVersion(check.Version) || check.ActivationRequestId == Guid.Empty ||

@@ -15,12 +15,14 @@ public sealed partial class TermScreenPlacementWindow : Window
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
     private readonly string _termId = "", _bindingId = "";
+    private readonly Guid? _activationRequestId;
     private readonly CancellationTokenSource _lifetime = new();
     private TermScreenPlacementCheck? _check;
     private TermScreenPlacement? _placement;
     private string? _selectedId;
     private bool _busy, _writing, _closed, _scopeClosed, _filling, _canRetry;
     private Operation? Pending => Requests.GetOrCreateValue(_client).GetValueOrDefault((_school.Id, _termId, _bindingId));
+    private bool WaitingForAnotherRound => _activationRequestId is { } round && Pending is { } pending && pending.Check.ActivationRequestId != round;
     private TermScreenCandidate? Selected => PlacementCandidates.SelectedItem as TermScreenCandidate;
 
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
@@ -28,12 +30,13 @@ public sealed partial class TermScreenPlacementWindow : Window
 
     public TermScreenPlacementWindow() => InitializeComponent();
 
-    internal TermScreenPlacementWindow(ConsoleClient client, School school, string termId, string bindingId) : this()
+    internal TermScreenPlacementWindow(ConsoleClient client, School school, string termId, string bindingId, Guid? activationRequestId = null) : this()
     {
         _client = client;
         _school = school;
         _termId = termId;
         _bindingId = bindingId;
+        _activationRequestId = activationRequestId;
         PlacementScope.Text = school.Name;
         PlacementBindingId.Text = $"绑定编号 {bindingId}";
         PlacementOriginal.Text = "正在读取该屏的原学期和原班。";
@@ -45,6 +48,11 @@ public sealed partial class TermScreenPlacementWindow : Window
             {
                 if (Pending is { } pending)
                 {
+                    if (WaitingForAnotherRound)
+                    {
+                        Notice("另一轮的安排仍待核对。可从学期管理打开原回执核对；本页不重试该次安排。");
+                        return;
+                    }
                     SetCheck(pending.Check);
                     await VerifyAsync(pending);
                 }
@@ -84,7 +92,7 @@ public sealed partial class TermScreenPlacementWindow : Window
         if (_check is { } old) _check = old with {CanArrange = false};
         if (_placement is { } known) _placement = known with {Status = "VERIFY", BindingConfirmed = false};
         Render();
-        var snapshot = await _client.GetTermScreenPlacementAsync(_school.Id, _termId, _bindingId, _lifetime.Token);
+        var snapshot = await _client.GetTermScreenPlacementAsync(_school.Id, _termId, _bindingId, _lifetime.Token, _activationRequestId);
         if (_closed) return;
         SetCheck(snapshot);
         if (!keepNotice) Notice(snapshot.Placement is null && !snapshot.CanArrange ? "当前无法继续安排，请核对学校总览。" : null);
@@ -145,7 +153,7 @@ public sealed partial class TermScreenPlacementWindow : Window
 
     private async void PrimaryClicked(object? sender, RoutedEventArgs args)
     {
-        if (_busy) return;
+        if (_busy || WaitingForAnotherRound) return;
         if (Pending is { } pending)
         {
             if (_canRetry) await RunAsync(() => SaveAsync(pending));
@@ -173,6 +181,7 @@ public sealed partial class TermScreenPlacementWindow : Window
         try { result = await _client.SaveTermScreenPlacementAsync(operation.Check, operation.Candidate, operation.RequestId, _lifetime.Token); }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500 || error.Code == "TERM_SCREEN_PLACEMENT_REQUEST_CONFLICT")
         {
+            _writing = false;
             if (!_closed) await VerifyAsync(operation);
             return;
         }
@@ -218,8 +227,10 @@ public sealed partial class TermScreenPlacementWindow : Window
 
     private void ClearPending() => Requests.GetOrCreateValue(_client).Remove((_school.Id, _termId, _bindingId));
 
-    private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RunAsync(
-        () => Pending is { } pending ? VerifyAsync(pending) : ReadAsync());
+    private async void RefreshClicked(object? sender, RoutedEventArgs args)
+    {
+        if (!WaitingForAnotherRound) await RunAsync(() => Pending is { } pending ? VerifyAsync(pending) : ReadAsync());
+    }
     private void BackClicked(object? sender, RoutedEventArgs args) => Close();
 
     private async Task RunAsync(Func<Task> operation)
@@ -257,7 +268,8 @@ public sealed partial class TermScreenPlacementWindow : Window
     private void Render()
     {
         if (_client is null) return;
-        bool waiting = Pending is not null;
+        bool otherRound = WaitingForAnotherRound;
+        bool waiting = Pending is not null && !otherRound;
         var selected = Selected;
         var pendingTarget = waiting ? Pending?.Candidate : null;
         PlacementEditor.IsVisible = _check?.CanArrange == true || waiting;
@@ -278,7 +290,7 @@ public sealed partial class TermScreenPlacementWindow : Window
             placed.Status == "AWAITING_PAIRING" ? "打开现场接入" : "查看这台大屏" :
             selected is { } candidate ? $"确认安排到 {candidate.Name}" : "确认安排";
         PlacementRefresh.Content = waiting ? "核对安排回执" : "刷新";
-        PlacementRefresh.IsEnabled = !_busy;
+        PlacementRefresh.IsEnabled = !_busy && !otherRound;
         PlacementBack.Content = waiting ? "关闭，稍后核对" : "返回";
         PlacementBack.IsEnabled = !_writing;
     }

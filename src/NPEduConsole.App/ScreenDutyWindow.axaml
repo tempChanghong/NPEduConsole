@@ -17,7 +17,10 @@
                      AutomationProperties.Name="查找大屏" />
             <Button Grid.Column="1" x:Name="DutyNew" Content="登记另一台大屏" Classes="action accent" Click="NewClicked" />
           </Grid>
-          <CheckBox x:Name="DutyDisabledOnly" Content="只显示已停用" IsCheckedChanged="SearchChanged" />
+          <WrapPanel ItemSpacing="12" LineSpacing="4">
+            <CheckBox x:Name="DutyDisabledOnly" Content="只显示已停用绑定" IsCheckedChanged="SearchChanged" />
+            <CheckBox x:Name="DutyHistory" Content="包含未启用学期与已停用班级" IsCheckedChanged="SearchChanged" IsVisible="False" />
+          </WrapPanel>
           <ListBox x:Name="DutyRows" Classes="object-list" ItemsSource="{x:Null}" MaxHeight="430" SelectionChanged="DirectorySelectionChanged"
                    AutomationProperties.Name="大屏账号与值守目录" />
           <Button x:Name="DutyOpen" Content="打开所选大屏" Classes="action" Click="OpenClicked" />
@@ -63,6 +66,7 @@
             <Button x:Name="DutyMove" Content="调班" Classes="action" CommandParameter="MOVE" Click="MaintenanceClicked"/>
             <Button x:Name="DutyToggle" Classes="action" Click="ToggleClicked"/>
             <Button x:Name="DutyAnother" Content="登记同班另一台大屏" Classes="action" Click="NewClicked" />
+            <Button x:Name="DutyPlacement" Content="按本次学期启用轮次安排" Classes="action" Click="PlacementClicked" IsVisible="False" />
           </WrapPanel>
         </StackPanel>
         <Border x:Name="DutyEditPanel" Classes="card" Padding="12" IsVisible="False">

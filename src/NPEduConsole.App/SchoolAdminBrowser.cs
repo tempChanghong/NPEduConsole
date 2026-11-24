@@ -20,9 +20,9 @@ internal static class SchoolAdminBrowser
             link.Query += "&space=" + Uri.EscapeDataString(space) + "&subject=" + Uri.EscapeDataString(subjectId);
             if (accountId is not null) link.Query += "&teacher=" + Uri.EscapeDataString(accountId);
         }
-        if (section == "screens" && screenId is not null)
+        if (section == "screens")
         {
-            link.Query += "&screen=" + Uri.EscapeDataString(screenId);
+            if (screenId is not null) link.Query += "&screen=" + Uri.EscapeDataString(screenId);
             if (classId is not null) link.Query += "&classId=" + Uri.EscapeDataString(classId);
         }
         return link.Uri;

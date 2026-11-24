@@ -82,10 +82,10 @@ public sealed partial class MainWindow : Window
         DeviceDirectory.RefreshRequested += async () => await SchoolOverviewWorkspace.RefreshAsync();
         DeviceDirectory.DiagnosticsRequested += async (search, anchor) => await ShowDeviceDiagnosticsAsync(search, anchor);
         DeviceDirectory.ScreenRequested += async (snapshot, row) => await OpenDeviceDirectoryTargetAsync(snapshot, row);
-        DeviceDirectory.DutyRequested += async (binding, room, anchor) =>
+        DeviceDirectory.DutyRequested += async (binding, room, term, anchor) =>
         {
             if (_page == ShellPage.Devices && _client is { } client && _school is { } school)
-                await ShowScreenDutyAsync(client, school, binding, room, anchor);
+                await ShowScreenDutyAsync(client, school, binding, room, anchor, scopeTermId: term);
         };
         ObjectPicker.TargetChosen += async item => await OpenSearchTargetAsync(item);
         SizeChanged += (_, args) => ApplyLoginLayout(args.NewSize);
