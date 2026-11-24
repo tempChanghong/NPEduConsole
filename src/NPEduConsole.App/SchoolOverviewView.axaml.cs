@@ -47,7 +47,7 @@ public sealed partial class SchoolOverviewView : UserControl
     private Vector _returnQueueOffset;
 
     public event Action<ConsoleApiException>? SessionExpired;
-    internal event Action<ConsoleApiException>? AuthorizationLost;
+    internal event Action<ConsoleApiException, ConsoleClient, School>? AuthorizationLost;
     public event Action<SchoolOverview, SchoolOverviewTask>? TaskRequested;
     public event Action<SchoolOverview?, string>? SnapshotChanged;
     public event Action? ClassDirectoryRequested;
@@ -130,10 +130,10 @@ public sealed partial class SchoolOverviewView : UserControl
         {
             if (_request != request) return;
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
-            else if (error.StatusCode == 403 && _termId is not null)
+            else if (error.StatusCode == 403 && (error.Code == "SCHOOL_ADMIN_REQUIRED" || _termId is not null))
             {
-                SetReadState("学期诊断不可用", "当前账号已无本校管理权限。");
-                AuthorizationLost?.Invoke(error);
+                SetReadState("当前学校不可用", "当前账号已无本校管理权限。");
+                AuthorizationLost?.Invoke(error, client, school);
             }
             else SetReadState("学校状态待核对", error.StatusCode is 404 or 426
                 ? (_termId is null ? "当前 KV 未提供学校总览。仍可从班级与教务查看已授权班级。" :

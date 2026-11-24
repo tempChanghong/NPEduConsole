@@ -26,7 +26,7 @@ public sealed partial class TermDiagnosticsView : UserControl
         DiagnosticsHeading.Text = $"{school.Name} · {term.Name}（{term.StatusText}）";
         DiagnosticsActiveTerm.Text = "正在读取全校启用学期。";
         DiagnosticsOverview.SessionExpired += error => ScopeUnavailable?.Invoke(error);
-        DiagnosticsOverview.AuthorizationLost += error => ScopeUnavailable?.Invoke(error);
+        DiagnosticsOverview.AuthorizationLost += (error, _, _) => ScopeUnavailable?.Invoke(error);
         DiagnosticsOverview.SnapshotChanged += (snapshot, notice) => RenderScope(snapshot, school, term, notice);
         DiagnosticsOverview.TaskRequested += async (snapshot, task) =>
         {

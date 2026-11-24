@@ -71,6 +71,7 @@ public sealed partial class MainWindow : Window
             else OpenDeviceDirectoryButton.Focus();
         };
         SchoolOverviewWorkspace.SessionExpired += error => ReturnToLoginIfExpired(error);
+        SchoolOverviewWorkspace.AuthorizationLost += AcademicScopeUnavailable;
         SchoolOverviewWorkspace.TaskRequested += async (overview, task) => await OpenSchoolOverviewTaskAsync(overview, task);
         SchoolOverviewWorkspace.SnapshotChanged += OverviewSnapshotChanged;
         SchoolOverviewWorkspace.OpeningRequested += async () => await OpenSchoolOpeningAsync();
@@ -228,35 +229,39 @@ public sealed partial class MainWindow : Window
                 _settingSelection = false;
                 return;
             }
-            _showClassStudy = false;
-            _page = ShellPage.Overview;
-            var school = SchoolPicker.SelectedItem as School;
-            _openingDeviceReturn = null;
-            CloseSchoolSubjects();
-            CloseStaffResponsibilities();
-            CloseStaffReview();
-            CloseSchoolProfile();
-            CloseSchoolManagementAccounts();
-            CloseTeacherAccounts();
-            CloseHomeworkSettings();
-            CloseScreenDuty();
-            CloseScreenExam();
-            CloseScreenFieldActions();
-            CloseDeviceRunReports();
-            CloseCourseGroups();
-            CloseSchoolStudy();
-            CloseTermPreparation();
-            CloseTeaching();
-            _subjectSetup.Close();
-            _detailScreenId = _directoryReturnScreenId = null;
-            SetInactiveClassesFilter(false);
-            DeviceDirectory.ResetSearch();
-            SetSearchRooms([], "正在读取该学校的班级和大屏。");
-            _overviewJourney = false;
-            _overviewNavigation = null;
-            _overviewWebReturn = null;
-            await LoadSchoolAsync(school);
+            await ChangeSchoolAsync(SchoolPicker.SelectedItem as School);
         }
+    }
+
+    private Task<bool> ChangeSchoolAsync(School? school)
+    {
+        _showClassStudy = false;
+        _page = ShellPage.Overview;
+        _openingDeviceReturn = null;
+        CloseSchoolSubjects();
+        CloseStaffResponsibilities();
+        CloseStaffReview();
+        CloseSchoolProfile();
+        CloseSchoolManagementAccounts();
+        CloseTeacherAccounts();
+        CloseHomeworkSettings();
+        CloseScreenDuty();
+        CloseScreenExam();
+        CloseScreenFieldActions();
+        CloseDeviceRunReports();
+        CloseCourseGroups();
+        CloseSchoolStudy();
+        CloseTermPreparation();
+        CloseTeaching();
+        _subjectSetup.Close();
+        _detailScreenId = _directoryReturnScreenId = null;
+        SetInactiveClassesFilter(false);
+        DeviceDirectory.ResetSearch();
+        SetSearchRooms([], school is null ? "请先选择学校。" : "正在读取该学校的班级和大屏。");
+        _overviewJourney = false;
+        _overviewNavigation = null;
+        _overviewWebReturn = null;
+        return LoadSchoolAsync(school);
     }
 
     private async Task<bool> LoadSchoolAsync(School? school, string? restoredClass = null, DeviceSelection? restoredDevice = null, bool selectDefaultDevice = true)
@@ -291,6 +296,7 @@ public sealed partial class MainWindow : Window
         ClassListMessage.IsVisible = true;
         if (school is null)
         {
+            WorkspaceProgress.IsVisible = false;
             SetWorkspaceMessage("请选择学校和班级。");
             FinishRequest(request);
             return false;
@@ -323,6 +329,11 @@ public sealed partial class MainWindow : Window
         {
             if (IsCurrent(request) && !ReturnToLoginIfExpired(error))
             {
+                if (error is ConsoleApiException { StatusCode: 403, Code: "SCHOOL_ADMIN_REQUIRED" } denied)
+                {
+                    AcademicScopeUnavailable(denied, client, school);
+                    return false;
+                }
                 if (!inactiveOnly) SetSearchRooms([], "班级目录读取失败，请刷新后重试。");
                 ClassListMessage.Text = "读取失败，可点击刷新重试。";
                 SetWorkspaceMessage(ServiceMessage(error), isError: true);

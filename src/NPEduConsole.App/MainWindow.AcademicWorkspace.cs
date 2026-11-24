@@ -77,14 +77,19 @@ public sealed partial class MainWindow
         TeachingView.ForgetSchool(client, school);
         OrganizationImportView.ForgetPending(client, school.Id);
         TeacherAllocationView.ForgetPending(client, school.Id);
-        CloseTermPreparation();
         _settingSelection = true;
         SchoolPicker.ItemsSource = SchoolPicker.Items.OfType<School>().Where(row => row.Id != school.Id).ToArray();
         SchoolPicker.SelectedItem = null;
         _settingSelection = false;
-        _page = ShellPage.Overview;
-        SchoolSelectionMessage.Text = "已无法管理原学校。请选择仍有权限的学校。";
-        await LoadSchoolAsync(null);
-        if (_client == client && _school is null) SchoolPicker.Focus(NavigationMethod.Tab);
+        var hasSchools = SchoolPicker.ItemCount > 0;
+        SchoolPicker.IsEnabled = hasSchools;
+        SchoolSelectionMessage.Text = hasSchools ? "已无法管理原学校。请选择仍有权限的学校。" :
+            "当前没有可选的学校。请退出登录后重新核对学校权限。";
+        await ChangeSchoolAsync(null);
+        if (_client == client && _school is null)
+        {
+            if (hasSchools) SchoolPicker.Focus(NavigationMethod.Tab);
+            else LogoutButton.Focus(NavigationMethod.Tab);
+        }
     }
 }

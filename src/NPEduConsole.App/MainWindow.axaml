@@ -263,7 +263,7 @@
               <TextBlock x:Name="AccountName" Classes="muted" MaxWidth="84" MaxLines="1"
                          TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Text, RelativeSource={RelativeSource Self}}"
                          VerticalAlignment="Center" />
-              <Button Classes="action" MinHeight="32" Padding="8,3" Content="退出登录" Click="LogoutClicked" AutomationProperties.Name="退出登录" WindowDecorationProperties.ElementRole="User"/>
+              <Button x:Name="LogoutButton" Classes="action" MinHeight="32" Padding="8,3" Content="退出登录" Click="LogoutClicked" AutomationProperties.Name="退出登录" WindowDecorationProperties.ElementRole="User"/>
             </StackPanel>
           </Grid>
         </Border>

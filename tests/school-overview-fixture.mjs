@@ -77,7 +77,14 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
   const schoolHeader = {Authorization: 'Bearer ' + admin};
   let newcomer, newBinding, nativeSession, accepted, overviewReads = 0, failNext = false, holdNext = false, released = false;
   let heldResponse;
+  const membership = {schoolId_accountId: {schoolId: school.id, accountId: managerId}};
+  let gatewayDenied = false, deniedReads = 0;
   const commands = {
+    gatewaydenied() { gatewayDenied = true; },
+    revoke() { return prisma.schoolMember.update({where: membership, data: {role: 'VIEWER'}}); },
+    restore() { return prisma.schoolMember.update({where: membership, data: {role: 'ADMIN'}}); },
+    revokeother() { return prisma.schoolMember.update({where: {schoolId_accountId: {schoolId: other.id, accountId: managerId}},
+      data: {role: 'VIEWER'}}); },
     async pair() {
       newBinding = await prisma.classroomScreenBinding.findFirstOrThrow({where: {schoolId: school.id, administrativeClassId: seven.id}});
       const management = 'schools/' + school.id + '/class-management/' + newBinding.id;
@@ -146,6 +153,11 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
     const isOverview = req.method === 'GET' && new URL(req.url, destination).pathname === overviewPath;
     if (isOverview) {
       overviewReads++;
+      if (gatewayDenied) {
+        gatewayDenied = false;
+        res.writeHead(403, {'Content-Type': 'text/html'}).end('<html>Gateway unavailable</html>');
+        return;
+      }
       if (failNext) { failNext = false; res.writeHead(503).end(); return; }
     }
     const hold = (isOverview && holdNext === 'overview') ||
@@ -153,6 +165,7 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
     if (hold) holdNext = false;
     const upstream = request({hostname: '127.0.0.1', port: destination.port, path: req.url, method: req.method,
       headers: {...req.headers, host: destination.host}}, response => {
+      if (isOverview && response.statusCode === 403) deniedReads++;
       if (hold) {
         const chunks = [];
         response.on('data', data => chunks.push(data));
@@ -210,6 +223,8 @@ export async function verifySchoolOverview({prisma, origin, fixture, directory, 
       classSevenId: seven.id, classEightId: eight.id, waitingScreenId: waiting.id, readyScreenId: ready.id,
       restoredScreenId: repaired.id, allowOverviewTestWrites: true}), {mode: 0o600});
     await runDesktop(['--live-school-overview', access, evidence]);
+    assert.equal(deniedReads, 2, 'both revoked overview reads reached the real service');
+    await commands.restore();
     assert.ok(overviewReads >= 7 && released && accepted.receivedAt && newcomer.id, 'all live stages ran');
     const summary = await get(overviewPath);
     assert.equal(summary.term.id, term.id);

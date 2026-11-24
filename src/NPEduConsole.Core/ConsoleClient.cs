@@ -133,7 +133,7 @@ public sealed partial class ConsoleClient : IDisposable
         var screens = await RequestAsync<ScreenRow[]>(HttpMethod.Get, path + "/classroom-screens", token, ct);
         var memberships = await MembershipsAsync(token, ct);
         var membership = memberships.FirstOrDefault(m => m.School.Id == schoolId && IsAdministrator(m));
-        if (membership is null) throw new ConsoleApiException(403, "当前账号已无权查看该学校。");
+        if (membership is null) throw new ConsoleApiException(403, "当前账号已无权查看该学校。", "SCHOOL_ADMIN_REQUIRED");
         var term = membership.School.Terms.FirstOrDefault(t => t.Status == "ACTIVE");
         if (term is null) return [];
 
@@ -459,6 +459,10 @@ public sealed partial class ConsoleClient : IDisposable
                         _ => HttpError(status, false).Message
                     }, code);
                 }
+                if (status == 403 && method == HttpMethod.Get && version is null &&
+                    path.StartsWith("api/v2/admin/schools/", StringComparison.Ordinal) &&
+                    await AcademicErrorCodeAsync(response, ct) == "SCHOOL_ADMIN_REQUIRED")
+                    throw new ConsoleApiException(status, "当前账号已无权管理该学校。", "SCHOOL_ADMIN_REQUIRED");
                 throw HttpError(status, token is null);
             }
             if (path == OwnerRecoveryPath && (response.StatusCode != HttpStatusCode.OK ||

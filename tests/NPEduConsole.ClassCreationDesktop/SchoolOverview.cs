@@ -470,6 +470,49 @@ internal static partial class Program
             await Until(() => classContext.Text?.Contains("已停用") == true && !rosterEntry.IsEffectivelyVisible &&
                 Equals(Find<Button>(main, "OpenClassMaintenanceButton").Content, "重新启用"), "retired class exposes its recovery action only");
             await Capture(main, output, "class-retired");
+            inactive.IsChecked = false;
+            classQuery.Clear();
+            await Until(() => classes.Items.OfType<Classroom>().Any(room => room.Id == access.ClassEightId),
+                "restore current classes before checking a change of grant");
+            Click(overviewNav);
+            await Until(() => tasks.ItemCount > 0, "current school overview is ready");
+            await Command("gatewaydenied");
+            Click(refresh);
+            await Until(() => View<TextBlock>("OverviewHeadline").Text == "学校状态待核对", "unverified gateway denial can be retried");
+            Check(schools.SelectedItem is School original && original.Id == access.SchoolId, "a gateway error keeps the school selection");
+            await Command("revoke");
+            await Command("hold");
+            Click(refresh);
+            await Command("held");
+            SelectSchool(access.OtherSchoolId);
+            await Until(() => Has("TERM_WITHOUT_ADMIN_CLASS"), "second school remains available");
+            await Command("release");
+            await Command("restore");
+            SelectSchool(access.SchoolId);
+            await Until(() => tasks.Items.OfType<OverviewTaskItem>().Any() &&
+                classes.Items.OfType<Classroom>().Any(room => room.Id == access.ClassEightId), "fresh original directory and overview");
+            picker.Open();
+            picker.SearchText = "后排";
+            Check(picker.Results.Any(item => item.ScreenId == access.WaitingScreenId), "rear screen visible with the grant");
+            await Command("revoke");
+            Click(refresh);
+            await Until(() => schools.SelectedItem is null && schools.Items.OfType<School>().All(row => row.Id != access.SchoolId),
+                "confirmed loss of this school's management grant returns to the school picker");
+            Check(!picker.IsOpen && picker.Results.Count == 0 && !picker.IsEnabled && tasks.ItemCount == 0 &&
+                classes.ItemCount == 0 && screens.ItemCount == 0, "the revoked school has no searchable classes or screens");
+            await Capture(main, output, "12-revoked-school-cleared", includeFrame: true);
+            SelectSchool(access.OtherSchoolId);
+            await Until(() => Has("TERM_WITHOUT_ADMIN_CLASS"), "same account can continue in its other school");
+            Click(classesNav);
+            await Until(() => Find<Button>(main, "RefreshClassDirectoryButton").IsEffectivelyVisible, "open the authorized class directory");
+            await Command("revokeother");
+            Click(Find<Button>(main, "RefreshClassDirectoryButton"));
+            await Until(() => schools.SelectedItem is null && schools.ItemCount == 0, "class directory refresh also observes the lost school grant");
+            Check(!Find<ProgressBar>(main, "WorkspaceProgress").IsVisible && !picker.IsEnabled, "no class load is pending after leaving the scope");
+            Check(!schools.IsEnabled && Find<Button>(main, "LogoutButton").IsFocused &&
+                Find<TextBlock>(main, "SchoolSelectionMessage").Text?.Contains("没有可选的学校") == true,
+                "the final grant loss offers an actionable way to sign in again");
+            await Capture(main, output, "13-no-remaining-school", includeFrame: true);
             Finish("PASS: Windows shell, cross-class dual-status filters, binding search, shared class and directory detail, independent dated browser and native evidence, filtered return and keyboard focus, registration → pairing → report, failed and late reads, legacy entries, compact and high-contrast views.", 0);
         }
         catch (Exception error) { Finish("FAIL: " + error, 1); }
