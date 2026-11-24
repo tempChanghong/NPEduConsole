@@ -316,6 +316,8 @@ public sealed partial class SchoolSubjectCatalogWindow : Window
         try { subject = await _client.CreateSchoolSubjectAsync(_catalog!, fields, _pending.RequestId, _lifetime.Token); }
         catch (ConsoleApiException error) when (Uncertain(error))
         {
+            _writing = false;
+            Render();
             await VerifyCreationAsync();
             return;
         }
@@ -333,7 +335,7 @@ public sealed partial class SchoolSubjectCatalogWindow : Window
         if (_pending is not { } pending) return;
         _retryCreate = false;
         _changedCreation = null;
-        Status("正在按本次请求编号核对创建回执…");
+        Status("正在按原编号核对创建回执。现在可以返回，稍后继续核对。");
         var subject = await _client.GetSchoolSubjectCreationAsync(_catalog!, pending.RequestId, _lifetime.Token);
         if (_closed) return;
         if (subject is null)

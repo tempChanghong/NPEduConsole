@@ -147,6 +147,21 @@ internal static partial class Program
             Fill(catalog, "cat-physics", "物理", 0, "9");
             await Capture(catalog, output, "07-inline-create");
             Press(catalog, "SaveSubjectButton");
+            await Signal("wait-physics-write");
+            Check(!Find<Button>(catalog, "CloseSubjectCatalogButton").IsEffectivelyEnabled, "return is blocked while the create response is in flight");
+            catalog.Close();
+            Check(catalog.IsVisible, "title-bar close is also blocked during the write");
+            await Signal("drop-physics-reply");
+            await Signal("wait-physics-read");
+            await CaptureWithFrame(catalog, output, "07a-inline-original-receipt-wait");
+            Press(catalog, "CloseSubjectCatalogButton");
+            await Until(() => !catalog.IsVisible && Find<Button>(setup, "SubjectSetupNewSubjectButton").IsEffectivelyEnabled,
+                "a read-only receipt wait can return to the original setup");
+            await Signal("wait-physics-read-canceled");
+            Check(Choice(setup, "Subject", access.MathId).IsChecked == true &&
+                Choice(setup, "Class", access.SevenId).IsChecked == true && Choice(setup, "Class", access.EightId).IsChecked == true,
+                "canceling the receipt read does not discard the original setup selections");
+            Press(setup, "SubjectSetupNewSubjectButton");
             await Until(() => !catalog.IsVisible && Text(setup, "SubjectSetupFeedback").Contains("并选中"), "lost create reply resumes the original setup draft");
             var receipt = await fixture.GetFromJsonAsync<PhysicsReceipt>("/__school-subjects/confirmed-physics") ?? throw new InvalidDataException("No physics receipt.");
             var recovered = Choice(setup, "Subject", receipt.PhysicsId);

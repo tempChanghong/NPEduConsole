@@ -40,6 +40,11 @@ export async function verifySchoolSubjects({prisma, origin, fixture, directory, 
   const admin = await login('admin');
   const otherAdmin = await login('catalogadmin2');
   let physics, attempts = 0, receiptReads = 0, competitorCreated = false, codeAttempts = 0, previewBeforeSetup = false;
+  let physicsRequestId, dropPhysicsReply;
+  const physicsWriteHeld = Promise.withResolvers();
+  const physicsReadHeld = Promise.withResolvers();
+  const physicsReadCanceled = Promise.withResolvers();
+  const physicsReceiptReads = [];
   let delayNextCatalog = false;
   let delayedCatalogArrived, delayedCatalogSent, catalogArrived, catalogSent;
   const writeRequests = new Map();
@@ -47,6 +52,26 @@ export async function verifySchoolSubjects({prisma, origin, fixture, directory, 
   const server = createServer(async (req, res) => {
     try {
       let input;
+      if (req.method === 'POST' && req.url === '/__school-subjects/wait-physics-write') {
+        await physicsWriteHeld.promise;
+        res.writeHead(204).end();
+        return;
+      }
+      if (req.method === 'POST' && req.url === '/__school-subjects/drop-physics-reply') {
+        dropPhysicsReply();
+        res.writeHead(204).end();
+        return;
+      }
+      if (req.method === 'POST' && req.url === '/__school-subjects/wait-physics-read') {
+        await physicsReadHeld.promise;
+        res.writeHead(204).end();
+        return;
+      }
+      if (req.method === 'POST' && req.url === '/__school-subjects/wait-physics-read-canceled') {
+        await physicsReadCanceled.promise;
+        res.writeHead(204).end();
+        return;
+      }
       if (req.method === 'POST' && req.url === '/__school-subjects/arm-catalog-delay') {
         delayedCatalogArrived = new Promise(resolve => { catalogArrived = resolve; });
         delayedCatalogSent = new Promise(resolve => { catalogSent = resolve; });
@@ -73,6 +98,8 @@ export async function verifySchoolSubjects({prisma, origin, fixture, directory, 
       }
       if (req.method === 'GET' && req.url === '/__school-subjects/confirmed-physics') {
         assert.ok(physics);
+        assert.equal(writeRequests.get('CAT-PHYSICS'), 1);
+        assert.deepEqual(physicsReceiptReads, [physicsRequestId, physicsRequestId]);
         assert.equal(await prisma.administrativeClassSubject.count({where: {subjectId: physics.id}}), 0);
         previewBeforeSetup = true;
         res.setHeader('Content-Type', 'application/json');
@@ -88,6 +115,10 @@ export async function verifySchoolSubjects({prisma, origin, fixture, directory, 
         return;
       }
       if (req.method === 'GET' && req.url.startsWith(subjectsPath + '/creation-receipts/')) receiptReads++;
+      const physicsReceipt = req.method === 'GET' && physicsRequestId &&
+        req.url === `${subjectsPath}/creation-receipts/${physicsRequestId}`;
+      if (physicsReceipt) physicsReceiptReads.push(req.url.split('/').at(-1));
+      const holdPhysicsRead = physicsReceipt && physicsReceiptReads.length === 1;
       if (delayNextCatalog && req.method === 'GET' && req.url === subjectsPath) {
         delayNextCatalog = false;
         catalogArrived();
@@ -120,8 +151,14 @@ export async function verifySchoolSubjects({prisma, origin, fixture, directory, 
             reply.on('data', chunk => data.push(chunk));
             reply.on('end', () => {
               physics = JSON.parse(Buffer.concat(data)).data;
-              res.destroy();
+              physicsRequestId = input.requestId;
+              dropPhysicsReply = () => res.destroy();
+              physicsWriteHeld.resolve();
             });
+          } else if (holdPhysicsRead && reply.statusCode === 200) {
+            res.once('close', () => { if (!res.writableEnded) physicsReadCanceled.resolve(); });
+            reply.on('end', () => physicsReadHeld.resolve());
+            reply.resume();
           } else { res.writeHead(reply.statusCode, reply.headers); reply.pipe(res); }
         });
         upstream.on('error', () => res.destroy());
@@ -150,6 +187,8 @@ export async function verifySchoolSubjects({prisma, origin, fixture, directory, 
     assert.equal((await call(subjectsPath, {token: admin})).subjects.find(item => item.id === math.id).name, '数学（核对后更新）');
     assert.equal(await prisma.subject.count({where: {schoolId: school.id, code: 'CAT-PHYSICS'}}), 1);
     assert.equal(writeRequests.get('CAT-PHYSICS'), 1);
+    await writeFile(join(evidence, 'creation-recovery.json'), JSON.stringify({schoolId: school.id, subjectId: physics.id,
+      creationPosts: writeRequests.get('CAT-PHYSICS'), receiptReads: physicsReceiptReads, firstReadCanceled: true}, null, 2));
     console.log('PASS: PostgreSQL confirms one owned catalog creation, no rules until explicit setup, physics on 7 and 8, teacher and task only on the intended IDs.');
     await writeFile(access, JSON.stringify({...config, physicsId: physics.id}), {mode: 0o600});
     await runDesktop(['--live-school-subjects-reopen', access, evidence]);
