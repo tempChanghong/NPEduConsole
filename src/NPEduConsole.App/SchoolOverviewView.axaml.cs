@@ -111,6 +111,10 @@ public sealed partial class SchoolOverviewView : UserControl
                 ? "当前暂无待办" : $"有 {overview.Tasks.Count} 项事务待办理";
             OverviewCounts.Text = overview.Term is null ? null :
                 $"{counts.Grades} 个年级   ·   {counts.AdministrativeClasses} 个行政班   ·   {counts.Screens} 台大屏";
+            OverviewMetrics.Text = overview.Metrics is { } metrics
+                ? $"启用走班 {metrics.CourseGroups} 个 · 任课教师 {metrics.Teachers} 人 · 网页值守在线 {metrics.OnlineScreens}/{metrics.BrowserScreens} 台 · 错误 {metrics.Errors} 项 · 提醒 {metrics.Warnings} 项"
+                : null;
+            OverviewMetrics.IsVisible = overview.Metrics is not null;
             OverviewFeedback.Text = $"核对时间 {Time(overview.GeneratedAt)}" +
                 (overview.Legacy ? " · 旧 KV 仅提供部分办理入口" : "");
             OverviewResults.IsVisible = true;
@@ -152,6 +156,8 @@ public sealed partial class SchoolOverviewView : UserControl
         _snapshot = null;
         OverviewHeadline.Text = heading;
         OverviewCounts.Text = null;
+        OverviewMetrics.Text = null;
+        OverviewMetrics.IsVisible = false;
         OverviewFeedback.Text = message;
         OverviewProgress.IsVisible = OverviewResults.IsVisible = false;
         OverviewTasksList.ItemsSource = null;

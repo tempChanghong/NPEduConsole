@@ -5,6 +5,7 @@ public sealed record SchoolOverviewTerm(string Id, string Name, string? Status =
     public string StatusLabel => Status switch { "ACTIVE" => "启用中", "DRAFT" => "草稿", "ARCHIVED" => "已归档", _ => "状态待核对" };
 }
 public sealed record SchoolOverviewCounts(int Grades, int AdministrativeClasses, int Screens);
+public sealed record SchoolOverviewMetrics(int CourseGroups, int Teachers, int OnlineScreens, int BrowserScreens, int Errors, int Warnings);
 public sealed record SchoolScreenObservation(string State, DateTimeOffset? LastReportedAt);
 public sealed record SchoolOverviewScreen(string ClassId, string ClassName, string ScreenId, string ScreenName,
     SchoolScreenObservation Browser, SchoolScreenObservation Native);
@@ -13,7 +14,8 @@ public sealed record SchoolOverviewTask(string Code, string Source, string Sever
     string? GradeId = null, string? AccountId = null, string? CourseGroupId = null, string? SourceTermId = null);
 public sealed record SchoolOverview(School School, SchoolOverviewTerm? Term, SchoolOverviewCounts Counts,
     IReadOnlyList<SchoolOverviewScreen> Screens, IReadOnlyList<SchoolOverviewTask> Tasks, DateTimeOffset GeneratedAt,
-    string? AdminUrl = null, SchoolOverviewTerm? ActiveTerm = null, bool Scoped = false, bool Legacy = false);
+    string? AdminUrl = null, SchoolOverviewTerm? ActiveTerm = null, bool Scoped = false, bool Legacy = false,
+    SchoolOverviewMetrics? Metrics = null);
 
 public sealed partial class ConsoleClient
 {
@@ -23,7 +25,7 @@ public sealed partial class ConsoleClient
     private sealed record ScopedOverviewReply(School School, SchoolOverviewTerm? Term, SchoolOverviewScreen[] Screens,
         DateTimeOffset GeneratedAt, SchoolOverviewTerm? ActiveTerm = null, SchoolOverviewCounts? Counts = null,
         SchoolOverviewTask[]? Tasks = null, string? AdminUrl = null, bool Scoped = false, SchoolOverviewCounts? Summary = null,
-        LegacyOverviewDiagnostic[]? Diagnostics = null);
+        LegacyOverviewDiagnostic[]? Diagnostics = null, SchoolOverviewMetrics? Metrics = null);
 
     public async Task<SchoolOverview> GetSchoolOverviewAsync(string schoolId, CancellationToken ct)
     {
@@ -46,7 +48,7 @@ public sealed partial class ConsoleClient
             (reply.ActiveTerm is null || reply.ActiveTerm.Status == "ACTIVE") &&
             (reply.Term.Status == "ACTIVE") == (reply.ActiveTerm?.Id == termId))
             return ValidateOverview(new(reply.School, reply.Term, counts, reply.Screens, tasks, reply.GeneratedAt, reply.AdminUrl,
-                reply.ActiveTerm, Scoped: true), schoolId);
+                reply.ActiveTerm, Scoped: true, Metrics: reply.Metrics), schoolId);
         if (reply.Scoped || reply.Summary is not { } summary || reply.Diagnostics is not { } diagnostics) throw InvalidResponse();
         var catalog = await GetTermPreparationAsync(schoolId, ct);
         CheckCreationSession(session, ct);
@@ -106,6 +108,11 @@ public sealed partial class ConsoleClient
                 screen.Native.State == "REPORTED" && screen.Native.LastReportedAt is null)
                 throw InvalidResponse();
         }
+        if (overview.Metrics is { } metrics &&
+            (overview.Term is null || metrics.CourseGroups < 0 || metrics.Teachers < 0 || metrics.Errors < 0 || metrics.Warnings < 0 ||
+                metrics.OnlineScreens != overview.Screens.Count(screen => screen.Browser.State == "ONLINE") ||
+                metrics.BrowserScreens != overview.Screens.Count(screen => screen.Browser.State != "NOT_APPLICABLE")))
+            throw InvalidResponse();
         foreach (var task in overview.Tasks)
         {
             if (task is null || string.IsNullOrWhiteSpace(task.Code) || string.IsNullOrWhiteSpace(task.Message) ||

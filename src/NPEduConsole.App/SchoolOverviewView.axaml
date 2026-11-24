@@ -51,6 +51,7 @@
             <TextBlock x:Name="OverviewFeedback" Classes="muted" FontSize="13" VerticalAlignment="Center"
                        TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
           </WrapPanel>
+          <TextBlock x:Name="OverviewMetrics" Classes="muted" FontSize="13" TextWrapping="Wrap" IsVisible="False"/>
           <ProgressBar x:Name="OverviewProgress" IsVisible="False" Height="3" IsIndeterminate="True"/>
         </StackPanel>
       </Border>
