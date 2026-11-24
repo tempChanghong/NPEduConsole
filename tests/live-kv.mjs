@@ -1276,6 +1276,10 @@ async function runFixture() {
       : gradeCreation ? ['--live-grade', access, fileURLToPath(new URL('../.artifacts/grade-creation/desktop-live', import.meta.url))]
       : [access, ...options];
     await runDesktop(smoke, args);
+    if (schoolAudit && !serve && process.env.NP_CONSOLE_AUDIT_EVIDENCE) {
+      const desktopAudit = fileURLToPath(new URL('./NPEduConsole.AuditDesktop/NPEduConsole.AuditDesktop.csproj', import.meta.url));
+      await runDesktop(desktopAudit, ['--live', access, resolve(process.env.NP_CONSOLE_AUDIT_EVIDENCE)]);
+    }
   }
   if (!serve && (classAdmission || classStudy)) {
     assert.equal(lostReply.count(), 1, 'a lost acknowledgement caused no automatic write retry');

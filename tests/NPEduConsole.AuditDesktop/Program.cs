@@ -65,6 +65,26 @@ internal static class Program
             if (fixture is null)
             {
                 await Until(() => query.IsEnabled && list.ItemCount == 50, "first live page");
+                var actions = Find<ComboBox>("AuditActionFilter");
+                var results = Find<ComboBox>("AuditResultFilter");
+                actions.SelectedItem = actions.Items.Single(option => option?.ToString() == "预览学校账号操作");
+                Click(query);
+                await Until(() => query.IsEnabled && list.ItemCount == 1, "single account preview");
+                await ShowDetails();
+                Check(Detail("AuditDetailRequest").EndsWith("/management-accounts/preview"), "Account previews have their own filter.");
+                Click(Find<Button>("CloseAuditDetailsButton"));
+                foreach (var (label, count) in new[] { ("修改任课关系", 2), ("保存学期资料", 1) })
+                {
+                    actions.SelectedItem = actions.Items.Single(option => option?.ToString() == label);
+                    results.SelectedItem = results.Items.Single(option => option?.ToString() == "失败");
+                    Click(query);
+                    await Until(() => query.IsEnabled && list.ItemCount == count, label + "未保存的记录");
+                    await ShowDetails();
+                    Check(Detail("AuditDetailAction") == label && Detail("AuditDetailResult") == "HTTP 200 · 失败", label);
+                    await Capture(main, output, label == "修改任课关系" ? "teaching-refused" : "term-refused");
+                    Click(Find<Button>("CloseAuditDetailsButton"));
+                }
+                actions.SelectedIndex = results.SelectedIndex = 0;
                 from.Text = to.Text = credentials.AuditDate;
                 Click(query);
                 await Until(() => query.IsEnabled && list.ItemCount == 50 && more.IsVisible, "local single-day live filter");

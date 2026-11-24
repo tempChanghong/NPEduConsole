@@ -17,6 +17,28 @@ Check((await client.GetSchoolAuditLogsAsync(setup.SchoolId, new(ActorType: "SETU
 Check((await client.GetSchoolAuditLogsAsync(setup.SchoolId, new(Action: "STAFF_CONFIGURATION_IMPORT"), ct)).Items.Single().Id == "audit-staff",
     "Staff configuration imports can be filtered by action.");
 
+await CheckReviewedChange("TEACHING_ASSIGNMENT_PREVIEW", "TEACHING_ASSIGNMENT_CHANGED", "WORKSPACE", setup.AuditClassId, 2);
+await CheckReviewedChange("TERM_DETAILS_PREVIEW", "TERM_DETAILS_CHANGED", "TERM", setup.AuditTermId, 1);
+var accountPreview = (await client.GetSchoolAuditLogsAsync(setup.SchoolId, new(Action: "SCHOOL_MANAGEMENT_ACCOUNT_PREVIEW"), ct)).Items.Single();
+Check(accountPreview is { EntityType: "ACCOUNT", Success: true } && accountPreview.EntityId == setup.AuditTeacherId,
+    "An account preview identifies the original account.");
+Check((await client.GetSchoolAuditLogsAsync(setup.SchoolId, new(Action: "SCHOOL_MANAGEMENT_ACCOUNT_CHANGED"), ct)).Items.Count == 0,
+    "Opening the disable-account preview records no account change.");
+
+async Task CheckReviewedChange(string previewAction, string saveAction, string entityType, string entityId, int refusedCount)
+{
+    var previews = await client.GetSchoolAuditLogsAsync(setup.SchoolId, new(Action: previewAction), ct);
+    Check(previews.Items.Count == 2 && previews.Items.All(row => row.RequestPath!.EndsWith("/preview")),
+        $"{previewAction} must find the two actual previews separately.");
+    var saved = (await client.GetSchoolAuditLogsAsync(setup.SchoolId, new(Action: saveAction, Success: true), ct)).Items.Single();
+    var refused = await client.GetSchoolAuditLogsAsync(setup.SchoolId, new(Action: saveAction, Success: false), ct);
+    Check(saved.EntityType == entityType && saved.EntityId == entityId && refused.Items.Count == refusedCount &&
+        refused.Items.All(row => row.StatusCode == 200 && row.EntityId == saved.EntityId && row.Summary!.Contains("未保存")) &&
+        refused.Items.Count(row => row.Summary!.Contains("预览已过期")) == 1 &&
+        refused.Items.Count(row => row.Summary!.Contains("未满足办理条件")) == refusedCount - 1,
+        $"{saveAction} must show the correct target and unsuccessful no-write responses under the failure filter.");
+}
+
 var start = new DateTimeOffset(setup.AuditDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Local));
 var end = new DateTimeOffset(setup.AuditDate.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Local));
 var selection = new SchoolAuditQuery(From: start, To: end.AddMilliseconds(-1), Before: end);
@@ -57,4 +79,5 @@ static async Task ExpectDenied(Func<Task> attempt)
 }
 
 internal sealed record Fixture(string Origin, string SchoolId, string SecondarySchoolId, string OtherSchoolId,
-    string SchoolCode, string Username, string Viewer, string Password, DateOnly AuditDate);
+    string SchoolCode, string Username, string Viewer, string Password, DateOnly AuditDate,
+    string AuditTeacherId, string AuditClassId, string AuditTermId);

@@ -1,5 +1,53 @@
 import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
 import {setTimeout as wait} from 'node:timers/promises';
+
+async function exerciseReviewedChanges(prisma, origin, headers, fixture) {
+  const {school, term, classes: [classId]} = fixture;
+  const prefix = origin + '/api/v2/admin/schools/' + school.id;
+  async function post(path, body) {
+    const response = await fetch(prefix + path, {method: 'POST', headers, body: JSON.stringify(body)});
+    assert.equal(response.status, 200, path);
+    return (await response.json()).data;
+  }
+
+  const teacher = await prisma.account.findFirstOrThrow({where: {
+    localUsername: 'viewer', schoolMemberships: {some: {schoolId: school.id}},
+  }});
+  const accountPreview = await post('/management-accounts/preview', {action: 'DISABLE', accountId: teacher.id});
+  assert.equal(accountPreview.canConfirm, true);
+  assert.equal((await prisma.account.findUniqueOrThrow({where: {id: teacher.id}})).localDisabled, false);
+  const subject = await prisma.subject.create({data: {schoolId: school.id, code: 'AUDIT', name: '审计验收学科'}});
+  const teaching = '/current-term/administrative-classes/' + classId + '/teaching-assignments';
+  const draft = {termId: term.id, subjectId: subject.id, action: 'ASSIGN', classIds: [classId],
+    accountId: teacher.id, position: 'PRIMARY'};
+  const preview = () => post(teaching + '/preview', draft);
+  const save = ({rows}) => post(teaching, {...draft, expected: rows.map(({classId, version}) => ({classId, version}))});
+  const blocked = await preview();
+  assert.equal((await save(blocked)).state, 'BLOCKED');
+  await prisma.administrativeClassSubject.create({data: {administrativeClassId: classId, subjectId: subject.id, deliveryMode: 'ADMIN_CLASS'}});
+  assert.equal((await save(blocked)).state, 'STALE');
+  const where = {workspaceId: classId, subjectId: subject.id, accountId: teacher.id};
+  assert.equal(await prisma.teachingAssignment.count({where}), 0);
+  assert.equal((await save(await preview())).state, 'APPLIED');
+  assert.equal(await prisma.teachingAssignment.count({where}), 1);
+
+  const details = '/term-preparation/details';
+  const rename = {termId: term.id, name: '核对后的学期名称'};
+  const first = await post(details + '/preview', rename);
+  await prisma.academicTerm.update({where: {id: term.id}, data: {name: '已由另一人更正'}});
+  const confirm = ({version}) => post(details, {...rename, requestId: randomUUID(), expectedVersion: version});
+  assert.equal((await confirm(first)).state, 'STALE');
+  assert.equal((await prisma.academicTerm.findUniqueOrThrow({where: {id: term.id}})).name, '已由另一人更正');
+  assert.equal((await confirm(await post(details + '/preview', rename))).receipt.term.name, rename.name);
+
+  // The audit middleware persists asynchronously after each HTTP response finishes.
+  const paths = [teaching, teaching + '/preview', details, details + '/preview', '/management-accounts/preview'];
+  const recorded = {schoolId: school.id, requestPath: {in: paths.map(path => new URL(prefix + path).pathname)}};
+  for (let attempt = 0; attempt < 100 && await prisma.auditLog.count({where: recorded}) < 10; attempt++) await wait(25);
+  assert.equal(await prisma.auditLog.count({where: recorded}), 10);
+  return {auditTeacherId: teacher.id, auditClassId: classId, auditTermId: term.id};
+}
 
 export async function prepareSchoolAudit(prisma, origin, fixture) {
   const schoolId = fixture.school.id;
@@ -57,7 +105,8 @@ export async function prepareSchoolAudit(prisma, origin, fixture) {
     await wait(25);
   }
   assert.deepEqual(writes.map(x => x.statusCode).sort(), [200, 422]);
-  assert.ok(writes.every(row => row.requestPath === prefix + '/profile' && row.metadata.query.lang === 'zh'));
+  assert.ok(writes.every(row => row.requestPath === prefix + '/profile' && !Object.hasOwn(row.metadata, 'query')));
+  assert.equal(writes.find(row => row.success).metadata.policyChanged, false);
   const audits = id => origin + '/api/v2/admin/schools/' + id + '/audit-logs';
   const recent = await fetch(audits(schoolId) + '?action=SCHOOL_PROFILE_UPDATED', {headers}).then(r => r.json());
   assert.ok(recent.data.items.length === 2 && recent.data.items.every(row => Date.parse(row.createdAt) >= started &&
@@ -77,8 +126,9 @@ export async function prepareSchoolAudit(prisma, origin, fixture) {
   assert.deepEqual(inclusive.data.items.map(row => row.id), ['audit-next-day']);
   assert.equal((await fetch(audits(schoolId), {headers: {Authorization: 'Bearer ' + await tokenFor('viewer')}})).status, 403);
   assert.equal((await fetch(audits(fixture.other.id), {headers})).status, 403);
+  const targets = await exerciseReviewedChanges(prisma, origin, headers, fixture);
   return {
-    access: {secondarySchoolId: empty.id, auditDate: '2026-04-15'},
+    access: {secondarySchoolId: empty.id, auditDate: '2026-04-15', ...targets},
     async verifyRevocation() {
       assert.equal((await fetch(audits(empty.id), {headers})).status, 200);
       await prisma.schoolMember.delete({where: {schoolId_accountId: membership}});
