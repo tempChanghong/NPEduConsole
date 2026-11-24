@@ -24,10 +24,11 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     body: JSON.stringify({schoolCode: school.code, username: 'admin', password: pin})});
   assert.equal(login.status, 200);
   const token = (await login.json()).data.access_token;
-  async function call(path, body, bearer = token, version = '0.16') {
+  async function call(path, body, bearer = token, version = '0.16', actionPolicyV2 = false) {
     const requestId = randomUUID();
     const response = await fetch(origin + '/api/v2/npep' + path, {method: body ? 'POST' : 'GET', signal: AbortSignal.timeout(10000),
-      headers: {Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json', 'X-NPEP-Version': version, 'X-Request-Id': requestId},
+      headers: {Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json', 'X-NPEP-Version': version, 'X-Request-Id': requestId,
+        ...(actionPolicyV2 ? {'X-NPEP-Classroom-Action-Policy': '2'} : {})},
       ...(body ? {body: JSON.stringify({requestId, ...body})} : {})});
     const result = await response.json();
     assert.ok(response.ok, `${path}: ${result.error?.code}`);
@@ -84,15 +85,22 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     pin, gradeCode: grade.code, classCode: room.code, frontId: front.screenBindingId, rearId: rear.id, historicalKeyId: oldKey.keyId}));
   let done = false;
   const applyObservation = async () => {
+    let acknowledged = 0;
     while (!done) {
       const current = await call('/device/school-management', null, classroomBearer);
       const policy = current.actionPolicy;
-      if (policy.source === 'GRADE' && policy.revision === 2) {
+      if ((acknowledged === 0 && policy.source === 'GRADE' && policy.revision === 2) ||
+          (acknowledged === 1 && policy.source === 'CLASS' && policy.revision === 3)) {
+        if (acknowledged === 1) {
+          const target = await call('/device/school-management', null, classroomBearer, '0.16', true);
+          assert.equal(target.actionPolicy.actions.switchClassroomMode.mode, 'DENY');
+          assert.notEqual(target.actionPolicy.policyId, policy.policyId);
+        }
         await call('/device/school-management/receipt', {context: {identity: current.identity, runId, sessionId: session.sessionId,
-          statusEpoch: session.statusEpoch}, sequence: 1, microphones: [], cameras: [], unlocked: false, appliedRevision: 0,
+          statusEpoch: session.statusEpoch}, sequence: ++acknowledged, microphones: [], cameras: [], unlocked: false, appliedRevision: 0,
           credentialRevision: 1, selectedMicrophoneId: null, selectedCameraId: null, error: null,
           actionPolicyReceipt: {schemaVersion: 1, revision: policy.revision, policyId: policy.policyId, error: null}}, classroomBearer);
-        return;
+        if (acknowledged === 2) return;
       }
       await delay(300);
     }

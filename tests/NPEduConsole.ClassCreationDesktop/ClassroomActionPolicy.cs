@@ -103,19 +103,38 @@ internal static partial class Program
             Option("Kind").SelectedIndex = 1;
             await ChooseTarget(access.ClassCode);
             Check(Content("Source").Contains("继承年级默认"), "class did not inherit grade policy");
+            var classroomMode = Option("ClassroomMode");
+            Check(classroomMode.IsEffectivelyEnabled && classroomMode.SelectedItem?.ToString() == "沿用原行为",
+                "opening a legacy rule did not retain the classroom mode behavior");
             Option("StopMode").SelectedIndex = 0;
             Option("ExitMode").SelectedIndex = 2;
+            classroomMode.SelectedItem = classroomMode.Items.Cast<object>().Single(item => item.ToString() == "禁止现场操作");
+            await CaptureWithFrame(window, output, "03-classroom-mode-control-narrow");
             Click(Action("SavePreview"));
             await Until(() => review.IsEffectivelyVisible && review.Items.Count == 1 && Content("ReviewSummary").Contains("2 台大屏"), "override only that exact class and its two screens");
+            Check(review.Items.OfType<string>().Single().Contains("课堂模式 禁止现场操作"), "preview omitted the classroom mode change");
             await CaptureWithFrame(window, output, "03-class-override-narrow");
             await Publish();
             Check(Content("Source").Contains("已发布班级覆盖"), "class override was not activated in KV");
+            tabs.SelectedIndex = 2;
+            bool HasNewLegacyReceipt() => observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) &&
+                row.Contains("旧版大屏回执") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用"));
+            for (int refresh = 0; refresh < 8; refresh++)
+            {
+                if (HasNewLegacyReceipt()) break;
+                await Task.Delay(300);
+                await Until(() => Action("Refresh").IsEffectivelyEnabled, "refresh after classroom mode publication");
+                Click(Action("Refresh"));
+                await Until(() => Action("Refresh").IsEffectivelyEnabled, "classroom mode evidence finished");
+            }
+            Check(HasNewLegacyReceipt(), "a v1 receipt for this publication should leave the new classroom mode rule unconfirmed");
+            tabs.SelectedIndex = 0;
             Click(Action("Inherit"));
             await Until(() => review.IsEffectivelyVisible && Content("ReviewSummary").Contains("恢复继承"), "restoration has its own review");
             await Publish();
             Check(Content("Source").Contains("继承年级默认"), "restored class did not inherit grade policy");
             tabs.SelectedIndex = 2;
-            Check(observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("等待同步") && row.Contains("上次应用版本")),
+            Check(observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("等待同步") && row.Contains("上次回报版本")),
                 "restored content was incorrectly credited with the old identical digest receipt");
 
             tabs.SelectedIndex = 0;
@@ -167,7 +186,8 @@ internal static partial class Program
             await Until(() => !window.IsVisible && entry.IsFocused, "historical window returns to the same device entry");
             File.WriteAllText(Path.Combine(output, "desktop-result.json"), JsonSerializer.Serialize(new { passed = true, realWindows = true,
                 physicalUsbRegistered = false, verified = new[] { "normal-entry", "wide-grade-review", "lost-response-own-read", "narrow-independent-screens",
-                    "class-override", "restore-inheritance", "last-key-revoke-warning", "entry-focus", "historical-no-active-term", "original-key-revocation" } }));
+                    "class-override", "classroom-mode-preview", "old-device-receipt-pending", "restore-inheritance",
+                    "last-key-revoke-warning", "entry-focus", "historical-no-active-term", "original-key-revocation" } }));
             desktop.Shutdown(0);
         }
         catch (Exception error)

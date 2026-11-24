@@ -23,6 +23,8 @@ public sealed partial class ClassroomActionPolicyWindow : Window
     }
 
     private static readonly Choice[] Modes = [new("ALLOW", "允许现场操作"), new("VERIFY", "验证后允许"), new("DENY", "禁止现场操作")];
+    private static readonly Choice LegacyMode = new("LEGACY", "沿用原行为");
+    private static readonly Choice[] ClassroomModes = [LegacyMode, .. Modes];
     private static readonly Choice[] Factors = [new("CLASS_PASSWORD", "本班口令"), new("USB", "登记 U 盘"), new("ANY", "口令或 U 盘（任一）"), new("ALL", "口令与 U 盘（全部）")];
     private static readonly ClassroomActionRules InitialRules = new(new("VERIFY", "CLASS_PASSWORD"), new("VERIFY", "CLASS_PASSWORD"));
     private readonly ConsoleClient _client = null!;
@@ -46,7 +48,12 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         _pending = pending;
         ActionPolicyContext.Text = school.Name;
         ActionPolicyStopMode.ItemsSource = ActionPolicyExitMode.ItemsSource = Modes;
-        ActionPolicyStopFactor.ItemsSource = ActionPolicyExitFactor.ItemsSource = Factors;
+        ActionPolicyClassroomMode.ItemsSource = ClassroomModes;
+        ActionPolicyStopFactor.ItemsSource = ActionPolicyExitFactor.ItemsSource = ActionPolicyClassroomFactor.ItemsSource = Factors;
+        ActionPolicyTabs.SelectionChanged += (_, args) =>
+        {
+            if (ReferenceEquals(args.Source, ActionPolicyTabs)) UpdateActions();
+        };
         ActionPolicyKind.SelectedIndex = 0;
         ActionPolicyUsbLabel.TextChanged += UsbChanged;
         Opened += async (_, _) => await RunAsync(LoadCatalogAsync);
@@ -149,6 +156,11 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         ActionPolicyExitMode.SelectedItem = Modes.First(item => item.Id == rules.ExitBackground.Mode);
         ActionPolicyStopFactor.SelectedItem = Factors.FirstOrDefault(item => item.Id == rules.StopScheduledMonitoring.Factor) ?? Factors[0];
         ActionPolicyExitFactor.SelectedItem = Factors.FirstOrDefault(item => item.Id == rules.ExitBackground.Factor) ?? Factors[0];
+        ActionPolicyClassroomMode.SelectedItem = ClassroomModes.Single(item => item.Id == (rules.SwitchClassroomMode?.Mode ?? LegacyMode.Id));
+        ActionPolicyClassroomFactor.SelectedItem = Factors.FirstOrDefault(item => item.Id == rules.SwitchClassroomMode?.Factor) ?? Factors[0];
+        ActionPolicyModeNote.Text = _catalog?.SupportsClassroomModeSwitch == true ?
+            "班级覆盖整套策略。要重新跟随年级，请使用「恢复继承」。课堂模式设置在支持此项的大屏应用后生效。" :
+            "当前服务器仍沿用教室端的课堂模式规则。升级服务器后可统一设置。";
         ActionPolicySource.Text = scope.SavedActions is not null ? $"{scope.ScopeName} · 已发布{(target.ScopeKind == "GRADE" ? "年级默认" : "班级覆盖")}" :
             $"{scope.ScopeName} · {(inherited?.Source == "GRADE" ? "继承年级默认" : "沿用原教室端规则")}";
         ActionPolicyInherit.Content = target.ScopeKind == "GRADE" ? "撤下年级默认" : "恢复继承";
@@ -217,7 +229,8 @@ public sealed partial class ClassroomActionPolicyWindow : Window
     private ClassroomActionChange Change(string operation, ClassroomActionRules? rules = null, ClassroomUsbProof? usb = null, string? keyId = null)
     {
         var scope = _scope ?? throw new InvalidOperationException();
-        return new(scope.TermId, scope.ScopeKind, scope.ScopeId, operation, rules, usb, keyId);
+        return new(scope.TermId, scope.ScopeKind, scope.ScopeId, operation, rules, usb, keyId,
+            IncludeClassroomModeSwitch: rules is not null && _catalog?.SupportsClassroomModeSwitch == true);
     }
 
     private static ClassroomActionRule ReadRule(ComboBox mode, ComboBox factor)
@@ -226,8 +239,13 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         return new(choice.Id, choice.Id == "VERIFY" ? ((Choice?)factor.SelectedItem)?.Id : null);
     }
 
-    private async void PreviewRulesClicked(object? sender, RoutedEventArgs args) => await RunAsync(ct => PreviewAsync(
-        Change("SET_POLICY", new(ReadRule(ActionPolicyStopMode, ActionPolicyStopFactor), ReadRule(ActionPolicyExitMode, ActionPolicyExitFactor))), ct));
+    private async void PreviewRulesClicked(object? sender, RoutedEventArgs args) => await RunAsync(ct =>
+    {
+        var classroomMode = ActionPolicyClassroomMode.SelectedItem is Choice choice && choice != LegacyMode ?
+            ReadRule(ActionPolicyClassroomMode, ActionPolicyClassroomFactor) : null;
+        return PreviewAsync(Change("SET_POLICY", new(ReadRule(ActionPolicyStopMode, ActionPolicyStopFactor),
+            ReadRule(ActionPolicyExitMode, ActionPolicyExitFactor), classroomMode)), ct);
+    });
 
     private async void PreviewInheritClicked(object? sender, RoutedEventArgs args) => await RunAsync(ct => PreviewAsync(Change("SET_POLICY"), ct));
 
@@ -463,6 +481,9 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         ActionPolicyStopMode.IsEnabled = ActionPolicyExitMode.IsEnabled = canEdit;
         ActionPolicyStopFactor.IsEnabled = canEdit && ((Choice?)ActionPolicyStopMode.SelectedItem)?.Id == "VERIFY";
         ActionPolicyExitFactor.IsEnabled = canEdit && ((Choice?)ActionPolicyExitMode.SelectedItem)?.Id == "VERIFY";
+        ActionPolicyClassroomMode.IsEnabled = canEdit && _catalog?.SupportsClassroomModeSwitch == true;
+        ActionPolicyClassroomFactor.IsEnabled = ActionPolicyClassroomMode.IsEnabled && ((Choice?)ActionPolicyClassroomMode.SelectedItem)?.Id == "VERIFY";
+        ActionPolicySavePreview.IsVisible = ActionPolicyInherit.IsVisible = ActionPolicyTabs.IsVisible && ActionPolicyTabs.SelectedIndex == 0;
         ActionPolicySavePreview.IsEnabled = canEdit;
         ActionPolicyInherit.IsEnabled = canEdit && _scope?.SavedActions is not null;
         ActionPolicyScanUsb.IsEnabled = canEdit;
@@ -480,23 +501,30 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         foreach (var screen in scope.Screens)
         {
             var room = scope.Rooms.Single(row => row.Id == screen.ClassId);
+            bool needsModeReceipt = room.Before.Actions?.SwitchClassroomMode is not null;
             string state = screen.DeviceId is null ? "未配对" :
                 screen.ObservationCurrent && screen.Observed is { Error: null } observed && observed.PolicyId == room.Before.PolicyId &&
-                    observed.Revision >= room.Before.RequiredRevision ? "设备已应用" :
+                    observed.Revision >= room.Before.RequiredRevision && (!needsModeReceipt || observed.SchemaVersion == 2) ? "设备已应用策略" :
+                needsModeReceipt && screen.ObservationCurrent && screen.Observed is { SchemaVersion: 1 } ? "旧版大屏回执 · 课堂模式策略待核对" :
                 screen.Observed is { Error: not null } error ? $"设备待核对（{error.Error}）" : "等待同步或支持此策略的回执";
             string historical = screen.LastApplied is { } last && screen.LastAppliedAt is { } at ?
-                $" · 上次应用版本 {last.Revision}（{at.ToLocalTime():MM-dd HH:mm:ss}）" : "";
+                $" · 上次回报版本 {last.Revision}（{at.ToLocalTime():MM-dd HH:mm:ss}）" : "";
             yield return $"{room.Name} · {screen.BindingName} · {state}\n{(screen.DeviceName ?? "暂无原生设备")}{historical} · 大屏编号 {screen.BindingId}";
         }
     }
 
     private static string PolicyText(ClassroomEffectiveAction policy) => policy.Actions is { } actions ?
-        $"{(policy.Source == "CLASS" ? "班级覆盖" : "年级默认")} · 停止 {RuleText(actions.StopScheduledMonitoring)} · 退出 {RuleText(actions.ExitBackground)} · U 盘 {policy.UsbCount} 支" : "沿用原教室端规则";
+        $"{(policy.Source == "CLASS" ? "班级覆盖" : "年级默认")} · 停止 {RuleText(actions.StopScheduledMonitoring)} · 退出 {RuleText(actions.ExitBackground)}\n课堂模式 {RuleText(actions.SwitchClassroomMode)} · U 盘 {policy.UsbCount} 支" : "沿用原教室端规则";
 
-    private static string RuleText(ClassroomActionRule rule) => rule.Mode == "VERIFY" ? Factors.Single(item => item.Id == rule.Factor).Label :
+    private static string RuleText(ClassroomActionRule? rule) => rule is null ? LegacyMode.Label : rule.Mode == "VERIFY" ? Factors.Single(item => item.Id == rule.Factor).Label :
         Modes.Single(item => item.Id == rule.Mode).Label;
 
-    private static string ActionName(string action) => action == "exitBackground" ? "退出后台" : "停止本场";
+    private static string ActionName(string action) => action switch
+    {
+        "exitBackground" => "退出后台",
+        "switchClassroomMode" => "切换课堂模式",
+        _ => "停止本场"
+    };
 
     private static string HistoricalTermText(ClassroomActionHistoricalTerm term) => term.Status switch
     {

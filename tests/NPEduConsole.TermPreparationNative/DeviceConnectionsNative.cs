@@ -35,14 +35,17 @@ internal static class DeviceConnectionsNative
                 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(55));
                 if (phase == "classroom-actions")
                 {
+                    string? switchMode = fixture["switchMode"]?.GetValue<string>();
                     while (true)
                     {
                         var receipt = management.ObserveSchool()["actionPolicyReceipt"] as JsonObject;
                         if (receipt?["policyId"]?.GetValue<string>() == fixture.Text("policyId") && receipt["error"] is null)
                         {
-                            var state = noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(), "noise.management.status.classroom-policy")).NoiseProtection;
+                            var state = noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(), switchMode is null
+                                ? "noise.management.status.classroom-policy" : "noise.management.status.classroom-policy.v2")).NoiseProtection;
                             if (state?.ClassroomPolicy is not { } policy || policy.StopScheduled != fixture.Text("stopMode") ||
-                                policy.ExitHost != fixture.Text("exitMode")) throw new NpepException("HOST_ACTION_POLICY_MISMATCH");
+                                policy.ExitHost != fixture.Text("exitMode") || policy.SwitchClassroomMode != switchMode)
+                                throw new NpepException("HOST_ACTION_POLICY_MISMATCH");
                             if (File.Exists(fixture.Text("observed")))
                             {
                                 if (policy.ExitHost is "password" or "either" or "both")
@@ -62,6 +65,14 @@ internal static class DeviceConnectionsNative
                                     else if (correct.NoiseProtection?.Ticket is null ||
                                         Authorize("fixture-wrong-secret").NoiseProtection?.Ticket is not null)
                                         throw new NpepException("CLASSROOM_CREDENTIAL_NOT_VERIFIED");
+                                }
+                                if (switchMode == "deny")
+                                {
+                                    var denied = noise.AuthorizeInterruption(new(Protocol.Version, Guid.NewGuid(), "classroom.set",
+                                        ExpectedRevision: 0, ClassroomMode: new("Exam")));
+                                    if (denied is not { Outcome: "Rejected", ErrorCode: "CLASSROOM_ACTION_DENIED" })
+                                        throw new NpepException("HOST_MODE_SWITCH_WAS_NOT_DENIED");
+                                    Console.WriteLine($"PASS Host guarded classroom.set for binding {binding} after applying its v2 policy.");
                                 }
                                 return 0;
                             }
@@ -128,6 +139,11 @@ internal static class DeviceConnectionsNative
             }
         }
         catch (NpepException error) { Console.Error.WriteLine($"Native connection acceptance failed ({phase}): {error.Code}"); return 1; }
+        catch (UnauthorizedAccessException error)
+        {
+            Console.Error.WriteLine($"Native connection acceptance failed ({phase}, {step}): {error.Message}");
+            return 1;
+        }
         catch (Exception error) { Console.Error.WriteLine($"Native connection acceptance failed ({phase}, {step}): {error.GetType().Name}"); return 1; }
     }
 }

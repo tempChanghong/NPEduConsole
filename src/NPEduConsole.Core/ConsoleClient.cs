@@ -358,7 +358,8 @@ public sealed partial class ConsoleClient : IDisposable
     }
 
     private async Task<Envelope> SendAsync(HttpMethod method, string path, string? token, CancellationToken ct,
-        string? version = null, object? body = null, Guid? operationId = null, HttpClient? transport = null)
+        string? version = null, object? body = null, Guid? operationId = null, HttpClient? transport = null,
+        bool classroomActionPolicyV2 = false)
     {
         ct.ThrowIfCancellationRequested();
         using var request = new HttpRequestMessage(method, path);
@@ -370,6 +371,7 @@ public sealed partial class ConsoleClient : IDisposable
             request.Headers.Add("X-NPEP-Version", version);
             request.Headers.Add("X-Request-Id", requestId);
         }
+        if (classroomActionPolicyV2) request.Headers.Add("X-NPEP-Classroom-Action-Policy", "2");
         try
         {
             using var response = await (transport ?? _http).SendAsync(request, ct);

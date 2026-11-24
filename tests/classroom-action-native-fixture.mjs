@@ -22,7 +22,8 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   async function call(path, value, version = '0.16') {
     const id = randomUUID();
     const response = await fetch(origin + path, {method: value ? 'POST' : 'GET', signal: AbortSignal.timeout(15000),
-      headers: {Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json', 'X-NPEP-Version': version, 'X-Request-Id': id},
+      headers: {Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json', 'X-NPEP-Version': version, 'X-Request-Id': id,
+        'X-NPEP-Classroom-Action-Policy': '2'},
       ...(value ? {body: JSON.stringify({requestId: id, ...value})} : {})});
     const envelope = await response.json();
     assert.equal(response.status, 200, path + ' ' + (envelope.error?.code ?? ''));
@@ -38,13 +39,15 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   const {pairingId} = JSON.parse(await readFile(output, 'utf8'));
   await call(root + '/pairings/' + pairingId + '/approve', {screenBindingId: front.id, capabilities: ['device.status']}, '0.1');
   await native('confirm');
+  const paired = await prisma.npepDevice.findFirstOrThrow({where: {schoolId: school.id, screenBindingId: front.id, state: 'ACTIVE'}});
+  assert.equal(paired.administrativeClassId, classId);
   const classSecret = randomBytes(24).toString('base64url');
   const classManagement = root + '/class-management/' + front.id;
   const old = await call(classManagement);
   await call(classManagement, {expectedRevision: old.revision, enabled: false, secret: classSecret});
   const records = [];
   const rule = mode => ({mode, factor: null});
-  async function publishAndObserve(kind, actions, stopMode, exitMode) {
+  async function publishAndObserve(kind, actions, stopMode, exitMode, switchMode = null) {
     const scopeId = kind === 'GRADE' ? room.gradeId : classId;
     const change = {termId: term.id, scopeKind: kind, scopeId, operation: 'SET_POLICY', actions, usbKey: null, keyId: null};
     const preview = await call(prefix + '/preview', {change});
@@ -55,6 +58,7 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
     assert.equal(own.revision, result.revision);
     const observed = join(directory, 'seen-' + result.revision);
     const nativeRun = native('classroom-actions', {policyId: expected.policyId, stopMode, exitMode, observed,
+      ...(switchMode ? {switchMode} : {}),
       ...(['password', 'either', 'both'].includes(exitMode) ? {classSecret} : {})});
     const scopePath = prefix + '/scope/' + term.id + '/CLASS/' + classId;
     const check = async () => {
@@ -67,8 +71,15 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
         assert.equal(rearRow.observed, null);
         if (frontRow.observationCurrent && frontRow.observed?.policyId === expected.policyId &&
             frontRow.observed?.revision === result.revision && frontRow.observed.error === null) {
+          if (switchMode) {
+            assert.equal(frontRow.observed.schemaVersion, 2);
+            assert.equal(current.rooms.find(row => row.id === classId).before.actions.switchClassroomMode.mode, 'DENY');
+            assert.equal(frontRow.deviceId, paired.id);
+            assert.equal(frontRow.bindingRevision, paired.bindingRevision);
+          }
           records.push({revision: result.revision, source: expected.source, policyId: expected.policyId,
-            front: frontRow.bindingId, rear: rearRow.bindingId, rearReceipt: rearRow.observed, stopMode, exitMode});
+            classId, front: frontRow.bindingId, frontDeviceId: frontRow.deviceId, frontReceiptVersion: frontRow.observed.schemaVersion,
+            rear: rearRow.bindingId, rearReceipt: rearRow.observed, stopMode, exitMode, switchMode});
           await writeFile(observed, 'verified');
           return;
         }
@@ -97,9 +108,12 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
     exitBackground: {mode: 'VERIFY', factor: 'ANY'}}, 'deny', 'either');
   await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
     exitBackground: {mode: 'VERIFY', factor: 'ALL'}}, 'deny', 'both');
+  await publishAndObserve('CLASS', {stopScheduledMonitoring: rule('DENY'),
+    exitBackground: {mode: 'VERIFY', factor: 'ALL'}, switchClassroomMode: rule('DENY')}, 'deny', 'both', 'deny');
   const evidence = resolve(process.env.NP_CLASSROOM_ACTION_NATIVE_EVIDENCE || '.artifacts/classroom-action-native');
   await mkdir(evidence, {recursive: true});
   await writeFile(join(evidence, 'classroom-action-native.json'), JSON.stringify({passed: true, records}, null, 2));
   console.log('PASS grade, classroom override and restored inheritance on the real paired native runtime; separate same-class screen stays pending.');
   console.log('PASS existing class password alone satisfies ANY, while ALL still requires a registered USB.');
+  console.log('PASS classroom mode policy was published by an authenticated administrator, acknowledged by the bound native Host, and enforced by its classroom.set guard.');
 }

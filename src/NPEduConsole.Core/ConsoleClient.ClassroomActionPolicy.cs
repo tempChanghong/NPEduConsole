@@ -48,7 +48,8 @@ public sealed partial class ConsoleClient
             throw InvalidResponse();
         ValidateActionScope(preview, schoolId, change.Target, allowMissingClass: preview.HistoricalTerm is not null);
         if (!ActionPolicyProof.IsMatch(preview.Version) || RequireNonNullRows(preview.Issues).Any(issue =>
-                issue.Action is not ("stopScheduledMonitoring" or "exitBackground") || !preview.Rooms.Any(room => room.Id == issue.ClassId)) ||
+                issue.Action is not ("stopScheduledMonitoring" or "exitBackground" or "switchClassroomMode") ||
+                !preview.Rooms.Any(room => room.Id == issue.ClassId)) ||
             preview.CanApply != (preview.Issues.Length == 0 || change.Operation != "SET_POLICY" || change.Actions is null)) throw InvalidResponse();
         return preview;
     }
@@ -69,13 +70,17 @@ public sealed partial class ConsoleClient
 
     private static object ActionChangeBody(ClassroomActionChange change) => new
     {
-        change.TermId, change.ScopeKind, change.ScopeId, change.Operation, change.Actions, change.UsbKey, change.KeyId
+        change.TermId, change.ScopeKind, change.ScopeId, change.Operation,
+        Actions = change.Actions is { } rules && !change.IncludeClassroomModeSwitch && rules.SwitchClassroomMode is null ?
+            (object)new {rules.StopScheduledMonitoring, rules.ExitBackground} : change.Actions,
+        change.UsbKey, change.KeyId
     };
 
     private async Task<T> ActionPolicyRequestAsync<T>(HttpMethod method, string path, CancellationToken ct, object? body = null, Guid? id = null)
     {
         var session = CurrentSession;
-        var result = ReadData<T>(await SendAsync(method, path, session.Token, ct, version: "0.16", body: body, operationId: id));
+        var result = ReadData<T>(await SendAsync(method, path, session.Token, ct, version: "0.16", body: body, operationId: id,
+            classroomActionPolicyV2: true));
         ct.ThrowIfCancellationRequested();
         if (!ReferenceEquals(session, _session)) throw new ConsoleApiException(401, "登录会话已改变，请重新登录。");
         return result;
@@ -105,11 +110,13 @@ public sealed partial class ConsoleClient
         !string.IsNullOrWhiteSpace(term.Name) && scopeState is "PRESENT" or "INACTIVE" or "MISSING" &&
         (term.Status is "DRAFT" or "ARCHIVED" or "MISSING" || term.Status == "ACTIVE" && scopeState is not "PRESENT");
 
-    private static bool ValidDeviceReceipt(ClassroomActionDeviceReceipt? receipt) => receipt is null || receipt.SchemaVersion == 1 &&
+    private static bool ValidDeviceReceipt(ClassroomActionDeviceReceipt? receipt) => receipt is null || receipt.SchemaVersion is 1 or 2 &&
         (receipt.Revision is null ? receipt.PolicyId is null : receipt.Revision >= 0 && receipt.PolicyId is { } id && ActionPolicyProof.IsMatch(id));
     private static bool ValidEffective(ClassroomEffectiveAction policy) => ActionPolicyProof.IsMatch(policy.PolicyId) && policy.UsbCount is >= 0 and <= 64 && policy.RequiredRevision >= 0 &&
         (policy.Source == "LEGACY" ? policy.Actions is null && policy.UsbCount == 0 : policy.Source is "GRADE" or "CLASS" && policy.Actions is not null && ValidActionRules(policy.Actions));
-    private static bool ValidActionRules(ClassroomActionRules? actions) => actions is null || ValidActionRule(actions.StopScheduledMonitoring) && ValidActionRule(actions.ExitBackground);
+    private static bool ValidActionRules(ClassroomActionRules? actions) => actions is null ||
+        ValidActionRule(actions.StopScheduledMonitoring) && ValidActionRule(actions.ExitBackground) &&
+        (actions.SwitchClassroomMode is null || ValidActionRule(actions.SwitchClassroomMode));
     private static bool ValidActionRule(ClassroomActionRule rule) => rule.Mode switch
     {
         "VERIFY" => rule.Factor is "CLASS_PASSWORD" or "USB" or "ANY" or "ALL",
@@ -136,6 +143,7 @@ public sealed partial class ConsoleClient
         return new ConsoleApiException(status, code switch
         {
             "ACTION_POLICY_UPGRADE_REQUIRED" or "PROTOCOL_UNSUPPORTED" => "此 KV 尚未提供大屏安全策略，请升级服务并完成数据库迁移。",
+            "ACTION_POLICY_CLIENT_UPGRADE_REQUIRED" => "此策略包含课堂模式设置，请使用支持课堂模式的管理端重新核对。",
             "ACTION_POLICY_TERM_CHANGED" or "ACTION_POLICY_SCOPE_NOT_FOUND" => "原学期、年级或班级已变化，请重新核对办理范围。",
             "ACTION_POLICY_STALE" or "REVISION_CONFLICT" => "策略、班级口令或大屏范围已变化，请重新预览。",
             "ACTION_POLICY_NO_CHANGE" => "当前已是此设置，可刷新核对。",

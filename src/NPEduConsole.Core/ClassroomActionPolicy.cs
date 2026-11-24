@@ -1,7 +1,8 @@
 namespace NPEduConsole.Core;
 
 public sealed record ClassroomActionRule(string Mode, string? Factor);
-public sealed record ClassroomActionRules(ClassroomActionRule StopScheduledMonitoring, ClassroomActionRule ExitBackground);
+public sealed record ClassroomActionRules(ClassroomActionRule StopScheduledMonitoring, ClassroomActionRule ExitBackground,
+    ClassroomActionRule? SwitchClassroomMode = null);
 public sealed record ClassroomActionTerm(string Id, string Name);
 public sealed record ClassroomActionGrade(string Id, string Name, string Code)
 {
@@ -11,7 +12,8 @@ public sealed record ClassroomActionClass(string Id, string Name, string Code, s
 {
     public override string ToString() => $"{Name} · {Code}";
 }
-public sealed record ClassroomActionCatalog(string SchoolId, ClassroomActionTerm? Term, ClassroomActionGrade[] Grades, ClassroomActionClass[] Rooms);
+public sealed record ClassroomActionCatalog(string SchoolId, ClassroomActionTerm? Term, ClassroomActionGrade[] Grades, ClassroomActionClass[] Rooms,
+    bool SupportsClassroomModeSwitch = false);
 public sealed record ClassroomActionTarget(string TermId, string ScopeKind, string ScopeId);
 public sealed record ClassroomUsbKey(string KeyId, string Label);
 public sealed record ClassroomActionHistoricalTerm(string Id, string Name, string Status);
@@ -23,7 +25,7 @@ public sealed record ClassroomHistoricalUsbRegistry(string SchoolId, ClassroomHi
 public sealed record ClassroomUsbMaterial(string KeyId, string MediaHash, string SecretHash);
 public sealed record ClassroomUsbProof(string KeyId, string Label, string MediaHash, string SecretHash, ClassroomUsbMaterial? Replaces = null);
 public sealed record ClassroomActionChange(string TermId, string ScopeKind, string ScopeId, string Operation,
-    ClassroomActionRules? Actions, ClassroomUsbProof? UsbKey, string? KeyId)
+    ClassroomActionRules? Actions, ClassroomUsbProof? UsbKey, string? KeyId, bool IncludeClassroomModeSwitch = false)
 {
     public ClassroomActionTarget Target => new(TermId, ScopeKind, ScopeId);
 }

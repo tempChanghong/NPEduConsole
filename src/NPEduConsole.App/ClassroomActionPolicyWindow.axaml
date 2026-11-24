@@ -21,24 +21,24 @@
     <TabControl Grid.Row="1" x:Name="ActionPolicyTabs" Margin="16,6" IsVisible="False">
       <TabItem Header="操作权限">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Margin="0,8,8,8" Spacing="8">
+          <StackPanel Margin="0,4,8,8" Spacing="5">
             <TextBlock x:Name="ActionPolicySource" Classes="label" TextWrapping="Wrap" />
-            <Border Classes="card" Padding="12">
-              <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="1.3*,1.1*,1.15*" RowSpacing="8" ColumnSpacing="10">
+            <Border Classes="card" Padding="12,8">
+              <Grid RowDefinitions="Auto,Auto,Auto" ColumnDefinitions="1.3*,1.1*,1.15*" RowSpacing="5" ColumnSpacing="10">
                 <TextBlock Text="停止本场学校监测" VerticalAlignment="Center" TextWrapping="Wrap" />
                 <ComboBox x:Name="ActionPolicyStopMode" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的现场权限" SelectionChanged="RuleChanged" />
                 <ComboBox x:Name="ActionPolicyStopFactor" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的验证方式" />
                 <TextBlock Grid.Row="1" Text="退出后台" VerticalAlignment="Center" TextWrapping="Wrap" />
                 <ComboBox x:Name="ActionPolicyExitMode" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的现场权限" SelectionChanged="RuleChanged" />
                 <ComboBox x:Name="ActionPolicyExitFactor" Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的验证方式" />
+                <TextBlock Grid.Row="2" Text="切换课堂模式" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <ComboBox x:Name="ActionPolicyClassroomMode" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="切换课堂模式的现场权限" SelectionChanged="RuleChanged" />
+                <ComboBox x:Name="ActionPolicyClassroomFactor" Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="切换课堂模式的验证方式" />
               </Grid>
             </Border>
-            <WrapPanel ItemSpacing="8" LineSpacing="4">
-              <Button x:Name="ActionPolicySavePreview" Classes="action accent" Content="预览策略影响" Click="PreviewRulesClicked" />
-              <Button x:Name="ActionPolicyInherit" Classes="action" Content="恢复继承" Click="PreviewInheritClicked" />
-            </WrapPanel>
             <TextBlock Text="使用班级口令时，各班继续用自己的现行口令。返回作业板仍可直接使用。离线大屏沿用最后已应用的策略。"
                        Classes="muted" TextWrapping="Wrap" />
+            <TextBlock x:Name="ActionPolicyModeNote" Classes="muted" TextWrapping="Wrap" />
           </StackPanel>
         </ScrollViewer>
       </TabItem>
@@ -96,6 +96,8 @@
         <WrapPanel ItemSpacing="8" LineSpacing="4">
           <Button x:Name="ActionPolicyClose" Classes="action" Content="返回教室设备" Click="CloseClicked" />
           <Button x:Name="ActionPolicyRefresh" Classes="action" Content="刷新范围与回执" Click="RefreshClicked" />
+          <Button x:Name="ActionPolicyInherit" Classes="action" Content="恢复继承" IsVisible="False" Click="PreviewInheritClicked" />
+          <Button x:Name="ActionPolicySavePreview" Classes="action accent" Content="预览策略影响" IsVisible="False" Click="PreviewRulesClicked" />
           <Button x:Name="ActionPolicyReviewBack" Classes="action" Content="返回修改" IsVisible="False" Click="ReviewBackClicked" />
           <CheckBox x:Name="ActionPolicyConfirmed" Content="已核对本次范围与影响" IsVisible="False" IsCheckedChanged="ConfirmedChanged" />
           <Button x:Name="ActionPolicyApply" Classes="action accent" Content="确认发布" IsVisible="False" Click="ApplyClicked" />
