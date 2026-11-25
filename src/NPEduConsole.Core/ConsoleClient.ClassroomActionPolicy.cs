@@ -48,7 +48,7 @@ public sealed partial class ConsoleClient
             throw InvalidResponse();
         ValidateActionScope(preview, schoolId, change.Target, allowMissingClass: preview.HistoricalTerm is not null);
         if (!ActionPolicyProof.IsMatch(preview.Version) || RequireNonNullRows(preview.Issues).Any(issue =>
-                issue.Action is not ("stopScheduledMonitoring" or "exitBackground" or "switchClassroomMode") ||
+                issue.Action is not ("stopScheduledMonitoring" or "exitBackground" or "switchClassroomMode" or "startManualStudy") ||
                 !preview.Rooms.Any(room => room.Id == issue.ClassId)) ||
             preview.CanApply != (preview.Issues.Length == 0 || change.Operation != "SET_POLICY" || change.RestoresInheritedPolicy)) throw InvalidResponse();
         return preview;
@@ -70,15 +70,24 @@ public sealed partial class ConsoleClient
 
     private static object ActionChangeBody(ClassroomActionChange change)
     {
+        object? actions = null;
+        if (change.Actions is { } rules)
+        {
+            actions = change.IncludeManualStudyPolicy ? rules :
+                change.IncludeClassroomModeSwitch || rules.SwitchClassroomMode is not null ?
+                    new {rules.StopScheduledMonitoring, rules.ExitBackground, rules.SwitchClassroomMode} :
+                    new {rules.StopScheduledMonitoring, rules.ExitBackground};
+        }
         var body = new Dictionary<string, object?>
         {
             ["termId"] = change.TermId, ["scopeKind"] = change.ScopeKind, ["scopeId"] = change.ScopeId,
             ["operation"] = change.Operation,
-            ["actions"] = change.Actions is { } rules && !change.IncludeClassroomModeSwitch && rules.SwitchClassroomMode is null ?
-                new {rules.StopScheduledMonitoring, rules.ExitBackground} : change.Actions,
+            ["actions"] = actions,
             ["usbKey"] = change.UsbKey, ["keyId"] = change.KeyId
         };
-        if (change.ClassActionOverrides is { } overrides) body["classActionOverrides"] = overrides;
+        if (change.ClassActionOverrides is { } overrides)
+            body["classActionOverrides"] = change.IncludeManualStudyPolicy ? overrides :
+                new {overrides.StopScheduledMonitoring, overrides.ExitBackground, overrides.SwitchClassroomMode};
         return body;
     }
 
@@ -99,7 +108,8 @@ public sealed partial class ConsoleClient
             scope.InheritedGradeActions is not null && target.ScopeKind != "CLASS" ||
             scope.SavedClassActionOverrides is { } overrides && (scope.SavedActions is not null || target.ScopeKind != "CLASS" ||
                 !overrides.HasOverrides || !ValidOverride(overrides.StopScheduledMonitoring) || !ValidOverride(overrides.ExitBackground) ||
-                !ValidOverride(overrides.SwitchClassroomMode, allowLegacy: true))) throw InvalidResponse();
+                !ValidOverride(overrides.SwitchClassroomMode, allowLegacy: true) ||
+                !ValidOverride(overrides.StartManualStudy, allowLegacy: true))) throw InvalidResponse();
         var rooms = RequireNonNullRows(scope.Rooms);
         if (rooms.Any(room => string.IsNullOrWhiteSpace(room.Id) || !ValidEffective(room.Before) || !ValidEffective(room.After)) ||
             rooms.Select(room => room.Id).Distinct(StringComparer.Ordinal).Count() != rooms.Length ||
@@ -120,7 +130,7 @@ public sealed partial class ConsoleClient
         !string.IsNullOrWhiteSpace(term.Name) && scopeState is "PRESENT" or "INACTIVE" or "MISSING" &&
         (term.Status is "DRAFT" or "ARCHIVED" or "MISSING" || term.Status == "ACTIVE" && scopeState is not "PRESENT");
 
-    private static bool ValidDeviceReceipt(ClassroomActionDeviceReceipt? receipt) => receipt is null || receipt.SchemaVersion is 1 or 2 or 3 &&
+    private static bool ValidDeviceReceipt(ClassroomActionDeviceReceipt? receipt) => receipt is null || receipt.SchemaVersion is 1 or 2 or 3 or 4 &&
         (receipt.Revision is null ? receipt.PolicyId is null : receipt.Revision >= 0 && receipt.PolicyId is { } id && ActionPolicyProof.IsMatch(id));
     private static bool ValidEffective(ClassroomEffectiveAction policy)
     {
@@ -130,11 +140,15 @@ public sealed partial class ConsoleClient
             policy.Source is "GRADE" or "CLASS" && policy.Actions is not null && ValidActionRules(policy.Actions);
         if (policy.ActionOrigins is not { } origins) return policy.MinimumReceiptSchema is null && validWhole;
         if (policy.Source == "LEGACY")
-            return validWhole && policy.MinimumReceiptSchema == 1 && origins == new ClassroomActionOrigins("LEGACY", "LEGACY", "LEGACY");
+            return validWhole && policy.MinimumReceiptSchema == 1 && origins.StopScheduledMonitoring == "LEGACY" &&
+                origins.ExitBackground == "LEGACY" && origins.SwitchClassroomMode == "LEGACY" &&
+                origins.StartManualStudy is null or "LEGACY" or "CLASS";
         if (policy.Source is not ("GRADE" or "CLASS") || policy.Actions is not { } actions) return false;
-        int schema = actions.StopScheduledMonitoring is null || actions.ExitBackground is null ? 3 : actions.SwitchClassroomMode is not null ? 2 : 1;
+        int schema = actions.StartManualStudy is not null ? 4 :
+            actions.StopScheduledMonitoring is null || actions.ExitBackground is null ? 3 : actions.SwitchClassroomMode is not null ? 2 : 1;
         return policy.MinimumReceiptSchema == schema && ValidOrigin(origins.StopScheduledMonitoring, actions.StopScheduledMonitoring) &&
-            ValidOrigin(origins.ExitBackground, actions.ExitBackground) && ValidOrigin(origins.SwitchClassroomMode, actions.SwitchClassroomMode, allowLegacy: true);
+            ValidOrigin(origins.ExitBackground, actions.ExitBackground) && ValidOrigin(origins.SwitchClassroomMode, actions.SwitchClassroomMode, allowLegacy: true) &&
+            ValidOrigin(origins.StartManualStudy ?? (actions.StartManualStudy is null ? "LEGACY" : ""), actions.StartManualStudy, allowLegacy: true);
     }
     private static bool ValidOrigin(string origin, ClassroomActionRule? rule, bool allowLegacy = false) => rule is null ?
         origin == "LEGACY" || allowLegacy && origin == "CLASS" : origin is "CLASS" or "GRADE" && ValidActionRule(rule);
@@ -142,7 +156,8 @@ public sealed partial class ConsoleClient
         (value.Rule is null ? allowLegacy : ValidActionRule(value.Rule));
     private static bool ValidActionRules(ClassroomActionRules? actions) => actions is null ||
         ValidActionRule(actions.StopScheduledMonitoring) && ValidActionRule(actions.ExitBackground) &&
-        (actions.SwitchClassroomMode is null || ValidActionRule(actions.SwitchClassroomMode));
+        (actions.SwitchClassroomMode is null || ValidActionRule(actions.SwitchClassroomMode)) &&
+        (actions.StartManualStudy is null || ValidActionRule(actions.StartManualStudy));
     private static bool ValidActionRule(ClassroomActionRule? rule) => rule?.Mode switch
     {
         "VERIFY" => rule.Factor is "CLASS_PASSWORD" or "USB" or "ANY" or "ALL",

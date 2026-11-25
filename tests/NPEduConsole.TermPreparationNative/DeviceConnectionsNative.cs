@@ -36,14 +36,16 @@ internal static class DeviceConnectionsNative
                 if (phase == "classroom-actions")
                 {
                     string? switchMode = fixture["switchMode"]?.GetValue<string>();
+                    string? manualStudyMode = fixture["manualStudyMode"]?.GetValue<string>();
                     while (true)
                     {
                         var receipt = management.ObserveSchool()["actionPolicyReceipt"] as JsonObject;
                         if (receipt?["policyId"]?.GetValue<string>() == fixture.Text("policyId") && receipt["error"] is null)
                         {
-                            var state = noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(), "noise.management.status.classroom-policy.v2")).NoiseProtection;
+                            var state = noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(), "noise.management.status.classroom-policy.v4")).NoiseProtection;
                             if (state?.ClassroomPolicy is not { } policy || policy.StopScheduled != fixture.Text("stopMode") ||
-                                policy.ExitHost != fixture.Text("exitMode") || policy.SwitchClassroomMode != switchMode)
+                                policy.ExitHost != fixture.Text("exitMode") || policy.SwitchClassroomMode != switchMode ||
+                                policy.StartManualStudy != manualStudyMode)
                                 throw new NpepException("HOST_ACTION_POLICY_MISMATCH");
                             if (File.Exists(fixture.Text("observed")))
                             {
@@ -81,6 +83,17 @@ internal static class DeviceConnectionsNative
                                     if (verification.ErrorCode != "CLASSROOM_USB_REQUIRED" || verification.NoiseProtection?.Ticket is not null)
                                         throw new NpepException("HOST_MODE_SWITCH_MISSING_USB_NOT_REQUIRED");
                                     Console.WriteLine($"PASS Host requires a registered USB to switch classroom mode for {binding}.");
+                                }
+                                if (manualStudyMode == "usb")
+                                {
+                                    var target = new ManualStudyCommand("start", Guid.NewGuid(), 0, DeviceId: "acceptance-mic");
+                                    var verification = noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(), "noise.management.command",
+                                        NoiseManagement: new("authorize", Purpose: "start-manual-study", TargetRequestId: Guid.NewGuid(),
+                                            InstanceId: state.InstanceId, SessionId: state.SessionId, ClassroomPolicyVersion: policy.Version,
+                                            ManualStudyTarget: target)));
+                                    if (verification.ErrorCode != "CLASSROOM_USB_REQUIRED" || verification.NoiseProtection?.Ticket is not null)
+                                        throw new NpepException("HOST_MANUAL_STUDY_MISSING_USB_NOT_REQUIRED");
+                                    Console.WriteLine($"PASS Host refuses manual study authorization without a registered USB for {binding}.");
                                 }
                                 return 0;
                             }

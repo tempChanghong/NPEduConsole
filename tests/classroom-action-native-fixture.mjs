@@ -9,7 +9,8 @@ import {setTimeout as delay} from 'node:timers/promises';
 export async function verifyNativeClassroomActions({prisma, origin, directory, fixture, runNative}) {
   const {school, term, managerId, classes} = fixture;
   const inheritance = process.env.NP_CLASSROOM_ACTION_INHERITANCE === '1';
-  const classId = inheritance ? classes[0] : classes[2];
+  const manualStudy = process.env.NP_MANUAL_STUDY_POLICY === '1';
+  const classId = inheritance || manualStudy ? classes[0] : classes[2];
   const room = await prisma.workspace.findUniqueOrThrow({where: {id: classId}});
   const makeScreen = name => prisma.classroomScreenBinding.create({data: {name, schoolId: school.id,
     administrativeClassId: classId, tokenHash: randomBytes(32).toString('hex'), createdByAccountId: managerId}});
@@ -25,7 +26,7 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
     const id = randomUUID();
     const response = await fetch(origin + path, {method: value ? 'POST' : 'GET', signal: AbortSignal.timeout(15000),
       headers: {Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json', 'X-NPEP-Version': version, 'X-Request-Id': id,
-        'X-NPEP-Classroom-Action-Policy': '2', 'X-NPEP-Classroom-Action-Inheritance': '1'},
+        'X-NPEP-Classroom-Action-Policy': '2', 'X-NPEP-Classroom-Action-Inheritance': '1', 'X-NPEP-Manual-Study-Policy': '1'},
       ...(value ? {body: JSON.stringify({requestId: id, ...value})} : {})});
     const envelope = await response.json();
     assert.equal(response.status, 200, path + ' ' + (envelope.error?.code ?? ''));
@@ -49,7 +50,7 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   await call(classManagement, {expectedRevision: old.revision, enabled: false, secret: classSecret});
   const records = [];
   const rule = mode => ({mode, factor: null});
-  async function publishAndObserve(kind, actions, stopMode, exitMode, switchMode = null, classActionOverrides) {
+  async function publishAndObserve(kind, actions, stopMode, exitMode, switchMode = null, classActionOverrides, manualStudyMode = null) {
     const scopeId = kind === 'GRADE' ? room.gradeId : classId;
     const change = {termId: term.id, scopeKind: kind, scopeId, operation: 'SET_POLICY', actions, usbKey: null, keyId: null,
       ...(classActionOverrides ? {classActionOverrides} : {})};
@@ -62,6 +63,7 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
     const observed = join(directory, 'seen-' + result.revision);
     const nativeRun = native('classroom-actions', {policyId: expected.policyId, stopMode, exitMode, observed,
       ...(switchMode ? {switchMode} : {}),
+      ...(manualStudyMode ? {manualStudyMode} : {}),
       ...(['password', 'either', 'both'].includes(exitMode) ? {classSecret} : {})});
     const scopePath = prefix + '/scope/' + term.id + '/CLASS/' + classId;
     const check = async () => {
@@ -74,13 +76,13 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
         assert.equal(rearRow.observed, null);
         if (frontRow.observationCurrent && frontRow.observed?.policyId === expected.policyId &&
             frontRow.observed?.revision === result.revision && frontRow.observed.error === null) {
-          assert.equal(frontRow.observed.schemaVersion, 3);
+          assert.equal(frontRow.observed.schemaVersion, 4);
           assert.deepEqual(current.rooms.find(row => row.id === classId).before.actions, expected.actions);
           assert.equal(frontRow.deviceId, paired.id);
           assert.equal(frontRow.bindingRevision, paired.bindingRevision);
           records.push({revision: result.revision, source: expected.source, policyId: expected.policyId,
             classId, front: frontRow.bindingId, frontDeviceId: frontRow.deviceId, frontReceiptVersion: frontRow.observed.schemaVersion,
-            rear: rearRow.bindingId, rearReceipt: rearRow.observed, stopMode, exitMode, switchMode,
+            rear: rearRow.bindingId, rearReceipt: rearRow.observed, stopMode, exitMode, switchMode, manualStudyMode,
             origins: expected.actionOrigins, requiredSchema: expected.minimumReceiptSchema});
           await writeFile(observed, 'verified');
           return;
@@ -103,7 +105,16 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   }
   const gradeActions = {stopScheduledMonitoring: rule('ALLOW'), exitBackground: rule('DENY')};
   let neighborEvidence = null;
-  if (inheritance) {
+  if (manualStudy) {
+    await registerFixtureKey();
+    const onlyManual = {stopScheduledMonitoring: null, exitBackground: null, switchClassroomMode: null,
+      startManualStudy: {rule: {mode: 'VERIFY', factor: 'USB'}}};
+    await publishAndObserve('CLASS', null, 'default', 'default', null, onlyManual, 'usb');
+    assert.equal(records[0].requiredSchema, 4);
+    assert.deepEqual(records[0].origins, {
+      stopScheduledMonitoring: 'LEGACY', exitBackground: 'LEGACY', switchClassroomMode: 'LEGACY', startManualStudy: 'CLASS'
+    });
+  } else if (inheritance) {
     await registerFixtureKey();
     const follow = {stopScheduledMonitoring: null, exitBackground: null, switchClassroomMode: null};
     await publishAndObserve('CLASS', null, 'default', 'default', 'usb',
@@ -113,7 +124,7 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
     const neighbor = await prisma.workspace.findFirstOrThrow({where: {id: {in: classes.slice(1)}, gradeId: room.gradeId}, orderBy: {code: 'asc'}});
     const other = await call(prefix + '/scope/' + term.id + '/CLASS/' + neighbor.id);
     assert.equal(other.savedClassActionOverrides, null);
-    assert.deepEqual(other.rooms[0].before.actions, {...gradeActions, switchClassroomMode: null});
+    assert.deepEqual(other.rooms[0].before.actions, {...gradeActions, switchClassroomMode: null, startManualStudy: null});
     neighborEvidence = {classId: neighbor.id, code: neighbor.code, policy: other.rooms[0].before};
     await publishAndObserve('CLASS', null, 'allow', 'deny', null, follow);
     assert.equal(records[1].origins.switchClassroomMode, 'CLASS');
@@ -136,7 +147,7 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   const evidence = resolve(process.env.NP_CLASSROOM_ACTION_NATIVE_EVIDENCE || '.artifacts/classroom-action-native');
   await mkdir(evidence, {recursive: true});
   await writeFile(join(evidence, 'classroom-action-native.json'), JSON.stringify({passed: true, neighbor: neighborEvidence, records}, null, 2));
-  console.log(inheritance ?
+  console.log(manualStudy ? 'PASS current v4 receipt from the exact paired Host; manual study alone requires a registered USB.' : inheritance ?
     'PASS bound native Host applied class-only USB verification, then inherited grade exit denial, and restored full grade inheritance; neighbor stayed on grade policy.' :
     'PASS previous classroom rules, grade inheritance restoration, ANY/ALL, and on-site mode denial on the bound native Host.');
 }

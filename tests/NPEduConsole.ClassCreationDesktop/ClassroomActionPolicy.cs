@@ -104,40 +104,42 @@ internal static partial class Program
             Option("Kind").SelectedIndex = 1;
             await ChooseTarget(access.ClassCode);
             Check(Content("Source").Contains("继承年级默认"), "class did not inherit grade policy");
-            var classroomMode = Option("ClassroomMode");
+            var manualStudy = Option("ManualStudyMode");
             void Pick(string option, string label)
             {
                 var control = Option(option);
                 control.SelectedItem = control.Items.Cast<object>().Single(item => item.ToString() == label);
             }
-            Check(!classroomMode.IsEffectivelyEnabled && classroomMode.SelectedItem?.ToString() == "沿用原行为" &&
-                Option("ClassroomSource").SelectedItem?.ToString() == "跟随年级", "class mode did not start by following the grade");
-            Pick("ClassroomSource", "本班自定");
-            Check(classroomMode.IsEffectivelyEnabled && Option("ExitSource").SelectedItem?.ToString() == "跟随年级" &&
+            Check(!manualStudy.IsEffectivelyEnabled && manualStudy.SelectedItem?.ToString() == "沿用原行为" &&
+                Option("ManualStudySource").SelectedItem?.ToString() == "跟随年级", "manual study did not start by following the grade");
+            Pick("ManualStudySource", "本班自定");
+            Check(manualStudy.IsEffectivelyEnabled && Option("ExitSource").SelectedItem?.ToString() == "跟随年级" &&
                 !Option("ExitMode").IsEffectivelyEnabled && Option("ExitMode").SelectedItem?.ToString() == "禁止现场操作",
-                "customizing only mode should keep the inherited exit denial");
-            Pick("ClassroomMode", "验证后允许");
-            Pick("ClassroomFactor", "登记 U 盘");
+                "customizing only manual study should keep the inherited exit denial");
+            Pick("ManualStudyMode", "验证后允许");
+            Pick("ManualStudyFactor", "登记 U 盘");
             Check(Find<TextBlock>(window, "ActionPolicyDraft").IsEffectivelyVisible && !Option("ExitFactor").IsEffectivelyVisible &&
                 Content("ExitModeRead") == "禁止现场操作" && Content("ExitFactorRead") == "不适用",
                 "the draft and inherited exit denial must be visible without an unrelated credential");
-            await CaptureWithFrame(window, output, "03-per-action-narrow");
+            await CaptureWithFrame(window, output, "03-manual-study-narrow");
             window.Width = 1160;
             window.Height = 780;
-            await CaptureWithFrame(window, output, "04-per-action-wide");
+            await CaptureWithFrame(window, output, "04-manual-study-wide");
             window.Width = 840;
             window.Height = 480;
             Click(Action("SavePreview"));
             await Until(() => review.IsEffectivelyVisible && review.Items.Count == 1 && Content("ReviewSummary").Contains("2 台大屏"), "override only that exact class and its two screens");
-            Check(review.Items.OfType<string>().Single().Contains("课堂模式 登记 U 盘（本班自定）") &&
-                review.Items.OfType<string>().Single().Contains("退出 禁止现场操作（年级默认）"), "preview omitted the per-action origins");
+            Check(review.Items.OfType<string>().Single().Contains("手动自习 登记 U 盘（本班自定）") &&
+                review.Items.OfType<string>().Single().Contains("课堂模式 沿用原行为") &&
+                review.Items.OfType<string>().Single().Contains("旧版大屏需升级才能应用手动自习规则") &&
+                review.Items.OfType<string>().Single().Contains("退出 禁止现场操作（年级默认）"), "preview omitted the new rule, origins or required upgrade");
             await CaptureWithFrame(window, output, "05-preview-narrow");
             await Publish();
             Check(Content("Source").Contains("已发布：逐项设置") && !Find<TextBlock>(window, "ActionPolicyDraft").IsEffectivelyVisible,
                 "class override was not activated in KV");
             tabs.SelectedIndex = 2;
             bool HasNewLegacyReceipt() => observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) &&
-                row.Contains("旧版大屏回执") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用"));
+                row.Contains("此屏需升级才能应用手动自习规则") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用"));
             for (int refresh = 0; refresh < 8; refresh++)
             {
                 if (HasNewLegacyReceipt()) break;
@@ -146,13 +148,14 @@ internal static partial class Program
                 Click(Action("Refresh"));
                 await Until(() => Action("Refresh").IsEffectivelyEnabled, "classroom mode evidence finished");
             }
-            Check(HasNewLegacyReceipt(), "a v1 receipt for this publication should leave the new classroom mode rule unconfirmed");
+            Check(HasNewLegacyReceipt(), "a v3 receipt for this publication should leave manual study unconfirmed");
+            await CaptureWithFrame(window, output, "06-old-screen-needs-upgrade");
             tabs.SelectedIndex = 0;
             await ChooseTarget(access.NeighborCode);
             Check(Content("Source").Contains("继承年级默认") &&
                 Option("ExitMode").SelectedItem?.ToString() == "禁止现场操作" &&
-                Option("ClassroomSource").SelectedItem?.ToString() == "跟随年级" &&
-                classroomMode.SelectedItem?.ToString() == "沿用原行为", "neighbor should still follow the grade for all settings");
+                Option("ManualStudySource").SelectedItem?.ToString() == "跟随年级" &&
+                manualStudy.SelectedItem?.ToString() == "沿用原行为", "neighbor should still follow the grade for all settings");
             await ChooseTarget(access.ClassCode);
             Click(Action("Inherit"));
             await Until(() => review.IsEffectivelyVisible && Content("ReviewSummary").Contains("恢复继承"), "restoration has its own review");
@@ -211,7 +214,7 @@ internal static partial class Program
             await Until(() => !window.IsVisible && entry.IsFocused, "historical window returns to the same device entry");
             File.WriteAllText(Path.Combine(output, "desktop-result.json"), JsonSerializer.Serialize(new { passed = true, realWindows = true,
                 physicalUsbRegistered = false, verified = new[] { "normal-entry", "wide-grade-review", "lost-response-own-read", "narrow-independent-screens",
-                    "class-override", "classroom-mode-preview", "neighbor-follows-grade", "old-device-receipt-pending", "restore-inheritance",
+                    "class-override", "manual-study-preview", "neighbor-follows-grade", "old-device-receipt-pending", "restore-inheritance",
                     "last-key-revoke-warning", "entry-focus", "historical-no-active-term", "original-key-revocation" } }));
             desktop.Shutdown(0);
         }
