@@ -58,12 +58,35 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
       appliedRevision: 0, credentialRevision: 1, selectedMicrophoneId: null, selectedCameraId: null, error: null, actionPolicyReceipt}, bearer);
   }
   const frontSession = await openDeviceSession(classroomBearer);
+  const rearSession = await openDeviceSession(rearBearer);
   const scopePath = path + `/scope/${term.id}/CLASS/${room.id}`;
   const storageError = 'CLASSROOM_POLICY_STORE_UNAVAILABLE';
-  let rearSession, faultEvidence;
+  let faultEvidence, versionEvidence;
 
   let dropped = false, writes = 0, ownReads = 0, activeFinal = null;
   const proxy = createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/__classroom-policy-fixture/fault-rear') {
+      request.resume();
+      (async () => {
+        await observed;
+        assert.ok(versionEvidence, 'rear first reported on the legacy protocol');
+        const rearPolicy = await call('/device/school-management', null, rearBearer, '0.16', 5);
+        // A Host with an unavailable policy store can report schema 1 and no installed policy.
+        await report(rearBearer, {identity: rearPolicy.identity, ...rearSession}, 3,
+          {schemaVersion: 1, revision: null, policyId: null, error: storageError});
+        const scope = await call(scopePath, null, token, '0.16', 5);
+        const fault = scope.screens.find(screen => screen.bindingId === rear.id);
+        assert.equal(fault.observationCurrent, true);
+        assert.equal(fault.observed.error, storageError);
+        faultEvidence = {reportedSchema: fault.observed.schemaVersion, serverPolicySchema: rearPolicy.actionPolicy.schemaVersion,
+          error: fault.observed.error, currentInitially: fault.observationCurrent};
+        response.writeHead(204).end();
+      })().catch(error => {
+        console.error(error);
+        response.writeHead(500).end();
+      });
+      return;
+    }
     if (request.method === 'POST' && request.url === '/__classroom-policy-fixture/restart-rear') {
       request.resume();
       (async () => {
@@ -138,26 +161,28 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
           {mode: 'VERIFY', factor: 'CLASS_PASSWORD'} : {mode: 'ALLOW', factor: null});
         assert.equal(Object.hasOwn(policy.actions, 'startManualRecording'), false);
         assert.deepEqual(policy.actions, {stopScheduledMonitoring: {mode: 'VERIFY', factor: 'ALL'},
-          exitBackground: {mode: 'DENY', factor: null}, switchClassroomMode: null, startManualStudy: null});
+          exitBackground: {mode: 'DENY', factor: null}, switchClassroomMode: null, startManualStudy: {mode: 'ALLOW', factor: null}});
         assert.notEqual(target.actionPolicy.policyId, policy.policyId);
         await report(classroomBearer, {identity: current.identity, ...frontSession}, ++acknowledged,
           {schemaVersion: policy.schemaVersion, revision: policy.revision, policyId: policy.policyId, error: null});
+        const rearCurrent = await call('/device/school-management', null, rearBearer, '0.16', 3);
+        const rearPolicy = rearCurrent.actionPolicy;
+        assert.equal(rearPolicy.revision, policy.revision);
+        assert.equal(Object.hasOwn(rearPolicy.actions, 'startManualStudy'), false);
+        assert.equal(Object.hasOwn(rearPolicy.actions, 'startManualRecording'), false);
+        await report(rearBearer, {identity: rearCurrent.identity, ...rearSession}, acknowledged,
+          {schemaVersion: rearPolicy.schemaVersion, revision: rearPolicy.revision, policyId: rearPolicy.policyId, error: null});
         if (acknowledged === 2) {
-          rearSession = await openDeviceSession(rearBearer);
-          const rearPolicy = await call('/device/school-management', null, rearBearer, '0.16', 5);
-          // A current Host with an unavailable policy store can report schema 1 and no installed policy.
-          await report(rearBearer, {identity: rearPolicy.identity, ...rearSession}, 1,
-            {schemaVersion: 1, revision: null, policyId: null, error: storageError});
           const scope = await call(scopePath, null, token, '0.16', 5);
           const byBinding = id => scope.screens.find(screen => screen.bindingId === id);
-          const fault = byBinding(rear.id);
-          assert.equal(fault.observationCurrent, true);
-          assert.equal(fault.observed.schemaVersion, 1);
-          assert.equal(fault.observed.error, storageError);
-          assert.equal(byBinding(front.screenBindingId).observed.schemaVersion, 4);
-          assert.equal(byBinding(front.screenBindingId).observed.error, null);
-          faultEvidence = {reportedSchema: fault.observed.schemaVersion, serverPolicySchema: rearPolicy.actionPolicy.schemaVersion,
-            error: fault.observed.error, currentInitially: fault.observationCurrent};
+          const frontView = byBinding(front.screenBindingId), rearView = byBinding(rear.id);
+          assert.equal(frontView.observationCurrent, true);
+          assert.equal(rearView.observationCurrent, true);
+          assert.equal(frontView.observed.schemaVersion, 4);
+          assert.equal(rearView.observed.schemaVersion, 3);
+          assert.equal(frontView.observed.error, null);
+          assert.equal(rearView.observed.error, null);
+          versionEvidence = {frontSchema: frontView.observed.schemaVersion, rearSchema: rearView.observed.schemaVersion};
           return;
         }
       }
@@ -179,6 +204,7 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     assert.equal(final.rooms[0].before.usbCount, 0);
     assert.equal(final.rooms[0].before.actions.stopScheduledMonitoring.factor, 'ALL');
     assert.equal(final.rooms[0].before.actions.exitBackground.mode, 'DENY');
+    assert.equal(final.rooms[0].before.actions.startManualStudy.mode, 'ALLOW');
     assert.equal(final.rooms[0].before.actions.startManualRecording.mode, 'ALLOW');
     assert.deepEqual((await call(path + '/history-usb')).keys, []);
     assert.equal((await call(path)).term, null);
@@ -188,7 +214,7 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     await writeFile(join(evidence, 'cross-check.json'), JSON.stringify({passed: true, writes, ownReads, dropped,
       originalGradeId: grade.id, originalTermId: term.id, originalClassId: room.id, front: front.screenBindingId, rear: rear.id,
       verifiedSource: final.rooms[0].before.source, lastKeyRevoked: final.rooms[0].before.usbCount === 0, physicalUsbWritten: false,
-      historicalKeyId: oldKey.keyId, historicalKeyRevokedWithNoActiveTerm: true, faultEvidence}, null, 2));
+      historicalKeyId: oldKey.keyId, historicalKeyRevokedWithNoActiveTerm: true, versionEvidence, faultEvidence}, null, 2));
     console.log('PASS real Windows Console, isolated KV/PostgreSQL, independent per-screen observations and historical USB revocation without an active term. No physical USB was written.');
   } finally {
     proxy.closeAllConnections();

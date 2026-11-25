@@ -388,7 +388,11 @@ public sealed partial class ClassroomActionPolicyWindow : Window
             var problems = preview.Issues.Where(issue => issue.ClassId == room.Id).Select(issue =>
                 $"{ActionName(issue.Action)}缺少验证条件（本班口令{(issue.PasswordConfigured ? "已设置" : "未设置")}，适用 U 盘 {issue.UsbCount} 支）");
             var targets = preview.Screens.Where(screen => screen.ClassId == room.Id).Select(screen =>
-                $"{screen.BindingName}（{(screen.DeviceName ?? (_showingHistory ? "当前设备待核对" : "未配对"))}）");
+            {
+                string device = screen.DeviceName ?? (_showingHistory ? "当前设备待核对" : "未配对");
+                string schema = screen.ObservationCurrent && screen.Observed is { Error: null } receipt ? $" · 回执 v{receipt.SchemaVersion}" : "";
+                return $"{screen.BindingName}（{device}{schema}）";
+            });
             string screenText = string.Join("、", targets);
             var before = _showingHistory ? "原策略" : "当前";
             var after = change.Operation == "REVOKE_USB" ? "撤销后" : "发布后";
@@ -396,8 +400,8 @@ public sealed partial class ClassroomActionPolicyWindow : Window
                 $"保持 {PolicyText(room.Before)}" :
                 $"{before} {PolicyText(room.Before)}\n{after} {PolicyText(room.After)}";
             var screenLabel = _showingHistory ? "可核对原大屏" : "大屏";
-            string held = room.Before.PolicyId != room.After.PolicyId ? UpgradePreview(room.After) : "";
-            review.Add($"{room.Name} · {room.Code}\n{changeText}\n{screenLabel} { (screenText.Length == 0 ? "暂无" : screenText)}" + held +
+            string compatibility = room.Before.PolicyId != room.After.PolicyId ? UpgradePreview(room.After) : "";
+            review.Add($"{room.Name} · {room.Code}\n{screenLabel} {(screenText.Length == 0 ? "暂无" : screenText)}{compatibility}\n{changeText}" +
                 (problems.Any() ? "\n" + string.Join("；", problems) : ""));
         }
         if (_showingHistory && review.Count == 0) review.Add("原范围目前无可核对的班级或大屏。仍可撤销此钥匙的原登记。");
@@ -604,11 +608,11 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         foreach (var screen in scope.Screens)
         {
             var room = scope.Rooms.Single(row => row.Id == screen.ClassId);
-            int minimumSchema = room.Before.MinimumReceiptSchema ?? (room.Before.Actions?.SwitchClassroomMode is not null ? 2 : 1);
+            int minimumSchema = MinimumReceiptSchema(room.Before);
             var current = screen.ObservationCurrent ? screen.Observed : null;
             string state = screen.DeviceId is null ? "未配对" :
                 current?.Error is { } error ? PolicyReceiptError(error) :
-                current is not null && current.SchemaVersion < minimumSchema ? UpgradeReceipt(room.Before, current.SchemaVersion, minimumSchema) :
+                current is not null && current.SchemaVersion < minimumSchema ? UpgradeReceipt(room.Before, current.SchemaVersion) :
                 current is not null && current.PolicyId == room.Before.PolicyId && current.Revision >= room.Before.RequiredRevision ?
                     "设备已应用策略" : "等待同步或支持此策略的回执";
             string historical = screen.LastApplied is { } last && screen.LastAppliedAt is { } at ?
@@ -620,27 +624,48 @@ public sealed partial class ClassroomActionPolicyWindow : Window
     private static string PolicyReceiptError(string error) => error == "CLASSROOM_POLICY_STORE_UNAVAILABLE" ?
         "设备策略存储异常 · 请检查大屏本地存储" : $"设备待核对（{error}）";
 
-    private static string UpgradePreview(ClassroomEffectiveAction policy)
+    private static int MinimumReceiptSchema(ClassroomEffectiveAction policy) => policy.MinimumReceiptSchema ?? (policy.Actions switch
     {
-        string text = policy.MinimumReceiptSchema switch
+        { StartManualRecording: not null } => 5,
+        { StartManualStudy: not null } => 4,
+        { SwitchClassroomMode: not null } => 2,
+        _ => 1
+    });
+
+    private static string MissingActions(ClassroomEffectiveAction policy, int schema)
+    {
+        if (policy.Actions is not { } actions) return "";
+        return string.Join("、", new[]
         {
-            5 => "\n旧版大屏需升级才能应用手动录课规则。",
-            4 => "\n旧版大屏需升级才能应用手动自习规则。",
-            _ => ""
-        };
-        if (HasLegacyHold(policy)) text += $"\n仍使用旧版兼容策略的大屏同步后，{HeldActions(policy)}暂按禁止处理。";
-        return text;
+            schema < 2 && actions.SwitchClassroomMode is not null ? "课堂模式" : null,
+            schema < 4 && actions.StartManualStudy is not null ? "手动自习" : null,
+            schema < 5 && actions.StartManualRecording is not null ? "手动录课" : null
+        }.Where(action => action is not null));
     }
 
-    private static string UpgradeReceipt(ClassroomEffectiveAction policy, int observedSchema, int minimumSchema)
+    private static string UpgradePreview(ClassroomEffectiveAction policy)
     {
-        string text = minimumSchema switch
+        var versions = Enumerable.Range(1, MinimumReceiptSchema(policy) - 1)
+            .Select(schema => (Schema: schema, Missing: MissingActions(policy, schema),
+                Held: schema < 3 && HasLegacyHold(policy) ? HeldActions(policy) : ""))
+            .Where(version => version.Missing.Length > 0 || version.Held.Length > 0)
+            .GroupBy(version => (version.Missing, version.Held));
+        return string.Concat(versions.Select(group =>
         {
-            5 => "旧版大屏回执 · 此屏需升级才能应用手动录课规则",
-            4 => "旧版大屏回执 · 此屏需升级才能应用手动自习规则",
-            3 => "旧版大屏回执 · 此屏需升级",
-            _ => "旧版大屏回执 · 课堂模式策略待核对"
-        };
+            int first = group.First().Schema;
+            int last = group.Last().Schema;
+            string range = first == last ? $"v{first}" : $"v{first}–v{last}";
+            string missing = group.Key.Missing.Length > 0 ? $"需升级才能应用{group.Key.Missing}规则。" : "";
+            string held = group.Key.Held.Length > 0 ? $"同步后，{group.Key.Held}暂按禁止处理。" : "";
+            return $"\n{range} 大屏{missing}{held}";
+        }));
+    }
+
+    private static string UpgradeReceipt(ClassroomEffectiveAction policy, int observedSchema)
+    {
+        string missing = MissingActions(policy, observedSchema);
+        string text = $"旧版大屏回执 v{observedSchema} · 此屏需升级";
+        if (missing.Length > 0) text += $"才能应用{missing}规则";
         if (observedSchema < 3 && HasLegacyHold(policy)) text += $"。旧版同步本策略后，{HeldActions(policy)}暂按禁止处理";
         return text;
     }
@@ -665,7 +690,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         string recording = origins?.StartManualRecording is { } recordingOrigin ?
             $"\n手动录课 {RuleText(actions.StartManualRecording)}{OriginText(recordingOrigin)}" : "";
         return $"{(policy.Source == "CLASS" ? "班级策略" : "年级默认")} · 停止 {RuleText(actions.StopScheduledMonitoring)}{OriginText(origins?.StopScheduledMonitoring)} · " +
-            $"退出 {RuleText(actions.ExitBackground)}{OriginText(origins?.ExitBackground)}\n课堂模式 {RuleText(actions.SwitchClassroomMode)}{OriginText(origins?.SwitchClassroomMode)}{manual}{recording} · U 盘 {policy.UsbCount} 支";
+            $"退出 {RuleText(actions.ExitBackground)}{OriginText(origins?.ExitBackground)}\n课堂模式 {RuleText(actions.SwitchClassroomMode)}{OriginText(origins?.SwitchClassroomMode)}{manual}{recording}\n本班适用 U 盘 {policy.UsbCount} 支";
     }
 
     private static string OriginText(string? origin) => origin switch

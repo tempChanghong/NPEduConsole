@@ -81,6 +81,7 @@ internal static partial class Program
             Option("StopMode").SelectedIndex = 1;
             Option("StopFactor").SelectedIndex = 3;
             Option("ExitMode").SelectedIndex = 2;
+            Pick("ManualStudyMode", "允许现场操作");
             Pick("ManualRecordingMode", "允许现场操作");
             Click(Action("SavePreview"));
             var review = Find<ListBox>(window, "ActionPolicyReviewRows");
@@ -92,19 +93,35 @@ internal static partial class Program
             var tabs = Find<TabControl>(window, "ActionPolicyTabs");
             tabs.SelectedIndex = 2;
             var observations = Find<ListBox>(window, "ActionPolicyScreenEvidence");
-            for (int refresh = 0; refresh < 8; refresh++)
+            string ScreenRow(string bindingId) => observations.Items.OfType<string>().Single(row => row.Contains(bindingId));
+            bool FrontNeedsRecordingOnly()
             {
-                if (observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("需升级才能应用手动录课规则"))) break;
-                await Task.Delay(300);
-                await Until(() => Action("Refresh").IsEffectivelyEnabled, "refresh after policy publication");
+                var row = ScreenRow(access.FrontId);
+                return row.Contains("旧版大屏回执 v4") && row.Contains("此屏需升级才能应用手动录课规则") &&
+                    !row.Contains("手动自习") && !row.Contains("设备已应用");
+            }
+            bool RearNeedsBoth()
+            {
+                var row = ScreenRow(access.RearId);
+                return row.Contains("旧版大屏回执 v3") && row.Contains("此屏需升级才能应用手动自习、手动录课规则") &&
+                    !row.Contains("设备已应用");
+            }
+            async Task Refresh()
+            {
+                await Until(() => Action("Refresh").IsEffectivelyEnabled, "receipt refresh is available");
                 Click(Action("Refresh"));
                 await Until(() => Action("Refresh").IsEffectivelyEnabled, "latest per-screen read finished");
             }
-            Check(observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("需升级才能应用手动录课规则")) &&
-                observations.Items.OfType<string>().Any(row => row.Contains(access.RearId) && row.Contains("等待同步")), "front receipt and rear pending status were conflated");
+            for (int refresh = 0; refresh < 8; refresh++)
+            {
+                if (FrontNeedsRecordingOnly() && RearNeedsBoth()) break;
+                await Task.Delay(300);
+                await Refresh();
+            }
+            Check(FrontNeedsRecordingOnly() && RearNeedsBoth(), "v4 needs only recording while v3 needs both configured actions");
             window.Width = 840;
             window.Height = 480;
-            await CaptureWithFrame(window, output, "02-front-upgrade-rear-pending-narrow");
+            await CaptureWithFrame(window, output, "02-version-specific-upgrade-narrow");
 
             tabs.SelectedIndex = 0;
             Option("Kind").SelectedIndex = 1;
@@ -130,42 +147,43 @@ internal static partial class Program
             window.Height = 480;
             Click(Action("SavePreview"));
             await Until(() => review.IsEffectivelyVisible && review.Items.Count == 1 && Content("ReviewSummary").Contains("2 台大屏"), "override only that exact class and its two screens");
-            Check(review.Items.OfType<string>().Single().Contains("手动录课 本班口令（本班自定）") &&
-                review.Items.OfType<string>().Single().Contains("手动自习 沿用原行为") &&
-                review.Items.OfType<string>().Single().Contains("课堂模式 沿用原行为") &&
-                review.Items.OfType<string>().Single().Contains("旧版大屏需升级才能应用手动录课规则") &&
-                review.Items.OfType<string>().Single().Contains("退出 禁止现场操作（年级默认）"), "preview omitted the new rule, origins or required upgrade");
+            var classReview = review.Items.OfType<string>().Single();
+            Check(classReview.Contains("手动录课 本班口令（本班自定）") &&
+                classReview.Contains("手动自习 允许现场操作（年级默认）") &&
+                classReview.Contains("课堂模式 沿用原行为") && classReview.Contains("退出 禁止现场操作（年级默认）"),
+                "preview omitted the selected rule or its independent inheritance");
+            Check(classReview.Contains("回执 v3") && classReview.Contains("回执 v4") &&
+                classReview.Contains("v1–v3 大屏需升级才能应用手动自习、手动录课规则。") &&
+                classReview.Contains("v4 大屏需升级才能应用手动录课规则。"), "preview did not distinguish the version ranges and the observed screen schemas");
+            Check(classReview.Split('\n').Count(line => line == "本班适用 U 盘 1 支") == 2,
+                "the shared class USB pool should be separate from action rules in both previews");
             await CaptureWithFrame(window, output, "05-preview-narrow");
             await Publish();
             Check(Content("Source").Contains("已发布：逐项设置") && !Find<TextBlock>(window, "ActionPolicyDraft").IsEffectivelyVisible,
                 "class override was not activated in KV");
             tabs.SelectedIndex = 2;
-            string ScreenRow(string bindingId) => observations.Items.OfType<string>().Single(row => row.Contains(bindingId));
-            bool HasNewLegacyReceipt()
-            {
-                var row = ScreenRow(access.FrontId);
-                return row.Contains("此屏需升级才能应用手动录课规则") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用");
-            }
+            bool HasClassReceipts() => FrontNeedsRecordingOnly() && RearNeedsBoth() &&
+                ScreenRow(access.FrontId).Contains("上次回报版本 3") && ScreenRow(access.RearId).Contains("上次回报版本 3");
             for (int refresh = 0; refresh < 8; refresh++)
             {
-                if (HasNewLegacyReceipt() && !ScreenRow(access.RearId).Contains("等待同步")) break;
+                if (HasClassReceipts()) break;
                 await Task.Delay(300);
-                await Until(() => Action("Refresh").IsEffectivelyEnabled, "refresh after classroom mode publication");
-                Click(Action("Refresh"));
-                await Until(() => Action("Refresh").IsEffectivelyEnabled, "classroom mode evidence finished");
+                await Refresh();
             }
-            Check(HasNewLegacyReceipt(), "a v4 receipt for this publication should leave manual recording unconfirmed");
+            Check(HasClassReceipts(), "both current receipts should reflect the specific missing actions after publication");
+            using var checkpoint = new HttpClient { BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(15) };
+            using (var injected = await checkpoint.PostAsync("/__classroom-policy-fixture/fault-rear", null))
+                Check(injected.IsSuccessStatusCode, "rear storage fault accepted on the current device session");
+            await Refresh();
             var rearFault = ScreenRow(access.RearId);
-            Check(rearFault.Contains("设备策略存储异常") && !rearFault.Contains("需升级") && !rearFault.Contains("设备已应用"),
+            Check(FrontNeedsRecordingOnly() && rearFault.Contains("设备策略存储异常") && !rearFault.Contains("需升级") && !rearFault.Contains("设备已应用"),
                 "the current storage fault must take precedence over the receipt schema on the exact rear screen");
             await CaptureWithFrame(window, output, "06-independent-upgrade-and-storage-fault");
-            using var checkpoint = new HttpClient { BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(15) };
             using (var restarted = await checkpoint.PostAsync("/__classroom-policy-fixture/restart-rear", null))
                 Check(restarted.IsSuccessStatusCode, "rear device opens a new session without sending a new policy receipt");
-            Click(Action("Refresh"));
-            await Until(() => Action("Refresh").IsEffectivelyEnabled, "screen receipts refreshed after rear device restarted");
+            await Refresh();
             var stale = ScreenRow(access.RearId);
-            Check(stale.Contains("等待同步") && !stale.Contains("存储异常") && !stale.Contains("需升级") && HasNewLegacyReceipt(),
+            Check(stale.Contains("等待同步") && !stale.Contains("存储异常") && !stale.Contains("需升级") && FrontNeedsRecordingOnly(),
                 "the old-session storage fault must not be shown as current or alter the front receipt");
             await CaptureWithFrame(window, output, "07-restarted-screen-waits-for-receipt");
             tabs.SelectedIndex = 0;
@@ -231,7 +249,7 @@ internal static partial class Program
             await Until(() => !window.IsVisible && entry.IsFocused, "historical window returns to the same device entry");
             File.WriteAllText(Path.Combine(output, "desktop-result.json"), JsonSerializer.Serialize(new { passed = true, realWindows = true,
                 physicalUsbRegistered = false, verified = new[] { "normal-entry", "wide-grade-review", "lost-response-own-read", "narrow-independent-screens",
-                    "class-override", "manual-recording-preview", "neighbor-follows-grade", "old-device-receipt-pending", "current-storage-fault",
+                    "class-override", "manual-recording-preview", "neighbor-follows-grade", "version-specific-missing-actions", "standalone-class-usb-count", "current-storage-fault",
                     "superseded-storage-fault", "restore-inheritance",
                     "last-key-revoke-warning", "entry-focus", "historical-no-active-term", "original-key-revocation" } }));
             desktop.Shutdown(0);
