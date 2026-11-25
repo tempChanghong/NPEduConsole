@@ -13,6 +13,7 @@ export async function verifyWebsitePolicyProduct({prisma, origin, directory, fix
   const consoleDriver = resolve(process.env.NP_WEBSITE_PRODUCT_CONSOLE);
   const {school, term, managerId, classes, identity} = fixture;
   const name = ['网站策略验收一班', '网站策略验收二班'];
+  const timed = process.env.NP_WEBSITE_PRODUCT_TIMING === '1';
   const screens = await Promise.all(classes.slice(0, 2).map((classId, index) => prisma.classroomScreenBinding.create({data: {
     schoolId: school.id, administrativeClassId: classId, name: name[index],
     tokenHash: randomBytes(32).toString('hex'), createdByAccountId: managerId
@@ -30,7 +31,8 @@ export async function verifyWebsitePolicyProduct({prisma, origin, directory, fix
     const requestId = randomUUID();
     const response = await fetch(origin + path, {method: body ? 'POST' : 'GET', signal: AbortSignal.timeout(10000),
       headers: {Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json', 'X-NPEP-Version': version,
-        'X-Request-Id': requestId, 'X-NPEP-Website-Policy-Automation': '1'}, ...(body ? {body: JSON.stringify({requestId, ...body})} : {})});
+        'X-Request-Id': requestId, 'X-NPEP-Website-Policy-Automation': '1',
+        ...(timed ? {'X-NPEP-Website-Policy-Timing': '1'} : {})}, ...(body ? {body: JSON.stringify({requestId, ...body})} : {})});
     const result = await response.json();
     assert.equal(response.status, 200, `${path} ${result.error?.code ?? ''}`);
     return result.data;
@@ -62,23 +64,23 @@ export async function verifyWebsitePolicyProduct({prisma, origin, directory, fix
     } while (Date.now() < end);
     throw new Error('Timed out: ' + label);
   }
-  async function marker(stage) {
+  async function marker(stage, timeout = 300000) {
     const path = join(evidence, stage + '.json');
     return until(stage, async () => {
-      try { return JSON.parse(await readFile(path, 'utf8')); }
+      try { return JSON.parse((await readFile(path, 'utf8')).replace(/^\uFEFF/, '')); }
       catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; return null; }
-    });
+    }, timeout);
   }
-  async function receipt(index, statuses) {
+  async function receipt(index, statuses, phase = null, timeout) {
     return until(statuses.join('/') + ' binding ' + index, async () => {
       const row = await call(scopePath + classes[index]);
       const screen = row.screens.find(item => item.bindingId === screens[index].id);
-      if (!statuses.includes(screen.status)) return null;
+      if (!statuses.includes(screen.status) || phase && screen.schedulePhase !== phase) return null;
       const result = {screen, policy: row.rows[0].before};
       outcomes.push(result);
       await writeFile(join(evidence, 'receipts.json'), JSON.stringify(outcomes, null, 2));
       return result;
-    });
+    }, timeout);
   }
   async function pair(index) {
     await signal('pair-' + index, {index});
@@ -89,7 +91,66 @@ export async function verifyWebsitePolicyProduct({prisma, origin, directory, fix
     await signal('finish-pair-' + index, {index});
     paired[index] = await until('new binding', () => prisma.npepDevice.findFirst({where: {schoolId: school.id,
       screenBindingId: screens[index].id, administrativeClassId: classes[index], deviceName: name[index], state: 'ACTIVE'}}));
-    assert.equal((await receipt(index, ['WRITTEN_PENDING'])).screen.deviceId, paired[index].id);
+    assert.equal((await receipt(index, timed ? ['WRITTEN_PENDING', 'CLEARED_PENDING'] : ['WRITTEN_PENDING'])).screen.deviceId, paired[index].id);
+  }
+  if (timed) {
+    const rule = {hostPeriods: {'douyin.com': 'LESSON|AFTER_SCHOOL'}, timed: true, unavailableBehavior: 'ALLOW'};
+    await signal('publishing-timed-grade');
+    await publish({...rule, imageName: 'timed-grade-1160'});
+    const saved = (await receipt(0, ['NOT_PAIRED'])).policy;
+    assert.deepEqual(saved.rules, [{host: 'douyin.com', period: 'LESSON|AFTER_SCHOOL'}]);
+    assert.equal(saved.unavailableBehavior, 'ALLOW');
+    if (process.env.NP_WEBSITE_PRODUCT_UI_ONLY === '1') {
+      await publish({...rule, allowClass: true, draftHosts: ['douyin.com'], imageName: 'timed-class-840', windowWidth: 840, windowHeight: 480,
+        unavailableBehavior: 'BLOCK', expectedBefore: '现在：年级默认', expectedAfter: '发布后：本班自定'});
+      // An independent class copy must not change the effective rule of another class.
+      assert.equal((await call(scopePath + classes[1])).rows[0].before.unavailableBehavior, 'ALLOW');
+      await signal('complete');
+      return;
+    }
+    const hold = process.env.NP_WEBSITE_PRODUCT_TIMING_HOLD === '1';
+    if (hold) await writeFile(join(evidence, 'classroom-phase.txt'), 'Lesson');
+    await pair(0);
+    if (hold) {
+      const lesson = ['WRITTEN_PENDING', 'EDGE_CONFIRMED'];
+      await receipt(0, lesson, 'LESSON');
+      await signal('timed-hold-short');
+      await marker('timed-hold-short');
+      await receipt(0, lesson, 'LESSON');
+      await signal('timed-hold-long');
+      await receipt(0, ['CLEARED_PENDING'], 'UNAVAILABLE');
+      await signal('timed-hold-recover');
+      await receipt(0, lesson, 'LESSON');
+      await signal('timed-hold-recovered');
+      await marker('timed-hold-recovered');
+    }
+    const natural = process.env.NP_WEBSITE_PRODUCT_NATURAL === '1';
+    const phases = natural ? [
+      ['LESSON', ['WRITTEN_PENDING', 'EDGE_CONFIRMED'], 'timed-native-lesson'],
+      ['BREAK', ['CLEARED_PENDING'], 'timed-native-break'],
+      ['LESSON', ['WRITTEN_PENDING', 'EDGE_CONFIRMED'], 'timed-native-return']
+    ] : [
+      ['LESSON', ['WRITTEN_PENDING', 'EDGE_CONFIRMED'], 'Lesson'],
+      ['BREAK', ['CLEARED_PENDING'], 'Break'],
+      ['AFTER_SCHOOL', ['WRITTEN_PENDING', 'EDGE_CONFIRMED'], 'AfterSchool'],
+      ['UNAVAILABLE', ['CLEARED_PENDING'], 'Paused'],
+      ['LESSON', ['WRITTEN_PENDING', 'EDGE_CONFIRMED'], 'Lesson']
+    ];
+    for (const [phase, statuses, stage] of hold ? [] : phases) {
+      if (!natural) await writeFile(join(evidence, 'classroom-phase.txt'), stage);
+      const result = await receipt(0, statuses, phase, natural ? 900000 : 300000);
+      assert.equal(result.screen.deviceId, paired[0].id);
+      assert.equal(result.screen.timingSupported, true);
+      assert.equal(result.policy.policyId, saved.policyId);
+      await signal(natural ? stage : 'timed-' + stage);
+      // The independent browser observation can itself take five minutes.
+      if (natural && stage === 'timed-native-return') await marker(stage, 420000);
+    }
+    await signal('unpair-0');
+    await marker('unpair-0');
+    await receipt(0, ['NOT_PAIRED']);
+    await signal('complete');
+    return;
   }
   await signal('publishing-grade');
   await publish();

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
@@ -11,10 +12,20 @@ internal static partial class Program
 {
     private sealed record WebsiteAccess(string Origin, string SchoolId, string SchoolCode, string Pin,
         string GradeCode, string ClassCode, bool ReadReceipt, bool AllowClass = false,
-        string? ExpectedScreen = null, string? ExpectedStatus = null, string? ImageName = null);
+        string? ExpectedScreen = null, string? ExpectedStatus = null, string? ImageName = null,
+        bool Timed = false, string[]? DraftHosts = null, Dictionary<string, string>? HostPeriods = null,
+        string? UnavailableBehavior = null, bool ExpectLegacyOnly = false,
+        string? ExpectedBefore = null, string? ExpectedAfter = null,
+        int? WindowWidth = null, int? WindowHeight = null);
 
     private static int StartWebsitePolicy(string path, string output)
     {
+        if (path == "--timing-checks")
+        {
+            WebsitePolicyTimingChecks.RunAll();
+            Console.WriteLine("PASS WebsitePolicyTimingChecks");
+            return 0;
+        }
         var access = JsonSerializer.Deserialize<WebsiteAccess>(File.ReadAllText(path), JsonSerializerOptions.Web)
             ?? throw new InvalidDataException("Expected an isolated website policy fixture.");
         Check(IsLoopback(access.Origin), "Website policy verification requires the disposable server.");
@@ -50,8 +61,8 @@ internal static partial class Program
             WebsitePolicyWindow? opened = null;
             await Until(() => (opened = desktop.Windows.OfType<WebsitePolicyWindow>().SingleOrDefault())?.IsVisible == true, "website rule window open");
             var window = opened!;
-            window.Width = access.ReadReceipt ? 840 : 1160;
-            window.Height = access.ReadReceipt ? 480 : 780;
+            window.Width = access.WindowWidth ?? (access.ReadReceipt ? 840 : 1160);
+            window.Height = access.WindowHeight ?? (access.ReadReceipt ? 480 : 780);
             var choices = Find<ComboBox>(window, "ScopeChoice");
             if (access.ReadReceipt || access.AllowClass) Find<ComboBox>(window, "ScopeKind").SelectedIndex = 1;
             string code = access.ReadReceipt || access.AllowClass ? access.ClassCode : access.GradeCode;
@@ -84,25 +95,112 @@ internal static partial class Program
                     return targetRows.Length == 2 && targetRows.All(row =>
                         row.TranslatePoint(new(0, row.Bounds.Height), scroller)?.Y <= scroller.Bounds.Height - 2);
                 }, "both target screen states fit the narrow inherited view");
-                await CaptureWithFrame(window, output, "02-received-not-applied-840");
+                await CaptureWithFrame(window, output, access.ImageName ?? "02-received-not-applied-840");
             }
             else
             {
                 await Until(() => Find<CheckBox>(window, "Inherit").IsEffectivelyVisible &&
-                    Find<CheckBox>(window, "Inherit").IsEffectivelyEnabled, "loaded actual grade");
+                    Find<CheckBox>(window, "Inherit").IsEffectivelyEnabled, "loaded actual scope");
                 Find<CheckBox>(window, "Inherit").IsChecked = false;
-                hosts.Text = access.AllowClass ? "" : "douyin.com";
+                string[] targetHosts = access.DraftHosts ?? (access.AllowClass ? [] : ["douyin.com"]);
+                hosts.Text = string.Join(Environment.NewLine, targetHosts);
+                if (access.ExpectLegacyOnly)
+                {
+                    Check(!Find<StackPanel>(window, "TimingSection").IsVisible, "legacy KV hides timing controls");
+                    Check(!Find<Grid>(window, "UnavailablePanel").IsVisible, "legacy KV hides unavailable behavior");
+                }
+                else if ((access.Timed || access.HostPeriods is { Count: > 0 }) && targetHosts.Length > 0)
+                {
+                    var hostPeriods = access.HostPeriods ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        [targetHosts[0]] = "LESSON|AFTER_SCHOOL"
+                    };
+                    var timingRows = Find<ItemsControl>(window, "TimingRows");
+                    await Until(() => timingRows.GetVisualDescendants().OfType<CheckBox>().Count() == targetHosts.Length * 4,
+                        "per-host timing checkboxes rendered");
+                    var boxes = timingRows.GetVisualDescendants().OfType<CheckBox>().ToArray();
+                    CheckBox Box(string host, string label) =>
+                        boxes.Single(item => AutomationProperties.GetName(item) == $"{host} {label}");
+
+                    foreach (var host in targetHosts)
+                    {
+                        Check(Box(host, "全天").IsChecked == true, "all hosts default to all-day");
+                        Check(Box(host, "上课").IsChecked == false && Box(host, "课间").IsChecked == false && Box(host, "放学后").IsChecked == false,
+                            "timed checkboxes start unchecked");
+                    }
+                    Check(!Find<Grid>(window, "UnavailablePanel").IsVisible, "unavailable behavior hidden while all-day");
+
+                    var previewCheck = Find<Button>(window, "PreviewButton");
+                    var firstTimed = hostPeriods.FirstOrDefault(pair => pair.Value != WebsitePolicyTiming.PeriodAlways);
+                    if (firstTimed.Key is not null)
+                    {
+                        Box(firstTimed.Key, "全天").IsChecked = false;
+                        await Until(() => !previewCheck.IsEnabled, "empty period combination blocks preview");
+                    }
+
+                    foreach (var (host, period) in hostPeriods)
+                    {
+                        var (isAllDay, isLesson, isBreak, isAfterSchool) = WebsitePolicyTiming.DecodeSelection(period);
+                        if (isAllDay)
+                        {
+                            Box(host, "全天").IsChecked = true;
+                        }
+                        else
+                        {
+                            Box(host, "上课").IsChecked = isLesson;
+                            Box(host, "课间").IsChecked = isBreak;
+                            Box(host, "放学后").IsChecked = isAfterSchool;
+                            Check(Box(host, "全天").IsChecked == false, "timed selection clears all-day");
+                        }
+                    }
+
+                    bool expectsTimed = hostPeriods.Values.Any(period => period != WebsitePolicyTiming.PeriodAlways);
+                    var unavailablePanel = Find<Grid>(window, "UnavailablePanel");
+                    await Until(() => unavailablePanel.IsVisible == expectsTimed, "unavailable behavior panel matches timed state");
+                    if (expectsTimed)
+                    {
+                        var unavailableBox = Find<ComboBox>(window, "UnavailableBehavior");
+                        Check(unavailableBox.SelectedIndex == 0, "default unavailable behavior is block");
+                        if (string.Equals(access.UnavailableBehavior, WebsitePolicyTiming.BehaviorAllow, StringComparison.Ordinal))
+                            unavailableBox.SelectedIndex = 1;
+                    }
+                    Check(!Find<ComboBox>(window, "ScopeKind").IsEnabled && !Find<ComboBox>(window, "ScopeChoice").IsEnabled,
+                        "scope switching locked while dirty");
+                }
                 var preview = Find<Button>(window, "PreviewButton");
                 await Until(() => preview.IsEffectivelyEnabled, "changed draft ready");
                 Click(preview);
                 var publish = Find<Button>(window, "PublishButton");
                 await Until(() => publish.IsEffectivelyVisible && publish.IsEffectivelyEnabled, "server compared real classes");
                 var rooms = Find<ItemsControl>(window, "RoomRows");
-                Check(rooms.Items.OfType<string>().Any(row => access.AllowClass
-                    ? row.Contains("现在：年级默认 · douyin.com") && row.Contains("发布后：本班自定 · 无下发域名")
-                    : row.Contains("现在：未设置") && row.Contains("发布后：年级默认 · douyin.com")),
-                    "clear class impact before publish");
-                await CaptureWithFrame(window, output, access.AllowClass ? "03-class-allow-review-1160" : "01-grade-review-1160");
+                if (access.ExpectedBefore is { } expectedBefore && access.ExpectedAfter is { } expectedAfter)
+                {
+                    Check(rooms.Items.OfType<string>().Any(row => row.Contains(expectedBefore) && row.Contains(expectedAfter)),
+                        "clear timed class impact before publish");
+                }
+                else if (access.Timed || access.HostPeriods is { Count: > 0 })
+                {
+                    var expectedPeriod = access.HostPeriods?.Values.FirstOrDefault(p => p != WebsitePolicyTiming.PeriodAlways) ?? "LESSON|AFTER_SCHOOL";
+                    string expectedLabel = WebsitePolicyTiming.PeriodLabel(expectedPeriod);
+                    Check(rooms.Items.OfType<string>().Any(row => row.Contains("现在：") && row.Contains($"发布后：") && row.Contains($"（{expectedLabel}）")),
+                        "clear timed combination before/after in preview");
+                }
+                else
+                {
+                    Check(rooms.Items.OfType<string>().Any(row => access.AllowClass
+                        ? row.Contains("现在：年级默认 · douyin.com") && row.Contains("发布后：本班自定 · 无下发域名")
+                        : row.Contains("现在：未设置") && row.Contains("发布后：年级默认 · douyin.com")),
+                        "clear class impact before publish");
+                }
+                if (window.Width < 940 && access.Timed)
+                {
+                    var scroller = Find<ScrollViewer>(window, "WebsiteDetailsScroll");
+                    await Until(() => rooms.GetVisualDescendants().OfType<TextBlock>().Any(row =>
+                        row.Text?.Contains("发布后：") == true && row.TranslatePoint(default, scroller) is { Y: >= 0 } &&
+                        row.TranslatePoint(new(0, row.Bounds.Height), scroller)?.Y <= scroller.Bounds.Height),
+                        "narrow preview displays the actual comparison before publication");
+                }
+                await CaptureWithFrame(window, output, access.ImageName ?? (access.AllowClass ? "03-class-allow-review-1160" : "01-grade-review-1160"));
                 Click(publish);
                 await Until(() => Find<TextBlock>(window, "Feedback").Text?.Contains("学校配置已保存") == true, "operator's server receipt present");
             }

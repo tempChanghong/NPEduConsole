@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
@@ -12,7 +13,13 @@ public sealed partial class WebsitePolicyWindow : Window
         public Write? Value { get; set; }
     }
 
-    internal sealed record Write(Guid RequestId, ClassroomActionTarget Target, string[]? Hosts, string Version);
+    internal sealed record Write(
+        Guid RequestId,
+        ClassroomActionTarget Target,
+        string[]? Hosts,
+        string Version,
+        bool UseTimedApi = false,
+        WebsitePolicyDraft? Draft = null);
     private sealed record Choice(string Id, string Label)
     {
         public override string ToString() => Label;
@@ -26,7 +33,7 @@ public sealed partial class WebsitePolicyWindow : Window
     private ClassroomActionTarget? _target;
     private WebsitePolicySnapshot? _scope;
     private WebsitePolicySnapshot? _preview;
-    private bool _reading, _posting, _closing, _updating, _dirty, _canRetry, _compact;
+    private bool _reading, _posting, _closing, _updating, _dirty, _canRetry, _compact, _downgradeBlocked;
     internal event Action<ConsoleApiException>? AccessLost;
 
     public WebsitePolicyWindow() => InitializeComponent();
@@ -127,18 +134,20 @@ public sealed partial class WebsitePolicyWindow : Window
     {
         if (_scope is null) return;
         _preview = null;
-        _updating = true;
-        Inherit.IsChecked = _scope.BeforeHosts is null;
-        Hosts.Text = string.Join(Environment.NewLine, _scope.BeforeHosts ?? []);
-        _updating = false;
+        _downgradeBlocked = false;
+        ResetTimingState(_scope);
         _dirty = false;
         Inherit.Content = _scope.ScopeKind == "CLASS" ? "跟随本班所在年级" : "取消该年级默认规则";
         EditorHeading.Text = $"{(_scope.ScopeKind == "CLASS" ? "班级" : "年级")} · {_scope.ScopeName}";
+        if (_downgradeBlocked)
+            Feedback.Text = "当前服务端不支持分时网站规则，已保留当前分时草稿且禁止降格或分时写入。";
         RenderRows();
         UpdateActions();
     }
 
-    private string[]? DraftHosts() => Inherit.IsChecked == true ? null :
+    private string[]? DraftHosts() => Inherit.IsChecked == true ? null : DraftHostLines();
+
+    private string[] DraftHostLines() =>
         (Hosts.Text ?? "").Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.Ordinal).ToArray();
 
@@ -146,22 +155,52 @@ public sealed partial class WebsitePolicyWindow : Window
     {
         if (_updating || _scope is null || _pending.Value is not null) return;
         _preview = null;
-        var draft = DraftHosts();
-        var saved = _scope.BeforeHosts;
-        _dirty = draft is null ? saved is not null : saved is null || !draft.SequenceEqual(saved);
+        SyncTimingRowsFromHosts();
+        RecomputeDirtyState();
         RenderRows();
         UpdateActions();
     }
 
     private async void PreviewClicked(object? sender, RoutedEventArgs args)
     {
-        if (_target is not { } target || !_dirty || _pending.Value is not null) return;
+        if (_target is not { } target || !_dirty || _pending.Value is not null || _downgradeBlocked) return;
+        bool useTimed = _scope?.TimingSupported == true;
+        if (!TryBuildCurrentDraft(out var draft))
+        {
+            Feedback.Text = "分时域名请至少勾选「上课」「课间」「放学后」之一，或改回「全天」。";
+            UpdateActions();
+            return;
+        }
         var hosts = DraftHosts();
+        if (!useTimed && WebsitePolicyTiming.HasTimedContent(draft))
+        {
+            _downgradeBlocked = true;
+            Feedback.Text = "当前服务端不支持分时网站规则，已保留当前分时草稿且禁止降格或分时写入。";
+            UpdateActions();
+            return;
+        }
         await RunAsync(async () =>
         {
-            _preview = await _client.PreviewWebsitePolicyAsync(_school.Id, target, hosts, _lifetime.Token);
+            var preview = useTimed
+                ? await _client.PreviewTimedWebsitePolicyAsync(_school.Id, target, draft, _lifetime.Token)
+                : await _client.PreviewWebsitePolicyAsync(_school.Id, target, hosts, _lifetime.Token);
+            if (!preview.TimingSupported && WebsitePolicyTiming.HasTimedContent(draft))
+            {
+                _preview = null;
+                _downgradeBlocked = true;
+                Feedback.Text = "当前服务端不支持分时网站规则，已保留当前分时草稿且禁止降格或分时写入。";
+                RenderRows();
+                return;
+            }
+            _preview = preview;
             Feedback.Text = _preview.CanApply ? "核对班级实际清单与设备后发布。" : "规范化后的域名清单已与学校配置一致。";
             RenderRows();
+            if (Bounds.Width < 940 && PreviewHeading.IsVisible)
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (_preview != preview || PreviewHeading.TranslatePoint(default, WebsiteDetailsScroll) is not { } point) return;
+                    WebsiteDetailsScroll.Offset = new(WebsiteDetailsScroll.Offset.X, Math.Max(0, WebsiteDetailsScroll.Offset.Y + point.Y - 8));
+                }, DispatcherPriority.Loaded);
         });
     }
 
@@ -170,8 +209,30 @@ public sealed partial class WebsitePolicyWindow : Window
         if (_posting || _reading) return;
         if (_pending.Value is not { } write)
         {
-            if (_preview is not { CanApply: true } preview || _target is not { } target) return;
-            write = new(Guid.NewGuid(), target, preview.AfterHosts, preview.Version);
+            if (_downgradeBlocked || _preview is not { CanApply: true } preview || _target is not { } target) return;
+            if (!TryBuildCurrentDraft(out var localDraft))
+            {
+                Feedback.Text = "分时域名请至少勾选「上课」「课间」「放学后」之一，或改回「全天」。";
+                UpdateActions();
+                return;
+            }
+            if (!preview.TimingSupported && WebsitePolicyTiming.HasTimedContent(localDraft))
+            {
+                _downgradeBlocked = true;
+                Feedback.Text = "当前服务端不支持分时网站规则，已保留当前分时草稿且禁止降格或分时写入。";
+                UpdateActions();
+                return;
+            }
+            bool useTimed = preview.TimingSupported;
+            WebsitePolicyDraft? publishDraft = null;
+            if (useTimed && !WebsitePolicyTiming.TryResolvePublishDraft(preview, localDraft, out publishDraft))
+            {
+                _downgradeBlocked = true;
+                Feedback.Text = "预览结果缺少分时草稿，已取消发布以避免降格。";
+                UpdateActions();
+                return;
+            }
+            write = new(Guid.NewGuid(), target, preview.AfterHosts, preview.Version, useTimed, publishDraft);
             _pending.Value = write;
         }
         else if (!_canRetry) return;
@@ -180,7 +241,9 @@ public sealed partial class WebsitePolicyWindow : Window
         UpdateActions();
         try
         {
-            var receipt = await _client.ApplyWebsitePolicyAsync(_school.Id, write.Target, write.Hosts, write.Version, write.RequestId, _lifetime.Token);
+            var receipt = write.UseTimedApi
+                ? await _client.ApplyTimedWebsitePolicyAsync(_school.Id, write.Target, write.Draft, write.Version, write.RequestId, _lifetime.Token)
+                : await _client.ApplyWebsitePolicyAsync(_school.Id, write.Target, write.Hosts, write.Version, write.RequestId, _lifetime.Token);
             _posting = false;
             await FinishAsync(write, receipt);
         }
@@ -245,6 +308,11 @@ public sealed partial class WebsitePolicyWindow : Window
         {
             Feedback.Text = "请逐行输入有效域名，去除网址协议、路径、端口和通配符。最多 24 个。";
         }
+        catch (ConsoleApiException e) when (e.Code == "WEBSITE_POLICY_TIMING_UNSUPPORTED")
+        {
+            _downgradeBlocked = !TryBuildCurrentDraft(out var currentDraft) || WebsitePolicyTiming.HasTimedContent(currentDraft);
+            Feedback.Text = "当前服务端不支持分时网站规则，已保留当前草稿且未降格写入。";
+        }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception e) { Feedback.Text = e.Message; }
         finally { _reading = false; UpdateActions(); }
@@ -269,33 +337,21 @@ public sealed partial class WebsitePolicyWindow : Window
         ScreenRows.ItemsSource = shown?.Screens.OrderBy(screen => screen.ReceivedAt is null).Select(screen =>
         {
             var room = shown.Rows.First(row => row.Id == screen.ClassId);
-            string status = screen.Status switch
-            {
-                "RECEIVED_NOT_APPLIED" => "设备已收到 · Edge 生效未确认",
-                "WRITTEN_PENDING" => "已写入 Windows · 等待 Edge 前台确认",
-                "CLEARED_PENDING" => "本产品名下的拦截已清除 · Edge 放行未确认",
-                "EDGE_CONFIRMED" => "Edge 前台已观察到名单内各网站被拦截",
-                "CONFLICT" => "本机已有规则或清单冲突 · 未确认生效",
-                "FAILED" => "写入或核对失败 · 请检查本机后台和 Windows 策略",
-                "NOT_PAIRED" => "未配对原生设备",
-                _ => "等待当前绑定的设备报告"
-            };
-            if (screen.ReceivedAt is { } receivedAt) status += $" · {receivedAt.ToLocalTime():MM-dd HH:mm:ss}";
-            return $"{room.Name} · {screen.BindingName} · {screen.DeviceName ?? "无设备"}\n{status}";
+            var report = room.Before.Rules?.Any(rule => rule.Period != WebsitePolicyTiming.PeriodAlways) == true
+                ? screen : screen with { SchedulePhase = null };
+            return $"{room.Name} · {screen.BindingName} · {screen.DeviceName ?? "无设备"}\n{WebsitePolicyTiming.FormatScreenStatus(report)}";
         }).ToArray();
     }
 
-    private static string Caption(WebsitePolicyEffective policy)
-    {
-        string source = policy.Source switch { "GRADE" => "年级默认", "CLASS" => "本班自定", _ => "未设置" };
-        return $"{source} · {(policy.BlockedHosts.Length == 0 ? "无下发域名" : string.Join("、", policy.BlockedHosts))}";
-    }
+    private static string Caption(WebsitePolicyEffective policy) => WebsitePolicyTiming.FormatEffective(policy);
 
     private void UpdateActions()
     {
         if (_closing) return;
         bool available = !_reading && !_posting;
         bool unresolved = _pending.Value is not null;
+        bool editable = available && !unresolved && !_downgradeBlocked;
+        bool incomplete = HasIncompleteTimingSelection();
         ScopeChoice.IsEnabled = ScopeKind.IsEnabled = available && !_dirty && !unresolved;
         ReadScopeButton.IsEnabled = ScopeChoice.IsEnabled && ScopeChoice.SelectedItem is not null && _catalog?.Term is not null;
         Editor.IsVisible = _scope is not null;
@@ -303,13 +359,16 @@ public sealed partial class WebsitePolicyWindow : Window
         Editor.Padding = new(_compact ? 8 : 12);
         EditorHeading.IsVisible = !_compact;
         PublicationNote.IsVisible = !_compact || _scope is null || _dirty;
-        Inherit.IsEnabled = available && !unresolved;
-        Hosts.IsEnabled = Inherit.IsEnabled && Inherit.IsChecked != true;
+        Inherit.IsEnabled = editable;
+        Hosts.IsEnabled = editable && Inherit.IsChecked != true;
         Hosts.IsVisible = HostTips.IsVisible = Inherit.IsChecked != true;
+        Hosts.MinHeight = _compact ? 54 : 72;
+        Hosts.MaxHeight = _compact ? 108 : 168;
+        UpdateTimingControls(editable);
         PreviewButton.IsVisible = _dirty && _preview is null && !unresolved;
-        PreviewButton.IsEnabled = available && _dirty && !unresolved;
+        PreviewButton.IsEnabled = editable && _dirty && !unresolved && !incomplete;
         PublishButton.IsVisible = _preview is not null || unresolved && _canRetry;
-        PublishButton.IsEnabled = available && (unresolved ? _canRetry : _preview is { CanApply: true });
+        PublishButton.IsEnabled = available && (unresolved ? _canRetry : !_downgradeBlocked && !incomplete && _preview is { CanApply: true });
         PublishButton.Content = unresolved ? "按原申请重试" : "发布这份配置";
         ReceiptButton.IsVisible = unresolved;
         ReceiptButton.IsEnabled = available && unresolved;

@@ -1,6 +1,17 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:NPEduConsole.App"
         x:Class="NPEduConsole.App.WebsitePolicyWindow" Title="教室网站访问规则"
         Width="1050" Height="700" MinWidth="720" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="Border.timing-row CheckBox">
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="4,0,0,0" />
+    </Style>
+    <Style Selector="Grid.compact-timing ComboBox">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="9,3,0,3" />
+    </Style>
+  </Window.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Padding="16,10" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
       <StackPanel Spacing="6">
@@ -17,14 +28,59 @@
     </Border>
     <ScrollViewer x:Name="WebsiteDetailsScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
       <StackPanel x:Name="DetailsBody" Margin="16,12" Spacing="12">
-        <TextBlock x:Name="PublicationNote" TextWrapping="Wrap" Classes="muted" Text="绑定教室端会尝试应用规则。逐屏可核对 Windows 写入和真实 Edge 前台观察。放行只移除学校集控写入的规则。" />
+        <TextBlock x:Name="PublicationNote" TextWrapping="Wrap" Classes="muted" Text="逐屏可核对 Windows 写入和 Edge 前台观察。Edge 可能稍后才对新访问采用规则，已打开的页面可能继续播放。" />
         <Border x:Name="Editor" Classes="card" Padding="12" IsVisible="False">
           <StackPanel Spacing="6">
             <TextBlock x:Name="EditorHeading" FontWeight="SemiBold" TextWrapping="Wrap" />
             <CheckBox x:Name="Inherit" Content="沿用上级或未设置规则" />
-            <TextBox x:Name="Hosts" AcceptsReturn="True" MinHeight="78" MaxLength="6200" TextWrapping="Wrap"
+            <TextBox x:Name="Hosts" AcceptsReturn="True" MinHeight="72" MaxHeight="168" MaxLength="6200" TextWrapping="Wrap"
                      PlaceholderText="每行一个域名，例如 douyin.com" AutomationProperties.Name="限制访问的域名" />
             <TextBlock x:Name="HostTips" TextWrapping="Wrap" Classes="muted" Text="最多 24 个。按完整域名匹配，douyin.com 和 www.douyin.com 分开填。留空表示本范围不下发限制清单。" />
+            <TextBlock x:Name="TimingNotice" TextWrapping="Wrap" Classes="muted" IsVisible="False" />
+            <StackPanel x:Name="TimingSection" Spacing="6" IsVisible="False">
+              <TextBlock x:Name="TimingHeading" Classes="label" Text="单域名生效时段（默认全天，可多选上课、课间、放学后）" TextWrapping="Wrap" />
+              <ItemsControl x:Name="TimingRows" AutomationProperties.Name="各域名生效时段">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="local:WebsitePolicyTimingRow">
+                    <Border Classes="timing-row" Padding="8,4" Margin="0,1" CornerRadius="6"
+                            Background="{DynamicResource FieldBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+                      <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" ColumnSpacing="10" RowSpacing="2">
+                        <TextBlock Text="{Binding Host}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Host}" />
+                        <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="8" LineSpacing="2" VerticalAlignment="Center">
+                          <CheckBox Content="全天" IsChecked="{Binding IsAllDay, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                                    AutomationProperties.Name="{Binding AllDayAutomationName}"
+                                    AutomationProperties.AutomationId="{Binding AllDayAutomationId}" />
+                          <CheckBox Content="上课" IsChecked="{Binding IsLesson, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                                    AutomationProperties.Name="{Binding LessonAutomationName}"
+                                    AutomationProperties.AutomationId="{Binding LessonAutomationId}" />
+                          <CheckBox Content="课间" IsChecked="{Binding IsBreak, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                                    AutomationProperties.Name="{Binding BreakAutomationName}"
+                                    AutomationProperties.AutomationId="{Binding BreakAutomationId}" />
+                          <CheckBox Content="放学后" IsChecked="{Binding IsAfterSchool, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                                    AutomationProperties.Name="{Binding AfterSchoolAutomationName}"
+                                    AutomationProperties.AutomationId="{Binding AfterSchoolAutomationId}" />
+                        </WrapPanel>
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="请至少勾选一个时段，或勾回「全天」。"
+                                   Foreground="{DynamicResource ErrorBrush}" FontSize="12" TextWrapping="Wrap"
+                                   IsVisible="{Binding IsIncomplete}" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <Grid x:Name="UnavailablePanel" Classes="compact-timing" ColumnDefinitions="*,Auto" ColumnSpacing="10" IsVisible="False">
+                <StackPanel VerticalAlignment="Center" Spacing="1">
+                  <TextBlock x:Name="UnavailableLabel" Text="课表不可核对时" FontWeight="SemiBold" TextWrapping="Wrap" />
+                  <TextBlock x:Name="UnavailableHint" Classes="muted" Text="仅对分时域名生效；全天域名始终限制。" TextWrapping="Wrap" />
+                </StackPanel>
+                <ComboBox x:Name="UnavailableBehavior" Grid.Column="1" MinWidth="148" VerticalAlignment="Center"
+                          AutomationProperties.Name="课表不可核对时本范围行为" SelectionChanged="UnavailableBehaviorChanged">
+                  <ComboBoxItem Content="本范围限制" />
+                  <ComboBoxItem Content="本范围暂不限制" />
+                </ComboBox>
+              </Grid>
+            </StackPanel>
           </StackPanel>
         </Border>
         <TextBlock x:Name="PreviewHeading" IsVisible="False" FontWeight="SemiBold" TextWrapping="Wrap" />
