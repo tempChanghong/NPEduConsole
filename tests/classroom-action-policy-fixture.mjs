@@ -34,7 +34,8 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
       headers: {Authorization: 'Bearer ' + bearer, 'Content-Type': 'application/json', 'X-NPEP-Version': version, 'X-Request-Id': requestId,
         ...(policySchema > 1 ? {'X-NPEP-Classroom-Action-Policy': '2'} : {}),
         ...(policySchema >= 3 ? {'X-NPEP-Classroom-Action-Inheritance': '1'} : {}),
-        ...(policySchema === 4 ? {'X-NPEP-Manual-Study-Policy': '1'} : {})},
+        ...(policySchema >= 4 ? {'X-NPEP-Manual-Study-Policy': '1'} : {}),
+        ...(policySchema === 5 ? {'X-NPEP-Manual-Recording-Policy': '1'} : {})},
       ...(body ? {body: JSON.stringify({requestId, ...body})} : {})});
     const result = await response.json();
     assert.ok(response.ok, `${path}: ${result.error?.code}`);
@@ -69,7 +70,7 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
         assert.ok(rearSession && faultEvidence, 'rear first reported a storage fault');
         const next = await openDeviceSession(rearBearer, rearSession.statusEpoch);
         assert.notEqual(next.sessionId, rearSession.sessionId);
-        const scope = await call(scopePath, null, token, '0.16', 4);
+        const scope = await call(scopePath, null, token, '0.16', 5);
         const oldFault = scope.screens.find(screen => screen.bindingId === rear.id);
         assert.equal(oldFault.observed.error, storageError);
         assert.equal(oldFault.observationCurrent, false);
@@ -85,10 +86,10 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
       request.resume();
       (async () => {
         assert.equal(activeFinal, null);
-        activeFinal = await call(scopePath);
+        activeFinal = await call(scopePath, null, token, '0.16', 5);
         const oldRegistration = {...change, usbKey: oldKey};
-        const review = await call(path + '/preview', {change: oldRegistration});
-        await call(path, {change: oldRegistration, expectedVersion: review.version});
+        const review = await call(path + '/preview', {change: oldRegistration}, token, '0.16', 5);
+        await call(path, {change: oldRegistration, expectedVersion: review.version}, token, '0.16', 5);
         await prisma.academicTerm.update({where: {id: term.id}, data: {status: 'ARCHIVED'}});
         response.writeHead(204).end();
       })().catch(error => {
@@ -128,33 +129,32 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
         await delay(300);
         continue;
       }
-      const current = await call('/device/school-management', null, classroomBearer, '0.16', 3);
+      const current = await call('/device/school-management', null, classroomBearer, '0.16', 4);
       const policy = current.actionPolicy;
       if (policy.revision === acknowledged + 2) {
         assert.equal(policy.source, 'GRADE');
-        if (acknowledged === 1) {
-          const target = await call('/device/school-management', null, classroomBearer, '0.16', 4);
-          assert.deepEqual(target.actionPolicy.actions.startManualStudy, {mode: 'VERIFY', factor: 'USB'});
-          assert.equal(target.actionPolicy.actions.switchClassroomMode, null);
-          assert.equal(Object.hasOwn(policy.actions, 'startManualStudy'), false);
-          assert.equal(target.actionPolicy.actions.exitBackground.mode, 'DENY');
-          assert.notEqual(target.actionPolicy.policyId, policy.policyId);
-        }
+        const target = await call('/device/school-management', null, classroomBearer, '0.16', 5);
+        assert.deepEqual(target.actionPolicy.actions.startManualRecording, acknowledged === 1 ?
+          {mode: 'VERIFY', factor: 'CLASS_PASSWORD'} : {mode: 'ALLOW', factor: null});
+        assert.equal(Object.hasOwn(policy.actions, 'startManualRecording'), false);
+        assert.deepEqual(policy.actions, {stopScheduledMonitoring: {mode: 'VERIFY', factor: 'ALL'},
+          exitBackground: {mode: 'DENY', factor: null}, switchClassroomMode: null, startManualStudy: null});
+        assert.notEqual(target.actionPolicy.policyId, policy.policyId);
         await report(classroomBearer, {identity: current.identity, ...frontSession}, ++acknowledged,
           {schemaVersion: policy.schemaVersion, revision: policy.revision, policyId: policy.policyId, error: null});
         if (acknowledged === 2) {
           rearSession = await openDeviceSession(rearBearer);
-          const rearPolicy = await call('/device/school-management', null, rearBearer, '0.16', 4);
+          const rearPolicy = await call('/device/school-management', null, rearBearer, '0.16', 5);
           // A current Host with an unavailable policy store can report schema 1 and no installed policy.
           await report(rearBearer, {identity: rearPolicy.identity, ...rearSession}, 1,
             {schemaVersion: 1, revision: null, policyId: null, error: storageError});
-          const scope = await call(scopePath, null, token, '0.16', 4);
+          const scope = await call(scopePath, null, token, '0.16', 5);
           const byBinding = id => scope.screens.find(screen => screen.bindingId === id);
           const fault = byBinding(rear.id);
           assert.equal(fault.observationCurrent, true);
           assert.equal(fault.observed.schemaVersion, 1);
           assert.equal(fault.observed.error, storageError);
-          assert.equal(byBinding(front.screenBindingId).observed.schemaVersion, 3);
+          assert.equal(byBinding(front.screenBindingId).observed.schemaVersion, 4);
           assert.equal(byBinding(front.screenBindingId).observed.error, null);
           faultEvidence = {reportedSchema: fault.observed.schemaVersion, serverPolicySchema: rearPolicy.actionPolicy.schemaVersion,
             error: fault.observed.error, currentInitially: fault.observationCurrent};
@@ -179,6 +179,7 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     assert.equal(final.rooms[0].before.usbCount, 0);
     assert.equal(final.rooms[0].before.actions.stopScheduledMonitoring.factor, 'ALL');
     assert.equal(final.rooms[0].before.actions.exitBackground.mode, 'DENY');
+    assert.equal(final.rooms[0].before.actions.startManualRecording.mode, 'ALLOW');
     assert.deepEqual((await call(path + '/history-usb')).keys, []);
     assert.equal((await call(path)).term, null);
     assert.equal((await prisma.academicTerm.findUnique({where: {id: term.id}})).status, 'ARCHIVED');

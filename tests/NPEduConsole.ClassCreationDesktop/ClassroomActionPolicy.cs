@@ -51,6 +51,11 @@ internal static partial class Program
             Button Action(string name) => Find<Button>(window, "ActionPolicy" + name);
             ComboBox Option(string name) => Find<ComboBox>(window, "ActionPolicy" + name);
             string Content(string name) => Find<TextBlock>(window, "ActionPolicy" + name).Text ?? "";
+            void Pick(string option, string label)
+            {
+                var control = Option(option);
+                control.SelectedItem = control.Items.Cast<object>().Single(item => item.ToString() == label);
+            }
             var targets = Option("Target");
             async Task ChooseTarget(string code)
             {
@@ -76,11 +81,12 @@ internal static partial class Program
             Option("StopMode").SelectedIndex = 1;
             Option("StopFactor").SelectedIndex = 3;
             Option("ExitMode").SelectedIndex = 2;
+            Pick("ManualRecordingMode", "允许现场操作");
             Click(Action("SavePreview"));
             var review = Find<ListBox>(window, "ActionPolicyReviewRows");
             await Until(() => review.IsEffectivelyVisible && review.Items.Count == 3, "grade preview lists the three real classes");
             Check(review.Items.OfType<string>().Any(row => row.Contains("全部") && row.Contains("退出 禁止现场操作") &&
-                row.Contains("同班后屏")), "preview omitted the grade rule or second screen");
+                row.Contains("手动录课 允许现场操作（年级默认）") && row.Contains("同班后屏")), "preview omitted the grade rule or second screen");
             await CaptureWithFrame(window, output, "01-grade-preview-wide");
             await Publish();
             var tabs = Find<TabControl>(window, "ActionPolicyTabs");
@@ -88,50 +94,46 @@ internal static partial class Program
             var observations = Find<ListBox>(window, "ActionPolicyScreenEvidence");
             for (int refresh = 0; refresh < 8; refresh++)
             {
-                if (observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("设备已应用"))) break;
+                if (observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("需升级才能应用手动录课规则"))) break;
                 await Task.Delay(300);
                 await Until(() => Action("Refresh").IsEffectivelyEnabled, "refresh after policy publication");
                 Click(Action("Refresh"));
                 await Until(() => Action("Refresh").IsEffectivelyEnabled, "latest per-screen read finished");
             }
-            Check(observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("设备已应用")) &&
+            Check(observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("需升级才能应用手动录课规则")) &&
                 observations.Items.OfType<string>().Any(row => row.Contains(access.RearId) && row.Contains("等待同步")), "front receipt and rear pending status were conflated");
             window.Width = 840;
             window.Height = 480;
-            await CaptureWithFrame(window, output, "02-front-applied-rear-pending-narrow");
+            await CaptureWithFrame(window, output, "02-front-upgrade-rear-pending-narrow");
 
             tabs.SelectedIndex = 0;
             Option("Kind").SelectedIndex = 1;
             await ChooseTarget(access.ClassCode);
             Check(Content("Source").Contains("继承年级默认"), "class did not inherit grade policy");
-            var manualStudy = Option("ManualStudyMode");
-            void Pick(string option, string label)
-            {
-                var control = Option(option);
-                control.SelectedItem = control.Items.Cast<object>().Single(item => item.ToString() == label);
-            }
-            Check(!manualStudy.IsEffectivelyEnabled && manualStudy.SelectedItem?.ToString() == "沿用原行为" &&
-                Option("ManualStudySource").SelectedItem?.ToString() == "跟随年级", "manual study did not start by following the grade");
-            Pick("ManualStudySource", "本班自定");
-            Check(manualStudy.IsEffectivelyEnabled && Option("ExitSource").SelectedItem?.ToString() == "跟随年级" &&
+            var recording = Option("ManualRecordingMode");
+            Check(!recording.IsEffectivelyEnabled && recording.SelectedItem?.ToString() == "允许现场操作" &&
+                Option("ManualRecordingSource").SelectedItem?.ToString() == "跟随年级", "recording did not start by following the grade");
+            Pick("ManualRecordingSource", "本班自定");
+            Check(recording.IsEffectivelyEnabled && Option("ExitSource").SelectedItem?.ToString() == "跟随年级" &&
                 !Option("ExitMode").IsEffectivelyEnabled && Option("ExitMode").SelectedItem?.ToString() == "禁止现场操作",
-                "customizing only manual study should keep the inherited exit denial");
-            Pick("ManualStudyMode", "验证后允许");
-            Pick("ManualStudyFactor", "登记 U 盘");
+                "customizing only manual recording should keep the inherited exit denial");
+            Pick("ManualRecordingMode", "验证后允许");
+            Pick("ManualRecordingFactor", "本班口令");
             Check(Find<TextBlock>(window, "ActionPolicyDraft").IsEffectivelyVisible && !Option("ExitFactor").IsEffectivelyVisible &&
                 Content("ExitModeRead") == "禁止现场操作" && Content("ExitFactorRead") == "不适用",
                 "the draft and inherited exit denial must be visible without an unrelated credential");
-            await CaptureWithFrame(window, output, "03-manual-study-narrow");
+            await CaptureWithFrame(window, output, "03-manual-recording-narrow");
             window.Width = 1160;
             window.Height = 780;
-            await CaptureWithFrame(window, output, "04-manual-study-wide");
+            await CaptureWithFrame(window, output, "04-manual-recording-wide");
             window.Width = 840;
             window.Height = 480;
             Click(Action("SavePreview"));
             await Until(() => review.IsEffectivelyVisible && review.Items.Count == 1 && Content("ReviewSummary").Contains("2 台大屏"), "override only that exact class and its two screens");
-            Check(review.Items.OfType<string>().Single().Contains("手动自习 登记 U 盘（本班自定）") &&
+            Check(review.Items.OfType<string>().Single().Contains("手动录课 本班口令（本班自定）") &&
+                review.Items.OfType<string>().Single().Contains("手动自习 沿用原行为") &&
                 review.Items.OfType<string>().Single().Contains("课堂模式 沿用原行为") &&
-                review.Items.OfType<string>().Single().Contains("旧版大屏需升级才能应用手动自习规则") &&
+                review.Items.OfType<string>().Single().Contains("旧版大屏需升级才能应用手动录课规则") &&
                 review.Items.OfType<string>().Single().Contains("退出 禁止现场操作（年级默认）"), "preview omitted the new rule, origins or required upgrade");
             await CaptureWithFrame(window, output, "05-preview-narrow");
             await Publish();
@@ -142,7 +144,7 @@ internal static partial class Program
             bool HasNewLegacyReceipt()
             {
                 var row = ScreenRow(access.FrontId);
-                return row.Contains("此屏需升级才能应用手动自习规则") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用");
+                return row.Contains("此屏需升级才能应用手动录课规则") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用");
             }
             for (int refresh = 0; refresh < 8; refresh++)
             {
@@ -152,7 +154,7 @@ internal static partial class Program
                 Click(Action("Refresh"));
                 await Until(() => Action("Refresh").IsEffectivelyEnabled, "classroom mode evidence finished");
             }
-            Check(HasNewLegacyReceipt(), "a v3 receipt for this publication should leave manual study unconfirmed");
+            Check(HasNewLegacyReceipt(), "a v4 receipt for this publication should leave manual recording unconfirmed");
             var rearFault = ScreenRow(access.RearId);
             Check(rearFault.Contains("设备策略存储异常") && !rearFault.Contains("需升级") && !rearFault.Contains("设备已应用"),
                 "the current storage fault must take precedence over the receipt schema on the exact rear screen");
@@ -170,15 +172,15 @@ internal static partial class Program
             await ChooseTarget(access.NeighborCode);
             Check(Content("Source").Contains("继承年级默认") &&
                 Option("ExitMode").SelectedItem?.ToString() == "禁止现场操作" &&
-                Option("ManualStudySource").SelectedItem?.ToString() == "跟随年级" &&
-                manualStudy.SelectedItem?.ToString() == "沿用原行为", "neighbor should still follow the grade for all settings");
+                Option("ManualRecordingSource").SelectedItem?.ToString() == "跟随年级" &&
+                recording.SelectedItem?.ToString() == "允许现场操作", "neighbor should still follow the grade for all settings");
             await ChooseTarget(access.ClassCode);
             Click(Action("Inherit"));
             await Until(() => review.IsEffectivelyVisible && Content("ReviewSummary").Contains("恢复继承"), "restoration has its own review");
             await Publish();
             Check(Content("Source").Contains("继承年级默认"), "restored class did not inherit grade policy");
             tabs.SelectedIndex = 2;
-            Check(observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && row.Contains("等待同步") && row.Contains("上次回报版本")),
+            Check(observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) && !row.Contains("设备已应用") && row.Contains("上次回报版本")),
                 "restored content was incorrectly credited with the old identical digest receipt");
 
             tabs.SelectedIndex = 0;
@@ -229,7 +231,7 @@ internal static partial class Program
             await Until(() => !window.IsVisible && entry.IsFocused, "historical window returns to the same device entry");
             File.WriteAllText(Path.Combine(output, "desktop-result.json"), JsonSerializer.Serialize(new { passed = true, realWindows = true,
                 physicalUsbRegistered = false, verified = new[] { "normal-entry", "wide-grade-review", "lost-response-own-read", "narrow-independent-screens",
-                    "class-override", "manual-study-preview", "neighbor-follows-grade", "old-device-receipt-pending", "current-storage-fault",
+                    "class-override", "manual-recording-preview", "neighbor-follows-grade", "old-device-receipt-pending", "current-storage-fault",
                     "superseded-storage-fault", "restore-inheritance",
                     "last-key-revoke-warning", "entry-focus", "historical-no-active-term", "original-key-revocation" } }));
             desktop.Shutdown(0);

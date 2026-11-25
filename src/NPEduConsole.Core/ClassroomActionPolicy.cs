@@ -2,16 +2,16 @@ namespace NPEduConsole.Core;
 
 public sealed record ClassroomActionRule(string Mode, string? Factor);
 public sealed record ClassroomActionRules(ClassroomActionRule? StopScheduledMonitoring, ClassroomActionRule? ExitBackground,
-    ClassroomActionRule? SwitchClassroomMode = null, ClassroomActionRule? StartManualStudy = null);
+    ClassroomActionRule? SwitchClassroomMode = null, ClassroomActionRule? StartManualStudy = null, ClassroomActionRule? StartManualRecording = null);
 public sealed record ClassroomActionOverride(ClassroomActionRule? Rule);
 public sealed record ClassroomActionOverrides(ClassroomActionOverride? StopScheduledMonitoring, ClassroomActionOverride? ExitBackground,
-    ClassroomActionOverride? SwitchClassroomMode, ClassroomActionOverride? StartManualStudy = null)
+    ClassroomActionOverride? SwitchClassroomMode, ClassroomActionOverride? StartManualStudy = null, ClassroomActionOverride? StartManualRecording = null)
 {
     internal bool HasOverrides => StopScheduledMonitoring is not null || ExitBackground is not null ||
-        SwitchClassroomMode is not null || StartManualStudy is not null;
+        SwitchClassroomMode is not null || StartManualStudy is not null || StartManualRecording is not null;
 }
 public sealed record ClassroomActionOrigins(string StopScheduledMonitoring, string ExitBackground, string SwitchClassroomMode,
-    string? StartManualStudy = null);
+    string? StartManualStudy = null, string? StartManualRecording = null);
 public sealed record ClassroomActionTerm(string Id, string Name);
 public sealed record ClassroomActionGrade(string Id, string Name, string Code)
 {
@@ -22,7 +22,8 @@ public sealed record ClassroomActionClass(string Id, string Name, string Code, s
     public override string ToString() => $"{Name} · {Code}";
 }
 public sealed record ClassroomActionCatalog(string SchoolId, ClassroomActionTerm? Term, ClassroomActionGrade[] Grades, ClassroomActionClass[] Rooms,
-    bool SupportsClassroomModeSwitch = false, bool SupportsClassroomActionInheritance = false, bool SupportsManualStudyPolicy = false);
+    bool SupportsClassroomModeSwitch = false, bool SupportsClassroomActionInheritance = false, bool SupportsManualStudyPolicy = false,
+    bool SupportsManualRecordingPolicy = false);
 public sealed record ClassroomActionTarget(string TermId, string ScopeKind, string ScopeId);
 public sealed record ClassroomUsbKey(string KeyId, string Label);
 public sealed record ClassroomActionHistoricalTerm(string Id, string Name, string Status);
@@ -35,7 +36,7 @@ public sealed record ClassroomUsbMaterial(string KeyId, string MediaHash, string
 public sealed record ClassroomUsbProof(string KeyId, string Label, string MediaHash, string SecretHash, ClassroomUsbMaterial? Replaces = null);
 public sealed record ClassroomActionChange(string TermId, string ScopeKind, string ScopeId, string Operation,
     ClassroomActionRules? Actions, ClassroomUsbProof? UsbKey, string? KeyId, bool IncludeClassroomModeSwitch = false,
-    ClassroomActionOverrides? ClassActionOverrides = null, bool IncludeManualStudyPolicy = false)
+    ClassroomActionOverrides? ClassActionOverrides = null, bool IncludeManualStudyPolicy = false, bool IncludeManualRecordingPolicy = false)
 {
     public ClassroomActionTarget Target => new(TermId, ScopeKind, ScopeId);
     public bool RestoresInheritedPolicy => Operation == "SET_POLICY" && Actions is null && ClassActionOverrides?.HasOverrides != true;

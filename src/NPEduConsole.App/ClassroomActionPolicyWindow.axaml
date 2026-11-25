@@ -1,6 +1,12 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="NPEduConsole.App.ClassroomActionPolicyWindow" Title="NPEduTools 安全策略"
         Width="1160" Height="780" MinWidth="720" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Window.Styles>
+    <Style Selector="Grid.compact-policy ComboBox">
+      <Setter Property="MinHeight" Value="31" />
+      <Setter Property="Padding" Value="9,3,0,3" />
+    </Style>
+  </Window.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Padding="16,9" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
       <StackPanel Spacing="5">
@@ -30,7 +36,7 @@
               </WrapPanel>
             </DockPanel>
             <Border Classes="card" Padding="12,8">
-              <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="1.1*,Auto,1.05*,1.18*" RowSpacing="5" ColumnSpacing="8">
+              <Grid x:Name="ActionPolicyRuleGrid" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="1.1*,Auto,1.05*,1.18*" RowSpacing="3" ColumnSpacing="8">
                 <TextBlock Text="停止本场学校监测" VerticalAlignment="Center" TextWrapping="Wrap" />
                 <ComboBox x:Name="ActionPolicyStopSource" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="停止本场的规则来源" SelectionChanged="SourceChanged" />
                 <ComboBox x:Name="ActionPolicyStopMode" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的现场权限" SelectionChanged="RuleChanged" />
@@ -55,6 +61,12 @@
                 <TextBlock x:Name="ActionPolicyManualStudyModeRead" Grid.Row="3" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
                 <ComboBox x:Name="ActionPolicyManualStudyFactor" Grid.Row="3" Grid.Column="3" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="发起手动自习的验证方式" SelectionChanged="RuleChanged" />
                 <TextBlock x:Name="ActionPolicyManualStudyFactorRead" Grid.Row="3" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                <TextBlock x:Name="ActionPolicyManualRecordingLabel" Grid.Row="4" Text="开始手动录课" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="False" />
+                <ComboBox x:Name="ActionPolicyManualRecordingSource" Grid.Row="4" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="开始手动录课的规则来源" SelectionChanged="SourceChanged" />
+                <ComboBox x:Name="ActionPolicyManualRecordingMode" Grid.Row="4" Grid.Column="2" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="开始手动录课的现场权限" SelectionChanged="RuleChanged" />
+                <TextBlock x:Name="ActionPolicyManualRecordingModeRead" Grid.Row="4" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                <ComboBox x:Name="ActionPolicyManualRecordingFactor" Grid.Row="4" Grid.Column="3" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="开始手动录课的验证方式" SelectionChanged="RuleChanged" />
+                <TextBlock x:Name="ActionPolicyManualRecordingFactorRead" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
               </Grid>
             </Border>
             <TextBlock Text="使用班级口令时，各班继续用自己的现行口令。返回作业板仍可直接使用。离线大屏沿用最后已应用的策略。"

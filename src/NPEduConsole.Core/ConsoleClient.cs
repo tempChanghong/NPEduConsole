@@ -376,6 +376,7 @@ public sealed partial class ConsoleClient : IDisposable
             request.Headers.Add("X-NPEP-Classroom-Action-Policy", "2");
             request.Headers.Add("X-NPEP-Classroom-Action-Inheritance", "1");
             request.Headers.Add("X-NPEP-Manual-Study-Policy", "1");
+            request.Headers.Add("X-NPEP-Manual-Recording-Policy", "1");
         }
         try
         {

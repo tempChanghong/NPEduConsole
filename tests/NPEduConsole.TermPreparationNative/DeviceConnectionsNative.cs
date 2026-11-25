@@ -37,15 +37,16 @@ internal static class DeviceConnectionsNative
                 {
                     string? switchMode = fixture["switchMode"]?.GetValue<string>();
                     string? manualStudyMode = fixture["manualStudyMode"]?.GetValue<string>();
+                    string? manualRecordingMode = fixture["manualRecordingMode"]?.GetValue<string>();
                     while (true)
                     {
                         var receipt = management.ObserveSchool()["actionPolicyReceipt"] as JsonObject;
                         if (receipt?["policyId"]?.GetValue<string>() == fixture.Text("policyId") && receipt["error"] is null)
                         {
-                            var state = noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(), "noise.management.status.classroom-policy.v4")).NoiseProtection;
+                            var state = noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(), "noise.management.status.classroom-policy.v5")).NoiseProtection;
                             if (state?.ClassroomPolicy is not { } policy || policy.StopScheduled != fixture.Text("stopMode") ||
                                 policy.ExitHost != fixture.Text("exitMode") || policy.SwitchClassroomMode != switchMode ||
-                                policy.StartManualStudy != manualStudyMode)
+                                policy.StartManualStudy != manualStudyMode || policy.StartManualRecording != manualRecordingMode)
                                 throw new NpepException("HOST_ACTION_POLICY_MISMATCH");
                             if (File.Exists(fixture.Text("observed")))
                             {
@@ -94,6 +95,24 @@ internal static class DeviceConnectionsNative
                                     if (verification.ErrorCode != "CLASSROOM_USB_REQUIRED" || verification.NoiseProtection?.Ticket is not null)
                                         throw new NpepException("HOST_MANUAL_STUDY_MISSING_USB_NOT_REQUIRED");
                                     Console.WriteLine($"PASS Host refuses manual study authorization without a registered USB for {binding}.");
+                                }
+                                if (manualRecordingMode is "allow" or "password")
+                                {
+                                    var options = new RecordingOptions("acceptance-display", Path.GetFullPath(root),
+                                        SystemAudio: false, MicrophoneId: "acceptance-mic");
+                                    var target = new RecorderCommand("start", options, ClientId: Guid.NewGuid());
+                                    HostResponse Authorize(string? secret) => noise.ManagementHandle(new(Protocol.Version, Guid.NewGuid(),
+                                        "noise.management.command", NoiseManagement: new("authorize", secret, Purpose: "start-manual-recording",
+                                            TargetRequestId: Guid.NewGuid(), InstanceId: state.InstanceId, SessionId: state.SessionId,
+                                            ClassroomPolicyVersion: policy.Version, RecordingTarget: target)));
+                                    var noPassword = Authorize(null);
+                                    if (manualRecordingMode == "allow" && noPassword.NoiseProtection?.Ticket is null)
+                                        throw new NpepException("HOST_GRADE_MANUAL_RECORDING_NOT_ALLOWED");
+                                    if (manualRecordingMode == "password" && (noPassword.NoiseProtection?.Ticket is not null ||
+                                        Authorize("fixture-wrong-secret").NoiseProtection?.Ticket is not null ||
+                                        Authorize(fixture.Text("classSecret")).NoiseProtection?.Ticket is null))
+                                        throw new NpepException("HOST_MANUAL_RECORDING_CLASS_PASSWORD_NOT_ENFORCED");
+                                    Console.WriteLine($"PASS manual recording permission {manualRecordingMode} enforced by the bound Host for {binding}.");
                                 }
                                 return 0;
                             }

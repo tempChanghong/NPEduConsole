@@ -62,7 +62,9 @@ public sealed partial class ClassroomActionPolicyWindow : Window
             new(ActionPolicyClassroomSource, ActionPolicyClassroomMode, ActionPolicyClassroomFactor,
                 ActionPolicyClassroomModeRead, ActionPolicyClassroomFactorRead, CanUseLegacy: true),
             new(ActionPolicyManualStudySource, ActionPolicyManualStudyMode, ActionPolicyManualStudyFactor,
-                ActionPolicyManualStudyModeRead, ActionPolicyManualStudyFactorRead, CanUseLegacy: true)
+                ActionPolicyManualStudyModeRead, ActionPolicyManualStudyFactorRead, CanUseLegacy: true),
+            new(ActionPolicyManualRecordingSource, ActionPolicyManualRecordingMode, ActionPolicyManualRecordingFactor,
+                ActionPolicyManualRecordingModeRead, ActionPolicyManualRecordingFactorRead, CanUseLegacy: true)
         ];
         foreach (var row in _policyRows)
         {
@@ -76,7 +78,12 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         ActionPolicyKind.SelectedIndex = 0;
         ActionPolicyUsbLabel.TextChanged += UsbChanged;
         Opened += async (_, _) => await RunAsync(LoadCatalogAsync);
-        SizeChanged += (_, args) => ActionPolicyHeading.IsVisible = args.NewSize.Height >= 520;
+        SizeChanged += (_, args) =>
+        {
+            bool compact = args.NewSize.Height < 520;
+            ActionPolicyHeading.IsVisible = !compact;
+            ActionPolicyRuleGrid.Classes.Set("compact-policy", compact);
+        };
         Closing += (_, args) =>
         {
             if (_posting && !_closed)
@@ -179,6 +186,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         LoadRow(_policyRows[1], rules?.ExitBackground, inherited?.ActionOrigins?.ExitBackground);
         LoadRow(_policyRows[2], rules?.SwitchClassroomMode, inherited?.ActionOrigins?.SwitchClassroomMode);
         LoadRow(_policyRows[3], rules?.StartManualStudy, inherited?.ActionOrigins?.StartManualStudy);
+        LoadRow(_policyRows[4], rules?.StartManualRecording, inherited?.ActionOrigins?.StartManualRecording);
         _baselineRules = ClassInheritance ? null : ReadRules();
         _baselineOverrides = ClassInheritance ? ReadOverrides() : null;
         _loadingRules = false;
@@ -224,6 +232,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
             nameof(ActionPolicyStopSource) => grade?.StopScheduledMonitoring,
             nameof(ActionPolicyExitSource) => grade?.ExitBackground,
             nameof(ActionPolicyManualStudySource) => grade?.StartManualStudy,
+            nameof(ActionPolicyManualRecordingSource) => grade?.StartManualRecording,
             _ => grade?.SwitchClassroomMode
         };
         if (choice == ThisClass && !row.CanUseLegacy && rule is null) rule = InitialRules.StopScheduledMonitoring;
@@ -294,7 +303,8 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         var scope = _scope ?? throw new InvalidOperationException();
         return new(scope.TermId, scope.ScopeKind, scope.ScopeId, operation, rules, usb, keyId,
             IncludeClassroomModeSwitch: rules is not null && _catalog?.SupportsClassroomModeSwitch == true,
-            ClassActionOverrides: overrides, IncludeManualStudyPolicy: _catalog?.SupportsManualStudyPolicy == true);
+            ClassActionOverrides: overrides, IncludeManualStudyPolicy: _catalog?.SupportsManualStudyPolicy == true,
+            IncludeManualRecordingPolicy: _catalog?.SupportsManualRecordingPolicy == true);
     }
 
     private static ClassroomActionRule? ReadRule(PolicyControls row)
@@ -305,9 +315,10 @@ public sealed partial class ClassroomActionPolicyWindow : Window
 
     private static ClassroomActionOverride? ReadOverride(PolicyControls row) => Equals(row.Source.SelectedItem, ThisClass) ?
         new(ReadRule(row)) : null;
-    private ClassroomActionRules ReadRules() => new(ReadRule(_policyRows[0]), ReadRule(_policyRows[1]), ReadRule(_policyRows[2]), ReadRule(_policyRows[3]));
+    private ClassroomActionRules ReadRules() => new(ReadRule(_policyRows[0]), ReadRule(_policyRows[1]), ReadRule(_policyRows[2]),
+        ReadRule(_policyRows[3]), ReadRule(_policyRows[4]));
     private ClassroomActionOverrides ReadOverrides() => new(ReadOverride(_policyRows[0]), ReadOverride(_policyRows[1]),
-        ReadOverride(_policyRows[2]), ReadOverride(_policyRows[3]));
+        ReadOverride(_policyRows[2]), ReadOverride(_policyRows[3]), ReadOverride(_policyRows[4]));
 
     private async void PreviewRulesClicked(object? sender, RoutedEventArgs args) => await RunAsync(ct =>
     {
@@ -551,8 +562,12 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         ActionPolicyApply.IsEnabled = !_busy && _pending.Write is null && ActionPolicyConfirmed.IsChecked == true;
         foreach (var row in _policyRows)
         {
-            bool manual = row.Source == ActionPolicyManualStudySource;
-            bool available = !manual || _catalog?.SupportsManualStudyPolicy == true;
+            bool available = row.Source.Name switch
+            {
+                nameof(ActionPolicyManualStudySource) => _catalog?.SupportsManualStudyPolicy == true,
+                nameof(ActionPolicyManualRecordingSource) => _catalog?.SupportsManualRecordingPolicy == true,
+                _ => true
+            };
             row.Source.IsVisible = available && ClassInheritance;
             row.Source.IsEnabled = canEdit;
             bool follows = ClassInheritance && !Equals(row.Source.SelectedItem, ThisClass);
@@ -568,6 +583,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
             row.FactorRead.Text = verifies ? (row.Factor.SelectedItem as Choice)?.Label : "不适用";
         }
         ActionPolicyManualStudyLabel.IsVisible = _catalog?.SupportsManualStudyPolicy == true;
+        ActionPolicyManualRecordingLabel.IsVisible = _catalog?.SupportsManualRecordingPolicy == true;
         ActionPolicyDraft.IsVisible = _scope is not null && !_loadingRules &&
             (ClassInheritance ? _baselineOverrides != ReadOverrides() : _baselineRules != ReadRules());
         ActionPolicySavePreview.IsVisible = ActionPolicyInherit.IsVisible = ActionPolicyTabs.IsVisible && ActionPolicyTabs.SelectedIndex == 0;
@@ -606,15 +622,25 @@ public sealed partial class ClassroomActionPolicyWindow : Window
 
     private static string UpgradePreview(ClassroomEffectiveAction policy)
     {
-        string text = policy.MinimumReceiptSchema == 4 ? "\n旧版大屏需升级才能应用手动自习规则。" : "";
+        string text = policy.MinimumReceiptSchema switch
+        {
+            5 => "\n旧版大屏需升级才能应用手动录课规则。",
+            4 => "\n旧版大屏需升级才能应用手动自习规则。",
+            _ => ""
+        };
         if (HasLegacyHold(policy)) text += $"\n仍使用旧版兼容策略的大屏同步后，{HeldActions(policy)}暂按禁止处理。";
         return text;
     }
 
     private static string UpgradeReceipt(ClassroomEffectiveAction policy, int observedSchema, int minimumSchema)
     {
-        string text = minimumSchema == 4 ? "旧版大屏回执 · 此屏需升级才能应用手动自习规则" :
-            minimumSchema == 3 ? "旧版大屏回执 · 此屏需升级" : "旧版大屏回执 · 课堂模式策略待核对";
+        string text = minimumSchema switch
+        {
+            5 => "旧版大屏回执 · 此屏需升级才能应用手动录课规则",
+            4 => "旧版大屏回执 · 此屏需升级才能应用手动自习规则",
+            3 => "旧版大屏回执 · 此屏需升级",
+            _ => "旧版大屏回执 · 课堂模式策略待核对"
+        };
         if (observedSchema < 3 && HasLegacyHold(policy)) text += $"。旧版同步本策略后，{HeldActions(policy)}暂按禁止处理";
         return text;
     }
@@ -636,8 +662,10 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         var origins = policy.ActionOrigins;
         string manual = origins?.StartManualStudy is { } startOrigin ?
             $"\n手动自习 {RuleText(actions.StartManualStudy)}{OriginText(startOrigin)}" : "";
+        string recording = origins?.StartManualRecording is { } recordingOrigin ?
+            $"\n手动录课 {RuleText(actions.StartManualRecording)}{OriginText(recordingOrigin)}" : "";
         return $"{(policy.Source == "CLASS" ? "班级策略" : "年级默认")} · 停止 {RuleText(actions.StopScheduledMonitoring)}{OriginText(origins?.StopScheduledMonitoring)} · " +
-            $"退出 {RuleText(actions.ExitBackground)}{OriginText(origins?.ExitBackground)}\n课堂模式 {RuleText(actions.SwitchClassroomMode)}{OriginText(origins?.SwitchClassroomMode)}{manual} · U 盘 {policy.UsbCount} 支";
+            $"退出 {RuleText(actions.ExitBackground)}{OriginText(origins?.ExitBackground)}\n课堂模式 {RuleText(actions.SwitchClassroomMode)}{OriginText(origins?.SwitchClassroomMode)}{manual}{recording} · U 盘 {policy.UsbCount} 支";
     }
 
     private static string OriginText(string? origin) => origin switch
@@ -655,6 +683,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         "exitBackground" => "退出后台",
         "switchClassroomMode" => "切换课堂模式",
         "startManualStudy" => "发起手动自习",
+        "startManualRecording" => "开始手动录课",
         _ => "停止本场"
     };
 
