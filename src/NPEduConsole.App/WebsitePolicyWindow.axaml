@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NPEduConsole.App.WebsitePolicyWindow" Title="教室网站访问规则"
+        Width="1050" Height="700" MinWidth="720" MinHeight="440" WindowStartupLocation="CenterOwner">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Padding="16,10" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <StackPanel Spacing="6">
+        <TextBlock x:Name="ContextText" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+          <ComboBox x:Name="ScopeKind" MinWidth="114" AutomationProperties.Name="规则范围" SelectionChanged="ChangeKind">
+            <ComboBoxItem Content="年级默认" /><ComboBoxItem Content="班级规则" />
+          </ComboBox>
+          <ComboBox x:Name="ScopeChoice" Grid.Column="1" HorizontalAlignment="Stretch" PlaceholderText="选择年级或行政班"
+                    AutomationProperties.Name="选择规则范围" />
+          <Button x:Name="ReadScopeButton" Grid.Column="2" Classes="action" Content="读取范围" Click="ReadScopeClicked" />
+        </Grid>
+      </StackPanel>
+    </Border>
+    <ScrollViewer x:Name="WebsiteDetailsScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel x:Name="DetailsBody" Margin="16,12" Spacing="12">
+        <TextBlock x:Name="PublicationNote" TextWrapping="Wrap" Classes="muted" Text="此页发布学校期望的网站清单。逐屏收到仅表示设备收到了配置，Edge 生效另行核对。" />
+        <Border x:Name="Editor" Classes="card" Padding="12" IsVisible="False">
+          <StackPanel Spacing="6">
+            <TextBlock x:Name="EditorHeading" FontWeight="SemiBold" TextWrapping="Wrap" />
+            <CheckBox x:Name="Inherit" Content="沿用上级或未设置规则" />
+            <TextBox x:Name="Hosts" AcceptsReturn="True" MinHeight="78" MaxLength="6200" TextWrapping="Wrap"
+                     PlaceholderText="每行一个域名，例如 douyin.com" AutomationProperties.Name="限制访问的域名" />
+            <TextBlock x:Name="HostTips" TextWrapping="Wrap" Classes="muted" Text="最多 24 个。按完整域名匹配，子域名单列。留空表示本范围不下发限制清单。" />
+          </StackPanel>
+        </Border>
+        <TextBlock x:Name="PreviewHeading" IsVisible="False" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <ItemsControl x:Name="RoomRows">
+          <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding .}" TextWrapping="Wrap" Margin="0,2,0,4" /></DataTemplate></ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock x:Name="ScreenHeading" IsVisible="False" Text="逐屏核对" FontWeight="SemiBold" />
+        <ItemsControl x:Name="ScreenRows">
+          <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding .}" TextWrapping="Wrap" Margin="0,2,0,4" /></DataTemplate></ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="2" Padding="16,8" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="Feedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+        <WrapPanel ItemSpacing="8" LineSpacing="4">
+          <Button x:Name="ReturnButton" Classes="action" Content="返回" Click="ReturnClicked" />
+          <Button x:Name="DiscardButton" Classes="action" Content="放弃本次编辑" Click="DiscardClicked" />
+          <Button x:Name="PreviewButton" Classes="action accent" Content="预览变更" Click="PreviewClicked" />
+          <Button x:Name="PublishButton" Classes="action accent" Content="发布这份配置" Click="PublishClicked" />
+          <Button x:Name="ReceiptButton" Classes="action" Content="查本人回执" Click="ReceiptClicked" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>

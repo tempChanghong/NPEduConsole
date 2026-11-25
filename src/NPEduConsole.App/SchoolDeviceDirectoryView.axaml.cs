@@ -22,10 +22,16 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
     public event Action<string, Control>? DiagnosticsRequested;
     public event Action<Control>? ConnectionsRequested;
     public event Action<Control>? ActionPolicyRequested;
+    public event Action<Control>? WebsitePolicyRequested;
 
     private void OpenActionPolicyClicked(object? sender, RoutedEventArgs args)
     {
         if (sender is Control anchor) ActionPolicyRequested?.Invoke(anchor);
+    }
+
+    private void OpenWebsitePolicyClicked(object? sender, RoutedEventArgs args)
+    {
+        if (sender is Control anchor) WebsitePolicyRequested?.Invoke(anchor);
     }
 
     private void OpenConnectionsClicked(object? sender, RoutedEventArgs args)

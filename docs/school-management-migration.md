@@ -525,3 +525,11 @@ dotnet run --project tests/NPEduConsole.RosterDesktop -c Release -- --live-save 
 ```
 
 审计入口见 NPClassworks 的 `src/pages/classworks-admin.vue`、`src/components/admin/AuditLogViewer.vue`，以及 NPClassworksKV 的 `routes/v2/academic-admin.js`、`services/auditLogService.js`。
+
+## 教室网站访问规则
+
+从「教室设备 → 网站访问规则」选择启用学期的年级或行政班。每个年级可发布默认域名清单；班级可跟随年级、设置自己的清单或保留空清单。域名按完整主机名校验，发布前列出各班的实际变化。服务端核对办理范围与预览版本，断线可按本人原号核对回执。
+
+新版 Host 按当前配对读取规则并报告「设备已收到」。逐屏状态只凭同一绑定、同一设备会话和当前规则的近期回执。Edge 生效须另行核对，教室端收到配置时不会写入 Windows 浏览器策略。部署本功能先运行 KV 迁移 `20261125010000_npep_website_policy`，再更新 KV、Console 和 Host。
+
+`node tests/live-kv.mjs <KV 副本> <PostgreSQL bin> --website-policy` 运行可丢弃真库、Windows 管理端及真实 Host 配对和收件的主线。

@@ -84,6 +84,7 @@ public sealed partial class MainWindow : Window
         DeviceDirectory.DiagnosticsRequested += async (search, anchor) => await ShowDeviceDiagnosticsAsync(search, anchor);
         DeviceDirectory.ConnectionsRequested += async anchor => await ShowDeviceConnectionsAsync(anchor);
         DeviceDirectory.ActionPolicyRequested += async anchor => await ShowClassroomActionPolicyAsync(anchor);
+        DeviceDirectory.WebsitePolicyRequested += async anchor => await ShowWebsitePolicyAsync(anchor);
         DeviceDirectory.ScreenRequested += async (snapshot, row) => await OpenDeviceDirectoryTargetAsync(snapshot, row);
         DeviceDirectory.DutyRequested += async (binding, room, term, anchor) =>
         {

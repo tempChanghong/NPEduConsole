@@ -6,12 +6,12 @@ import {setTimeout as delay} from 'node:timers/promises';
 
 // Cross the actual KV / native-runtime boundary. Only the input device inventory
 // is synthetic. No production account, capture, USB drive or Guard is involved.
-export async function verifyNativeClassroomActions({prisma, origin, directory, fixture, runNative}) {
+export async function verifyNativeClassroomActions({prisma, origin, directory, fixture, runNative, runWebsiteDesktop}) {
   const {school, term, managerId, classes} = fixture;
   const inheritance = process.env.NP_CLASSROOM_ACTION_INHERITANCE === '1';
   const manualStudy = process.env.NP_MANUAL_STUDY_POLICY === '1';
   const manualRecording = process.env.NP_MANUAL_RECORDING_POLICY === '1';
-  const classId = inheritance || manualStudy || manualRecording ? classes[0] : classes[2];
+  const classId = inheritance || manualStudy || manualRecording || runWebsiteDesktop ? classes[0] : classes[2];
   const room = await prisma.workspace.findUniqueOrThrow({where: {id: classId}});
   const makeScreen = name => prisma.classroomScreenBinding.create({data: {name, schoolId: school.id,
     administrativeClassId: classId, tokenHash: randomBytes(32).toString('hex'), createdByAccountId: managerId}});
@@ -46,6 +46,24 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   await native('confirm');
   const paired = await prisma.npepDevice.findFirstOrThrow({where: {schoolId: school.id, screenBindingId: front.id, state: 'ACTIVE'}});
   assert.equal(paired.administrativeClassId, classId);
+  const websiteDirectory = resolve(process.env.NP_CONSOLE_WEBSITE_POLICY_EVIDENCE || '.artifacts/website-policy/live');
+  const websiteScope = `${root}/website-policy/scope/${term.id}/CLASS/${classId}`;
+  let websiteEvidence = null;
+  async function websiteDesktop(readReceipt) {
+    const grade = await prisma.grade.findUniqueOrThrow({where: {id: room.gradeId}});
+    const path = join(directory, 'website-access.json');
+    await mkdir(websiteDirectory, {recursive: true});
+    await writeFile(path, JSON.stringify({origin, schoolId: school.id, schoolCode: school.code, pin: fixture.pin,
+      gradeCode: grade.code, classCode: room.code, readReceipt}));
+    await runWebsiteDesktop(['--live-website-policy', path, websiteDirectory]);
+  }
+  if (runWebsiteDesktop) {
+    await websiteDesktop(false);
+    const desired = await call(websiteScope);
+    assert.deepEqual(desired.rows[0].before.blockedHosts, ['douyin.com']);
+    assert.equal(desired.rows[0].before.source, 'GRADE');
+    assert.equal(desired.screens.find(screen => screen.bindingId === front.id).status, 'AWAITING_DEVICE');
+  }
   const classSecret = randomBytes(24).toString('base64url');
   const classManagement = root + '/class-management/' + front.id;
   const old = await call(classManagement);
@@ -78,6 +96,20 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
         assert.equal(rearRow.observed, null);
         if (frontRow.observationCurrent && frontRow.observed?.policyId === expected.policyId &&
             frontRow.observed?.revision === result.revision && frontRow.observed.error === null) {
+          if (runWebsiteDesktop) {
+            const website = await call(websiteScope);
+            const received = website.screens.find(screen => screen.bindingId === front.id);
+            const unpaired = website.screens.find(screen => screen.bindingId === rear.id);
+            if (received?.status !== 'RECEIVED_NOT_APPLIED') {
+              await delay(350);
+              continue;
+            }
+            assert.equal(received.deviceId, paired.id);
+            assert.equal(received.bindingRevision, paired.bindingRevision);
+            assert.equal(unpaired?.status, 'NOT_PAIRED');
+            assert.deepEqual(website.rows[0].before.blockedHosts, ['douyin.com']);
+            websiteEvidence = {classId, rule: website.rows[0].before, received, unpaired};
+          }
           assert.equal(frontRow.observed.schemaVersion, 5);
           assert.deepEqual(current.rooms.find(row => row.id === classId).before.actions, expected.actions);
           assert.equal(frontRow.deviceId, paired.id);
@@ -107,7 +139,14 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   }
   const gradeActions = {stopScheduledMonitoring: rule('ALLOW'), exitBackground: rule('DENY')};
   let neighborEvidence = null;
-  if (manualRecording) {
+  if (runWebsiteDesktop) {
+    await publishAndObserve('GRADE', gradeActions, 'allow', 'deny');
+    assert.ok(websiteEvidence);
+    await websiteDesktop(true);
+    await writeFile(join(websiteDirectory, 'website-policy-live.json'), JSON.stringify({passed: true, ...websiteEvidence}, null, 2));
+    console.log('PASS actual Console publication and receipt display with the bound native Host; Edge application was not claimed.');
+    return;
+  } else if (manualRecording) {
     const gradeAllow = {...gradeActions, switchClassroomMode: null, startManualStudy: null, startManualRecording: rule('ALLOW')};
     await publishAndObserve('GRADE', gradeAllow, 'allow', 'deny', {manualRecordingMode: 'allow'});
     const classActionOverrides = {stopScheduledMonitoring: null, exitBackground: null, switchClassroomMode: null,
