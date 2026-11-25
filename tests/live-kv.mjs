@@ -66,7 +66,7 @@ import {verifyDeviceFieldActions} from './device-field-actions-fixture.mjs';
 import {verifyClassroomActionPolicyConsole} from './classroom-action-policy-fixture.mjs';
 
 const [checkout, binaries, mode] = process.argv.slice(2);
-assert.ok(checkout && binaries && (!mode || ['--website-policy', '--classroom-action-native', '--classroom-action-policy', '--classroom-action-policy-db', '--serve', '--local-authorization', '--serve-local-authorization',
+assert.ok(checkout && binaries && (!mode || ['--website-policy', '--website-policy-product', '--classroom-action-native', '--classroom-action-policy', '--classroom-action-policy-db', '--serve', '--local-authorization', '--serve-local-authorization',
   '--software-update', '--serve-software-update', '--class-admission', '--serve-class-admission',
   '--class-study', '--serve-class-study', '--server-status', '--school-audit', '--serve-school-audit', '--class-roster', '--serve-class-roster',
   '--class-creation', '--serve-class-creation', '--grade-creation', '--grade-rename', '--class-batch', '--class-maintenance', '--school-overview', '--school-opening', '--staff-configuration',
@@ -677,6 +677,10 @@ async function runFixture() {
     const project = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
     const evidence = resolve(process.env.NP_CONSOLE_ACTION_POLICY_EVIDENCE || '.artifacts/classroom-action-policy');
     return verifyClassroomActionPolicyConsole({prisma, origin, fixture, fromKv, directory, evidence, runDesktop: args => runDesktop(project, args)});
+  }
+  if (mode === '--website-policy-product') {
+    const {verifyWebsitePolicyProduct} = await import('./website-policy-product-fixture.mjs');
+    return verifyWebsitePolicyProduct({prisma, origin, directory, fixture});
   }
   if (mode === '--classroom-action-native' || mode === '--website-policy') {
     const {verifyNativeClassroomActions} = await import('./classroom-action-native-fixture.mjs');

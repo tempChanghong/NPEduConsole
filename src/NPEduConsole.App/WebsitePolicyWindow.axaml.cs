@@ -266,15 +266,21 @@ public sealed partial class WebsitePolicyWindow : Window
             : $"{row.Name} · {row.Code}\n现在：{Caption(row.Before)}\n发布后：{Caption(row.After)}").ToArray();
         ScreenHeading.IsVisible = shown?.Screens.Length > 0;
         ScreenHeading.Text = _preview is null ? "逐屏核对当前配置" : "逐屏查看发布前状态";
-        ScreenRows.ItemsSource = shown?.Screens.OrderBy(screen => screen.Status != "RECEIVED_NOT_APPLIED").Select(screen =>
+        ScreenRows.ItemsSource = shown?.Screens.OrderBy(screen => screen.ReceivedAt is null).Select(screen =>
         {
             var room = shown.Rows.First(row => row.Id == screen.ClassId);
             string status = screen.Status switch
             {
-                "RECEIVED_NOT_APPLIED" => $"设备已收到 · Edge 生效未确认 · {screen.ReceivedAt?.ToLocalTime():MM-dd HH:mm:ss}",
+                "RECEIVED_NOT_APPLIED" => "设备已收到 · Edge 生效未确认",
+                "WRITTEN_PENDING" => "已写入 Windows · 等待 Edge 前台确认",
+                "CLEARED_PENDING" => "本产品名下的拦截已清除 · Edge 放行未确认",
+                "EDGE_CONFIRMED" => "Edge 前台已观察到名单内各网站被拦截",
+                "CONFLICT" => "本机已有规则或清单冲突 · 未确认生效",
+                "FAILED" => "写入或核对失败 · 请检查本机后台和 Windows 策略",
                 "NOT_PAIRED" => "未配对原生设备",
                 _ => "等待当前绑定的设备报告"
             };
+            if (screen.ReceivedAt is { } receivedAt) status += $" · {receivedAt.ToLocalTime():MM-dd HH:mm:ss}";
             return $"{room.Name} · {screen.BindingName} · {screen.DeviceName ?? "无设备"}\n{status}";
         }).ToArray();
     }

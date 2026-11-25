@@ -530,6 +530,10 @@ dotnet run --project tests/NPEduConsole.RosterDesktop -c Release -- --live-save 
 
 从「教室设备 → 网站访问规则」选择启用学期的年级或行政班。每个年级可发布默认域名清单；班级可跟随年级、设置自己的清单或保留空清单。域名按完整主机名校验，发布前列出各班的实际变化。服务端核对办理范围与预览版本，断线可按本人原号核对回执。
 
-新版 Host 按当前配对读取规则并报告「设备已收到」。逐屏状态只凭同一绑定、同一设备会话和当前规则的近期回执。Edge 生效须另行核对，教室端收到配置时不会写入 Windows 浏览器策略。部署本功能先运行 KV 迁移 `20261125010000_npep_website_policy`，再更新 KV、Console 和 Host。
+当前绑定的新版 Host 使用已有 Windows 后台权限应用清单。逐屏分别显示已收到、已写入 Windows 等待 Edge 确认、已观察名单内各网站的实际 Edge 前台拦截、冲突和失败。状态只凭同一绑定、设备会话及当前规则的近期回执。没有实际浏览记录时仍显示待确认。清空清单后只回收产品写入且仍属本产品的条目，Edge 是否可访问还取决于其他管理员规则及网络。
 
-`node tests/live-kv.mjs <KV 副本> <PostgreSQL bin> --website-policy` 运行可丢弃真库、Windows 管理端及真实 Host 配对和收件的主线。
+名单精确匹配主机名，例如 `douyin.com` 和 `www.douyin.com` 需分开填。已知用户范围或托管来源与机器策略存在优先级冲突时，设备保留外部来源并提示冲突。断网时保留原配对已安装的清单。解绑或换校时按原配对清理，备用策略及其他管理方的值不随之移除。
+
+首次部署先运行既有 KV 迁移 `20261125010000_npep_website_policy`，再更新 KV、NPEduTools Host/App 与 Console。已有该迁移的站点无需新增迁移。旧 Host 或旧配套 KV 仍走「设备已收到」兼容状态。
+
+`node tests/live-kv.mjs <KV 副本> <PostgreSQL bin> --website-policy` 覆盖可丢弃真库、Windows 管理端和兼容 Host 收件；`--website-policy-product` 使用单独的 Windows 客机验证产品 Host 自动应用、Edge 前台回执、本班例外及第二班继承，步骤见 NPEduTools 的 Edge 原型目录。

@@ -54,7 +54,8 @@ public sealed partial class ConsoleClient
     private async Task<T> WebsitePolicyRequestAsync<T>(HttpMethod method, string path, CancellationToken ct, object? body = null, Guid? requestId = null)
     {
         var session = CurrentSession;
-        var data = ReadData<T>(await SendAsync(method, path, session.Token, ct, version: "0.16", body: body, operationId: requestId));
+        var data = ReadData<T>(await SendAsync(method, path, session.Token, ct, version: "0.16", body: body,
+            operationId: requestId, websitePolicyAutomation: true));
         ct.ThrowIfCancellationRequested();
         if (!ReferenceEquals(session, _session)) throw new ConsoleApiException(401, "登录会话已改变，请重新登录。");
         return data;
@@ -71,8 +72,9 @@ public sealed partial class ConsoleClient
             rooms.Any(row => !validEffective(row.Before, row.Id) || !validEffective(row.After, row.Id)) ||
             target.ScopeKind == "CLASS" && (rooms.Length != 1 || rooms[0].Id != target.ScopeId) ||
             RequireNonNullRows(data.Screens).Any(screen => !rooms.Any(row => row.Id == screen.ClassId) ||
-                screen.Status is not ("NOT_PAIRED" or "AWAITING_DEVICE" or "RECEIVED_NOT_APPLIED") ||
-                screen.Status == "RECEIVED_NOT_APPLIED" && (screen.DeviceId is null || screen.ReceivedAt is null)))
+                screen.Status is not ("NOT_PAIRED" or "AWAITING_DEVICE" or "RECEIVED_NOT_APPLIED" or
+                    "WRITTEN_PENDING" or "CLEARED_PENDING" or "EDGE_CONFIRMED" or "CONFLICT" or "FAILED") ||
+                screen.Status is not ("NOT_PAIRED" or "AWAITING_DEVICE") && (screen.DeviceId is null || screen.ReceivedAt is null)))
             throw InvalidResponse();
         return data;
     }

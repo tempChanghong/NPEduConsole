@@ -17,14 +17,14 @@
     </Border>
     <ScrollViewer x:Name="WebsiteDetailsScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
       <StackPanel x:Name="DetailsBody" Margin="16,12" Spacing="12">
-        <TextBlock x:Name="PublicationNote" TextWrapping="Wrap" Classes="muted" Text="此页发布学校期望的网站清单。逐屏收到仅表示设备收到了配置，Edge 生效另行核对。" />
+        <TextBlock x:Name="PublicationNote" TextWrapping="Wrap" Classes="muted" Text="绑定教室端会尝试应用规则。逐屏可核对 Windows 写入和真实 Edge 前台观察。放行只移除学校集控写入的规则。" />
         <Border x:Name="Editor" Classes="card" Padding="12" IsVisible="False">
           <StackPanel Spacing="6">
             <TextBlock x:Name="EditorHeading" FontWeight="SemiBold" TextWrapping="Wrap" />
             <CheckBox x:Name="Inherit" Content="沿用上级或未设置规则" />
             <TextBox x:Name="Hosts" AcceptsReturn="True" MinHeight="78" MaxLength="6200" TextWrapping="Wrap"
                      PlaceholderText="每行一个域名，例如 douyin.com" AutomationProperties.Name="限制访问的域名" />
-            <TextBlock x:Name="HostTips" TextWrapping="Wrap" Classes="muted" Text="最多 24 个。按完整域名匹配，子域名单列。留空表示本范围不下发限制清单。" />
+            <TextBlock x:Name="HostTips" TextWrapping="Wrap" Classes="muted" Text="最多 24 个。按完整域名匹配，douyin.com 和 www.douyin.com 分开填。留空表示本范围不下发限制清单。" />
           </StackPanel>
         </Border>
         <TextBlock x:Name="PreviewHeading" IsVisible="False" FontWeight="SemiBold" TextWrapping="Wrap" />

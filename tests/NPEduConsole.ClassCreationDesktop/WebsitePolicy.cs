@@ -10,7 +10,8 @@ using NPEduConsole.Core;
 internal static partial class Program
 {
     private sealed record WebsiteAccess(string Origin, string SchoolId, string SchoolCode, string Pin,
-        string GradeCode, string ClassCode, bool ReadReceipt);
+        string GradeCode, string ClassCode, bool ReadReceipt, bool AllowClass = false,
+        string? ExpectedScreen = null, string? ExpectedStatus = null, string? ImageName = null);
 
     private static int StartWebsitePolicy(string path, string output)
     {
@@ -52,13 +53,24 @@ internal static partial class Program
             window.Width = access.ReadReceipt ? 840 : 1160;
             window.Height = access.ReadReceipt ? 480 : 780;
             var choices = Find<ComboBox>(window, "ScopeChoice");
-            if (access.ReadReceipt) Find<ComboBox>(window, "ScopeKind").SelectedIndex = 1;
-            string code = access.ReadReceipt ? access.ClassCode : access.GradeCode;
+            if (access.ReadReceipt || access.AllowClass) Find<ComboBox>(window, "ScopeKind").SelectedIndex = 1;
+            string code = access.ReadReceipt || access.AllowClass ? access.ClassCode : access.GradeCode;
             await Until(() => choices.Items.Cast<object>().Any(row => row.ToString()!.EndsWith(" · " + code, StringComparison.Ordinal)), "original target ready");
             choices.SelectedItem = choices.Items.Cast<object>().Single(row => row.ToString()!.EndsWith(" · " + code, StringComparison.Ordinal));
             Click(Find<Button>(window, "ReadScopeButton"));
             var hosts = Find<TextBox>(window, "Hosts");
-            if (access.ReadReceipt)
+            if (access.ExpectedScreen is { } expected && access.ExpectedStatus is { } status)
+            {
+                var screens = Find<ItemsControl>(window, "ScreenRows");
+                await Until(() => screens.Items.OfType<string>().Any(row => row.Contains(expected) && row.Contains(status)), "current device evidence visible");
+                var scroller = Find<ScrollViewer>(window, "WebsiteDetailsScroll");
+                await Until(() => screens.GetVisualDescendants().OfType<TextBlock>().Any(row =>
+                    row.Text?.Contains(expected) == true && row.Text.Contains(status) &&
+                    row.TranslatePoint(new(0, row.Bounds.Height), scroller)?.Y <= scroller.Bounds.Height - 2),
+                    "current device evidence fits the window");
+                await CaptureWithFrame(window, output, access.ImageName ?? "current-device-evidence");
+            }
+            else if (access.ReadReceipt)
             {
                 var screens = Find<ItemsControl>(window, "ScreenRows");
                 await Until(() => screens.Items.OfType<string>().Any(row => row.Contains("设备已收到")), "actual bound Host acknowledgement visible");
@@ -79,16 +91,18 @@ internal static partial class Program
                 await Until(() => Find<CheckBox>(window, "Inherit").IsEffectivelyVisible &&
                     Find<CheckBox>(window, "Inherit").IsEffectivelyEnabled, "loaded actual grade");
                 Find<CheckBox>(window, "Inherit").IsChecked = false;
-                hosts.Text = "douyin.com";
+                hosts.Text = access.AllowClass ? "" : "douyin.com";
                 var preview = Find<Button>(window, "PreviewButton");
                 await Until(() => preview.IsEffectivelyEnabled, "changed draft ready");
                 Click(preview);
                 var publish = Find<Button>(window, "PublishButton");
                 await Until(() => publish.IsEffectivelyVisible && publish.IsEffectivelyEnabled, "server compared real classes");
                 var rooms = Find<ItemsControl>(window, "RoomRows");
-                Check(rooms.Items.OfType<string>().Any(row => row.Contains("现在：未设置") && row.Contains("发布后：年级默认 · douyin.com")),
+                Check(rooms.Items.OfType<string>().Any(row => access.AllowClass
+                    ? row.Contains("现在：年级默认 · douyin.com") && row.Contains("发布后：本班自定 · 无下发域名")
+                    : row.Contains("现在：未设置") && row.Contains("发布后：年级默认 · douyin.com")),
                     "clear class impact before publish");
-                await CaptureWithFrame(window, output, "01-grade-review-1160");
+                await CaptureWithFrame(window, output, access.AllowClass ? "03-class-allow-review-1160" : "01-grade-review-1160");
                 Click(publish);
                 await Until(() => Find<TextBlock>(window, "Feedback").Text?.Contains("学校配置已保存") == true, "operator's server receipt present");
             }
