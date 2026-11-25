@@ -138,18 +138,34 @@ internal static partial class Program
             Check(Content("Source").Contains("已发布：逐项设置") && !Find<TextBlock>(window, "ActionPolicyDraft").IsEffectivelyVisible,
                 "class override was not activated in KV");
             tabs.SelectedIndex = 2;
-            bool HasNewLegacyReceipt() => observations.Items.OfType<string>().Any(row => row.Contains(access.FrontId) &&
-                row.Contains("此屏需升级才能应用手动自习规则") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用"));
+            string ScreenRow(string bindingId) => observations.Items.OfType<string>().Single(row => row.Contains(bindingId));
+            bool HasNewLegacyReceipt()
+            {
+                var row = ScreenRow(access.FrontId);
+                return row.Contains("此屏需升级才能应用手动自习规则") && row.Contains("上次回报版本 3") && !row.Contains("设备已应用");
+            }
             for (int refresh = 0; refresh < 8; refresh++)
             {
-                if (HasNewLegacyReceipt()) break;
+                if (HasNewLegacyReceipt() && !ScreenRow(access.RearId).Contains("等待同步")) break;
                 await Task.Delay(300);
                 await Until(() => Action("Refresh").IsEffectivelyEnabled, "refresh after classroom mode publication");
                 Click(Action("Refresh"));
                 await Until(() => Action("Refresh").IsEffectivelyEnabled, "classroom mode evidence finished");
             }
             Check(HasNewLegacyReceipt(), "a v3 receipt for this publication should leave manual study unconfirmed");
-            await CaptureWithFrame(window, output, "06-old-screen-needs-upgrade");
+            var rearFault = ScreenRow(access.RearId);
+            Check(rearFault.Contains("设备策略存储异常") && !rearFault.Contains("需升级") && !rearFault.Contains("设备已应用"),
+                "the current storage fault must take precedence over the receipt schema on the exact rear screen");
+            await CaptureWithFrame(window, output, "06-independent-upgrade-and-storage-fault");
+            using var checkpoint = new HttpClient { BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(15) };
+            using (var restarted = await checkpoint.PostAsync("/__classroom-policy-fixture/restart-rear", null))
+                Check(restarted.IsSuccessStatusCode, "rear device opens a new session without sending a new policy receipt");
+            Click(Action("Refresh"));
+            await Until(() => Action("Refresh").IsEffectivelyEnabled, "screen receipts refreshed after rear device restarted");
+            var stale = ScreenRow(access.RearId);
+            Check(stale.Contains("等待同步") && !stale.Contains("存储异常") && !stale.Contains("需升级") && HasNewLegacyReceipt(),
+                "the old-session storage fault must not be shown as current or alter the front receipt");
+            await CaptureWithFrame(window, output, "07-restarted-screen-waits-for-receipt");
             tabs.SelectedIndex = 0;
             await ChooseTarget(access.NeighborCode);
             Check(Content("Source").Contains("继承年级默认") &&
@@ -181,7 +197,6 @@ internal static partial class Program
             Click(Action("Close"));
             await Until(() => !window.IsVisible && entry.IsFocused, "return restores focus to original policy entry");
 
-            using (var checkpoint = new HttpClient { BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(15) })
             using (var archived = await checkpoint.PostAsync("/__classroom-policy-fixture/archive", null))
                 Check(archived.IsSuccessStatusCode, "isolated original term was archived after a new USB registration");
             Click(entry);
@@ -214,7 +229,8 @@ internal static partial class Program
             await Until(() => !window.IsVisible && entry.IsFocused, "historical window returns to the same device entry");
             File.WriteAllText(Path.Combine(output, "desktop-result.json"), JsonSerializer.Serialize(new { passed = true, realWindows = true,
                 physicalUsbRegistered = false, verified = new[] { "normal-entry", "wide-grade-review", "lost-response-own-read", "narrow-independent-screens",
-                    "class-override", "manual-study-preview", "neighbor-follows-grade", "old-device-receipt-pending", "restore-inheritance",
+                    "class-override", "manual-study-preview", "neighbor-follows-grade", "old-device-receipt-pending", "current-storage-fault",
+                    "superseded-storage-fault", "restore-inheritance",
                     "last-key-revoke-warning", "entry-focus", "historical-no-active-term", "original-key-revocation" } }));
             desktop.Shutdown(0);
         }

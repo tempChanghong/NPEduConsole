@@ -589,17 +589,20 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         {
             var room = scope.Rooms.Single(row => row.Id == screen.ClassId);
             int minimumSchema = room.Before.MinimumReceiptSchema ?? (room.Before.Actions?.SwitchClassroomMode is not null ? 2 : 1);
+            var current = screen.ObservationCurrent ? screen.Observed : null;
             string state = screen.DeviceId is null ? "未配对" :
-                screen.ObservationCurrent && screen.Observed is { Error: null } observed && observed.PolicyId == room.Before.PolicyId &&
-                    observed.Revision >= room.Before.RequiredRevision && observed.SchemaVersion >= minimumSchema ? "设备已应用策略" :
-                screen.ObservationCurrent && screen.Observed is { } unsupported && unsupported.SchemaVersion < minimumSchema ?
-                    UpgradeReceipt(room.Before, unsupported.SchemaVersion, minimumSchema) :
-                screen.Observed is { Error: not null } error ? $"设备待核对（{error.Error}）" : "等待同步或支持此策略的回执";
+                current?.Error is { } error ? PolicyReceiptError(error) :
+                current is not null && current.SchemaVersion < minimumSchema ? UpgradeReceipt(room.Before, current.SchemaVersion, minimumSchema) :
+                current is not null && current.PolicyId == room.Before.PolicyId && current.Revision >= room.Before.RequiredRevision ?
+                    "设备已应用策略" : "等待同步或支持此策略的回执";
             string historical = screen.LastApplied is { } last && screen.LastAppliedAt is { } at ?
                 $" · 上次回报版本 {last.Revision}（{at.ToLocalTime():MM-dd HH:mm:ss}）" : "";
             yield return $"{room.Name} · {screen.BindingName} · {state}\n{(screen.DeviceName ?? "暂无原生设备")}{historical} · 大屏编号 {screen.BindingId}";
         }
     }
+
+    private static string PolicyReceiptError(string error) => error == "CLASSROOM_POLICY_STORE_UNAVAILABLE" ?
+        "设备策略存储异常 · 请检查大屏本地存储" : $"设备待核对（{error}）";
 
     private static string UpgradePreview(ClassroomEffectiveAction policy)
     {

@@ -13,9 +13,12 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
   const front = await prisma.npepDevice.findUniqueOrThrow({where: {id: devices[0]}});
   const rear = await prisma.classroomScreenBinding.create({data: {schoolId: school.id, administrativeClassId: room.id,
     name: '同班后屏', tokenHash: randomBytes(32).toString('hex'), createdByAccountId: managerId}});
-  await prisma.npepDevice.create({data: {...identity, id: randomUUID(), installationId: randomUUID(), credentialId: randomUUID(),
+  const {secretHash} = await fromKv('domain/npep/wire.js');
+  const rearSecret = randomBytes(32).toString('base64url');
+  const rearDevice = await prisma.npepDevice.create({data: {...identity, id: randomUUID(), installationId: randomUUID(), credentialId: randomUUID(),
     schoolId: school.id, administrativeClassId: room.id, screenBindingId: rear.id, bindingRevision: rear.npepBindingRevision,
-    deviceName: '同班后屏一体机', secretHash: randomBytes(32).toString('hex'), credentialExpiresAt: new Date(Date.now() + 3600000)}});
+    deviceName: '同班后屏一体机', secretHash: secretHash(rearSecret), credentialExpiresAt: new Date(Date.now() + 3600000)}});
+  const rearBearer = `npep1.${rearDevice.credentialId}.${rearSecret}`;
   const {schoolManagementRepository} = await fromKv('services/npepSchoolManagementService.js');
   const {managementVerifier} = await fromKv('domain/npep/schoolManagement.js');
   for (const classId of classes) await schoolManagementRepository.saveCredential(prisma, school.id, classId, {
@@ -44,16 +47,45 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
   const preview = await call(path + '/preview', {change});
   await call(path, {change, expectedVersion: preview.version});
   const oldKey = {...change.usbKey, keyId: randomUUID(), label: '跨学期挂失演示盘', mediaHash: randomBytes(32).toString('hex'), secretHash: randomBytes(32).toString('hex')};
-  const runId = randomUUID();
-  const session = await call('/device/sessions', {...identity, runId, expectedStatusEpoch: 0}, classroomBearer, '0.1');
+  async function openDeviceSession(bearer, expectedStatusEpoch = 0) {
+    const runId = randomUUID();
+    const {sessionId, statusEpoch} = await call('/device/sessions', {...identity, runId, expectedStatusEpoch}, bearer, '0.1');
+    return {runId, sessionId, statusEpoch};
+  }
+  function report(bearer, context, sequence, actionPolicyReceipt) {
+    return call('/device/school-management/receipt', {context, sequence, microphones: [], cameras: [], unlocked: false,
+      appliedRevision: 0, credentialRevision: 1, selectedMicrophoneId: null, selectedCameraId: null, error: null, actionPolicyReceipt}, bearer);
+  }
+  const frontSession = await openDeviceSession(classroomBearer);
+  const scopePath = path + `/scope/${term.id}/CLASS/${room.id}`;
+  const storageError = 'CLASSROOM_POLICY_STORE_UNAVAILABLE';
+  let rearSession, faultEvidence;
 
   let dropped = false, writes = 0, ownReads = 0, activeFinal = null;
   const proxy = createServer((request, response) => {
+    if (request.method === 'POST' && request.url === '/__classroom-policy-fixture/restart-rear') {
+      request.resume();
+      (async () => {
+        assert.ok(rearSession && faultEvidence, 'rear first reported a storage fault');
+        const next = await openDeviceSession(rearBearer, rearSession.statusEpoch);
+        assert.notEqual(next.sessionId, rearSession.sessionId);
+        const scope = await call(scopePath, null, token, '0.16', 4);
+        const oldFault = scope.screens.find(screen => screen.bindingId === rear.id);
+        assert.equal(oldFault.observed.error, storageError);
+        assert.equal(oldFault.observationCurrent, false);
+        faultEvidence.currentAfterRestart = oldFault.observationCurrent;
+        response.writeHead(204).end();
+      })().catch(error => {
+        console.error(error);
+        response.writeHead(500).end();
+      });
+      return;
+    }
     if (request.method === 'POST' && request.url === '/__classroom-policy-fixture/archive') {
       request.resume();
       (async () => {
         assert.equal(activeFinal, null);
-        activeFinal = await call(path + `/scope/${term.id}/CLASS/${room.id}`);
+        activeFinal = await call(scopePath);
         const oldRegistration = {...change, usbKey: oldKey};
         const review = await call(path + '/preview', {change: oldRegistration});
         await call(path, {change: oldRegistration, expectedVersion: review.version});
@@ -108,11 +140,26 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
           assert.equal(target.actionPolicy.actions.exitBackground.mode, 'DENY');
           assert.notEqual(target.actionPolicy.policyId, policy.policyId);
         }
-        await call('/device/school-management/receipt', {context: {identity: current.identity, runId, sessionId: session.sessionId,
-          statusEpoch: session.statusEpoch}, sequence: ++acknowledged, microphones: [], cameras: [], unlocked: false, appliedRevision: 0,
-          credentialRevision: 1, selectedMicrophoneId: null, selectedCameraId: null, error: null,
-          actionPolicyReceipt: {schemaVersion: policy.schemaVersion, revision: policy.revision, policyId: policy.policyId, error: null}}, classroomBearer);
-        if (acknowledged === 2) return;
+        await report(classroomBearer, {identity: current.identity, ...frontSession}, ++acknowledged,
+          {schemaVersion: policy.schemaVersion, revision: policy.revision, policyId: policy.policyId, error: null});
+        if (acknowledged === 2) {
+          rearSession = await openDeviceSession(rearBearer);
+          const rearPolicy = await call('/device/school-management', null, rearBearer, '0.16', 4);
+          // A current Host with an unavailable policy store can report schema 1 and no installed policy.
+          await report(rearBearer, {identity: rearPolicy.identity, ...rearSession}, 1,
+            {schemaVersion: 1, revision: null, policyId: null, error: storageError});
+          const scope = await call(scopePath, null, token, '0.16', 4);
+          const byBinding = id => scope.screens.find(screen => screen.bindingId === id);
+          const fault = byBinding(rear.id);
+          assert.equal(fault.observationCurrent, true);
+          assert.equal(fault.observed.schemaVersion, 1);
+          assert.equal(fault.observed.error, storageError);
+          assert.equal(byBinding(front.screenBindingId).observed.schemaVersion, 3);
+          assert.equal(byBinding(front.screenBindingId).observed.error, null);
+          faultEvidence = {reportedSchema: fault.observed.schemaVersion, serverPolicySchema: rearPolicy.actionPolicy.schemaVersion,
+            error: fault.observed.error, currentInitially: fault.observationCurrent};
+          return;
+        }
       }
       await delay(300);
     }
@@ -125,6 +172,7 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     assert.equal(writes, 5);
     assert.equal(ownReads, 1);
     assert.equal(dropped, true);
+    assert.equal(faultEvidence?.currentAfterRestart, false);
     assert.ok(activeFinal, 'desktop reached the original active-range result before archiving');
     const final = activeFinal;
     assert.equal(final.rooms[0].before.source, 'GRADE');
@@ -139,7 +187,7 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     await writeFile(join(evidence, 'cross-check.json'), JSON.stringify({passed: true, writes, ownReads, dropped,
       originalGradeId: grade.id, originalTermId: term.id, originalClassId: room.id, front: front.screenBindingId, rear: rear.id,
       verifiedSource: final.rooms[0].before.source, lastKeyRevoked: final.rooms[0].before.usbCount === 0, physicalUsbWritten: false,
-      historicalKeyId: oldKey.keyId, historicalKeyRevokedWithNoActiveTerm: true}, null, 2));
+      historicalKeyId: oldKey.keyId, historicalKeyRevokedWithNoActiveTerm: true, faultEvidence}, null, 2));
     console.log('PASS real Windows Console, isolated KV/PostgreSQL, independent per-screen observations and historical USB revocation without an active term. No physical USB was written.');
   } finally {
     proxy.closeAllConnections();
