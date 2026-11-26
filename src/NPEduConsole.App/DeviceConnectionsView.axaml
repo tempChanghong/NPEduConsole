@@ -1,11 +1,47 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="NPEduConsole.App.DeviceConnectionsWindow" Title="大屏互联"
-        Width="1160" Height="780" MinWidth="740" MinHeight="440" WindowStartupLocation="CenterOwner">
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="NPEduConsole.App.DeviceConnectionsView">
+  <UserControl.Styles>
+    <Style Selector="Button.action.approval-step">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="10,4" />
+    </Style>
+    <Style Selector="Button.action.approval-step.selected">
+      <Setter Property="Background" Value="{DynamicResource FieldBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+      <Style Selector="TabControl#ConnectionTabs.approval-active TabItem">
+        <Setter Property="FontSize" Value="17" />
+        <Setter Property="Padding" Value="10,5" />
+      </Style>
+    <Style Selector="Button.action.subtle">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+    </Style>
+    <Style Selector="Border.approval-scope">
+      <Setter Property="Padding" Value="10,6" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Background" Value="{DynamicResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.approval-pane-divider">
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="0,1,0,0" />
+      <Setter Property="Padding" Value="0,8,0,0" />
+    </Style>
+    <Style Selector="Expander.approval-id">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="MinHeight" Value="26" />
+    </Style>
+  </UserControl.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Padding="16,9" Background="{DynamicResource SurfaceBrush}"
             BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
       <StackPanel Spacing="3">
-        <TextBlock Text="大屏互联" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock Text="大屏互联" FontSize="20" FontWeight="SemiBold" />
         <TextBlock x:Name="ConnectionScope" Classes="muted" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
@@ -62,39 +98,94 @@
         </ScrollViewer>
       </TabItem>
       <TabItem x:Name="ConnectionApprovalTab" Header="审批现场接入">
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-          <StackPanel Spacing="8" Margin="0,8,8,8">
-            <ComboBox x:Name="ConnectionApprovalHistory" HorizontalAlignment="Stretch" PlaceholderText="按原申请核对批准与上报"
-                      AutomationProperties.Name="本校已提交的配对申请" SelectionChanged="ApprovalHistoryChanged" />
-            <Border x:Name="ConnectionApprovalCard" IsVisible="False" Classes="card" Padding="12">
-              <StackPanel Spacing="8">
-                <TextBlock x:Name="ConnectionApprovalResult" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
-                <WrapPanel ItemSpacing="8" LineSpacing="6">
-                  <Button x:Name="ConnectionReadApproval" Content="读取本申请状态" Classes="action" Click="ReadApprovalClicked" />
-                  <Button x:Name="ConnectionCancelApproval" Content="取消本次批准" IsVisible="False" Classes="action" Click="CancelApprovalClicked" />
-                  <Button x:Name="ConnectionFinishApproval" Content="收起本申请结果" Classes="action" Click="FinishApprovalClicked" />
-                </WrapPanel>
-              </StackPanel>
-            </Border>
-            <Border Classes="card" Padding="12">
-              <StackPanel Spacing="8">
+        <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8" Margin="0,8,0,6">
+          <!-- 顶部固定范围与窄窗步骤切换 -->
+          <Border Grid.Row="0" Classes="approval-scope">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBlock x:Name="ApprovalScopeText" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"
+                         AutomationProperties.LiveSetting="Polite" />
+              <Button x:Name="ApprovalChooseOther" Grid.Column="1" Content="改从全校目录办理" IsVisible="False"
+                      Classes="action subtle approval-step" Click="ApprovalChooseOtherClicked" />
+            </Grid>
+          </Border>
+
+          <Border x:Name="ApprovalStepBar" Grid.Row="1" IsVisible="False">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+              <Button x:Name="ApprovalNewStepButton" Classes="action approval-step selected"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Content="新接入" Click="ApprovalNewStepClicked" />
+              <Button x:Name="ApprovalExistingStepButton" Grid.Column="1" Classes="action approval-step"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Content="原申请" Click="ApprovalExistingStepClicked" />
+            </Grid>
+          </Border>
+
+          <!-- 主体：宽窗左新接入右原申请，窄窗由 C# 切换 Grid.Column / Grid.ColumnSpan / IsVisible -->
+          <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="16">
+            <!-- 左栏：核对短码与屏位确认 -->
+            <ScrollViewer x:Name="ApprovalNewPane" Grid.Column="0" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Spacing="8" Margin="0,0,4,4">
                 <TextBlock Text="核对 NPEduTools 显示的短码" Classes="label" />
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                   <TextBox x:Name="ConnectionCode" MaxLength="18" PlaceholderText="输入 8 位短码"
                            AutomationProperties.Name="设备配对短码" TextChanged="CodeChanged" />
-                  <Button Grid.Column="1" x:Name="ConnectionResolve" Content="核对短码" Classes="action" Click="ResolveClicked" />
+                  <Button Grid.Column="1" x:Name="ConnectionResolve" Content="核对短码"
+                          Classes="action" Click="ResolveClicked" />
                 </Grid>
-                <TextBlock x:Name="ConnectionCandidateInfo" TextWrapping="Wrap" Classes="muted" />
-                <ComboBox x:Name="ConnectionApprovalScreens" HorizontalAlignment="Stretch" PlaceholderText="选择批准对象"
-                          AutomationProperties.Name="选择批准的大屏" SelectionChanged="ApprovalScreenChanged" />
-                <TextBlock x:Name="ConnectionApprovalTarget" TextWrapping="Wrap" />
-                <CheckBox x:Name="ConnectionApprovalConfirmed" Content="已与现场核对设备与这台大屏" />
-                <TextBlock Text="批准后，请现场在 NPEduTools 确认学校、班级和大屏。此处可继续读取本申请的确认和上报结果。"
-                           Classes="muted" TextWrapping="Wrap" />
+                <TextBlock x:Name="ConnectionCandidateInfo" TextWrapping="Wrap" Classes="muted"
+                           AutomationProperties.LiveSetting="Polite" />
+
+                <Border x:Name="ApprovalCandidateDetails" Classes="approval-pane-divider" IsVisible="False">
+                  <StackPanel Spacing="7">
+                    <TextBlock Text="批准接入的大屏" Classes="label" />
+                    <ComboBox x:Name="ConnectionApprovalScreens" HorizontalAlignment="Stretch"
+                              PlaceholderText="选择批准对象" AutomationProperties.Name="选择批准的大屏"
+                              SelectionChanged="ApprovalScreenChanged" />
+                    <TextBlock x:Name="ConnectionApprovalTarget" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <CheckBox x:Name="ConnectionApprovalConfirmed" Content="已与现场核对设备与这台大屏" />
+                    <TextBlock Text="批准后，请现场在 NPEduTools 确认学校、班级和大屏；可在原申请中继续查核确认与首报结果。"
+                               Classes="muted" FontSize="12" TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
               </StackPanel>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
+            </ScrollViewer>
+
+            <!-- 右栏：原申请与回执状态（批准 / 现场确认 / 原设备首报） -->
+            <Grid x:Name="ApprovalExistingPane" Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="8" Margin="0,0,4,4">
+              <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                <TextBlock x:Name="ApprovalExistingHeading" Text="原申请" Classes="label" VerticalAlignment="Center" />
+                <ComboBox x:Name="ConnectionApprovalHistory" Grid.Column="1" HorizontalAlignment="Stretch"
+                          PlaceholderText="按原申请核对批准与上报" AutomationProperties.Name="本校已提交的配对申请"
+                          SelectionChanged="ApprovalHistoryChanged" />
+              </Grid>
+              <ScrollViewer x:Name="ApprovalResultScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Spacing="8">
+                <TextBlock x:Name="ApprovalEmpty" Classes="muted" TextWrapping="Wrap"
+                           Text="当前暂无可核对的原申请记录；提交批准后会显示在这里。" />
+
+                <Border x:Name="ConnectionApprovalCard" IsVisible="False" Classes="card" Padding="10">
+                  <StackPanel Spacing="6">
+                    <TextBlock x:Name="ConnectionApprovalResult" TextWrapping="Wrap"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <WrapPanel ItemSpacing="8" LineSpacing="6">
+                      <Button x:Name="ConnectionReadApproval" Content="读取本申请状态"
+                              Classes="action" Click="ReadApprovalClicked" />
+                      <Button x:Name="ConnectionCancelApproval" Content="取消本次批准" IsVisible="False"
+                              Classes="action" Click="CancelApprovalClicked" />
+                      <Button x:Name="ConnectionFinishApproval" Content="收起本申请结果"
+                              Classes="action subtle" Click="FinishApprovalClicked" />
+                    </WrapPanel>
+                    <Expander x:Name="ApprovalResultDetails" Classes="approval-id" Header="申请编号与设备标识" IsExpanded="False">
+                      <TextBlock x:Name="ApprovalResultIdentity" Classes="muted" FontSize="12"
+                                 TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </Expander>
+                  </StackPanel>
+                </Border>
+                </StackPanel>
+              </ScrollViewer>
+            </Grid>
+          </Grid>
+        </Grid>
       </TabItem>
       <TabItem x:Name="ConnectionEquipmentTab" Header="采集设备策略">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled">
@@ -136,6 +227,7 @@
         <TextBlock x:Name="ConnectionMessage" TextWrapping="Wrap" Classes="muted" AutomationProperties.LiveSetting="Polite" IsVisible="False" />
         <WrapPanel ItemSpacing="8" LineSpacing="4">
           <Button x:Name="ConnectionExit" Content="返回教室设备" Classes="action" Click="ExitClicked" />
+          <Button x:Name="ApprovalDiscardButton" Content="放弃核对并返回" IsVisible="False" Classes="action" Click="ApprovalDiscardClicked" />
           <Button x:Name="ConnectionRefresh" Content="刷新大屏目录" Classes="action" Click="RefreshClicked" />
           <Button x:Name="ConnectionAdmissionSave" Content="保存逐屏设置" Classes="action accent" Click="SaveAdmissionClicked" />
           <CheckBox x:Name="ConnectionBatchConfirmed" IsVisible="False" Content="我已核对本学期范围和这次变更" />
@@ -147,4 +239,4 @@
       </StackPanel>
     </Border>
   </Grid>
-</Window>
+</UserControl>

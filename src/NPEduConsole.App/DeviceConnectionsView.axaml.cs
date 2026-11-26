@@ -4,12 +4,12 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class DeviceConnectionsWindow : Window
+public sealed partial class DeviceConnectionsView : UserControl
 {
-    public sealed class Pending
+    internal sealed class Pending
     {
         public ConnectionBatch? Batch { get; set; }
-        public Dictionary<Guid, ConnectionApproval> Approvals { get; } = [];
+        public Dictionary<Guid, TrackedApproval> Approvals { get; } = [];
     }
 
     private sealed record BatchRange(string? Id, string Name)
@@ -19,7 +19,7 @@ public sealed partial class DeviceConnectionsWindow : Window
 
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
-    public sealed record InitialTarget(string TermId, string ClassId, string ScreenId);
+    public sealed record InitialTarget(string TermId, string ClassId, string ScreenId, string ClassName, string ScreenName);
     private readonly InitialTarget? _initialTarget;
     private readonly Pending _pending = new();
     private readonly CancellationTokenSource _lifetime = new();
@@ -28,12 +28,13 @@ public sealed partial class DeviceConnectionsWindow : Window
     private ConnectionBatch? _batch;
     private bool _busy, _writing, _filling, _closed, _ready;
 
-    public Action<ConsoleApiException>? AccessLost { get; init; }
+    internal Action<ConsoleApiException>? AccessLost { get; set; }
+    internal Action? CloseRequested { get; set; }
     public bool Changed { get; private set; }
 
-    public DeviceConnectionsWindow() => InitializeComponent();
+    public DeviceConnectionsView() => InitializeComponent();
 
-    public DeviceConnectionsWindow(ConsoleClient client, School school, InitialTarget? initialTarget, Pending pending) : this()
+    internal DeviceConnectionsView(ConsoleClient client, School school, InitialTarget? initialTarget, Pending pending) : this()
     {
         _client = client;
         _school = school;
@@ -41,50 +42,65 @@ public sealed partial class DeviceConnectionsWindow : Window
         _pending = pending;
         _ready = true;
         ConnectionTabs.SelectedIndex = pending.Approvals.Count > 0 && initialTarget is null ? 1 : 0;
+        _showOriginalApproval = ConnectionTabs.SelectedIndex == 1;
         SelectApproval(null);
         ConnectionTabs.SelectionChanged += (_, args) =>
         {
             if (args.Source != ConnectionTabs) return;
             ClearSecret();
-            ConnectionCode.Clear();
+            ClearCandidate();
             Render();
         };
         foreach (var box in new[] { ConnectionPairingEnabled, ConnectionBatchConfirmed, ConnectionApprovalConfirmed, ConnectionEquipmentConfirmed })
             box.IsCheckedChanged += (_, _) => Render();
         ConnectionSecret.TextChanged += (_, _) => Render();
         ConnectionSecretAgain.TextChanged += (_, _) => Render();
-        Opened += async (_, _) => await RunAsync(async ct =>
+        SizeChanged += (_, args) =>
         {
-            await ReadCatalogAsync(ct);
-            if (SelectedScreen() is not null) await ReadAdmissionAsync(ct);
-            if (_pending.Batch is { } waiting)
-                ConnectionBatchState.Text = $"批量结果待核对 · {waiting.TermName} · {waiting.TargetName}";
-            (ConnectionScreens.SelectedItem is not null ? ConnectionReadAdmission : ConnectionRefresh).Focus();
-        });
-        Closing += (_, args) => { if (_writing) args.Cancel = true; };
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-            ClearSecret();
-            ConnectionCode.Clear();
-            _candidate = null;
-            _equipmentFreshnessTimer.Stop();
+            _narrowApproval = args.NewSize.Width < 880;
+            Render();
         };
         _equipmentFreshnessTimer.Tick += (_, _) => UpdateExpiredEquipment();
         Render();
     }
 
-    internal void ClearAndClose()
+    internal Task StartAsync() => RunAsync(async ct =>
     {
-        _writing = false;
-        _pending.Approvals.Clear();
-        _pending.Batch = null;
-        Close();
+        await ReadCatalogAsync(ct);
+        if (SelectedScreen() is not null) await ReadAdmissionAsync(ct);
+        if (_pending.Batch is { } waiting)
+            ConnectionBatchState.Text = $"批量结果待核对 · {waiting.TermName} · {waiting.TargetName}";
+        (ConnectionScreens.SelectedItem is not null ? ConnectionReadAdmission : ConnectionRefresh).Focus();
+    });
+
+    internal bool CanClose()
+    {
+        if (_closed) return true;
+        if (_writing)
+        {
+            SetMessage("原请求正在提交，请等结果或进入待核对。");
+            return false;
+        }
+        if (ConnectionTabs.SelectedIndex != 1 || !HasApprovalDraft) return true;
+        _confirmApprovalExit = true;
+        SetMessage("本次短码尚未批准。继续核对，或放弃本次核对再返回。");
+        Render();
+        return false;
     }
 
-    private void ExitClicked(object? sender, RoutedEventArgs args) => Close();
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        ClearSecret();
+        _candidate = null;
+        ConnectionCode.Clear();
+        _equipmentFreshnessTimer.Stop();
+    }
+
+    private void ExitClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
     private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RunAsync(async ct =>
     {
         await ReadCatalogAsync(ct);
@@ -105,15 +121,14 @@ public sealed partial class DeviceConnectionsWindow : Window
         ResetAdmission();
         ResetBatch();
         ResetEquipment();
-        _candidate = null;
-        ConnectionCode.Clear();
-        ConnectionCandidateInfo.Text = "";
+        ClearCandidate();
         SetScreenOptions(null, null);
         _catalog = await _client.GetDeviceConnectionsAsync(_school.Id, ct);
         ct.ThrowIfCancellationRequested();
         var term = _catalog.Term;
-        ConnectionScope.Text = term is null ? $"{_school.Name} · 当前没有启用学期"
-            : $"{_school.Name} · 在用学期 {term.Name}（{term.Id}）";
+        ConnectionScope.Text = term is null ? $"{_school.Name} · 当前没有启用学期" : $"{_school.Name} · 在用学期 {term.Name}";
+        ToolTip.SetTip(ConnectionScope, term?.Id);
+        SetApprovalScreens();
         bool moved = previousScreen is not null && !_catalog.Screens.Any(row => row.Id == previousScreen && row.ClassId ==
             (selected?.ClassId ?? initial?.ClassId));
         if (moved || initial is not null && initial.TermId != term?.Id)
@@ -151,7 +166,9 @@ public sealed partial class DeviceConnectionsWindow : Window
         {
             if (!_closed)
             {
-                ClearAndClose();
+                _pending.Approvals.Clear();
+                _pending.Batch = null;
+                End();
                 AccessLost?.Invoke(error);
             }
         }

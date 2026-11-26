@@ -5,7 +5,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class DeviceConnectionsWindow
+public sealed partial class DeviceConnectionsView
 {
     private sealed record EquipmentChoice(string? Id, string Name)
     {

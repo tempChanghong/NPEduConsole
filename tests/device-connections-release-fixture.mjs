@@ -84,7 +84,10 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
   const pendingLegacy = await native('begin', legacy, 'legacy', {classApply: false});
   const reviewApproval = review === 'approval' || review === 'all';
   const reviewEquipment = review === 'equipment' || review === 'all';
+  const requireWorkspace = process.env.NP_CONSOLE_DEVICE_CONNECTIONS_WORKSPACE === '1';
+  assert.ok(!requireWorkspace || reviewApproval, 'The workspace checks include original-approval review.');
   const cancellation = reviewApproval ? await native('begin', legacy, 'cancel', {classApply: false}) : null;
+  const completedOther = requireWorkspace ? await native('begin', legacy, 'other-reported', {classApply: false}) : null;
   const observations = {}, retiredRequests = [], desktopRequests = [];
   let browserDigest;
   relay.server.on('request', (req, res) => {
@@ -169,7 +172,7 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
         deviceConnections: {exchange, frontBinding: front.id, rearBinding: rear.id, legacyBinding: legacy.id, rearPair: pendingRear.pairingId,
           rearCode: pendingRear.code, legacyCode: pendingLegacy.code,
           secret: randomBytes(18).toString('hex'), rotatedSecret: randomBytes(18).toString('hex'), reviewApproval, reviewEquipment,
-          cancellationCode: cancellation?.code}}));
+          requireWorkspace, cancellationCode: cancellation?.code, otherCode: completedOther?.code}}));
       child = spawn('pwsh.exe', ['-NoProfile', '-STA', '-File', fileURLToPath(new URL('./WindowsReleaseOobe.ps1', import.meta.url)),
         '-ManagementLogin', '-FixturePath', input, '-ZipPath', downloaded, '-ManifestPath', manifestPath,
         '-EvidenceDirectory', evidence], {windowsHide: true, stdio: 'inherit'});
@@ -202,6 +205,19 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
           const prior = await pair(pendingLegacy.pairingId);
           assert.equal(prior.state, 'APPROVED');
           await prisma.npepPairing.update({where: {id: prior.id}, data: {expiresAt: new Date(Date.now() - 1000)}});
+        });
+        if (completedOther) await checkpoint('report-other-approval', async () => {
+          const second = await pair(completedOther.pairingId);
+          assert.equal(second.state, 'APPROVED');
+          assert.equal(second.screenBindingId, legacy.id);
+          await native('confirm', legacy, 'other-reported');
+          await native('report', legacy, 'other-reported');
+          const confirmed = await pair(completedOther.pairingId);
+          const device = await prisma.npepDevice.findUniqueOrThrow({where: {id: confirmed.deviceId}});
+          assert.ok(device.lastReportedAt);
+          assert.equal((await rearDevice()).lastReportedAt, null);
+          observations.parallelApprovals = {reportedPairingId: confirmed.id, reportedBindingId: legacy.id,
+            waitingPairingId: pendingRear.pairingId, waitingBindingId: rear.id, reportedAt: device.lastReportedAt};
         });
         await checkpoint('report-rear', async () => {
           const former = await pair(pendingLegacy.pairingId);
@@ -259,7 +275,10 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
   assert.deepEqual(batchWrites.map(row => row.status), [409, 502], 'one stale write and one lost successful write without replay');
   if (reviewApproval) {
     const approvals = desktopRequests.filter(row => row.method === 'POST' && row.path.endsWith('/approve'));
-    assert.deepEqual(approvals.map(row => row.status), [502, 502, 502], 'each successful approval reply was dropped once');
+    const expected = [pendingRear, pendingLegacy, cancellation, ...(completedOther ? [completedOther] : [])];
+    assert.deepEqual(approvals.map(({path, status}) => [path, status]),
+      expected.map(item => [root + `/pairings/${item.pairingId}/approve`, 502]),
+      'each original approval is posted once, despite the lost success replies');
     assert.ok(desktopRequests.some(row => row.path === root + `/pairings/${pendingLegacy.pairingId}/cancel` && row.status === 410));
     assert.ok(desktopRequests.some(row => row.method === 'GET' && row.path.includes(`/pairings/${pendingRear.pairingId}/approvals/`) && row.status === 200));
     const cancellations = desktopRequests.filter(row => row.path === root + `/pairings/${cancellation.pairingId}/cancel`);
@@ -269,7 +288,7 @@ async function verify({prisma, fixture, origin, directory, evidence, web, zip, m
   await writeFile(join(evidence, 'release-device-connections.json'), JSON.stringify({
     passed: true, version: manifest.version, sha256: browserDigest, sizeBytes: manifest.sizeBytes, retiredRequests,
     batch: {attempts: batchWrites.length, successfulResponseLost: 1, bindingIds: finalScreens.map(row => row.id)},
-    ...(review && {review, desktopRequests}),
+    ...(review && {review, desktopRequests}), requireWorkspace,
     ...observations,
   }, null, 2));
 }

@@ -3,11 +3,17 @@ Add-Type -Path (Join-Path $PSScriptRoot 'ReleaseFilePicker.cs')
 $mainHandle = $script:hwnd
 $targets = $fixture.deviceConnections
 
-function Open-ConnectionWorkbench {
-    Invoke-Control 'DeviceConnectionsButton'
+function Open-ConnectionWorkbench([string] $opener = 'DeviceConnectionsButton') {
+    $script:hwnd = $mainHandle
+    Invoke-Control $opener
     $script:hwnd = Wait-For 'the published device connection workbench' {
+        if (Get-Control 'ConnectionExit' -Onscreen) { return $mainHandle }
         $owned = [ReleaseFilePicker]::VisibleOwnedWindow($appProcess.Id, $mainHandle)
         if ($owned -ne [IntPtr]::Zero) { $owned }
+    }
+    if ($targets.requireWorkspace -and ($script:hwnd -ne $mainHandle -or
+        [ReleaseFilePicker]::VisibleOwnedWindow($appProcess.Id, $mainHandle) -ne [IntPtr]::Zero)) {
+        throw 'The workbench must use the original main HWND without opening another window.'
     }
     Wait-Text 'ConnectionScope' '在用学期'
 }
@@ -39,8 +45,28 @@ function Request-ConnectionCheckpoint([string] $name) {
     $null = Wait-For "isolated fixture $name" { Test-Path -LiteralPath (Join-Path $targets.exchange "$name.ready") } 65
 }
 
+function Approval-ChoiceId([string] $id) {
+    if ($sameWindow) { return $id.Substring($id.Length - 6) }
+    return $id
+}
+
+function Open-NewApproval {
+    if ($sameWindow -and (Get-Control 'ApprovalNewStepButton' -Onscreen) -and
+        !(Get-Control 'ConnectionCode' -Onscreen)) { Invoke-Control 'ApprovalNewStepButton' }
+}
+
+function Assert-ApprovalIdentity([string] $id) {
+    if (!$sameWindow) { Wait-Text 'ConnectionApprovalResult' $id; return }
+    $details = Wait-For 'exact approval details' { Get-Control 'ApprovalResultDetails' -Onscreen -Enabled }
+    $panel = $details.GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern)
+    if ($panel.Current.ExpandCollapseState -ne [Windows.Automation.ExpandCollapseState]::Expanded) { $panel.Expand() }
+    Wait-Text 'ApprovalResultIdentity' $id
+    $panel.Collapse()
+}
+
 Invoke-Control 'OpenDeviceDirectoryButton'
 Open-ConnectionWorkbench
+$sameWindow = $script:hwnd -eq $mainHandle
 try {
     Size-ReleaseWindow 1160 780
     Select-ConnectionOption 'ConnectionScreens' $targets.rearBinding
@@ -80,47 +106,110 @@ try {
     Wait-Text 'ConnectionBatchState' '均已达到所选状态'
     Wait-Text 'ConnectionBatchState' '无法认定本人'
 
+    if ($sameWindow) {
+        Invoke-Control 'ConnectionExit'
+        Invoke-Control ('SchoolDevice-' + $targets.frontBinding)
+        Open-ConnectionWorkbench 'OpenScreenConnectionsButton'
+        Select-ConnectionOption 'ConnectionApprovalTab' '' -Tab
+        Size-ReleaseWindow 840 480
+        Wait-Text 'ApprovalScopeText' ('#' + (Approval-ChoiceId $targets.frontBinding))
+        Set-Field 'ConnectionCode' $targets.rearCode
+        Invoke-Control 'ConnectionResolve'
+        Wait-Text 'ConnectionMessage' '无法在这里批准'
+        if (Get-Control 'ConnectionApprove' -Onscreen -Enabled) { throw 'Another screen would receive the approval.' }
+        Save-ReleaseScreenshot '00-exact-screen-refuses-other-code-narrow' 'ConnectionCode'
+        Set-Field 'ConnectionCode' '22222222'
+        Invoke-Control 'ConnectionExit'
+        Wait-Text 'ConnectionMessage' '尚未批准'
+        Invoke-Control 'ApprovalDiscardButton'
+        $null = Wait-For 'focus returned to the exact screen entry' {
+            try {
+                $entry = Get-Control 'OpenScreenConnectionsButton' -Onscreen -Enabled
+                $entry -and $entry.Current.HasKeyboardFocus
+            } catch {}
+        }
+        Invoke-Control 'OpenDeviceDirectoryButton'
+        Open-ConnectionWorkbench
+        Size-ReleaseWindow 1160 780
+    }
     Select-ConnectionOption 'ConnectionApprovalTab' '' -Tab
+    Open-NewApproval
     Set-Field 'ConnectionCode' $targets.rearCode
     Invoke-Control 'ConnectionResolve'
     Wait-Text 'ConnectionCandidateInfo' '按班级发起的接入申请'
-    Wait-Text 'ConnectionApprovalTarget' $targets.rearBinding
+    Wait-Text 'ConnectionApprovalTarget' (Approval-ChoiceId $targets.rearBinding)
     Set-Checked 'ConnectionApprovalConfirmed'
     Invoke-Control 'ConnectionApprove'
     Wait-Text 'ConnectionApprovalResult' '等待现场'
     Request-ConnectionCheckpoint 'confirm-rear'
     Invoke-Control 'ConnectionReadApproval'
     Wait-Text 'ConnectionApprovalResult' '等待该设备首次有效上报'
+    if ($sameWindow) {
+        Save-ReleaseScreenshot '01a-approval-side-by-side-wide' 'ConnectionCode'
+        Size-ReleaseWindow 840 480
+        Open-NewApproval
+        $null = Wait-For 'narrow short code and action are both on screen' {
+            (Get-Control 'ConnectionCode' -Onscreen -Enabled) -and (Get-Control 'ConnectionResolve' -Onscreen) -and
+            (Get-Control 'ApprovalScopeText' -Onscreen)
+        }
+        Save-ReleaseScreenshot '01b-new-approval-with-pending-original-narrow' 'ConnectionCode'
+    }
 
     Set-Field 'ConnectionCode' $targets.legacyCode
     Invoke-Control 'ConnectionResolve'
     Wait-Text 'ConnectionCandidateInfo' '管理员批准配对'
-    Select-ConnectionOption 'ConnectionApprovalScreens' $targets.legacyBinding
+    Select-ConnectionOption 'ConnectionApprovalScreens' (Approval-ChoiceId $targets.legacyBinding)
     Set-Checked 'ConnectionApprovalConfirmed'
     Invoke-Control 'ConnectionApprove'
-    Wait-Text 'ConnectionApprovalResult' $targets.legacyBinding
+    Assert-ApprovalIdentity $targets.legacyBinding
     Wait-Text 'ConnectionApprovalResult' '等待现场'
     if ($targets.reviewApproval) { Request-ConnectionCheckpoint 'expire-legacy-approval' }
     Invoke-Control 'ConnectionCancelApproval'
     if ($targets.reviewApproval) {
         Wait-Text 'ConnectionApprovalResult' '本申请已过期'
         if (Get-Control 'ConnectionCancelApproval' -Onscreen -Enabled) { throw 'Expired approval can still be cancelled.' }
+        Open-NewApproval
         Set-Field 'ConnectionCode' $targets.cancellationCode
         Invoke-Control 'ConnectionResolve'
         Wait-Text 'ConnectionCandidateInfo' '管理员批准配对'
-        Select-ConnectionOption 'ConnectionApprovalScreens' $targets.legacyBinding
+        Select-ConnectionOption 'ConnectionApprovalScreens' (Approval-ChoiceId $targets.legacyBinding)
         Set-Checked 'ConnectionApprovalConfirmed'
         Invoke-Control 'ConnectionApprove'
         Wait-Text 'ConnectionApprovalResult' '等待现场'
         Invoke-Control 'ConnectionCancelApproval'
         Wait-Text 'ConnectionApprovalResult' '本申请已取消'
     } else { Wait-Text 'ConnectionApprovalResult' '本申请已取消' }
+    if ($targets.requireWorkspace) {
+        Open-NewApproval
+        Set-Field 'ConnectionCode' $targets.otherCode
+        Invoke-Control 'ConnectionResolve'
+        Wait-Text 'ConnectionCandidateInfo' '管理员批准配对'
+        Select-ConnectionOption 'ConnectionApprovalScreens' (Approval-ChoiceId $targets.legacyBinding)
+        Set-Checked 'ConnectionApprovalConfirmed'
+        Invoke-Control 'ConnectionApprove'
+        Wait-Text 'ConnectionApprovalResult' '等待现场'
+        Request-ConnectionCheckpoint 'report-other-approval'
+        Invoke-Control 'ConnectionReadApproval'
+        Wait-Text 'ConnectionApprovalResult' '已收到原设备有效上报'
+        Assert-ApprovalIdentity $targets.legacyBinding
+    }
     Invoke-Control 'ConnectionExit'
     $script:hwnd = $mainHandle
     Open-ConnectionWorkbench
-    Select-ConnectionOption 'ConnectionApprovalHistory' $targets.rearPair
+    if ($sameWindow) {
+        $null = Wait-For 'original request step is available on return' { Get-Control 'ApprovalExistingStepButton' -Onscreen -Enabled }
+        $null = Wait-For 'approval history is visible' { Get-Control 'ConnectionApprovalHistory' -Onscreen -Enabled }
+    }
+    Select-ConnectionOption 'ConnectionApprovalHistory' (Approval-ChoiceId $targets.rearPair)
     Invoke-Control 'ConnectionReadApproval'
     Wait-Text 'ConnectionApprovalResult' '等待该设备首次有效上报'
+    Assert-ApprovalIdentity $targets.rearPair
+    if ($targets.requireWorkspace) {
+        $null = Wait-For 'narrow original selection stays on screen while reading its result' {
+            (Get-Control 'ConnectionApprovalHistory' -Onscreen -Enabled) -and (Get-Control 'ConnectionReadApproval' -Onscreen -Enabled)
+        }
+        Save-ReleaseScreenshot '01c-original-still-waiting-after-other-report-narrow' 'ConnectionReadApproval'
+    }
     if (Get-Control 'ConnectionCancelApproval' -Onscreen -Enabled) { throw 'Cancellation targeted an already-confirmed device.' }
     Request-ConnectionCheckpoint 'report-rear'
     Invoke-Control 'ConnectionReadApproval'
@@ -184,7 +273,8 @@ try {
         Invoke-Control 'ConnectionRefresh'
         Wait-Text 'ConnectionApprovalResult' '原设备授权已变化'
         $state = (Get-Control 'ConnectionApprovalResult').Current.Name
-        if (!$state.Contains($targets.rearPair) -or $state.Contains('已收到原设备有效上报')) {
+        Assert-ApprovalIdentity $targets.rearPair
+        if ($state.Contains('已收到原设备有效上报')) {
             throw 'Refreshing after revocation lost the original request or kept its old online evidence.'
         }
         Size-ReleaseWindow 840 480
