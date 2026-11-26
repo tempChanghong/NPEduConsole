@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -9,12 +10,13 @@ using ClassroomScreen = NPEduConsole.Core.Screen;
 
 namespace NPEduConsole.App;
 
-public sealed partial class ExamWorkbenchWindow : Window
+public sealed partial class ExamWorkbenchView : UserControl
 {
     private enum ActionKind { Enter, Return, Deliver, Start, CancelPlan, CancelMode }
-    private sealed record DeviceChoice(Device Device)
+    private sealed record DeviceChoice(Device Device, bool ShowId)
     {
-        public override string ToString() => $"{Device.Name}（{Device.Id}）";
+        public override string ToString() => string.IsNullOrWhiteSpace(Device.Name) ? Device.Id :
+            ShowId ? $"{Device.Name}（{Device.Id}）" : Device.Name;
     }
     private sealed record Intent(ActionKind Action, Guid RequestId, ExamRuntimeState? Runtime = null,
         ExamPlanState? Plans = null, ExamPlanOperation? Plan = null, ClassroomExamFile? File = null, Guid? OperationId = null);
@@ -30,7 +32,7 @@ public sealed partial class ExamWorkbenchWindow : Window
     private ClassroomExamState? _state;
     private ClassroomExamFile? _file;
     private string? _readError, _notice;
-    private bool _opened, _closed, _reading, _working, _picking, _allowRetry, _noticeError;
+    private bool _opened, _closed, _reading, _working, _posting, _picking, _allowRetry, _noticeError;
     private long _polled;
     private Guid? _visibleSchedule;
     private ActionKind _primary, _cancel;
@@ -45,38 +47,52 @@ public sealed partial class ExamWorkbenchWindow : Window
         return state.Plans.Items.Where(item => !item.IsTerminal || restoredAt is null || item.CreatedAt >= restoredAt.Value);
     }
 
-    public ExamWorkbenchWindow() => InitializeComponent();
+    public ExamWorkbenchView() => InitializeComponent();
 
-    internal ExamWorkbenchWindow(ConsoleClient client, School school, Classroom room, ClassroomScreen screen, string? deviceId) : this()
+    internal ExamWorkbenchView(ConsoleClient client, School school, Classroom room, ClassroomScreen screen, string? deviceId, string? termName) : this()
     {
         _client = client;
         _school = school;
         _room = room;
         _screen = screen;
-        ExamTargetText.Text = $"{school.Name} · {room.Name} · {screen.Name} · 绑定编号 {screen.Id}";
-        var choices = screen.Devices.Select(device => new DeviceChoice(device)).ToArray();
+        ExamTargetText.Text = string.Join(" · ", new[] { school.Name, termName, room.Name, screen.Name }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var choices = screen.Devices.Select(device => new DeviceChoice(device, ShowId: screen.Devices.Count > 1)).ToArray();
         ExamDevicePicker.ItemsSource = choices;
-        ExamDevicePicker.SelectedItem = choices.FirstOrDefault(item => item.Device.Id == deviceId) ?? choices.FirstOrDefault();
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            _opened = true;
-            await ReadDeviceAsync();
-            if (!_closed) _timer.Start();
-        };
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _timer.Stop();
-            ClearTargetRead();
-            _file = null;
-        };
+        ExamDevicePicker.SelectedItem = deviceId is null && choices is [var only] ? only : choices.FirstOrDefault(item => item.Device.Id == deviceId);
+        WireExamLayout();
+        SizeChanged += (_, _) => ArrangeExamWorkspace();
         _timer.Tick += async (_, _) =>
         {
             Render();
             if (_scope is not null && !_reading && !_working && Stopwatch.GetElapsedTime(_polled) >= TimeSpan.FromSeconds(5))
                 await RefreshAsync();
         };
+    }
+
+    internal Action? CloseRequested { get; set; }
+
+    internal async Task StartAsync()
+    {
+        _opened = true;
+        ArrangeExamWorkspace();
+        await ReadDeviceAsync();
+        if (!_closed) _timer.Start();
+    }
+
+    internal bool CanClose()
+    {
+        if (!_posting && !_picking) return true;
+        Notice(_posting ? "原请求正在提交，请等服务器响应后再离开。" : "请先完成或取消文件选择。", true);
+        return false;
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _timer.Stop();
+        ClearTargetRead();
+        _file = null;
     }
 
     private async void DeviceChanged(object? sender, SelectionChangedEventArgs args)
@@ -90,8 +106,10 @@ public sealed partial class ExamWorkbenchWindow : Window
         _state = null;
         _file = null;
         _readError = _notice = null;
+        _noticeError = false;
         _visibleSchedule = null;
         ExamSchedule.SetSchedule(null);
+        ResetExamSteps();
         _allowRetry = _reading = _working = _picking = false;
         _scope = ExamDevicePicker.SelectedItem is DeviceChoice choice
             ? new(_school.Id, _room.Id, _screen.Id, choice.Device.Id) : null;
@@ -118,8 +136,8 @@ public sealed partial class ExamWorkbenchWindow : Window
         Render();
         try
         {
-            await ReadStateAsync(scope, ct);
-            if (Current(scope, ct) && checkPending && Pending is { } intent) await ReconcileAsync(scope, intent, ct);
+            if (checkPending && Pending is { } intent) await ReconcileAsync(scope, intent, ct);
+            if (Current(scope, ct)) await ReadStateAsync(scope, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (ConsoleApiException error)
@@ -144,7 +162,7 @@ public sealed partial class ExamWorkbenchWindow : Window
             Render();
             Dispatcher.UIThread.Post(() =>
             {
-                if (Current(scope, ct) && Plan?.Summary?.PreparationId == summary.PreparationId && ExamSchedulePanel.IsVisible)
+                if (Current(scope, ct) && Plan?.Summary?.PreparationId == summary.PreparationId && ExamSchedulePanel.IsEffectivelyVisible)
                     ExamSchedule.FocusFirstEntry();
             }, DispatcherPriority.Loaded);
         }
@@ -152,13 +170,14 @@ public sealed partial class ExamWorkbenchWindow : Window
 
     private async void PickClicked(object? sender, RoutedEventArgs args)
     {
-        if (_picking || _working || _scope is not { } scope || _target is null || Pending is not null) return;
+        if (_picking || _working || _scope is not { } scope || _target is null || Pending is not null ||
+            TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
         var ct = _target.Token;
         _picking = true;
         Render();
         try
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            var files = await storage.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 Title = "选择 ExamAware 考试方案",
                 FileTypeFilter = [new FilePickerFileType("考试方案") { Patterns = ["*.ea2", "*.json"] }]
@@ -202,6 +221,11 @@ public sealed partial class ExamWorkbenchWindow : Window
         }
         if (!ExamPrimary.IsEnabled || Live is not { } state) return;
         var intent = new Intent(_primary, Guid.NewGuid(), state.Runtime, state.Plans, Plan, _file);
+        if (intent.Action == ActionKind.Start)
+        {
+            SelectExamStep(showPlan: false);
+            if (_compact) ExamStepStatusButton.Focus(NavigationMethod.Tab);
+        }
         await HandlePendingAsync(scope, intent, resend: true);
     }
 
@@ -225,6 +249,8 @@ public sealed partial class ExamWorkbenchWindow : Window
         var ct = _target.Token;
         _working = true;
         _allowRetry = false;
+        _notice = null;
+        _noticeError = false;
         Render();
         try
         {
@@ -233,24 +259,7 @@ public sealed partial class ExamWorkbenchWindow : Window
                 PendingWrites.GetOrCreateValue(_client)[scope] = intent;
                 try
                 {
-                    switch (intent.Action)
-                    {
-                        case ActionKind.Enter: case ActionKind.Return:
-                            await _client.RequestExamModeAsync(scope, intent.Runtime!, intent.Action == ActionKind.Enter ? "EXAM" : "DAILY", intent.RequestId, ct);
-                            break;
-                        case ActionKind.Deliver:
-                            await _client.DeliverExamPlanAsync(scope, intent.Plans!, intent.File!, intent.RequestId, ct);
-                            break;
-                        case ActionKind.Start:
-                            await _client.StartExamPlanAsync(scope, intent.Plan!, intent.RequestId, ct);
-                            break;
-                        case ActionKind.CancelPlan:
-                            await _client.CancelExamPlanAsync(scope, intent.OperationId!.Value, intent.RequestId, ct);
-                            break;
-                        default:
-                            await _client.CancelExamModeAsync(scope, intent.OperationId!.Value, intent.RequestId, ct);
-                            break;
-                    }
+                    await SendAsync(scope, intent, ct);
                     if (Current(scope, ct)) Accepted(scope, intent, recovered: false);
                 }
                 catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or 429 or >= 500)
@@ -278,6 +287,33 @@ public sealed partial class ExamWorkbenchWindow : Window
         {
             if (Current(scope, ct)) { _working = false; Render(); }
         }
+    }
+
+    private async Task SendAsync(ExamScope scope, Intent intent, CancellationToken ct)
+    {
+        _posting = true;
+        try
+        {
+            switch (intent.Action)
+            {
+                case ActionKind.Enter: case ActionKind.Return:
+                    await _client.RequestExamModeAsync(scope, intent.Runtime!, intent.Action == ActionKind.Enter ? "EXAM" : "DAILY", intent.RequestId, ct);
+                    break;
+                case ActionKind.Deliver:
+                    await _client.DeliverExamPlanAsync(scope, intent.Plans!, intent.File!, intent.RequestId, ct);
+                    break;
+                case ActionKind.Start:
+                    await _client.StartExamPlanAsync(scope, intent.Plan!, intent.RequestId, ct);
+                    break;
+                case ActionKind.CancelPlan:
+                    await _client.CancelExamPlanAsync(scope, intent.OperationId!.Value, intent.RequestId, ct);
+                    break;
+                default:
+                    await _client.CancelExamModeAsync(scope, intent.OperationId!.Value, intent.RequestId, ct);
+                    break;
+            }
+        }
+        finally { _posting = false; }
     }
 
     private async Task ReconcileAsync(ExamScope scope, Intent intent, CancellationToken ct)
@@ -321,7 +357,7 @@ public sealed partial class ExamWorkbenchWindow : Window
     }
 
     private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RefreshAsync(checkPending: true);
-    private void BackClicked(object? sender, RoutedEventArgs args) => Close();
+    private void BackClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
 
     private void Notice(string text, bool error = false)
     {
@@ -387,16 +423,23 @@ public sealed partial class ExamWorkbenchWindow : Window
         var dailyConfirmed = restored && modeOperation is { Target: "DAILY", State: "SUCCEEDED" };
         var pendingRuntime = state?.RuntimeHistory.FirstOrDefault(item => item.OperationId == state.Runtime.UnresolvedOperationId);
         ExamDevicePicker.IsEnabled = !_working && !_picking && ExamDevicePicker.ItemCount > 0;
+        var selectedDevice = ExamDevicePicker.SelectedItem as DeviceChoice;
+        ExamIdentityToggle.IsVisible = true;
+        ExamFullIdentityText.Text = string.Join("　", new[] { _room.TermId is { } termId ? $"学期 {termId}" : null,
+            $"绑定 {_screen.Id}", selectedDevice is not null ? $"设备 {selectedDevice.Device.Id}" : null }.OfType<string>());
+        UpdateExamSteps();
+        ExamRefresh.IsVisible = pending is null;
         ExamRefresh.IsEnabled = canUse;
-        ExamNotice.Text = _readError ?? _notice;
+        ExamNotice.Text = pending is not null && _readError is not null ? $"原请求待核对 · {_readError}" :
+            _readError ?? _notice ?? (pending is not null ? $"原请求待核对 · {pending.RequestId:D}" : null);
         ExamNotice.IsVisible = !string.IsNullOrEmpty(ExamNotice.Text);
         ExamNotice.Classes.Set("error", _readError is not null || _noticeError);
-        ExamPhase.Text = _scope is null ? "这台大屏暂无有效绑定的 NPEduTools 设备" : _state is null
-            ? "等待设备状态" : _readError is not null ? "设备状态待核对" : dailyConfirmed ? "当前处于日常模式" : playback is not null
+        ExamPhase.Text = _scope is null ? ExamDevicePicker.ItemCount == 0 ? "这台大屏暂无有效绑定的 NPEduTools 设备" : "请选择原生设备"
+            : _readError is not null ? "设备状态待核对" : _state is null ? "等待设备状态" : dailyConfirmed ? "当前处于日常模式" : playback is not null
                 ? PlaybackName(playback.State) : active ? PlanName(plan!.State) : plan?.State is "STARTED" or "UNKNOWN"
                     ? PlanName(plan.State) : envReady ? "考试环境已就绪" : restored ? "当前处于日常模式" : "考前核对";
         ExamPlayerEvidence.Text = state?.PlanFresh == true
-            ? playback is { } exact ? $"本次播放器会话 {exact.Id} · 设备观测 {Time(state.Plans.ReceivedAt)}"
+            ? playback is not null ? $"已核对本次播放器会话 · 设备观测 {Time(state.Plans.ReceivedAt)}"
                 : state.Plans.Status?.Player is { Known: true } player
                     ? $"{(player.Sessions.Length == 0 ? "播放器当前空闲" : "设备报告已有放映")} · 设备观测 {Time(state.Plans.ReceivedAt)}"
                     : "播放器状态待核对"
@@ -407,17 +450,23 @@ public sealed partial class ExamWorkbenchWindow : Window
             $"最近切换 · {(modeOperation.Target == "DAILY" ? "返回日常" : "进入考试")} · {ModeName(modeOperation.State)} · {Time(modeOperation.ProgressReceivedAt)}";
         ExamOperationResult.IsVisible = modeOperation is not null;
         ExamRuntimeCheck.Text = $"环境切换授权 · {Authorization(state?.Runtime.Policy is { Supported: true, PairedExamControl: true } ? state.Runtime.Policy.Enabled : null)}" +
-            $"　录制 · {RecordingName(observed?.Recording)}　环境观测 · {Time(state?.Runtime.SampleAsOf)}";
-        ExamPlanCheck.Text = $"方案放映授权 · {Authorization(state?.PlanFresh == true ? state.Plans.Status?.Enabled : null)}　" +
-            $"桥接 · {BridgeName(state)}";
+            $"　录制 · {RecordingName(observed?.Recording)}\n环境观测 · {Time(state?.Runtime.SampleAsOf)}";
+        ExamPlanCheck.Text = (active ? $"{PlanName(plan!.State)}\n" : "") +
+            $"方案放映授权 · {Authorization(state?.PlanFresh == true ? state.Plans.Status?.Enabled : null)}　" +
+            $"桥接 · {BridgeName(state)}" + (planGate.Length > 0 ? $"\n{planGate}" : "");
         ExamFileNote.Text = _file is null ? "设备可校验 UTF-8 .ea2 或 .json，最大 24 KiB。" : $"待投递文件 · {_file.Name}";
         var previousPresentationResolved = plan is not { State: "STARTED" or "UNKNOWN" } || playback?.State is "closed" or "failed" || dailyConfirmed;
-        ExamChooseFile.IsEnabled = canUse && !_picking && !active && pending is null && planGate.Length == 0 && previousPresentationResolved;
+        ExamChooseFile.IsVisible = !active && pending is null && planGate.Length == 0 && previousPresentationResolved;
+        ExamChooseFile.IsEnabled = canUse && !_picking && ExamChooseFile.IsVisible;
+        ExamFileNote.IsVisible = ExamChooseFile.IsVisible || _file is not null;
         ExamEnvironmentImpact.Text = envReady
             ? "返回日常会正常退出 ExamAware、启动 ClassIsland，并解除远程录课暂停。若有未保存内容，请在教室先保存并关闭。"
             : "进入考试会先正常保存现有录制，暂停后续自动录课并保留计划，同时联动 ClassIsland 和 ExamAware 的运行及登录自启动。";
         var summary = plan?.Summary;
         ExamSchedulePanel.IsVisible = summary is not null && (active || playback?.State is "preparing" or "opening");
+        ExamPlanSetupCard.IsVisible = !ExamSchedulePanel.IsVisible || plan?.State != "PREPARED";
+        ExamScheduleBlocker.IsVisible = !ExamPlanSetupCard.IsVisible && planGate.Length > 0;
+        ExamScheduleBlocker.Text = planGate;
         if (summary?.PreparationId != _visibleSchedule)
         {
             _visibleSchedule = summary?.PreparationId;
@@ -430,6 +479,7 @@ public sealed partial class ExamWorkbenchWindow : Window
             plan?.ReasonCode is { } planReason ? ExamReason.Describe(planReason) : null,
             modeOperation?.ReasonCode is { } resultReason ? ExamReason.Describe(resultReason) : null,
             modeOperation?.Evidence is { } proof ? $"设备切换回执 · ExamAware {proof.ExamAware} · ClassIsland {proof.ClassIsland} · 录课暂停 {(proof.RemoteExamPause ? "已建立" : "已解除")}" : null,
+            playback is { } session ? $"本次播放器会话 {session.Id}" : null,
             plan is null ? null : $"方案任务 {plan.OperationId:D}"
         }.Where(item => !string.IsNullOrEmpty(item)));
         ExamHistoryText.Text = string.Join("\n", (_state?.Plans.Items ?? []).Take(5)
@@ -444,25 +494,28 @@ public sealed partial class ExamWorkbenchWindow : Window
         ExamRetry.IsVisible = pending is not null && _allowRetry;
         ExamRetry.IsEnabled = canUse;
         ExamPreflight.IsVisible = _scope is not null;
-        ExamNextStep.Text = dailyConfirmed ? "已核对本次返回日常及当前运行环境。" :
+        ExamNextStep.Text = pending is not null ? "可核对这台设备的原请求，页面不会自动重发。" :
+            dailyConfirmed ? "已核对本次返回日常及当前运行环境。" :
             pendingRuntime is not null ? ModeName(pendingRuntime.State) + "，请以设备回执为准。" :
             ModeAdvice(modeOperation, playback, plan, envReady, runtimeGate, planGate, returnGate);
         ExamPrimary.IsVisible = true;
         ExamPrimary.IsEnabled = canUse && pending is not null;
         if (pending is not null) { ExamPrimaryLabel.Text = "核对原请求"; return; }
         if (_scope is null || state is null) { ExamPrimary.IsVisible = false; return; }
-        if (plan is { State: "PREPARED", Summary: { } details })
+        if (_showPlan && plan is { State: "PREPARED", Summary: { } details })
         {
             SelectPrimary(ActionKind.Start, $"在{_screen.Name}开始放映", canUse && planGate.Length == 0 && state is not null &&
                 state.Plans.Status?.PreparedId == details.PreparationId && state.Plans.Context == plan.Context &&
                 state.Plans.Status.Revision == plan.Revision && plan.ExpiresAt > state.PlanNow);
         }
-        else if (active || pendingRuntime is not null || playback?.State is "ready" or "opening" or "preparing" or "closing")
+        else if (pendingRuntime is not null || playback?.State is "ready" or "opening" or "preparing" or "closing")
             ExamPrimary.IsVisible = false;
-        else if (_file is not null)
+        else if (_showPlan && !active && _file is not null)
             SelectPrimary(ActionKind.Deliver, "投递给设备校验", canUse && planGate.Length == 0 && ExamChooseFile.IsEnabled);
+        else if (_showPlan || active)
+            ExamPrimary.IsVisible = false;
         else if (envReady || observed is { RuntimeMode: "EXAM" } || plan is { State: "STARTED" or "UNKNOWN" } && !restored)
-            SelectPrimary(ActionKind.Return, "返回日常", canUse && returnGate.Length == 0);
+            SelectPrimary(ActionKind.Return, returnGate.Length == 0 ? "返回日常" : "暂不能返回日常", canUse && returnGate.Length == 0);
         else
             SelectPrimary(ActionKind.Enter, $"让{_screen.Name}进入考试", canUse && runtimeGate.Length == 0);
     }
@@ -477,7 +530,8 @@ public sealed partial class ExamWorkbenchWindow : Window
     private string ModeAdvice(ExamRuntimeOperation? mode, ClassroomPlayerSession? playback, ExamPlanOperation? plan, bool exam,
         string runtimeGate, string planGate, string returnGate)
     {
-        if (_scope is null) return "请从大屏接入记录完成现场配对，再到这里核对。";
+        if (_scope is null) return ExamDevicePicker.ItemCount == 0 ? "请从大屏接入记录完成现场配对，再到这里核对。"
+            : "请选择这块屏上的设备，再核对可用操作。";
         if (_readError is not null) return "请刷新或回到设备目录核对原生设备。";
         if (_state is null) return "正在读取学校授权、录制状态和播放器观测。";
         if (playback?.State is "ready" or "opening" or "preparing" or "closing")
@@ -491,10 +545,10 @@ public sealed partial class ExamWorkbenchWindow : Window
             return ExamReason.Describe(reason);
         if (exam)
         {
-            if (planGate.Length == 0) return "可选择一份考试方案交给这台设备校验。";
+            if (planGate.Length == 0) return "可直接办理返回日常。需要远程放映时，可打开「方案与放映」。";
             return returnGate.Length == 0 ? "当前无可用的放映观测。可申请返回日常，设备仍会核对现场状态。" : planGate;
         }
-        return runtimeGate.Length > 0 ? runtimeGate : "核对现场影响后，可进入考试模式。";
+        return runtimeGate.Length > 0 ? runtimeGate : "进入考试会保存当前录课、暂停后续自动录课，并联动 ClassIsland 和 ExamAware。";
     }
 
     private static string Authorization(bool? enabled) => enabled switch { true => "已取得", false => "当前未开放", _ => "待核对" };

@@ -36,6 +36,8 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
   let legacyPlan;
   let legacyContext;
   let interceptedStarts = 0, startReceiptReads = 0;
+  const startReceiptPaths = new Set();
+  let allowStartReceipt = false;
   let lostStart;
   let observedReady, observedClosed;
 
@@ -113,6 +115,13 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
         assert.equal(state.status.player.sessions.length, 0);
         break;
       }
+      case 'start-receipt-pending':
+        assert.equal(interceptedStarts, 1);
+        assert.equal(startReceiptReads, 1);
+        assert.equal(lostStart?.state, 'START_REQUESTED');
+        assert.equal((await runtime(frontDevice.id)).status.runtimeMode, 'DAILY');
+        allowStartReceipt = true;
+        break;
       case 'playing': {
         const actual = await until(() => readJSON(join(coord, 'ready.json')), 'Real player window was never observed');
         const current = await rearPlans();
@@ -121,7 +130,8 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
         assert.equal(item.sessionId, actual.sessionId);
         assert.deepEqual(current.status.player.sessions.map(s => [s.id, s.state]), [[actual.sessionId, 'ready']]);
         assert.equal(interceptedStarts, 1);
-        assert.ok(startReceiptReads >= 1);
+        assert.equal(startReceiptReads, 2);
+        assert.equal(startReceiptPaths.size, 1);
         assert.equal(current.items.length, 1);
         assert.equal((await query(frontDevice.id, 'exam-plans')).items.length, 0);
         observedReady = {sessionId: item.sessionId, kvReceivedAt: current.receivedAt, windowObservedAt: actual.observedAt};
@@ -223,8 +233,14 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
         catch (error) { console.error(error); res.writeHead(500).end(); }
         return;
       }
-      if (req.method === 'GET' && req.url.startsWith(path + rearDevice.id + '/exam-plans/') && req.url.includes('/start/receipts/'))
+      if (req.method === 'GET' && req.url.startsWith(path + rearDevice.id + '/exam-plans/') && req.url.includes('/start/receipts/')) {
         startReceiptReads++;
+        startReceiptPaths.add(req.url);
+        if (!allowStartReceipt) {
+          res.writeHead(503).end();
+          return;
+        }
+      }
       if (blockModeOnlyPlanRead && req.method === 'GET' && req.url === path + modeOnlyDevice.id + '/exam-plans') {
         res.writeHead(503).end();
         return;
@@ -269,7 +285,7 @@ async function verify({prisma, origin, fixture, directory, evidence, web, runDes
       await legacyPlan.getByRole('heading', {name: '考试方案', exact: true}).waitFor();
       await runDesktop(['--live-exam-workbench', access, evidence]);
     }});
-    assert.deepEqual(checkpoints, ['rear-selected', 'exam-environment', 'prepared', 'playing', 'hide-playing-observation',
+    assert.deepEqual(checkpoints, ['rear-selected', 'exam-environment', 'prepared', 'start-receipt-pending', 'playing', 'hide-playing-observation',
       'allow-local-close', 'closed', 'returned', 'new-cycle', 'returned-again', 'fail-mode-only-plan-read',
       'restore-mode-only-plan-read', 'mode-only-returned']);
     await writeFile(nativeFinish, '1');

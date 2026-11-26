@@ -1,0 +1,243 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App"
+             x:Class="NPEduConsole.App.ExamWorkbenchView">
+  <UserControl.Styles>
+    <Style Selector="Button.action.exam-step">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="10,4" />
+    </Style>
+    <Style Selector="Button.action.exam-step.selected">
+      <Setter Property="Background" Value="{DynamicResource FieldBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+  </UserControl.Styles>
+  <Grid RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <!-- 固定紧凑对象头 -->
+    <Border Grid.Row="0"
+            Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,0,0,1"
+            Padding="14,8">
+      <StackPanel Spacing="6">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+          <TextBlock Text="考试与放映"
+                     FontSize="18"
+                     FontWeight="SemiBold"
+                     VerticalAlignment="Center" />
+          <TextBlock x:Name="ExamTargetText"
+                     Grid.Column="1"
+                     Classes="muted"
+                     VerticalAlignment="Center"
+                     TextWrapping="Wrap" />
+          <Button x:Name="ExamIdentityToggle"
+                  Grid.Column="2"
+                  Classes="action"
+                  Content="编号"
+                  Padding="8,3"
+                  FontSize="12"
+                  VerticalAlignment="Center"
+                  IsVisible="False"
+                  AutomationProperties.Name="展开或收起设备与绑定完整编号" />
+        </Grid>
+
+        <TextBlock x:Name="ExamFullIdentityText"
+                   Classes="muted"
+                   FontSize="12"
+                   IsVisible="False"
+                   TextWrapping="Wrap" />
+
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+          <TextBlock Text="原生设备"
+                     VerticalAlignment="Center"
+                     Classes="muted" />
+          <ComboBox x:Name="ExamDevicePicker"
+                    Grid.Column="1"
+                    HorizontalAlignment="Left"
+                    MaxWidth="520"
+                    PlaceholderText="请选择这块屏的原生设备"
+                    AutomationProperties.Name="为此大屏选择原生设备"
+                    SelectionChanged="DeviceChanged" />
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <!-- 窄窗两步切换栏（宽窗由 C# 隐藏） -->
+    <Border x:Name="ExamStepBar"
+            Grid.Row="1"
+            Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,0,0,1"
+            Padding="14,6"
+            IsVisible="False">
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+        <Button x:Name="ExamStepStatusButton"
+                Grid.Column="0"
+                Classes="action exam-step selected"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Content="状态与模式" />
+        <Button x:Name="ExamStepPlanButton"
+                Grid.Column="1"
+                Classes="action exam-step"
+                HorizontalAlignment="Stretch"
+                HorizontalContentAlignment="Center"
+                Content="方案与放映" />
+      </Grid>
+    </Border>
+
+    <!-- 主工作区（宽窗左右双栏 / 窄窗单栏分步） -->
+    <ScrollViewer Grid.Row="2"
+                  x:Name="ExamScroll"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="14,10" Spacing="8">
+        <Grid x:Name="ExamWorkspaceGrid"
+              ColumnDefinitions="1.15*,0.85*"
+              RowDefinitions="Auto,Auto"
+              ColumnSpacing="12"
+              RowSpacing="10">
+          <!-- 左栏：状态与模式 + 可选方案与放映 -->
+          <StackPanel x:Name="ExamLeftSection"
+                      Grid.Column="0"
+                      Grid.Row="0"
+                      Spacing="8">
+            <!-- 状态首屏卡：模式状态、当前证据/阻断理由、实际放映与结束待核对 -->
+            <Border x:Name="ExamStatusCard" Classes="card" Padding="14">
+              <StackPanel Spacing="6">
+                <TextBlock x:Name="ExamPhase"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           Text="正在核对设备"
+                           TextWrapping="Wrap"
+                           AutomationProperties.LiveSetting="Polite" />
+                <TextBlock x:Name="ExamNextStep" TextWrapping="Wrap" />
+
+                <Border Background="{DynamicResource FieldBrush}"
+                        BorderBrush="{DynamicResource LineBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="10,8">
+                  <StackPanel Spacing="4">
+                    <TextBlock x:Name="ExamPlayerEvidence"
+                               Classes="muted"
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="ExamOperationResult"
+                               Classes="muted"
+                               TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
+              </StackPanel>
+            </Border>
+
+            <Button x:Name="ExamNarrowChecksButton" Classes="action" HorizontalAlignment="Left"
+                    Content="考前核对与环境影响" IsVisible="False" />
+            <!-- 可选方案与放映区块（窄窗第 2 步显示，未启用时不抢首屏焦点） -->
+            <Button x:Name="ExamWidePlanButton" Classes="action" HorizontalAlignment="Left" Content="方案与放映（可选）" />
+            <StackPanel x:Name="ExamPlanSection" Spacing="8" IsVisible="False">
+              <Border x:Name="ExamPlanSetupCard" Classes="card" Padding="12">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="考试方案与放映（可选）" Classes="label" FontSize="15" />
+                  <TextBlock x:Name="ExamPlanCheck" TextWrapping="Wrap" />
+                  <TextBlock x:Name="ExamFileNote" Classes="muted" TextWrapping="Wrap" />
+                  <Button x:Name="ExamChooseFile" IsVisible="False"
+                          Classes="action"
+                          HorizontalAlignment="Left"
+                          Content="选择考试方案"
+                          Click="PickClicked" />
+                </StackPanel>
+              </Border>
+
+              <Border x:Name="ExamSchedulePanel"
+                      Classes="card"
+                      Padding="12"
+                      IsVisible="False">
+                <StackPanel Spacing="6">
+                  <TextBlock x:Name="ExamScheduleTitle"
+                             FontSize="17"
+                             Classes="label"
+                             TextWrapping="Wrap" />
+                  <TextBlock x:Name="ExamScheduleBlocker" Classes="error" TextWrapping="Wrap" IsVisible="False" />
+                  <local:ExamScheduleView x:Name="ExamSchedule" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </StackPanel>
+
+          <!-- 右栏：考前核对、环境影响与诊断（窄窗并入第 1 步下方） -->
+          <StackPanel x:Name="ExamRightSection"
+                      Grid.Column="1"
+                      Grid.Row="0"
+                      Spacing="10">
+            <Border x:Name="ExamPreflight" Classes="card" Padding="12">
+              <StackPanel Spacing="6">
+                <TextBlock Text="考前核对与环境影响" Classes="label" FontSize="15" />
+                <TextBlock x:Name="ExamRuntimeCheck" TextWrapping="Wrap" />
+                <TextBlock x:Name="ExamEnvironmentImpact"
+                           Classes="muted"
+                           TextWrapping="Wrap" />
+              </StackPanel>
+            </Border>
+
+            <Expander x:Name="ExamDiagnostics"
+                      Header="诊断与最近操作"
+                      HorizontalAlignment="Stretch">
+              <StackPanel Spacing="5" Margin="5">
+                <TextBlock x:Name="ExamDiagnosticText"
+                           Classes="muted"
+                           TextWrapping="Wrap" />
+                <TextBlock x:Name="ExamHistoryText" TextWrapping="Wrap" />
+              </StackPanel>
+            </Expander>
+          </StackPanel>
+        </Grid>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- 固定底栏：回执与关键动作 -->
+    <Border Grid.Row="3"
+            Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0"
+            Padding="14,7">
+      <StackPanel Spacing="6">
+        <TextBlock x:Name="ExamNotice"
+                   Classes="muted"
+                   FontSize="12"
+                   IsVisible="False"
+                   TextWrapping="Wrap"
+                   AutomationProperties.LiveSetting="Polite" />
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <WrapPanel ItemSpacing="6" LineSpacing="5">
+            <Button x:Name="ExamBack"
+                    Classes="action"
+                    Content="返回"
+                    Click="BackClicked" />
+            <Button x:Name="ExamRefresh"
+                    Classes="action"
+                    Content="核对最新状态"
+                    Click="RefreshClicked" />
+            <Button x:Name="ExamCancel"
+                    Classes="action"
+                    Content="取消未开始的操作"
+                    Click="CancelClicked"
+                    IsVisible="False" />
+            <Button x:Name="ExamRetry"
+                    Classes="action"
+                    Content="按原请求重试"
+                    Click="RetryClicked"
+                    IsVisible="False" />
+          </WrapPanel>
+          <Button x:Name="ExamPrimary"
+                  Grid.Column="1"
+                  Classes="action accent"
+                  Click="PrimaryClicked"
+                  IsVisible="False"
+                  MaxWidth="350">
+            <TextBlock x:Name="ExamPrimaryLabel" TextWrapping="Wrap" />
+          </Button>
+        </Grid>
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>
