@@ -169,6 +169,12 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
       assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: {in: [a2.id, nine.id]}, accountId: fixedTeacher.id}}), 2);
       break;
     }
+    case 'narrow-conflict-resolved':
+      assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: nine.id, subjectId: physics.id, accountId: fixedTeacher.id}}), 0);
+      assert.equal(await prisma.teachingAssignment.count({where: {workspaceId: a2.id, subjectId: physics.id, accountId: fixedTeacher.id}}), 1);
+      assert.equal(await prisma.administrativeClassSubject.count({where: {administrativeClassId: nine.id, subjectId: physics.id,
+        deliveryMode: 'ADMIN_CLASS'}}), 1);
+      break;
     case 'existing-edit-read-held':
       await waitFor(() => editReceipt, 'the actual existing group receipt reached the relay');
       assert.equal(editReceipt.requestId, editRequestId);
@@ -264,7 +270,7 @@ export async function verifyCourseGroups({prisma, origin, fixture, directory, ev
     await runDesktop(['--live-course-groups', accessPath, evidence]);
     assert.deepEqual(checks, ['blocked', 'commit-response-held', 'drop-commit-response', 'receipt-response-held',
       'receipt-read-canceled', 'other-source-opened', 'other-source-saved', 'other-group-opened', 'switch-term-for-bookmark',
-      'original-term-rejected', 'different-term-opened', 'created', 'assigned', 'existing-edit-read-held',
+      'original-term-rejected', 'different-term-opened', 'created', 'assigned', 'narrow-conflict-resolved', 'existing-edit-read-held',
       'existing-edit-read-canceled', 'same-group-blocked', 'supplemented']);
     await verifyStudentBrowser({origin, web, directory, evidence, school, rooms: [seven, eight, nine]});
     await runDatabase();

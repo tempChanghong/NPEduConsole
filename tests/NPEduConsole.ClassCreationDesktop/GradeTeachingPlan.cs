@@ -118,7 +118,7 @@ internal static partial class Program
             Click(Find<Button>(window, "PlanBack"));
             await Until(() => !window.IsVisible && entry.IsEffectivelyEnabled, "ready to open the exact course group");
             Click(Find<Button>(main, "OpenCourseGroupsButton"));
-            var directory = await WindowOf<CourseGroupsWindow>();
+            var directory = await AcademicPageAsync<CourseGroupsView>(main);
             var courseRows = Find<ListBox>(directory, "CourseGroupRows");
             await Until(() => courseRows.Items.OfType<CourseGroupDirectoryRow>().Any(row => row.Group.Name == "物理 A2"), "walking directory loaded");
             var a2 = courseRows.Items.OfType<CourseGroupDirectoryRow>().Single(row => row.Group.Name == "物理 A2");
@@ -136,7 +136,7 @@ internal static partial class Program
             courseRows.SelectedItem = courseRows.Items.OfType<CourseGroupDirectoryRow>().Single(row => row.Group.Id == access.ConsoleHistoryGroupId);
             Check(teachingEntry.IsEffectivelyEnabled, "existing course assignment editor available");
             Click(teachingEntry);
-            var teaching = await WindowOf<TeachingWindow>();
+            var teaching = await AcademicPageAsync<TeachingView>(main);
             var assignments = Find<ComboBox>(teaching, "TeachingExistingPicker");
             await Until(() => assignments.Items.OfType<TeachingAssignment>().Count() == 1, "one current teacher in existing editor");
             assignments.SelectedItem = assignments.Items.OfType<TeachingAssignment>().Single();

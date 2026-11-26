@@ -17,7 +17,7 @@ public sealed record CourseGroupDirectoryRow(ManagedCourseGroup Group, string Su
     public override string ToString() => $"{Group.Name}（{Group.Code}）";
 }
 
-public sealed partial class CourseGroupsWindow : Window
+public sealed partial class CourseGroupsView : UserControl
 {
     private sealed record PendingOperation(string SchoolId, string? SourceEntryClassId, CourseGroupDraft Draft,
         CourseGroupPreview Preview, Guid RequestId);
@@ -38,15 +38,16 @@ public sealed partial class CourseGroupsWindow : Window
     private Dictionary<string, string> _courseSubjectNames = new(StringComparer.Ordinal);
     private CourseGroupPreview? _preview;
     private PendingOperation? _sameTargetPending;
-    private TeachingWindow? _teaching;
     private ManagedCourseGroup? _editingGroup;
     private string? _directoryId, _editorGrade, _editorSourceEntry;
     private Vector _directoryOffset;
-    private bool _editing, _readyToSave, _canRetry, _binding, _dirty, _scopeLost, _busy, _writing, _closed, _allowClose;
+    private Vector _editOffset;
+    private bool _noticeCoveredByReview;
+    private bool _editing, _reviewing, _readyToSave, _canRetry, _binding, _dirty, _scopeLost, _busy, _writing, _closed;
 
-    public CourseGroupsWindow() => InitializeComponent();
+    public CourseGroupsView() => InitializeComponent();
 
-    internal CourseGroupsWindow(ConsoleClient client, School school, string? term, string? group, string? room, string? subject, bool teaching) : this()
+    internal CourseGroupsView(ConsoleClient client, School school, string? term, string? group, string? room, string? subject, bool teaching) : this()
     {
         _client = client;
         _school = school;
@@ -56,27 +57,32 @@ public sealed partial class CourseGroupsWindow : Window
         _initialSubject = subject;
         _initialTeaching = teaching;
         CourseScope.Text = school.Name;
-        SizeChanged += (_, _) => LayoutEditor();
-        Opened += (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            _ = RunAsync(OpenInitialAsync);
-        };
-        Closing += (_, args) =>
-        {
-            args.Cancel = !_allowClose && (_writing || _dirty && Pending is null);
-            if (args.Cancel && !_writing) ConfirmDiscard();
-        };
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
+        SizeChanged += (_, _) => Render();
         Render();
     }
 
-    internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal Action<ConsoleApiException>? AccessLost { get; init; }
+    internal Action? CloseRequested { get; set; }
+    internal Func<string, string, string, bool, string?, Task<bool>>? OpenTeaching { get; init; }
+    internal Func<string, string, string, Task<bool>>? OpenGradePlan { get; init; }
+    internal bool ReturningWithDraft => _dirty && Pending is null;
+    internal Task StartAsync() => RunAsync(OpenInitialAsync);
+
+    internal bool CanClose()
+    {
+        if (_writing) return false;
+        if (!ReturningWithDraft) return true;
+        ConfirmDiscard();
+        return false;
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
     private List<PendingOperation> Operations => PendingByClient.GetOrCreateValue(_client);
     private PendingOperation? Pending { get; set; }
     private CourseGroupLabel? Grade => CourseGrade.SelectedItem as CourseGroupLabel;
@@ -226,6 +232,8 @@ public sealed partial class CourseGroupsWindow : Window
         if (_catalog is not { TermId: not null } catalog) return;
         RememberPosition();
         _editing = true;
+        _reviewing = false;
+        _editOffset = default;
         _editingGroup = group;
         _editorSourceEntry = sourceId;
         _sameTargetPending = null;
@@ -327,16 +335,34 @@ public sealed partial class CourseGroupsWindow : Window
 
     private void LayoutEditor()
     {
-        bool narrow = ClientSize.Width < 900;
-        int columns = narrow ? 1 : 2;
-        if (CourseEditorColumns.ColumnDefinitions.Count != columns)
-        {
+        bool narrow = IsCompact;
+        bool review = narrow && _reviewing;
+        CourseDetailsCard.IsVisible = CourseSourcesCard.IsVisible = !review;
+        CourseReviewCard.IsVisible = !narrow || review;
+        bool compactExisting = narrow && _editingGroup is not null;
+        CourseGradeField.IsVisible = CourseSubjectField.IsVisible = !compactExisting;
+        CourseEditorStep.IsVisible = _editing && narrow;
+        string step = review ? "第 2 步 · 核对变更" : "第 1 步 · 编辑来源";
+        CourseEditorStep.Text = (review || compactExisting) && Grade is { } grade && Subject is { } subject
+            ? $"{step}    {grade.Name} · {subject.Name}" : step;
+        if (CourseEditorColumns.ColumnDefinitions.Count != (narrow ? 1 : 2))
             CourseEditorColumns.ColumnDefinitions = new(narrow ? "*" : "*,1.12*");
-            CourseEditorColumns.RowDefinitions = new(narrow ? "Auto,Auto" : "Auto");
-        }
         Grid.SetColumn(CourseReviewCard, narrow ? 0 : 1);
-        Grid.SetRow(CourseReviewCard, narrow ? 1 : 0);
-        CourseReviewCard.Margin = narrow ? new Thickness(0, 8, 0, 0) : new Thickness(8, 0, 0, 0);
+        CourseReviewCard.Margin = narrow ? default : new Thickness(8, 0, 0, 0);
+    }
+
+    private bool IsCompact => Bounds.Width < 850;
+
+    private void ReturnToEditor(Control? target = null)
+    {
+        _reviewing = false;
+        ClearPreview();
+        Render();
+        if (IsCompact) Dispatcher.UIThread.Post(() =>
+        {
+            if (!_closed && _editing && !_reviewing) CourseEditorScroll.Offset = _editOffset;
+        }, DispatcherPriority.Loaded);
+        Focus(target ?? CoursePrimary);
     }
 
     private void EditorScopeChanged(object? sender, SelectionChangedEventArgs args)
@@ -356,6 +382,7 @@ public sealed partial class CourseGroupsWindow : Window
     {
         if (_binding || !_editing || Pending is not null) return;
         _dirty = true;
+        _reviewing = false;
         CourseDiscard.IsVisible = false;
         if (_sameTargetPending is not null) _sameTargetPending = FindPendingForEditor();
         ClearPreview();
@@ -426,7 +453,7 @@ public sealed partial class CourseGroupsWindow : Window
             if (_closed) return;
             ShowPreview(observed, true);
             if (!observed.CanApply) FocusProblem(observed);
-            else Focus(CoursePrimary);
+            else Focus(IsCompact ? CourseReviewFocus : CoursePrimary);
         });
     }
 
@@ -458,6 +485,8 @@ public sealed partial class CourseGroupsWindow : Window
 
     private void ShowPreview(CourseGroupPreview preview, bool freshlyReviewed)
     {
+        if (!_reviewing && IsCompact) _editOffset = CourseEditorScroll.Offset;
+        _reviewing = true;
         _preview = preview;
         _readyToSave = freshlyReviewed && preview.CanApply;
         var desired = new CourseGroupIdentity((CourseName.Text ?? "").Trim(), (CourseCode.Text ?? "").Trim().ToUpperInvariant(), CourseSelectable.IsChecked == true);
@@ -499,6 +528,8 @@ public sealed partial class CourseGroupsWindow : Window
             CoursePreviewRows.Children.Add(container);
             _previewRows[row.ClassId] = new PreviewRowView(container, action);
         }
+        Render();
+        if (IsCompact) CourseEditorScroll.Offset = default;
     }
 
     private static string DescribeIdentity(CourseGroupIdentity group) =>
@@ -507,8 +538,8 @@ public sealed partial class CourseGroupsWindow : Window
     private void FocusProblem(CourseGroupPreview preview)
     {
         Feedback(string.Join(" ", preview.Issues.Select(row => row.Message).Concat(preview.Rows.Where(row => row.Blocked)
-            .Take(3).Select(row => $"{row.ClassName}：{row.Message}"))));
-        if (preview.Issues.Any(row => row.Code == "WORKSPACE_CODE_EXISTS")) { Focus(CourseCode); return; }
+            .Take(3).Select(row => $"{row.ClassName}：{row.Message}"))), coveredByReview: true);
+        if (preview.Issues.Any(row => row.Code == "WORKSPACE_CODE_EXISTS")) { ReturnToEditor(CourseCode); return; }
         if (preview.Rows.FirstOrDefault(row => row.Blocked) is not { } blocked)
         {
             Focus(CoursePrimary);
@@ -529,8 +560,8 @@ public sealed partial class CourseGroupsWindow : Window
         view.Container.BringIntoView();
         if (view.Action is { } action) Focus(action);
         // 没有可执行动作（例如来源班已停用）时，唯一出路是取消勾选，焦点就该回到那个来源班。
-        else if (_sourceChecks.GetValueOrDefault(classId) is { } source) Focus(source);
-        else Focus(CoursePrimary);
+        else if (!IsCompact && _sourceChecks.GetValueOrDefault(classId) is { } source) Focus(source);
+        else Focus(CourseReviewFocus);
     }
 
     private async Task SubmitAsync(PendingOperation pending)
@@ -565,7 +596,9 @@ public sealed partial class CourseGroupsWindow : Window
         if (!result.Preview!.CanApply)
         {
             FocusProblem(result.Preview);
-            if (result.State == "STALE") Feedback("服务器安排已变化，整次零写入。 " + CourseNotice.Text);
+            if (result.State == "STALE")
+                Feedback(_reviewing ? "服务器安排已变化，整次零写入。请核对后重新预览。" :
+                    "服务器安排已变化，整次零写入。 " + CourseNotice.Text);
         }
         else Focus(CoursePrimary);
     }
@@ -628,13 +661,11 @@ public sealed partial class CourseGroupsWindow : Window
         }
     }, DispatcherPriority.Loaded);
 
-    internal Func<Window, string, string, string, Task<bool>>? OpenGradePlan { get; init; }
-
     private async void GradePlanClicked(object? sender, RoutedEventArgs args)
     {
         if (DirectorySelection?.Group is not { } group || OpenGradePlan is not { } open || _catalog?.TermId is not { } term) return;
         RememberPosition();
-        if (await open(this, group.GradeId, group.SubjectId, group.Id) && !_closed)
+        if (await open(group.GradeId, group.SubjectId, group.Id) && !_closed)
             await RunAsync(() => LoadAsync(term));
         if (!_closed) Focus(CourseGradePlan.IsEnabled ? CourseGradePlan : CourseGroupRows);
     }
@@ -651,18 +682,13 @@ public sealed partial class CourseGroupsWindow : Window
 
     private async Task OpenTeachingAsync(string targetId, string subjectId, bool courseGroup, Control returnTo)
     {
-        if (_catalog?.TermId is not { } term) return;
-        var window = new TeachingWindow(_client, _school, term, targetId, subjectId, courseGroup: courseGroup);
-        window.SessionExpired += error => SessionExpired?.Invoke(error);
-        _teaching = window;
-        try { await window.ShowDialog(this); }
-        finally { _teaching = null; }
-        if (_closed) return;
+        if (_catalog?.TermId is not { } term || OpenTeaching is not { } open) return;
+        if (!await open(term, targetId, subjectId, courseGroup, _catalog.TermName) || _closed) return;
+        if (_editing) ReturnToEditor();
         await LoadAsync(term);
         if (_closed) return;
         if (_editing)
         {
-            ClearPreview();
             BindSources();
             Feedback("已返回走班草稿。请重新预览来源班的当前安排。");
             Focus(_sourceChecks.GetValueOrDefault(targetId) ?? (Control)CoursePrimary);
@@ -687,12 +713,12 @@ public sealed partial class CourseGroupsWindow : Window
         if (!_editing) { _scopeLost = false; await LoadAsync(_initialTerm); if (!_closed) Feedback(null); return; }
         if (_catalog?.TermId is not { } term) return;
         await LoadAsync(term);
-        if (!_closed) { ClearPreview(); BindSources(); Feedback("已刷新原学期的来源列表，草稿已保留。请重新预览。"); }
+        if (!_closed) { ReturnToEditor(); BindSources(); Feedback("已刷新原学期的来源列表，草稿已保留。请重新预览。"); }
     });
 
     private void ShowDirectory()
     {
-        _editing = _dirty = false;
+        _editing = _reviewing = _dirty = false;
         _editingGroup = null;
         _editorSourceEntry = null;
         _sameTargetPending = null;
@@ -711,7 +737,8 @@ public sealed partial class CourseGroupsWindow : Window
     private void BackClicked(object? sender, RoutedEventArgs args)
     {
         if (!CanGoBack) return;
-        if (Pending is not null || !_editing) { Close(); return; }
+        if (Pending is not null || !_editing) { CloseRequested?.Invoke(); return; }
+        if (IsCompact && _reviewing) { ReturnToEditor(); Feedback(null); return; }
         if (_dirty) ConfirmDiscard();
         else { ShowDirectory(); Feedback(null); }
     }
@@ -746,14 +773,16 @@ public sealed partial class CourseGroupsWindow : Window
             _scopeLost |= error.Code == "COURSE_GROUP_TERM_CHANGED" || error.StatusCode is 401 or 403;
             if (error.StatusCode is 401 or 403)
             {
+                Operations.RemoveAll(operation => operation.SchoolId == _school.Id);
+                Pending = null;
                 _catalog = null;
                 CourseGroupRows.ItemsSource = null;
                 CourseSourceRows.Children.Clear();
                 CoursePreviewRows.Children.Clear();
-                _editing = false;
+                _editing = _reviewing = _dirty = false;
             }
             Feedback(Pending is null ? error.Message : $"保存回执仍待核对。{error.Message}");
-            if (error.StatusCode == 401) SessionExpired?.Invoke(error);
+            if (error.StatusCode is 401 or 403) AccessLost?.Invoke(error);
         }
         finally { _busy = _writing = false; if (!_closed) Render(); }
     }
@@ -776,7 +805,8 @@ public sealed partial class CourseGroupsWindow : Window
         CourseRefresh.IsEnabled = !_busy;
         CourseRefresh.Content = pending ? "核对回执" : _sameTargetPending is not null ? "核对原申请" : "刷新";
         CourseBack.IsEnabled = CanGoBack;
-        CourseBack.Content = pending ? "关闭，稍后核对" : _editing ? "返回列表" : "关闭";
+        CourseBack.Content = pending ? "返回，稍后核对" : !_editing ? "返回" :
+            IsCompact && _reviewing ? "返回编辑" : "返回列表";
         CoursePrimary.Content = pending ? _canRetry ? "按原编号重试" : "核对原请求" :
             !_editing ? "新建教学班" : _readyToSave ? "确认保存" : _preview is null ? "预览改动" : "重新预览";
         CoursePrimary.IsVisible = !pending || _canRetry;
@@ -784,13 +814,18 @@ public sealed partial class CourseGroupsWindow : Window
             (_editing || _catalog.Grades.Length > 0 && _catalog.Subjects.Length > 0));
         if (pending) CourseDiscard.Content = "结束核对";
         LayoutEditor();
+        UpdateNoticeVisibility();
     }
 
-    private void Feedback(string? message)
+    private void Feedback(string? message, bool coveredByReview = false)
     {
         CourseNotice.Text = message;
-        CourseNotice.IsVisible = !string.IsNullOrWhiteSpace(message);
+        _noticeCoveredByReview = coveredByReview;
+        UpdateNoticeVisibility();
     }
+
+    private void UpdateNoticeVisibility() => CourseNotice.IsVisible = !string.IsNullOrWhiteSpace(CourseNotice.Text) &&
+        !(_noticeCoveredByReview && _editing && _reviewing && IsCompact);
 
     private void Focus(Control? target) => Dispatcher.UIThread.Post(() =>
     {
@@ -801,10 +836,4 @@ public sealed partial class CourseGroupsWindow : Window
         }
     }, DispatcherPriority.Loaded);
 
-    internal void CloseForScopeChange()
-    {
-        _allowClose = _closed = true;
-        _teaching?.CloseForScopeChange();
-        Close();
-    }
 }

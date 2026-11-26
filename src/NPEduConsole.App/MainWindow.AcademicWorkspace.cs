@@ -38,9 +38,10 @@ public sealed partial class MainWindow
     {
         if (!_academicPages.TryPeek(out var top)) return true;
         if (!top.CanClose()) return false;
-        // A receipt lookup can sit above a separate, unfinished table.
+        // A child page can sit above a separate, unfinished draft.
         var owner = _academicPages.Skip(1).FirstOrDefault(page => page.Content is
-            OrganizationImportView { ReturningWithDraft: true } or TeacherAllocationView { ReturningWithDraft: true });
+            OrganizationImportView { ReturningWithDraft: true } or TeacherAllocationView { ReturningWithDraft: true } or
+            CourseGroupsView { ReturningWithDraft: true });
         if (owner is null) return true;
         while (_academicPages.Peek() != owner)
             RemoveAcademicPage(_academicPages.Pop(), returned: false);

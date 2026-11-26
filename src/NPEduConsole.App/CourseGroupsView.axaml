@@ -1,22 +1,22 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.CourseGroupsWindow"
-        Title="走班教学班" Width="1160" Height="780" MinWidth="670" MinHeight="450" WindowStartupLocation="CenterOwner">
-  <Window.Styles>
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.CourseGroupsView">
+  <UserControl.Styles>
     <Style Selector="Border.card.blocked">
       <Setter Property="BorderBrush" Value="{DynamicResource ErrorBrush}"/>
       <Setter Property="BorderThickness" Value="1"/>
     </Style>
-  </Window.Styles>
+  </UserControl.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
-    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="20,10">
-      <StackPanel Spacing="4">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="18,9">
+      <StackPanel Spacing="2">
         <TextBlock x:Name="CourseHeading" Text="走班教学班" FontSize="24" FontWeight="SemiBold"/>
         <TextBlock x:Name="CourseScope" Classes="muted" TextTrimming="CharacterEllipsis"/>
       </StackPanel>
     </Border>
-    <Grid Grid.Row="1" Margin="16,10" RowDefinitions="Auto,*" RowSpacing="6">
+    <Grid Grid.Row="1" Margin="18,8" RowDefinitions="Auto,Auto,*" RowSpacing="6">
       <TextBlock x:Name="CourseNotice" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
-      <Grid x:Name="CourseDirectory" Grid.Row="1" RowDefinitions="Auto,*" RowSpacing="8">
+      <TextBlock x:Name="CourseEditorStep" Grid.Row="1" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
+      <Grid x:Name="CourseDirectory" Grid.Row="2" RowDefinitions="Auto,*" RowSpacing="8">
         <WrapPanel ItemSpacing="8" LineSpacing="5">
           <ComboBox x:Name="CourseGradeFilter" MinWidth="140" SelectionChanged="FilterChanged" AutomationProperties.Name="筛选年级"/>
           <ComboBox x:Name="CourseSubjectFilter" MinWidth="140" SelectionChanged="FilterChanged" AutomationProperties.Name="筛选学科"/>
@@ -53,16 +53,16 @@
           </Grid>
         </Border>
       </Grid>
-      <ScrollViewer x:Name="CourseEditorScroll" Grid.Row="1" IsVisible="False" HorizontalScrollBarVisibility="Disabled"
+      <ScrollViewer x:Name="CourseEditorScroll" Grid.Row="2" IsVisible="False" HorizontalScrollBarVisibility="Disabled"
                     VerticalScrollBarVisibility="Auto" AllowAutoHide="False">
         <Grid RowDefinitions="Auto,*" RowSpacing="8" Margin="0,0,6,0">
-          <Border Classes="card" Padding="11">
+          <Border x:Name="CourseDetailsCard" Classes="card" Padding="10">
             <Grid RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,*" RowSpacing="7" ColumnSpacing="10">
-              <StackPanel Spacing="3">
+              <StackPanel x:Name="CourseGradeField" Spacing="3">
                 <TextBlock Text="年级" Classes="label"/>
                 <ComboBox x:Name="CourseGrade" SelectionChanged="EditorScopeChanged" HorizontalAlignment="Stretch" PlaceholderText="选择年级" AutomationProperties.Name="走班年级"/>
               </StackPanel>
-              <StackPanel Grid.Column="1" Spacing="3">
+              <StackPanel x:Name="CourseSubjectField" Grid.Column="1" Spacing="3">
                 <TextBlock Text="学科" Classes="label"/>
                 <ComboBox x:Name="CourseSubject" SelectionChanged="EditorScopeChanged" HorizontalAlignment="Stretch" PlaceholderText="选择学科" AutomationProperties.Name="走班学科"/>
               </StackPanel>
@@ -83,18 +83,19 @@
             </Grid>
           </Border>
           <Grid x:Name="CourseEditorColumns" Grid.Row="1">
-            <Border x:Name="CourseSourcesCard" Classes="card" Padding="11">
-              <StackPanel Spacing="7">
+            <Border x:Name="CourseSourcesCard" Classes="card" Padding="10">
+              <StackPanel Spacing="6">
                 <TextBlock x:Name="CourseSourcesHeading" Text="来源行政班" FontSize="17" Classes="label"/>
                 <TextBlock x:Name="CourseSourcesEmpty" TextWrapping="Wrap" Classes="muted"/>
                 <StackPanel x:Name="CourseSourceRows" Spacing="5"/>
               </StackPanel>
             </Border>
-            <Border x:Name="CourseReviewCard" Classes="card" Padding="11">
-              <StackPanel Spacing="7">
-                <TextBlock Text="变更核对" FontSize="17" Classes="label"/>
+            <Border x:Name="CourseReviewCard" Classes="card" Padding="10">
+              <StackPanel Spacing="6">
+                <TextBlock x:Name="CourseReviewFocus" Text="变更核对" FontSize="17" Classes="label" Focusable="True"/>
                 <TextBlock x:Name="CoursePreviewIdentity" TextWrapping="Wrap" IsVisible="False"/>
-                <TextBlock x:Name="CoursePreviewStatus" Text="先选择来源行政班，再读取待保存的改动。" TextWrapping="Wrap" Classes="muted"/>
+                <TextBlock x:Name="CoursePreviewStatus" Text="先选择来源行政班，再读取待保存的改动。" TextWrapping="Wrap" Classes="muted"
+                           AutomationProperties.LiveSetting="Polite"/>
                 <StackPanel x:Name="CoursePreviewRows" Spacing="6"/>
               </StackPanel>
             </Border>
@@ -102,10 +103,10 @@
         </Grid>
       </ScrollViewer>
     </Grid>
-    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="16,8">
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="18,7">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
         <WrapPanel ItemSpacing="7" LineSpacing="4">
-          <Button x:Name="CourseBack" Classes="action" Content="关闭" Click="BackClicked"/>
+          <Button x:Name="CourseBack" Classes="action" Content="返回" Click="BackClicked"/>
           <Button x:Name="CourseDiscard" Classes="action" IsVisible="False" Content="放弃草稿" Click="DiscardClicked"/>
           <Button x:Name="CourseRefresh" Classes="action" Content="刷新" Click="RefreshClicked"/>
           <Button x:Name="CourseEdit" Classes="action" Content="维护所选" Click="EditClicked"/>
@@ -116,4 +117,4 @@
       </Grid>
     </Border>
   </Grid>
-</Window>
+</UserControl>
