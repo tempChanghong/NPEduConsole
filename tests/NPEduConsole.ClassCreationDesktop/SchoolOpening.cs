@@ -175,7 +175,7 @@ internal static partial class Program
             Check(Text(view, "OpeningEvidence").Contains(data.RearId) && !Text(view, "OpeningEvidence").Contains(data.FrontId),
                 "同班两屏用不同绑定 ID");
             Click(Find<Button>(view, "OpeningHandleRow"));
-            var screen = await WindowOf<ScreenDutyWindow>();
+            var screen = await AcademicPageAsync<ScreenDutyView>(main);
             await Until(() => screen.Detail?.Id == data.RearId && Ready(screen, "DutyNative"), "值守窗口按后屏绑定打开");
             Click(Find<Button>(screen, "DutyNative"));
             await Until(() => Ready(main, "ReturnToSchoolOverviewButton") &&
@@ -188,7 +188,7 @@ internal static partial class Program
             Check(Ready(view, "OpeningHandleRow") && Text(view, "OpeningEvidence").Contains(data.RearId),
                 "接入办理返回后直接恢复原后屏详情");
             Click(Find<Button>(view, "OpeningHandleRow"));
-            screen = await WindowOf<ScreenDutyWindow>();
+            screen = await AcademicPageAsync<ScreenDutyView>(main);
             await Until(() => screen.Detail?.Id == data.RearId, "回到清单后可再次打开同一后屏");
             await Signal("connected");
             Click(Find<Button>(screen, "DutyBack"));

@@ -1,10 +1,11 @@
 using Avalonia.Interactivity;
+using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class ScreenDutyWindow
+public sealed partial class ScreenDutyView
 {
     internal Func<FilePickerSaveOptions, Task<IStorageFile?>>? SelectPinFile { private get; set; }
 
@@ -16,6 +17,7 @@ public sealed partial class ScreenDutyWindow
     private async void DeliverPinClicked(object? sender, RoutedEventArgs args)
     {
         if (_busy || _closed || _delivery is not { } delivery || !CurrentPinMatches(_detail, delivery) ||
+            TopLevel.GetTopLevel(this) is not Window owner ||
             _catalog?.SchoolCode is not { Length: > 0 } schoolCode) return;
         await RunAsync(async () =>
         {
@@ -30,7 +32,7 @@ public sealed partial class ScreenDutyWindow
                 return true;
             }
             bool save = sender == DutySavePin;
-            if (!await delivery.DeliverAsync(this, save, _school.Name, schoolCode, "大屏网页短账号", Verify, _lifetime.Token, SelectPinFile)) return;
+            if (!await delivery.DeliverAsync(owner, save, _school.Name, schoolCode, "大屏网页短账号", Verify, _lifetime.Token, SelectPinFile)) return;
             _delivery = null;
             if (!_closed) Notice(save ? "已另存本屏网页账号与 PIN。" : "已将本屏网页账号与 PIN 复制到剪贴板。");
         });

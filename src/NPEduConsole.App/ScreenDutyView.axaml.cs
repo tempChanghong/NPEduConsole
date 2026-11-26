@@ -8,7 +8,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class ScreenDutyWindow : Window
+public sealed partial class ScreenDutyView : UserControl
 {
     private const string UnchangedLogin = "短账号未变，无需保存。";
     private sealed record PendingOperation(ScreenDutyPlan Plan, ScreenDutyPreview Preview, Guid Id);
@@ -42,6 +42,7 @@ public sealed partial class ScreenDutyWindow : Window
     public ScreenDutyDetail? Detail => _detail;
     public ScreenDutyDetail? NativeTarget { get; private set; }
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal Action? CloseRequested { get; set; }
     private PendingOperation? Pending => Requests.GetOrCreateValue(_client).GetValueOrDefault(_school.Id);
     private bool InScope(ScreenDutyRoom room) => room.Id == _defaultClass && room.TermId == _inactiveTermId && room.Active;
     private bool OtherPending
@@ -61,9 +62,9 @@ public sealed partial class ScreenDutyWindow : Window
     private bool LoginUnchanged => _action == "CHANGE_LOGIN" &&
         string.Equals(DutyCode.Text?.Trim(), _detail?.LoginCode?.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    public ScreenDutyWindow() => InitializeComponent();
+    public ScreenDutyView() => InitializeComponent();
 
-    internal ScreenDutyWindow(ConsoleClient client, School school, string? bindingId, string? classId, string? inactiveTermId = null,
+    internal ScreenDutyView(ConsoleClient client, School school, string? bindingId, string? classId, string? inactiveTermId = null,
         string? termId = null) : this()
     {
         _client = client;
@@ -82,51 +83,53 @@ public sealed partial class ScreenDutyWindow : Window
         }
         DutyIdentity.Text = school.Name;
         SizeChanged += (_, _) => ArrangeDutyLayout();
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            ArrangeDutyLayout();
-            await RunAsync(async () =>
-            {
-                if (Pending is { } unresolved)
-                {
-                    if (OtherPending)
-                    {
-                        await ReadAsync();
-                        if (_closed) return;
-                        Notice("本校还有其他大屏操作待核对。请返回「教室设备 → 大屏账号与值守」查原回执。");
-                        return;
-                    }
-                    await VerifyAsync(unresolved);
-                    if (_closed || Pending is not null) return;
-                }
-                await ReadAsync();
-            });
-            if (!_closed) _poll.Start();
-        };
         _poll.Tick += async (_, _) =>
         {
             if (_closed || _busy || _action is not null || Pending is not null || _detail is null) return;
             await RunAsync(ReadAsync, quiet: true);
         };
-        Closing += (_, args) => args.Cancel = _writing && !_closed;
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _delivery = null;
-            _poll.Stop();
-            DutyPin.Text = "";
-            DutyRetryPin.Text = "";
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
         Render();
     }
 
-    internal void CloseForScopeChange()
+    internal async Task StartAsync()
     {
-        _writing = false;
-        Close();
+        ArrangeDutyLayout();
+        await RunAsync(async () =>
+        {
+            if (Pending is { } unresolved)
+            {
+                if (OtherPending)
+                {
+                    await ReadAsync();
+                    if (!_closed) Notice("本校还有其他大屏操作待核对。请返回「教室设备 → 大屏账号与值守」查原回执。");
+                    return;
+                }
+                await VerifyAsync(unresolved);
+                if (_closed || Pending is not null) return;
+            }
+            await ReadAsync();
+        });
+        if (!_closed) _poll.Start();
+    }
+
+    internal bool CanClose()
+    {
+        if (_closed) return true;
+        if (!_writing && (_action is null || Pending is not null)) return true;
+        Notice(_writing ? "原申请正在提交，请等结果或进入待核对。" : "请先完成或取消当前操作。");
+        return false;
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _delivery = null;
+        _poll.Stop();
+        DutyPin.Text = "";
+        DutyRetryPin.Text = "";
+        _lifetime.Cancel();
+        _lifetime.Dispose();
     }
 
     private async Task ReadAsync()
@@ -231,6 +234,7 @@ public sealed partial class ScreenDutyWindow : Window
         _bindingId = item.Id;
         _directoryView = false;
         _unavailable = false;
+        SetDutyStep(manage: false);
         Notice("");
         await RunAsync(ReadAsync);
         if (!_closed) RestoreDutyFocus(DutyPrimary);
@@ -246,7 +250,13 @@ public sealed partial class ScreenDutyWindow : Window
             return;
         }
         DutyHeading.Text = row.Name;
-        DutyIdentity.Text = $"{_school.Name} · {row.Room.TermLabel} · {row.Room} · 绑定编号 {row.Id}" +
+        if (DutyBindingIdentity.Text != row.Id)
+        {
+            DutyBindingDetails.IsExpanded = false;
+            DutyBrowserHistory.IsExpanded = false;
+        }
+        DutyBindingIdentity.Text = row.Id;
+        DutyIdentity.Text = $"{_school.Name} · {row.Room.TermLabel} · {row.Room}" +
             (row.Active ? "" : " · 绑定停用");
         BrowserDutyState.Text = row.BrowserState switch
         {
@@ -260,13 +270,19 @@ public sealed partial class ScreenDutyWindow : Window
             "DISABLED" => "网页值守已停用",
             _ => "网页值守待核对"
         };
+        DutyBrowserHistoryText.Text = string.Join("\n", new[]
+        {
+            row.FirstLoginAt is { } first ? $"本屏历史首次登录 {Time(first)}" : null,
+            row.PreviousHeartbeatAt is { } before ? $"变更前最后心跳 {Time(before)}" : null
+        }.OfType<string>());
+        DutyBrowserHistory.IsVisible = row.FirstLoginAt is not null || row.PreviousHeartbeatAt is not null;
         BrowserDutyEvidence.Text = $"账号 {row.LoginCode ?? "未配置"} · {(row.BrowserBound ? "已绑定浏览器" : "暂无浏览器绑定")}\n" +
-            $"首次记录登录 {Time(row.FirstLoginAt)} · 当前心跳 {Time(row.HeartbeatAt)}" +
-            (row.PreviousHeartbeatAt is { } before ? $"\n原状态最后心跳 {Time(before)}" : "") +
+            $"当前凭据心跳 {Time(row.HeartbeatAt)}" +
             $"\n待上传 {(row.PendingUploads?.ToString() ?? "待核对")} · " +
             (row.SyncProblem ? "心跳报告同步异常" : row.HeartbeatAt is null || row.BrowserState == "UNKNOWN" ?
                 "同步待核对" : "心跳未报告同步异常");
-        NativeDutyState.Text = !row.Room.Active ? "原班当前不能接入，请核对学期或安排新班" : row.NativeState switch
+        NativeDutyState.Text = !row.Room.Active ? "原班当前不能接入，请核对学期或安排新班" :
+            !row.Active ? "整台大屏已停用" : row.NativeState switch
         {
             "REPORTED" => "已配对，已有有效上报",
             "AWAITING_PAIRING" => "等待现场配对",
@@ -275,8 +291,14 @@ public sealed partial class ScreenDutyWindow : Window
             "NOT_APPLICABLE" => "暂无原生接入证据",
             _ => "原生配对或上报待核对"
         };
-        NativeDutyEvidence.Text = $"当前配对记录 {Time(row.NativePairedAt)}\n" +
-            $"{(row.Room.Active && row.Active ? "最近有效上报" : "历史上报")} {Time(row.NativeReportedAt)}";
+        string reportLabel = row.NativeState switch
+        {
+            _ when !row.Room.Active || !row.Active => "历史上报",
+            "REPAIR_REQUIRED" => "原配对最后上报",
+            "UNKNOWN" => "上报记录（当前授权待核）",
+            _ => "当前配对有效上报"
+        };
+        NativeDutyEvidence.Text = $"当前配对记录 {Time(row.NativePairedAt)}\n{reportLabel} {Time(row.NativeReportedAt)}";
         var chosen = row.Commands.FirstOrDefault(item => item.Id == _commandId);
         DutyCommandPicked.IsVisible = _commandId is not null;
         DutyCommandPicked.Text = chosen is null ? "本次指令尚未读到状态，请继续核对。" : $"本次指令 · {CommandLabel(chosen)}";
@@ -342,7 +364,7 @@ public sealed partial class ScreenDutyWindow : Window
             if (await arrange(row) && !_closed)
             {
                 Changed = true;
-                Close();
+                CloseRequested?.Invoke();
             }
             else if (!_closed) await ReadAsync();
         });
@@ -548,6 +570,7 @@ public sealed partial class ScreenDutyWindow : Window
         Changed = true;
         ClearEditor();
         _bindingId = receipt.BindingId;
+        SetDutyStep(manage: false);
         _directoryView = _inactiveTermId is not null;
         if (original is { } proof)
         {
@@ -559,7 +582,8 @@ public sealed partial class ScreenDutyWindow : Window
         {
             _detail = null;
             DutyHeading.Text = receipt.Action == "CREATE" ? "已登记大屏" : "大屏账号与值守";
-            DutyIdentity.Text = $"{_school.Name} · 绑定编号 {receipt.BindingId}";
+            DutyIdentity.Text = _school.Name;
+            DutyBindingIdentity.Text = receipt.BindingId;
         }
         _commandId = receipt.CommandId;
         if (receipt.Action is "CREATE" or "MOVE" or "DISABLE" or "ENABLE") _commandsExpanded = false;
@@ -619,7 +643,7 @@ public sealed partial class ScreenDutyWindow : Window
             await RunAsync(ReadAsync);
             if (!_closed) RestoreDutyFocus(DutyRows);
         }
-        else Close();
+        else CloseRequested?.Invoke();
     }
 
     private async void RefreshClicked(object? sender, RoutedEventArgs args)
@@ -635,7 +659,7 @@ public sealed partial class ScreenDutyWindow : Window
     {
         if (_busy || _action is not null || Pending is not null) return;
         NativeTarget = _detail;
-        Close();
+        CloseRequested?.Invoke();
     }
 
     private async Task RunAsync(Func<Task> action, bool writing = false, bool quiet = false)
@@ -685,12 +709,13 @@ public sealed partial class ScreenDutyWindow : Window
         var reviewing = _preview is not null && !pending;
         DutyDirectoryPanel.IsVisible = _directoryView && _action is null && !pending;
         DutyDetailPanel.IsVisible = !_directoryView && _detail is not null && _action is null && !pending;
+        DutyBindingDetails.IsVisible = !_directoryView && _detail is not null;
         DutyNew.IsEnabled = !_busy && !_unavailable && Pending is null && _catalog?.Rooms.Length > 0;
         DutyHistory.IsVisible = _inactiveTermId is null && _defaultClass is null && _catalog?.SupportsHistorical == true;
         DutyOpen.IsEnabled = !_busy && !_unavailable && DutyRows.SelectedItem is Choice;
         DutyPrimary.IsVisible = _detail is { } primary && (primary.Room.Active || !primary.Active);
         DutyPrimary.IsEnabled = canAct;
-        DutyPrimary.Content = _detail is { } row ? !row.Active ? "恢复大屏" : row.LoginCode is null || !row.HasPin ?
+        DutyPrimary.Content = _detail is { } row ? !row.Active ? "恢复整台大屏" : row.LoginCode is null || !row.HasPin ?
             "配置网页账号" : _commandsExpanded ? "收起同步情况" : "查看同步情况" : "";
         DutyMaintenance.IsVisible = _inactiveTermId is null;
         DutyMaintenance.IsEnabled = canAct;
@@ -731,6 +756,7 @@ public sealed partial class ScreenDutyWindow : Window
         DutyConfirm.IsEnabled = !_busy && (!editing || !LoginUnchanged);
         DutyConfirm.Content = pending ? "重试核对原回执" : reviewing ? (_action == "MOVE" && _preview?.Target is { } target ?
             $"确认调到{target.Label}" : $"确认{ActionLabel(_action!, _commandType)}") : "核对影响";
+        RenderDutySteps();
     }
 
     private void Notice(string value, bool error = false)

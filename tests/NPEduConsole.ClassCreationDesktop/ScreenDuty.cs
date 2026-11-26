@@ -30,6 +30,7 @@ internal static partial class Program
     {
         var desktop = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
         var main = (MainWindow)desktop.MainWindow!;
+        var mainHandle = main.TryGetPlatformHandle()?.Handle;
         using var checkpoints = new HttpClient {BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(100)};
         try
         {
@@ -58,9 +59,9 @@ internal static partial class Program
             await Until(() => tasks.GetVisualDescendants().OfType<Button>().Any(row => ReferenceEquals(row.Tag, task)), "rear screen task action available");
             Click(tasks.GetVisualDescendants().OfType<Button>().Single(row => ReferenceEquals(row.Tag, task)));
             var window = await Workbench();
-            await Until(() => Label(window, "DutyIdentity").Contains(access.RearId) && Label(window, "NativeDutyState").Contains("已有有效上报"),
+            await Until(() => window.Detail?.Id == access.RearId && Label(window, "NativeDutyState").Contains("已有有效上报"),
                 "overview follows the rear binding without confusing the paired front");
-            await Capture(window, output, "01-wide-paired-no-web-account");
+            await CaptureWithFrame(main, output, "01-wide-paired-no-web-account");
             Click(Find<Button>(window, "DutyPrimary"));
             Find<TextBox>(window, "DutyCode").Text = "duty-rear";
             var pin = Find<TextBox>(window, "DutyPin");
@@ -73,7 +74,7 @@ internal static partial class Program
             await File.WriteAllTextAsync(handoffFile, "");
             try
             {
-                window.SelectPinFile = _ => window.StorageProvider.TryGetFileFromPathAsync(new Uri(handoffFile));
+                window.SelectPinFile = _ => main.StorageProvider.TryGetFileFromPathAsync(new Uri(handoffFile));
                 await Until(() => Find<Button>(window, "DutySavePin").IsEffectivelyEnabled && Find<Button>(window, "DutySavePin").IsVisible,
                     "fresh screen configuration offers only its own web PIN");
                 Click(Find<Button>(window, "DutySavePin"));
@@ -87,8 +88,11 @@ internal static partial class Program
             await Signal("configured");
             await Refresh(window);
             Check(Label(window, "BrowserDutyEvidence").Contains("DUTY-REAR") &&
-                !Label(window, "BrowserDutyEvidence").Contains("当前心跳 暂无"), "the browser's first heartbeat and the paired native report coexist");
-            await Capture(window, output, "02-wide-real-browser-heartbeat");
+                !Label(window, "BrowserDutyEvidence").Contains("当前凭据心跳 暂无"), "the browser's first heartbeat and the paired native report coexist");
+            Check(Grid.GetColumn(Find<Border>(window, "NativeDutyCard")) == 1 &&
+                Find<Border>(window, "BrowserDutyCard").IsEffectivelyVisible &&
+                Find<Border>(window, "NativeDutyCard").IsEffectivelyVisible, "wide view shows both current states alongside");
+            await CaptureWithFrame(main, output, "02-wide-real-browser-heartbeat");
 
             Click(Find<Button>(window, "DutyPrimary"));
             await Apply(window, "DutyRefreshData");
@@ -101,16 +105,17 @@ internal static partial class Program
             await Apply(window, "DutyReloadWeb");
             await Signal("editing-held");
             await Refresh(window, () => Label(window, "DutyCommandPicked").Contains("已送达，等待回执"));
-            await Capture(window, output, "03-editing-saved-from-reload");
+            await CaptureWithFrame(main, output, "03-editing-saved-from-reload");
             await Signal("reload-accepted");
             await Refresh(window, () => Label(window, "DutyCommandPicked").Contains("已接收，等待空闲重载"));
-            await Capture(window, output, "04-reload-ack-is-not-page-navigation");
+            await CaptureWithFrame(main, output, "04-reload-ack-is-not-page-navigation");
             await Signal("reload-completed");
 
-            window.Width = 840;
-            window.Height = 480;
-            await Until(() => window.ClientSize.Width <= 845 && window.ClientSize.Height <= 485 &&
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize.Width <= 845 && main.ClientSize.Height <= 485 &&
                 Grid.GetRow(Find<Border>(window, "NativeDutyCard")) == 1, "compact layout stacks browser and native evidence");
+            await ShowManagement(window);
             Click(Find<Button>(window, "DutyMove"));
             SelectEight(window);
             await Review(window);
@@ -128,19 +133,22 @@ internal static partial class Program
             var confirm = Find<Button>(window, "DutyConfirm");
             Check(confirm.TranslatePoint(new Point(confirm.Bounds.Width, confirm.Bounds.Height), window) is { } corner &&
                 corner.X <= window.Bounds.Width && corner.Y <= window.Bounds.Height, "compact confirmation remains reachable");
-            await Capture(window, output, "05-narrow-reviewed-move-destination");
+            await CaptureWithFrame(main, output, "05-narrow-reviewed-move-destination");
             await Submit(window, "已找回服务器确认的原回执");
             await Signal("moved");
             await Refresh(window);
-            Check(Label(window, "DutyIdentity").Contains(access.RearId) && Label(window, "DutyIdentity").Contains("高二（8）班") &&
+            Check(window.Detail?.Id == access.RearId && Label(window, "DutyIdentity").Contains("高二（8）班") &&
                 Label(window, "NativeDutyState").Contains("现场重新配对"), "moved rear retains id and reports re-pair");
+            Check(Label(window, "NativeDutyEvidence").Contains("原配对最后上报") &&
+                !Label(window, "NativeDutyEvidence").Contains("当前配对有效上报"), "a historical native report is not credited to the current binding");
             var nativeEntry = Find<Button>(window, "DutyNative");
             var viewport = Find<ScrollViewer>(window, "DutyScroll");
             await Until(() => nativeEntry.TranslatePoint(new Point(0, nativeEntry.Bounds.Height), viewport) is { } entryBottom &&
                 entryBottom.Y <= viewport.Bounds.Height + 1, "native admission action fits above the footer in the narrow post-move view");
-            await Capture(window, output, "06-narrow-moved-rear-repair");
+            await CaptureWithFrame(main, output, "06-narrow-moved-rear-repair");
 
             await Apply(window, "DutyRename", () => Find<TextBox>(window, "DutyName").Text = "八班后屏");
+            await ShowManagement(window);
             Click(Find<Button>(window, "DutyCodeChange"));
             Find<TextBox>(window, "DutyCode").Text = " duty-rear ";
             await Until(() => Label(window, "DutyNotice").Contains("短账号未变，无需保存") && !Find<Button>(window, "DutyConfirm").IsEnabled,
@@ -149,6 +157,7 @@ internal static partial class Program
             Click(Find<Button>(window, "DutyBack"));
             await Apply(window, "DutyCodeChange", () => Find<TextBox>(window, "DutyCode").Text = "duty-rear-renamed");
             await Signal("changed-login");
+            await ShowManagement(window);
             Click(Find<Button>(window, "DutyResetPin"));
             Find<TextBox>(window, "DutyPin").Text = access.ResetPin;
             await Review(window);
@@ -156,7 +165,7 @@ internal static partial class Program
                 "reset impact distinguishes active devices from unfinished operations");
             await Submit(window);
             await Signal("updated-pin");
-            await Capture(window, output, "08-narrow-pin-rotation");
+            await CaptureWithFrame(main, output, "08-narrow-pin-rotation");
             await Apply(window, "DutyToggle");
             await Signal("inactive");
             Click(Find<Button>(window, "DutyBack"));
@@ -177,7 +186,7 @@ internal static partial class Program
             await Until(() => items.Items.Cast<object>().Any(row => row.ToString()!.Contains(access.RearId)), "same stopped binding found under inactive filter");
             items.SelectedItem = items.Items.Cast<object>().Single(row => row.ToString()!.Contains(access.RearId));
             Click(Find<Button>(window, "DutyOpen"));
-            await Until(() => Label(window, "DutyIdentity").Contains(access.RearId) && Label(window, "BrowserDutyState").Contains("已停用"),
+            await Until(() => window.Detail?.Id == access.RearId && Label(window, "BrowserDutyState").Contains("已停用"),
                 "reopen stopped screen by id from the device directory");
             await Apply(window, "DutyPrimary");
             await Signal("restored");
@@ -186,6 +195,12 @@ internal static partial class Program
             await Refresh(window);
             Check(Label(window, "NativeDutyState").Contains("已有有效上报") && Label(window, "BrowserDutyState").Contains("等待使用网页账号登录"),
                 "browser unlink retains the restored native pairing");
+            Check(Label(window, "BrowserDutyEvidence").Contains("当前凭据心跳 暂无") &&
+                !Label(window, "BrowserDutyEvidence").Contains("变更前最后心跳") &&
+                Label(window, "DutyBrowserHistoryText").Contains("变更前最后心跳"), "old browser evidence appears only in history");
+            await CaptureWithFrame(main, output, "08a-narrow-browser-unbound-native-still-reported");
+            await ShowManagement(window);
+            await CaptureWithFrame(main, output, "08b-narrow-web-and-screen-management");
             Click(Find<Button>(window, "DutyAnother"));
             SelectEight(window);
             Find<TextBox>(window, "DutyName").Text = "八班新增屏";
@@ -202,14 +217,14 @@ internal static partial class Program
             Click(retry);
             await Until(() => Label(window, "DutyNotice").Contains("服务器已确认"), "same request creates once after its first attempt never reached KV");
             await Signal("another-created");
-            await Capture(window, output, "07-new-separate-screen");
+            await CaptureWithFrame(main, output, "07-new-separate-screen");
             await File.WriteAllTextAsync(handoffFile, "保留原文件");
             try
             {
                 window.SelectPinFile = async _ =>
                 {
                     await Signal("rotate-during-handoff");
-                    return await window.StorageProvider.TryGetFileFromPathAsync(new Uri(handoffFile));
+                    return await main.StorageProvider.TryGetFileFromPathAsync(new Uri(handoffFile));
                 };
                 Click(Find<Button>(window, "DutySavePin"));
                 await Until(() => Label(window, "DutyNotice").Contains("已经变化") && !Find<Button>(window, "DutySavePin").IsVisible,
@@ -234,16 +249,16 @@ internal static partial class Program
                 "the historical screen opens under the original same-code class and term");
             Check(!Find<Button>(window, "DutyRefreshData").IsEffectivelyEnabled && !Find<Button>(window, "DutyResetPin").IsVisible,
                 "historical controls offer neither current web commands nor historical PIN editing");
-            window.Width = 1160;
-            window.Height = 780;
-            await CaptureWithFrame(window, output, "09-original-archived-binding-wide");
+            main.Width = 1160;
+            main.Height = 780;
+            await CaptureWithFrame(main, output, "09-original-archived-binding-wide");
             Click(Find<Button>(window, "DutyUnbindBrowser"));
             await Review(window);
             Check(Label(window, "DutyReviewWeb").Contains("归档期间无法网页登录") &&
                 !Label(window, "DutyReviewNative").Contains("可继续使用"), "unlink preview describes archival limits");
-            window.Width = 840;
-            window.Height = 480;
-            await CaptureWithFrame(window, output, "10-original-archived-unlink-narrow");
+            main.Width = 840;
+            main.Height = 480;
+            await CaptureWithFrame(main, output, "10-original-archived-unlink-narrow");
             await Submit(window);
             await Signal("archived-unbind");
             await Apply(window, "DutyToggle");
@@ -254,6 +269,7 @@ internal static partial class Program
             await Submit(window);
             await Signal("archived-restored");
 
+            await ShowManagement(window);
             Click(Find<Button>(window, "DutyMove"));
             SelectEight(window);
             await Review(window);
@@ -280,6 +296,7 @@ internal static partial class Program
                 "the new scope does not offer a receipt lookup or resend from the old scope");
             await Signal("other-scope-no-receipt");
             await CloseDutyAndWaitForDirectory(window);
+            await Until(() => newBinding() is { IsFocused: true }, "return restores focus to the exact screen duty entry");
             Click(dutyDirectory);
             window = await Workbench();
             await Until(() => window.Detail?.Room.Id == access.EightId && Label(window, "DutyNotice").Contains("找回服务器确认的原回执"),
@@ -287,16 +304,22 @@ internal static partial class Program
             await Signal("own-history-receipt");
             desktop.Shutdown(0);
 
-            async Task CloseDutyAndWaitForDirectory(ScreenDutyWindow active)
+            async Task CloseDutyAndWaitForDirectory(ScreenDutyView active)
             {
                 var refreshed = false;
                 void Refreshed(SchoolOverview? snapshot, string status) => refreshed |= snapshot is not null;
                 overview.SnapshotChanged += Refreshed;
                 try
                 {
-                    active.Close();
+                    Click(Find<Button>(active, "DutyBack"));
+                    if (active.IsEffectivelyVisible)
+                    {
+                        await Until(() => !active.IsEffectivelyVisible ||
+                            Find<StackPanel>(active, "DutyDirectoryPanel").IsEffectivelyVisible, "return to the original screen catalogue");
+                        if (active.IsEffectivelyVisible) Click(Find<Button>(active, "DutyBack"));
+                    }
                     await Until(() => refreshed && !active.IsVisible && main.IsEnabled && dutyDirectory.IsEffectivelyEnabled,
-                        "modal closed and the equipment directory consumed its refreshed snapshot");
+                        "workbench returned and the equipment directory consumed its refreshed snapshot");
                 }
                 finally { overview.SnapshotChanged -= Refreshed; }
             }
@@ -309,10 +332,19 @@ internal static partial class Program
             desktop.Shutdown(1);
         }
 
-        async Task<ScreenDutyWindow> Workbench()
+        async Task<ScreenDutyView> Workbench()
         {
-            await Until(() => desktop.Windows.OfType<ScreenDutyWindow>().Any(row => row.IsVisible), "screen duty window visible");
-            return desktop.Windows.OfType<ScreenDutyWindow>().Single(row => row.IsVisible);
+            var view = await AcademicPageAsync<ScreenDutyView>(main);
+            Check(TopLevel.GetTopLevel(view) == main && mainHandle is not null && main.TryGetPlatformHandle()?.Handle == mainHandle &&
+                desktop.Windows.Count(row => row.IsVisible) == 1, "the original main HWND hosts screen duty");
+            return view;
+        }
+
+        async Task ShowManagement(ScreenDutyView window)
+        {
+            var panel = Find<StackPanel>(window, "DutyManagePanel");
+            if (!panel.IsEffectivelyVisible) Click(Find<Button>(window, "DutyManageStep"));
+            await Until(() => panel.IsEffectivelyVisible, "screen management step is reachable");
         }
 
         async Task Signal(string checkpoint)
@@ -321,29 +353,30 @@ internal static partial class Program
             Check(result.IsSuccessStatusCode, "isolated screen duty checkpoint: " + checkpoint);
         }
 
-        void SelectEight(ScreenDutyWindow window)
+        void SelectEight(ScreenDutyView window)
         {
             var rooms = Find<ComboBox>(window, "DutyTargetClass");
             rooms.SelectedItem = rooms.Items.OfType<ScreenDutyRoom>().Single(row => row.Id == access.EightId);
         }
 
-        async Task Review(ScreenDutyWindow window)
+        async Task Review(ScreenDutyView window)
         {
             Click(Find<Button>(window, "DutyConfirm"));
             await Until(() => Find<Border>(window, "DutyReviewPanel").IsVisible && Find<Button>(window, "DutyConfirm").IsEnabled,
                 "action has reviewed consequences");
         }
 
-        async Task Submit(ScreenDutyWindow window, string expected = "服务器已")
+        async Task Submit(ScreenDutyView window, string expected = "服务器已")
         {
             Click(Find<Button>(window, "DutyConfirm"));
             await Until(() => Label(window, "DutyNotice").Contains(expected) && Find<Button>(window, "DutyBack").IsEnabled,
                 "screen operation is confirmed");
         }
 
-        async Task Apply(ScreenDutyWindow window, string name, Action? fill = null)
+        async Task Apply(ScreenDutyView window, string name, Action? fill = null)
         {
             var action = Find<Button>(window, name);
+            if (Find<StackPanel>(window, "DutyManagePanel").GetVisualDescendants().Contains(action)) await ShowManagement(window);
             await Until(() => action.IsEffectivelyVisible && action.IsEnabled, name + " available");
             Click(action);
             fill?.Invoke();
@@ -351,7 +384,7 @@ internal static partial class Program
             await Submit(window);
         }
 
-        async Task Refresh(ScreenDutyWindow window, Func<bool>? proof = null)
+        async Task Refresh(ScreenDutyView window, Func<bool>? proof = null)
         {
             var refresh = Find<Button>(window, "DutyRefresh");
             await Until(() => refresh.IsEnabled, "screen duty refresh available");
@@ -360,6 +393,6 @@ internal static partial class Program
                 "latest evidence is visible");
         }
 
-        static string Label(ScreenDutyWindow window, string name) => Find<TextBlock>(window, name).Text ?? "";
+        static string Label(ScreenDutyView window, string name) => Find<TextBlock>(window, name).Text ?? "";
     }
 }

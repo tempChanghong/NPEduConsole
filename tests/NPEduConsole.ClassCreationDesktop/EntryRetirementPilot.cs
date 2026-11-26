@@ -62,7 +62,7 @@ internal static partial class Program
             Click(RearButton()!);
             await Until(() => webTarget is not null, "legacy task passes the original rear screen to the browser");
             await File.WriteAllTextAsync(Path.Combine(output, "console-screen-link.txt"), webTarget!.AbsoluteUri);
-            async Task<ScreenDutyWindow> OpenInactiveClass()
+            async Task<ScreenDutyView> OpenInactiveClass()
             {
                 await Until(() => overviewTasks.Items.OfType<OverviewTaskItem>().Any(item =>
                     item.Task.ClassId == access.PeerId && item.Task.Code == "ADMIN_CLASS_SCREEN_INACTIVE"), "exact class task loaded");
@@ -73,7 +73,7 @@ internal static partial class Program
                     button.IsEffectivelyVisible && button.IsEffectivelyEnabled && AutomationProperties.GetAutomationId(button) == task.AutomationId);
                 await Until(() => Action() is not null, "class-only task is reachable");
                 Click(Action()!);
-                var duty = await WindowOf<ScreenDutyWindow>();
+                var duty = await AcademicPageAsync<ScreenDutyView>(main);
                 var screens = Find<ListBox>(duty, "DutyRows");
                 await Until(() => screens.ItemCount == 2, "only the two disabled screens in the exact class are listed");
                 Check(screens.SelectedItem is null && !Find<Button>(duty, "DutyOpen").IsEnabled, "explicit binding selection required");
@@ -96,12 +96,12 @@ internal static partial class Program
             Click(Find<Button>(duty, "DutyOpen"));
             await Until(() => webTarget is not null, "missing desktop duty capability opens precisely the selected disabled binding");
             await File.WriteAllTextAsync(Path.Combine(output, "console-inactive-link.txt"), webTarget!.AbsoluteUri);
-            duty.Close();
-            await Until(() => main.IsEffectivelyEnabled, "legacy directory returns to school");
+            Click(Find<Button>(duty, "DutyBack"));
+            await Until(() => !duty.IsEffectivelyVisible && overview.IsEffectivelyVisible, "legacy directory returns to school");
             await Signal("legacy-duty-off");
             main.DesktopBrowserLauncher = null;
             duty = await OpenInactiveClass();
-            await CaptureWithFrame(duty, output, "00-class-disabled-screens");
+            await CaptureWithFrame(main, output, "00-class-disabled-screens");
             Click(Find<Button>(duty, "DutyOpen"));
             await Until(() => duty.Detail?.Id == access.InactiveRearId && Find<Button>(duty, "DutyPrimary").IsEffectivelyEnabled, "original disabled rear screen");
             Click(Find<Button>(duty, "DutyPrimary"));
@@ -111,7 +111,7 @@ internal static partial class Program
             Click(confirm);
             await Until(() => duty.Changed && Find<ListBox>(duty, "DutyRows").ItemCount == 1, "only the front remains disabled");
             await Signal("inactive-rear-restored");
-            duty.Close();
+            Click(Find<Button>(duty, "DutyBack"));
             await Until(() => overviewTasks.Items.OfType<OverviewTaskItem>().Any(item => item.Task.ScreenId == access.InactiveRearId) &&
                 !overviewTasks.Items.OfType<OverviewTaskItem>().Any(item =>
                 item.Task.ClassId == access.PeerId && item.Task.Code == "ADMIN_CLASS_SCREEN_INACTIVE"), "completed class task disappears on reread");

@@ -300,7 +300,9 @@ export async function verifyEntryRetirementPilot({prisma, origin, fixture, direc
         await page.getByText(auditTitle, {exact: true}).waitFor({timeout: 8000});
         marks.push('browser-back-restores-explicit-audit-school');
         await page.goto(screenLink.href);
-        const screenPanel = page.locator('.v-window-item--active').filter({hasText: '正在查看待办对应的大屏'});
+        const screenPanel = page.locator('.v-window-item--active').filter({
+          has: page.getByRole('button', {name: '查看全部大屏', exact: true}),
+        });
         await screenPanel.getByText(rear.name, {exact: true}).first().waitFor();
         assert.equal(await screenPanel.getByText(front.name, {exact: true}).count(), 0);
         await page.screenshot({path: join(evidence, 'edge-legacy-rear-screen.png'), animations: 'disabled'});

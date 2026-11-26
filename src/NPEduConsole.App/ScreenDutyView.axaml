@@ -1,0 +1,182 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" x:Class="NPEduConsole.App.ScreenDutyView">
+  <UserControl.Styles>
+    <Style Selector="Button.action.duty-step">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="10,4" />
+    </Style>
+    <Style Selector="Button.action.duty-step.selected">
+      <Setter Property="Background" Value="{DynamicResource FieldBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.duty-state">
+      <Setter Property="FontSize" Value="17" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="StackPanel#DutyDetailPanel.compact TextBlock.duty-state">
+      <Setter Property="FontSize" Value="15" />
+    </Style>
+    <Style Selector="StackPanel#DutyDetailPanel.compact Border.duty-card">
+      <Setter Property="Padding" Value="9,7" />
+    </Style>
+    <Style Selector="TextBlock.duty-group-title">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+  </UserControl.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,8">
+      <StackPanel Spacing="4">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+          <StackPanel Spacing="3">
+            <TextBlock x:Name="DutyHeading" FontSize="21" FontWeight="SemiBold" Text="大屏账号与值守" TextWrapping="Wrap" />
+            <TextBlock x:Name="DutyIdentity" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+          </StackPanel>
+          <Expander x:Name="DutyBindingDetails" Grid.Column="1" Header="绑定编号" IsVisible="False" VerticalAlignment="Top">
+            <TextBlock x:Name="DutyBindingIdentity" Classes="muted" TextWrapping="Wrap" MaxWidth="240" />
+          </Expander>
+        </Grid>
+        <TextBlock x:Name="DutyNotice" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+      </StackPanel>
+    </Border>
+    <ScrollViewer Grid.Row="1" x:Name="DutyScroll" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="16,9" Spacing="9">
+        <StackPanel x:Name="DutyDirectoryPanel" IsVisible="False" Spacing="6">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7">
+            <TextBox x:Name="DutySearch" PlaceholderText="查找班级、大屏、账号或绑定编号" TextChanged="SearchChanged"
+                     AutomationProperties.Name="查找大屏" />
+            <Button Grid.Column="1" x:Name="DutyNew" Content="登记另一台大屏" Classes="action accent" Click="NewClicked" />
+          </Grid>
+          <WrapPanel ItemSpacing="12" LineSpacing="4">
+            <CheckBox x:Name="DutyDisabledOnly" Content="只显示已停用绑定" IsCheckedChanged="SearchChanged" />
+            <CheckBox x:Name="DutyHistory" Content="包含未启用学期与已停用班级" IsCheckedChanged="SearchChanged" IsVisible="False" />
+          </WrapPanel>
+          <ListBox x:Name="DutyRows" Classes="object-list" ItemsSource="{x:Null}" MaxHeight="430" SelectionChanged="DirectorySelectionChanged"
+                   AutomationProperties.Name="大屏账号与值守目录" />
+          <Button x:Name="DutyOpen" Content="打开所选大屏" Classes="action" Click="OpenClicked" />
+        </StackPanel>
+        <StackPanel x:Name="DutyDetailPanel" IsVisible="False" Spacing="8">
+          <!-- 窄窗两步切换条：宽窗隐藏，窄窗由 C# 置为可见并切换 selected 类 -->
+          <Border x:Name="DutyDetailSteps" IsVisible="False">
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+              <Button x:Name="DutyStatusStep" Classes="action duty-step selected"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Content="查看状态" Click="DutyStatusStepClicked" />
+              <Button x:Name="DutyManageStep" Grid.Column="1" Classes="action duty-step"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                      Content="管理大屏" Click="DutyManageStepClicked" />
+            </Grid>
+          </Border>
+
+          <!-- 证据双卡：宽窗左右并排，窄窗第一步上下排；BrowserDutyState / NativeDutyState 保持单实例 -->
+          <Grid x:Name="DutyEvidenceGrid" RowDefinitions="Auto,Auto" ColumnDefinitions="*,*" RowSpacing="8" ColumnSpacing="10">
+            <Border x:Name="BrowserDutyCard" Classes="card duty-card" Padding="11" VerticalAlignment="Top">
+              <Grid x:Name="BrowserDutyLayout" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="4" ColumnSpacing="8">
+                <TextBlock Text="网页值守" Classes="label" />
+                <TextBlock x:Name="BrowserDutyState" Grid.Row="1" Classes="duty-state" TextWrapping="Wrap"
+                           AutomationProperties.LiveSetting="Polite" />
+                <TextBlock x:Name="BrowserDutyEvidence" Grid.Row="2" Classes="muted duty-evidence" TextWrapping="Wrap" />
+                <WrapPanel x:Name="DutyHandoffActions" Grid.Row="3" Grid.ColumnSpan="2" IsVisible="False" ItemSpacing="6" LineSpacing="4">
+                  <Button x:Name="DutyCopyPin" Content="复制本次网页 PIN" Classes="action" IsVisible="False" Click="DeliverPinClicked" />
+                  <Button x:Name="DutySavePin" Content="另存本次网页 PIN" Classes="action" IsVisible="False" Click="DeliverPinClicked" />
+                </WrapPanel>
+                <StackPanel x:Name="DutyBrowserAside" Grid.Row="4" Spacing="4" VerticalAlignment="Center">
+                  <WrapPanel ItemSpacing="6" LineSpacing="4">
+                    <Button x:Name="DutyPrimary" Classes="action accent" Click="PrimaryClicked" />
+                    <Button x:Name="DutyLegacySync" Content="查看同步情况" Classes="action" IsVisible="False" Click="ToggleCommandsClicked" />
+                  </WrapPanel>
+                  <Expander x:Name="DutyBrowserHistory" Header="网页历史记录" IsVisible="False">
+                    <TextBlock x:Name="DutyBrowserHistoryText" Classes="muted" TextWrapping="Wrap" MaxWidth="190" />
+                  </Expander>
+                </StackPanel>
+                <!-- 网页同步紧跟网页卡，无额外套卡，由 C# 独立控制 IsVisible -->
+                <StackPanel x:Name="DutyCommandsPanel" Grid.Row="5" Grid.ColumnSpan="2" Spacing="6" Margin="0,6,0,0" IsVisible="False">
+                  <Border Height="1" Background="{DynamicResource LineBrush}" />
+                  <WrapPanel ItemSpacing="6" LineSpacing="5">
+                    <Button x:Name="DutyRefreshData" Content="刷新网页数据" Classes="action" CommandParameter="REFRESH_DATA" Click="CommandClicked" />
+                    <Button x:Name="DutyReloadWeb" Content="重载网页" Classes="action" CommandParameter="RELOAD_APP" Click="CommandClicked" />
+                  </WrapPanel>
+                  <TextBlock x:Name="DutyCommandPicked" Classes="label" TextWrapping="Wrap" IsVisible="False" />
+                  <StackPanel x:Name="DutyCommandHistory" Spacing="4" />
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <Border x:Name="NativeDutyCard" Grid.Column="1" Classes="card duty-card" Padding="11" VerticalAlignment="Top">
+              <Grid x:Name="NativeDutyLayout" RowDefinitions="Auto,Auto,Auto,Auto" ColumnDefinitions="*,Auto" RowSpacing="4" ColumnSpacing="8">
+                <TextBlock Text="NPEduTools 接入" Classes="label" />
+                <TextBlock x:Name="NativeDutyState" Grid.Row="1" Classes="duty-state" TextWrapping="Wrap"
+                           AutomationProperties.LiveSetting="Polite" />
+                <TextBlock x:Name="NativeDutyEvidence" Grid.Row="2" Classes="muted duty-evidence" TextWrapping="Wrap" />
+                <Button x:Name="DutyNative" Grid.Row="3" HorizontalAlignment="Left" VerticalAlignment="Center"
+                        Content="打开接入与换机" Classes="action" Click="NativeClicked" />
+              </Grid>
+            </Border>
+          </Grid>
+
+          <!-- 管理操作区：宽窗位于双卡下方，窄窗作为第二步「管理大屏」单列承接 -->
+          <StackPanel x:Name="DutyManagePanel" Spacing="10">
+            <StackPanel x:Name="DutyMaintenance" Spacing="10">
+              <StackPanel x:Name="DutyWebManageGroup" Spacing="5">
+                <TextBlock Text="网页登录与浏览器绑定（仅影响网页值守，不影响 NPEduTools 配对）" Classes="muted duty-group-title" TextWrapping="Wrap" />
+                <WrapPanel ItemSpacing="6" LineSpacing="5">
+                  <Button x:Name="DutyCodeChange" Content="修改网页短账号" Classes="action" CommandParameter="CHANGE_LOGIN" Click="MaintenanceClicked" />
+                  <Button x:Name="DutyResetPin" Content="重置网页 PIN" Classes="action" CommandParameter="RESET_PIN" Click="MaintenanceClicked" />
+                  <Button x:Name="DutyUnbindBrowser" Content="解除网页登录的浏览器绑定" Classes="action" CommandParameter="UNBIND_BROWSER" Click="MaintenanceClicked" />
+                </WrapPanel>
+              </StackPanel>
+
+              <Border Height="1" Background="{DynamicResource LineBrush}" />
+
+              <StackPanel x:Name="DutyScreenManageGroup" Spacing="5">
+                <TextBlock Text="整台大屏归属与启停（调班或停用会同时影响网页值守与原生接入）" Classes="muted duty-group-title" TextWrapping="Wrap" />
+                <WrapPanel ItemSpacing="6" LineSpacing="5">
+                  <Button x:Name="DutyRename" Content="改名" Classes="action" CommandParameter="RENAME" Click="MaintenanceClicked" />
+                  <Button x:Name="DutyMove" Content="调班" Classes="action" CommandParameter="MOVE" Click="MaintenanceClicked" />
+                  <Button x:Name="DutyToggle" Classes="action" Click="ToggleClicked" />
+                  <Button x:Name="DutyAnother" Content="登记同班另一台大屏" Classes="action" Click="NewClicked" />
+                  <Button x:Name="DutyPlacement" Content="按本次学期启用轮次安排" Classes="action" Click="PlacementClicked" IsVisible="False" />
+                </WrapPanel>
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
+        </StackPanel>
+        <Border x:Name="DutyEditPanel" Classes="card" Padding="12" IsVisible="False">
+          <StackPanel Spacing="6">
+            <TextBlock x:Name="DutyEditTitle" Classes="label" FontSize="18" TextWrapping="Wrap" />
+            <StackPanel x:Name="DutyRoomFields" Spacing="4">
+              <TextBox x:Name="DutyTargetSearch" PlaceholderText="按年级、班名或代码查找目标班" TextChanged="TargetSearchChanged" />
+              <ComboBox x:Name="DutyTargetClass" PlaceholderText="选择目标行政班" HorizontalAlignment="Stretch" AutomationProperties.Name="目标行政班" />
+            </StackPanel>
+            <TextBox x:Name="DutyName" MaxLength="191" PlaceholderText="大屏名称" AutomationProperties.Name="大屏名称" />
+            <TextBox x:Name="DutyCode" MaxLength="32" PlaceholderText="网页短账号" AutomationProperties.Name="网页短账号" TextChanged="LoginCodeChanged" />
+            <TextBox x:Name="DutyPin" MaxLength="8" PasswordChar="●" PlaceholderText="4 至 8 位数字网页 PIN" AutomationProperties.Name="网页 PIN" />
+          </StackPanel>
+        </Border>
+        <Border x:Name="DutyReviewPanel" Classes="card" Padding="12" Focusable="True" IsVisible="False">
+          <StackPanel Spacing="5">
+            <TextBlock x:Name="DutyReviewTitle" Classes="label" FontSize="18" TextWrapping="Wrap" />
+            <TextBlock x:Name="DutyReviewObject" TextWrapping="Wrap" />
+            <TextBlock x:Name="DutyReviewPeers" TextWrapping="Wrap" />
+            <TextBlock x:Name="DutyReviewWeb" TextWrapping="Wrap" />
+            <TextBlock x:Name="DutyReviewNative" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <StackPanel x:Name="DutyRetryPanel" IsVisible="False" Spacing="6">
+          <TextBox x:Name="DutyRetryPin" MaxLength="8" PasswordChar="●" PlaceholderText="重新输入原先确认的网页 PIN"
+                   AutomationProperties.Name="原先确认的网页 PIN" />
+          <Button x:Name="DutyRetryButton" Content="按原请求重试" Classes="action" Click="RetryClicked" />
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+    <Border Grid.Row="2" BorderBrush="{DynamicResource LineBrush}" Background="{DynamicResource SurfaceBrush}" BorderThickness="0,1,0,0" Padding="14,7">
+      <Grid ColumnDefinitions="*,Auto">
+        <WrapPanel ItemSpacing="6" LineSpacing="5">
+          <Button x:Name="DutyBack" Content="返回" Classes="action" Click="BackClicked" />
+          <Button x:Name="DutyRefresh" Content="核对最新状态" Classes="action" Click="RefreshClicked" />
+        </WrapPanel>
+        <Button x:Name="DutyConfirm" Grid.Column="1" Classes="action accent" IsVisible="False" Click="ConfirmClicked" />
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

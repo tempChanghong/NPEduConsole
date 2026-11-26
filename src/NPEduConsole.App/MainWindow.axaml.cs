@@ -424,7 +424,7 @@ public sealed partial class MainWindow : Window
         web.Click += async (_, _) =>
         {
             if (_client is { } client && _school is { } school && _classroom is { } room && room.Screens.Contains(screen))
-                await ShowScreenDutyAsync(client, school, screen.Id, room.Id, web);
+                await ShowScreenDutyAsync(client, school, screen.Id, room.Id, web, scopeTermId: room.TermId);
         };
         var screenActions = new WrapPanel { ItemSpacing = 7, LineSpacing = 5 };
         screenActions.Children.Add(web);

@@ -23,16 +23,27 @@ try {
 Invoke-Control 'OpenDeviceDirectoryButton'
 Invoke-Control 'DeviceDutyDirectory'
 try {
-    $script:hwnd = Wait-TeacherScreenWindow 'the original school device directory'
+    $script:hwnd = Wait-For 'the original school device directory' {
+        if (Get-Control 'DutyBack' -Onscreen) { return $mainHandle }
+        $handle = [ReleaseFilePicker]::VisibleOwnedWindow($appProcess.Id, $mainHandle)
+        if ($handle -ne [IntPtr]::Zero) { $handle }
+    }
+    $sameWindow = $script:hwnd -eq $mainHandle
     Set-Checked 'DutyHistory'
     Set-Field 'DutySearch' $targets.bindingId
     Invoke-Control 'DutyOpen'
-    Wait-Text 'DutyIdentity' $targets.bindingId
+    if ($sameWindow) {
+        $details = (Wait-For 'binding details' { Get-Control 'DutyBindingDetails' -Onscreen }).GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern)
+        $details.Expand()
+        Wait-Text 'DutyBindingIdentity' $targets.bindingId
+        $details.Collapse()
+    } else { Wait-Text 'DutyIdentity' $targets.bindingId }
     Wait-Text 'DutyIdentity' '归档'
     Size-ReleaseWindow 1160 780
     Save-ReleaseScreenshot 'released-historical-binding-wide' 'DutyBack'
     Size-ReleaseWindow 840 480
     Save-ReleaseScreenshot 'released-historical-binding-narrow' 'DutyBack'
+    if ($sameWindow) { Invoke-Control 'DutyManageStep' }
     Invoke-Control 'DutyUnbindBrowser'
     Invoke-Control 'DutyConfirm'
     Wait-Text 'DutyReviewWeb' '原学期归档期间无法网页登录'
@@ -42,7 +53,13 @@ try {
     Invoke-Control 'DutyBack'
     Set-Field 'DutySearch' $targets.placementBindingId
     Invoke-Control 'DutyOpen'
-    Wait-Text 'DutyIdentity' $targets.placementBindingId
+    if ($sameWindow) {
+        $details = (Wait-For 'binding details' { Get-Control 'DutyBindingDetails' -Onscreen }).GetCurrentPattern([Windows.Automation.ExpandCollapsePattern]::Pattern)
+        $details.Expand()
+        Wait-Text 'DutyBindingIdentity' $targets.placementBindingId
+        $details.Collapse()
+        Invoke-Control 'DutyManageStep'
+    } else { Wait-Text 'DutyIdentity' $targets.placementBindingId }
     $directoryHandle = $script:hwnd
     Invoke-Control 'DutyPlacement'
     try {

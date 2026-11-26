@@ -1,13 +1,16 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
 public sealed partial class MainWindow
 {
-    private ScreenDutyWindow? _screenDutyWindow;
+    private ScreenDutyView? _screenDutyView;
 
     private async void OpenScreenDutyClicked(object? sender, RoutedEventArgs args)
     {
@@ -25,40 +28,47 @@ public sealed partial class MainWindow
         bool restoreTask = false, Func<ScreenDutyDetail, Task>? openNative = null, string? inactiveTermId = null, string? adminUrl = null,
         string? scopeTermId = null)
     {
-        if (_screenDutyWindow is not null || _client != client || _school != school) return;
+        if (_screenDutyView is not null || _client != client || _school != school) return;
+        var source = _page;
         TermPreparationView.ScreenDestination? arranged = null;
-        var window = new ScreenDutyWindow(client, school, bindingId, classId, inactiveTermId, scopeTermId)
+        var view = new ScreenDutyView(client, school, bindingId, classId, inactiveTermId, scopeTermId)
         {
-            OpenLegacyBinding = id => SchoolAdminBrowser.Link(adminUrl, school.Id, inactiveTermId, "screens", id, classId) is { } link &&
+            OpenLegacyBinding = id => SchoolAdminBrowser.Link(adminUrl, school.Id, inactiveTermId ?? scopeTermId, "screens", id, classId) is { } link &&
                 (DesktopBrowserLauncher ?? SchoolAdminBrowser.Open)(link),
             SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); },
             OpenPlacement = async row =>
             {
-                if (_screenDutyWindow is not { } owner || row.PlacementTermId is not { } term || row.ActivationRequestId is not { } round)
+                if (_screenDutyView is not { } active || !ShowsAcademicPage(active) ||
+                    row.PlacementTermId is not { } term || row.ActivationRequestId is not { } round)
                     return false;
-                arranged = await ShowTermScreenPlacementAsync(owner, client, school, term, row.Id, round);
+                arranged = await ShowTermScreenPlacementAsync(this, client, school, term, row.Id, round);
                 return arranged is not null;
             }
         };
-        _screenDutyWindow = window;
-        try { await window.ShowDialog(this); }
-        finally { if (_screenDutyWindow == window) _screenDutyWindow = null; }
-        if (_client != client || _school != school) return;
-        if (window.Changed && _page is ShellPage.Classes or ShellPage.Screen)
+        _screenDutyView = view;
+        view.CloseRequested = () => ReturnFromAcademicPage(view);
+        var exit = PushAcademicPage(view, view.CanClose, () =>
         {
-            var target = _page == ShellPage.Screen && window.Detail is { } detail && detail.Id == _detailScreenId
+            view.End();
+            if (_screenDutyView == view) _screenDutyView = null;
+        });
+        await view.StartAsync();
+        if (!await exit || _client != client || _school != school || _page != source) return;
+        if (view.Changed && _page is ShellPage.Classes or ShellPage.Screen)
+        {
+            var target = bindingId is not null && view.Detail is { } detail && detail.Id == bindingId
                 ? detail.Room.Id : _classroom?.Id;
             await LoadSchoolAsync(school, target, selectDefaultDevice: false);
         }
-        if (_client != client || _school != school) return;
+        if (_client != client || _school != school || _page != source) return;
         await SchoolOverviewWorkspace.RefreshAsync(restoreTask: restoreTask);
-        if (_client != client || _school != school) return;
+        if (_client != client || _school != school || _page != source || _screenDutyView is not null) return;
         if (arranged is not null)
         {
             await OpenTermResultDestinationAsync(client, school, arranged);
             return;
         }
-        if (window.NativeTarget is { Active: true } native)
+        if (view.NativeTarget is { Active: true } native)
         {
             if (openNative is not null)
             {
@@ -69,15 +79,27 @@ public sealed partial class MainWindow
             await OpenShellTargetAsync(native.Room.Id, native.Id, native.Room.TermId);
             return;
         }
-        if (_page == ShellPage.Devices && bindingId is not null) DeviceDirectory.RestorePosition(bindingId);
-        else if (!restoreTask && anchor is not null)
-            Dispatcher.UIThread.Post(() => { if (_client == client && _school == school && anchor.IsEffectivelyVisible) anchor.Focus(); });
+        if (!restoreTask)
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_client != client || _school != school || _page != source || _screenDutyView is not null) return;
+                if (source == ShellPage.Devices && bindingId is not null) DeviceDirectory.RestorePosition(bindingId);
+                else
+                {
+                    var originalAction = source == ShellPage.Classes && bindingId is not null &&
+                        _overviewScreenCards.TryGetValue(bindingId, out var card)
+                        ? card.GetVisualDescendants().OfType<Button>().FirstOrDefault(button =>
+                            AutomationProperties.GetAutomationId(button) == "ClassScreenDuty-" + bindingId)
+                        : anchor;
+                    if (originalAction is not { IsEffectivelyVisible: true, IsEffectivelyEnabled: true }) return;
+                    originalAction.BringIntoView();
+                    originalAction.Focus(NavigationMethod.Tab);
+                }
+            }, DispatcherPriority.Loaded);
     }
 
     private void CloseScreenDuty()
     {
-        var window = _screenDutyWindow;
-        _screenDutyWindow = null;
-        window?.CloseForScopeChange();
+        _screenDutyView?.End();
     }
 }
