@@ -1,17 +1,18 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class ClassroomActionPolicyWindow : Window
+public sealed partial class ClassroomActionPolicyView : UserControl
 {
     internal sealed class Pending
     {
         public PendingWrite? Write { get; set; }
     }
 
-    internal sealed record PendingWrite(Guid RequestId, ClassroomActionChange Change, string Version);
+    internal sealed record PendingWrite(Guid RequestId, ClassroomActionChange Change, string Version, string? ScopeLabel, string? TermLabel);
     private sealed record Choice(string Id, string Label)
     {
         public override string ToString() => Label;
@@ -45,11 +46,13 @@ public sealed partial class ClassroomActionPolicyWindow : Window
     private ClassroomActionChange? _change;
     private ClassroomUsbEnrollment? _enrollment;
     private bool _busy, _posting, _closed, _updatingChoices, _missingReceipt, _showingHistory, _loadingRules;
+    private bool _narrow, _verifyStep;
     internal event Action<ConsoleApiException>? AccessLost;
+    internal Action? CloseRequested { get; set; }
 
-    public ClassroomActionPolicyWindow() => InitializeComponent();
+    public ClassroomActionPolicyView() => InitializeComponent();
 
-    internal ClassroomActionPolicyWindow(ConsoleClient client, School school, Pending pending) : this()
+    internal ClassroomActionPolicyView(ConsoleClient client, School school, Pending pending) : this()
     {
         _client = client;
         _school = school;
@@ -77,32 +80,27 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         };
         ActionPolicyKind.SelectedIndex = 0;
         ActionPolicyUsbLabel.TextChanged += UsbChanged;
-        Opened += async (_, _) => await RunAsync(LoadCatalogAsync);
+        _verifyStep = pending.Write is not null;
         SizeChanged += (_, args) =>
         {
-            bool compact = args.NewSize.Height < 520;
-            ActionPolicyHeading.IsVisible = !compact;
-            ActionPolicyRuleGrid.Classes.Set("compact-policy", compact);
+            _narrow = args.NewSize.Width < 880;
+            ActionPolicyRuleGrid.Classes.Set("compact-policy", args.NewSize.Height < 510);
+            UpdateActions();
         };
-        Closing += (_, args) =>
-        {
-            if (_posting && !_closed)
-            {
-                args.Cancel = true;
-                ActionPolicyStatus.Text = "正在提交原申请，请等回执或进入待核对。";
-            }
-        };
-        Closed += (_, _) => Clear();
         UpdateActions();
     }
 
-    internal void ClearAndClose()
+    internal Task StartAsync() => RunAsync(LoadCatalogAsync);
+
+    internal bool CanClose()
     {
-        Clear();
-        Close();
+        if (_closed || !_posting && (!HasRuleDraft || _pending.Write is not null)) return true;
+        ActionPolicyStatus.Text = _posting ? "正在提交原申请，请等回执或进入待核对。" :
+            "已保留当前草稿。请先发布或放弃本次修改，再返回教室设备。";
+        return false;
     }
 
-    private void Clear()
+    internal void End()
     {
         if (_closed) return;
         _closed = true;
@@ -110,6 +108,26 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         ClearPreview();
         _scope = null;
         _catalog = null;
+    }
+
+    private bool HasRuleDraft => _scope is not null && !_loadingRules &&
+        (ClassInheritance ? _baselineOverrides != ReadOverrides() : _baselineRules != ReadRules());
+
+    private void EditStepClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_preview is not null)
+        {
+            ReviewBackClicked(sender, args);
+            return;
+        }
+        _verifyStep = false;
+        UpdateActions();
+    }
+
+    private void VerifyStepClicked(object? sender, RoutedEventArgs args)
+    {
+        _verifyStep = true;
+        UpdateActions();
     }
 
     private ClassroomActionTarget? SelectedTarget => _catalog?.Term is { } term && ActionPolicyTarget.SelectedItem is Choice choice
@@ -168,6 +186,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         ActionPolicyUsbLabel.Clear();
         ActionPolicyUsbVolumes.ItemsSource = null;
         ActionPolicyUsbRegistry.ItemsSource = null;
+        ActionPolicyScreenEvidence.ItemsSource = null;
         ActionPolicyStatus.Text = SelectedTarget is null ? "先选择要办理的范围。" : "读取所选范围后可编辑、登记或核对大屏。";
         if (_pending.Write is { } pending) ShowPending(pending);
         UpdateActions();
@@ -198,7 +217,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         string savedStatus = scope.SavedClassActionOverrides is not null ? "已发布：逐项设置" :
             scope.SavedActions is not null ? (target.ScopeKind == "GRADE" ? "已发布：年级默认" : "已发布：整套班级设置") :
             inherited?.Source == "GRADE" ? "当前生效：继承年级默认" : "当前生效：沿用原教室端规则";
-        ActionPolicySource.Text = $"{scope.ScopeName} · {savedStatus}";
+        ActionPolicySource.Text = savedStatus;
         ActionPolicyInherit.Content = target.ScopeKind == "GRADE" ? "撤下年级默认" : ClassInheritance ? "全部恢复继承" : "恢复继承";
         ActionPolicyUsbRegistry.ItemsSource = scope.UsbKeys.Select(key => new Choice(key.KeyId, key.Label)).ToArray();
         var evidence = Evidence(scope).ToArray();
@@ -250,6 +269,8 @@ public sealed partial class ClassroomActionPolicyWindow : Window
     private async void OpenHistoryClicked(object? sender, RoutedEventArgs args) => await RunAsync(async ct =>
     {
         _showingHistory = true;
+        _verifyStep = false;
+        UpdateActions();
         await ReadHistoryAsync(ct);
         if (!_closed) ActionPolicyHistoryList.Focus();
     });
@@ -266,12 +287,19 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         if (_pending.Write is { } pending) ShowPending(pending);
     }
 
-    private async void HistoryBackClicked(object? sender, RoutedEventArgs args)
+    private void HistoryBackClicked(object? sender, RoutedEventArgs args)
     {
         _showingHistory = false;
         ActionPolicyHistoryList.ItemsSource = null;
-        await RunAsync(LoadCatalogAsync);
-        if (!_closed) ActionPolicyOpenHistory.Focus();
+        ActionPolicyStatus.Text = _scope is null ? "请选择要办理的范围。" : "已返回原策略范围。";
+        UpdateActions();
+        ActionPolicyOpenHistory.Focus();
+    }
+
+    private async void DiscardRuleClicked(object? sender, RoutedEventArgs args)
+    {
+        if (SelectedTarget is { } target)
+            await RunAsync(ct => ReadScopeAsync(target, ct));
     }
 
     private async void PreviewHistoricalRevokeClicked(object? sender, RoutedEventArgs args)
@@ -285,7 +313,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
     }
     private void UsbChanged(object? sender, RoutedEventArgs args) => UpdateActions();
     private void ConfirmedChanged(object? sender, RoutedEventArgs args) => UpdateActions();
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
+    private void CloseClicked(object? sender, RoutedEventArgs args) => CloseRequested?.Invoke();
 
     private async void ScanUsbClicked(object? sender, RoutedEventArgs args) => await RunAsync(async ct =>
     {
@@ -382,6 +410,9 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         ActionPolicyReviewSummary.Text = preview.HistoricalTerm is { } history
             ? $"{verb} · {HistoricalTermText(history)} · {ScopeText(preview.ScopeKind, preview.ScopeName, preview.ScopeId, preview.HistoricalScopeState)}\n钥匙编号 {change.KeyId}\n原范围有 {changed} 个班的规则变化，涉及 {screens} 个大屏绑定。原学期与班级状态保持。离线大屏须等有效绑定同步；此处记录学校撤销。"
             : $"{verb} · {preview.ScopeName}\n{changed} 个班、{screens} 台大屏的有效策略将变化。{note}";
+        if (change.Operation == "SET_POLICY" && !change.RestoresInheritedPolicy && preview.Rooms is [var onlyRoom] &&
+            SingleActionChange(onlyRoom) is { } changeLine)
+            ActionPolicyReviewSummary.Text = $"{changeLine}\n{ActionPolicyReviewSummary.Text}";
         var review = new List<string>();
         foreach (var room in preview.Rooms)
         {
@@ -409,6 +440,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         ActionPolicyApply.Content = _showingHistory ? "确认撤销原登记" : change.Operation == "REVOKE_USB" ? "确认撤销" : "确认发布";
         ActionPolicyStatus.Text = preview.CanApply ? change.Operation == "REVOKE_USB" ? "请核对原登记和影响，再确认撤销。" : "核对后再确认发布。" :
             "请先为列出的班级补齐验证条件，再重新预览。";
+        _verifyStep = true;
         UpdateActions();
         ActionPolicyReviewRows.Focus();
     }
@@ -417,6 +449,7 @@ public sealed partial class ClassroomActionPolicyWindow : Window
     {
         string? operation = _change?.Operation;
         ClearPreview();
+        _verifyStep = false;
         UpdateActions();
         if (_showingHistory) ActionPolicyHistoryList.Focus();
         else (operation is "REGISTER_USB" ? ActionPolicyEnroll : operation is "REVOKE_USB" ? ActionPolicyRevoke : ActionPolicySavePreview).Focus();
@@ -433,7 +466,8 @@ public sealed partial class ClassroomActionPolicyWindow : Window
     private async void ApplyClicked(object? sender, RoutedEventArgs args)
     {
         if (_busy || _pending.Write is not null || _change is not { } change || _preview is not { CanApply: true } preview || ActionPolicyConfirmed.IsChecked != true) return;
-        var pending = new PendingWrite(Guid.NewGuid(), change, preview.Version);
+        var pending = new PendingWrite(Guid.NewGuid(), change, preview.Version, preview.ScopeName,
+            preview.HistoricalTerm?.Name ?? _catalog?.Term?.Name);
         var enrollment = _enrollment;
         _enrollment = null;
         await RunAsync(async ct =>
@@ -502,7 +536,14 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         _pending.Write = null;
         _missingReceipt = false;
         var target = new ClassroomActionTarget(receipt.TermId, receipt.ScopeKind, receipt.ScopeId);
-        var message = $"本人已发布 · 版本 {receipt.Revision} · {receipt.ChangedClasses} 个班的有效策略变化。逐屏是否已应用请看当前回执。";
+        var message = $"本人已发布 · 版本 {receipt.Revision} · {receipt.ChangedClasses} 个班的有效策略变化。回执 {receipt.RequestId:D}。";
+        if (!_showingHistory && receipt.Operation == "SET_POLICY" && SelectedTarget is null && _catalog?.Term?.Id == target.TermId)
+        {
+            _updatingChoices = true;
+            ActionPolicyKind.SelectedIndex = target.ScopeKind == "GRADE" ? 0 : 1;
+            _updatingChoices = false;
+            UpdateTargets(target.ScopeId);
+        }
         if (_showingHistory)
         {
             if (receipt.Operation == "REVOKE_USB") message = $"已撤销原登记 · 版本 {receipt.Revision}。离线大屏仍需同步。";
@@ -519,7 +560,8 @@ public sealed partial class ClassroomActionPolicyWindow : Window
 
     private void ShowPending(PendingWrite pending)
     {
-        ActionPolicyStatus.Text = $"原请求待核对 {pending.RequestId:D} · 原范围 {pending.Change.ScopeId}。可只读查本人回执。";
+        _verifyStep = true;
+        ActionPolicyStatus.Text = $"原请求待核对 · {pending.RequestId:D}。可只读查本人回执。";
     }
 
     private async Task RunAsync(Func<CancellationToken, Task> work)
@@ -535,8 +577,8 @@ public sealed partial class ClassroomActionPolicyWindow : Window
             if (error.StatusCode is 401 or 403)
             {
                 _pending.Write = null;
+                End();
                 AccessLost?.Invoke(error);
-                ClearAndClose();
             }
             else ActionPolicyStatus.Text = _pending.Write is { } pending ? $"{error.Message} 原请求 {pending.RequestId:D} 待核对。" : error.Message;
         }
@@ -550,16 +592,28 @@ public sealed partial class ClassroomActionPolicyWindow : Window
         if (_closed || ActionPolicyTabs is null) return;
         bool previewing = _preview is not null;
         bool canRead = !_busy && !previewing;
+        bool draft = HasRuleDraft;
+        bool pending = _pending.Write is not null;
         bool canEdit = canRead && !_showingHistory && _scope is not null && _pending.Write is null;
-        ActionPolicyKind.IsEnabled = ActionPolicyTarget.IsEnabled = canRead && !_showingHistory && _catalog?.Term is not null;
-        ActionPolicyLoad.IsEnabled = canRead && !_showingHistory && SelectedTarget is not null;
-        ActionPolicyOpenHistory.IsEnabled = canRead && !_showingHistory;
-        ActionPolicyRefresh.IsEnabled = canRead;
-        ActionPolicyTabs.IsVisible = _scope is not null && !_showingHistory && !previewing;
-        ActionPolicyHistoryPane.IsVisible = _showingHistory && !previewing;
+        ActionPolicyKind.IsEnabled = ActionPolicyTarget.IsEnabled = canRead && !_showingHistory && (!draft || pending) &&
+            (!pending || _missingReceipt) && _catalog?.Term is not null;
+        ActionPolicyLoad.IsEnabled = ActionPolicyKind.IsEnabled && SelectedTarget is not null;
+        ActionPolicyOpenHistory.IsEnabled = canRead && !_showingHistory && (!pending || _missingReceipt);
+        ActionPolicyRefresh.IsEnabled = canRead && (_showingHistory || !draft && !pending);
+        ActionPolicyRefresh.IsVisible = _showingHistory || !draft && !pending && !previewing;
+        ActionPolicyTabs.IsVisible = _scope is not null && !_showingHistory;
+        ActionPolicyHistoryPane.IsVisible = _showingHistory;
+        ActionPolicyDiscardRule.IsVisible = draft && !pending && !previewing && !_showingHistory;
+        ActionPolicyDiscardRule.IsEnabled = canRead;
         ActionPolicyHistoryBack.IsEnabled = canRead;
-        ActionPolicyHistoryRevoke.IsEnabled = canRead && _pending.Write is null && SelectedHistoricalKey is not null;
+        ActionPolicyHistoryRevoke.IsEnabled = canRead && !draft && !pending && SelectedHistoricalKey is not null;
         ActionPolicyReviewPane.IsVisible = previewing;
+        ActionPolicyScreenEvidence.IsVisible = !previewing && !pending && _scope is not null && !_showingHistory;
+        ActionPolicyEvidencePane.IsVisible = !previewing;
+        EvidenceHeading.Text = pending ? "原申请待核对" : "逐屏核对";
+        EvidenceEmpty.IsVisible = !ActionPolicyScreenEvidence.IsVisible;
+        EvidenceEmpty.Text = pending ? "按原编号查询学校保存结果。" :
+            _showingHistory ? "设备回执在当前策略范围内核对。" : "读取范围后，可在这里查看逐屏策略回执。";
         ActionPolicyReviewBack.IsVisible = previewing;
         ActionPolicyReviewBack.IsEnabled = !_busy;
         ActionPolicyConfirmed.IsVisible = ActionPolicyApply.IsVisible = _preview?.CanApply == true;
@@ -583,24 +637,79 @@ public sealed partial class ClassroomActionPolicyWindow : Window
             row.ModeRead.Text = (row.Mode.SelectedItem as Choice)?.Label;
             row.Factor.IsVisible = available && !follows && verifies;
             row.Factor.IsEnabled = row.Mode.IsEnabled && verifies;
-            row.FactorRead.IsVisible = available && !row.Factor.IsVisible;
+            row.FactorRead.IsVisible = available && follows && verifies;
             row.FactorRead.Text = verifies ? (row.Factor.SelectedItem as Choice)?.Label : "不适用";
         }
         ActionPolicyManualStudyLabel.IsVisible = _catalog?.SupportsManualStudyPolicy == true;
         ActionPolicyManualRecordingLabel.IsVisible = _catalog?.SupportsManualRecordingPolicy == true;
-        ActionPolicyDraft.IsVisible = _scope is not null && !_loadingRules &&
-            (ClassInheritance ? _baselineOverrides != ReadOverrides() : _baselineRules != ReadRules());
-        ActionPolicySavePreview.IsVisible = ActionPolicyInherit.IsVisible = ActionPolicyTabs.IsVisible && ActionPolicyTabs.SelectedIndex == 0;
+        ActionPolicyDraft.IsVisible = draft && !pending;
+        ActionPolicySavePreview.IsVisible = ActionPolicyInherit.IsVisible = !previewing && !pending &&
+            ActionPolicyTabs.IsVisible && ActionPolicyTabs.SelectedIndex == 0 && (!_narrow || !_verifyStep);
         ActionPolicySavePreview.IsEnabled = canEdit;
         ActionPolicyInherit.IsEnabled = canEdit && (_scope?.SavedActions is not null || _scope?.SavedClassActionOverrides is not null);
         ActionPolicyScanUsb.IsEnabled = canEdit;
-        ActionPolicyEnroll.IsEnabled = ActionPolicyReissue.IsEnabled = canEdit && ActionPolicyUsbVolumes.SelectedItem is ClassroomUsbVolume &&
+        ActionPolicyEnroll.IsEnabled = ActionPolicyReissue.IsEnabled = canEdit && !draft && ActionPolicyUsbVolumes.SelectedItem is ClassroomUsbVolume &&
             !string.IsNullOrWhiteSpace(ActionPolicyUsbLabel.Text);
-        ActionPolicyRevoke.IsEnabled = canEdit && ActionPolicyUsbRegistry.SelectedItem is Choice;
+        ActionPolicyRevoke.IsEnabled = canEdit && !draft && ActionPolicyUsbRegistry.SelectedItem is Choice;
         ActionPolicyReadReceipt.IsVisible = _pending.Write is not null;
         ActionPolicyReadReceipt.IsEnabled = !_busy;
-        ActionPolicyRetry.IsVisible = _missingReceipt && _pending.Write is { } pending && MatchesSelection(pending.Change);
+        ActionPolicyRetry.IsVisible = _missingReceipt && _pending.Write is { } waiting && MatchesSelection(waiting.Change);
         ActionPolicyRetry.IsEnabled = !_busy;
+        ActionPolicyClose.IsEnabled = !_posting;
+        UpdateWorkspaceLayout(draft);
+    }
+
+    private void UpdateWorkspaceLayout(bool draft)
+    {
+        var waiting = _pending.Write;
+        var target = waiting?.Change.Target ?? (_showingHistory ? _change?.Target : SelectedTarget);
+        string? label = waiting?.ScopeLabel ?? (_showingHistory ? _preview?.ScopeName : _scope?.ScopeName);
+        ScopePicker.IsVisible = !_showingHistory && (waiting is null || _missingReceipt) &&
+            (!draft && (!_narrow || !_verifyStep || _scope is null) || _missingReceipt);
+        WorkingScope.IsVisible = target is not null && (!ScopePicker.IsVisible || waiting is not null);
+        bool compactRuleSummary = _narrow && WorkingScope.IsVisible && waiting is null && _scope is not null && !_showingHistory;
+        RuleSummary.IsVisible = !compactRuleSummary;
+        if (target is not null)
+        {
+            string kind = target.ScopeKind == "GRADE" ? "年级默认" : "班级策略";
+            WorkingScope.Text = waiting is not null ?
+                $"原范围 · {waiting.TermLabel ?? target.TermId} · {kind} {label ?? target.ScopeId}" :
+                $"{kind} · {label ?? target.ScopeId}";
+            if (compactRuleSummary)
+                WorkingScope.Text += $" · {ActionPolicySource.Text}{(draft ? " · 草稿未发布" : "")}";
+        }
+        StepBar.IsVisible = _narrow && (_scope is not null || _showingHistory || waiting is not null || _preview is not null);
+        EditStepButton.Classes.Set("selected", !_verifyStep);
+        VerifyStepButton.Classes.Set("selected", _verifyStep);
+        EditStepButton.IsEnabled = !_busy && (waiting is null || _missingReceipt);
+        VerifyStepButton.IsEnabled = !_showingHistory || _preview is not null || waiting is not null;
+        Grid.SetColumn(VerifyPane, _narrow ? 0 : 1);
+        Grid.SetColumnSpan(EditorPane, _narrow ? 2 : 1);
+        Grid.SetColumnSpan(VerifyPane, _narrow ? 2 : 1);
+        EditorPane.IsVisible = !_narrow || !_verifyStep;
+        VerifyPane.IsVisible = !_narrow || _verifyStep;
+    }
+
+    private static string? SingleActionChange(ClassroomActionRoom room)
+    {
+        var before = room.Before;
+        var after = room.After;
+        var actions = new (string Name, ClassroomActionRule? Before, string? BeforeSource, ClassroomActionRule? After, string? AfterSource)[]
+        {
+            ("停止本场学校监测", before.Actions?.StopScheduledMonitoring, before.ActionOrigins?.StopScheduledMonitoring,
+                after.Actions?.StopScheduledMonitoring, after.ActionOrigins?.StopScheduledMonitoring),
+            ("退出后台", before.Actions?.ExitBackground, before.ActionOrigins?.ExitBackground,
+                after.Actions?.ExitBackground, after.ActionOrigins?.ExitBackground),
+            ("切换课堂模式", before.Actions?.SwitchClassroomMode, before.ActionOrigins?.SwitchClassroomMode,
+                after.Actions?.SwitchClassroomMode, after.ActionOrigins?.SwitchClassroomMode),
+            ("发起手动自习", before.Actions?.StartManualStudy, before.ActionOrigins?.StartManualStudy,
+                after.Actions?.StartManualStudy, after.ActionOrigins?.StartManualStudy),
+            ("开始手动录课", before.Actions?.StartManualRecording, before.ActionOrigins?.StartManualRecording,
+                after.Actions?.StartManualRecording, after.ActionOrigins?.StartManualRecording)
+        };
+        if (actions.Where(action => action.Before != action.After || action.BeforeSource != action.AfterSource).ToArray() is not [var changed])
+            return null;
+        return $"{changed.Name} · {RuleText(changed.Before)}{OriginText(changed.BeforeSource)} → {RuleText(changed.After)}{OriginText(changed.AfterSource)}";
     }
 
     private static IEnumerable<string> Evidence(ClassroomActionScope scope)

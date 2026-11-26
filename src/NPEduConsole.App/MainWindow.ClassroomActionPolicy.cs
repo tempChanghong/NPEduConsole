@@ -6,29 +6,32 @@ namespace NPEduConsole.App;
 
 public sealed partial class MainWindow
 {
-    private ClassroomActionPolicyWindow? _classroomActionPolicyWindow;
-    private ClassroomActionPolicyWindow.Pending _classroomActionPending = new();
+    private ClassroomActionPolicyView.Pending _classroomActionPending = new();
     private WebsitePolicyView? _websitePolicyView;
     private WebsitePolicyView.Pending _websitePolicyPending = new();
 
     private async Task ShowClassroomActionPolicyAsync(Control anchor)
     {
-        if (_client is not { } client || _school is not { } school || _classroomActionPolicyWindow is not null) return;
-        var window = new ClassroomActionPolicyWindow(client, school, _classroomActionPending);
-        window.AccessLost += error =>
+        if (_client is not { } client || _school is not { } school ||
+            _page != ShellPage.Devices || _academicPages.Count != 0) return;
+        var view = new ClassroomActionPolicyView(client, school, _classroomActionPending);
+        view.CloseRequested = () => ReturnFromAcademicPage(view);
+        view.AccessLost += error =>
         {
             if (_client == client && _school == school && !ReturnToLoginIfExpired(error))
-                SetWorkspaceMessage("本校管理访问已失效，请重新选择有权限的学校。", isError: true);
+            {
+                ReturnFromAcademicPage(view);
+                DeviceDirectory.ShowNavigationMessage("当前账号已无法管理本校 NPEduTools 安全策略。请重新核对学校和权限。");
+            }
         };
-        _classroomActionPolicyWindow = window;
-        try { await window.ShowDialog(this); }
-        finally { if (_classroomActionPolicyWindow == window) _classroomActionPolicyWindow = null; }
-        if (_client == client && _school == school && anchor.IsEffectivelyVisible) anchor.Focus();
+        var exit = PushAcademicPage(view, view.CanClose, view.End);
+        await view.StartAsync();
+        if (!await exit) return;
+        RestoreDevicePolicyEntry(client, school, anchor);
     }
 
     private void CloseClassroomActionPolicy()
     {
-        _classroomActionPolicyWindow?.ClearAndClose();
         _classroomActionPending = new();
         _websitePolicyPending = new();
     }
@@ -54,6 +57,11 @@ public sealed partial class MainWindow
         });
         await view.StartAsync();
         if (!await exit) return;
+        RestoreDevicePolicyEntry(client, school, anchor);
+    }
+
+    private void RestoreDevicePolicyEntry(NPEduConsole.Core.ConsoleClient client, NPEduConsole.Core.School school, Control anchor)
+    {
         Dispatcher.UIThread.Post(() =>
         {
             if (_client != client || _school != school || _page != ShellPage.Devices || _academicPages.Count != 0 ||

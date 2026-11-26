@@ -61,10 +61,15 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
   const rearSession = await openDeviceSession(rearBearer);
   const scopePath = path + `/scope/${term.id}/CLASS/${room.id}`;
   const storageError = 'CLASSROOM_POLICY_STORE_UNAVAILABLE';
-  let faultEvidence, versionEvidence;
+  let faultEvidence, versionEvidence, deliveryEvidence;
 
   let dropped = false, writes = 0, ownReads = 0, activeFinal = null;
+  let originalWriteId = null, interruptedReadId = null, verifiedReceiptId = null;
   const proxy = createServer((request, response) => {
+    if (request.method === 'GET' && request.url === '/__classroom-policy-fixture/original-read-started') {
+      response.writeHead(interruptedReadId ? 204 : 404).end();
+      return;
+    }
     if (request.method === 'POST' && request.url === '/__classroom-policy-fixture/fault-rear') {
       request.resume();
       (async () => {
@@ -105,6 +110,29 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
       });
       return;
     }
+    if (request.method === 'POST' && request.url === '/__classroom-policy-fixture/confirm-front') {
+      request.resume();
+      (async () => {
+        assert.equal(faultEvidence?.currentAfterRestart, false);
+        const current = await call('/device/school-management', null, classroomBearer, '0.16', 5);
+        const policy = current.actionPolicy;
+        await report(classroomBearer, {identity: current.identity, ...frontSession}, 3,
+          {schemaVersion: policy.schemaVersion, revision: policy.revision, policyId: policy.policyId, error: null});
+        const scope = await call(scopePath, null, token, '0.16', 5);
+        const frontRow = scope.screens.find(screen => screen.bindingId === front.screenBindingId);
+        const rearRow = scope.screens.find(screen => screen.bindingId === rear.id);
+        assert.equal(frontRow.observationCurrent, true);
+        assert.equal(frontRow.observed.policyId, scope.rooms[0].before.policyId);
+        assert.equal(frontRow.observed.revision, scope.rooms[0].before.requiredRevision);
+        assert.equal(rearRow.observationCurrent, false);
+        deliveryEvidence = {revision: frontRow.observed.revision, frontCurrent: true, rearCurrent: false};
+        response.writeHead(204).end();
+      })().catch(error => {
+        console.error(error);
+        response.writeHead(500).end();
+      });
+      return;
+    }
     if (request.method === 'POST' && request.url === '/__classroom-policy-fixture/archive') {
       request.resume();
       (async () => {
@@ -121,12 +149,21 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
       });
       return;
     }
+    if (request.method === 'GET' && request.url.startsWith('/api/v2/npep' + path + '/receipts/')) {
+      const id = request.url.split('/').at(-1);
+      if (dropped && !interruptedReadId) {
+        interruptedReadId = id;
+        return; // The administrator returns from the page while this lookup is in flight.
+      }
+      ownReads++;
+      verifiedReceiptId = id;
+    }
     const upstream = forward(new URL(request.url, origin), {method: request.method, headers: request.headers}, result => {
       const apply = request.method === 'POST' && request.url === '/api/v2/npep' + path;
       if (apply) writes++;
-      if (request.method === 'GET' && request.url.startsWith('/api/v2/npep' + path + '/receipts/')) ownReads++;
       if (apply && result.statusCode === 200 && !dropped) {
         dropped = true;
+        originalWriteId = request.headers['x-request-id'];
         result.once('end', () => response.destroy());
         result.resume();
         return;
@@ -197,7 +234,11 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     assert.equal(writes, 5);
     assert.equal(ownReads, 1);
     assert.equal(dropped, true);
+    assert.match(originalWriteId, /^[0-9a-f-]{36}$/);
+    assert.equal(interruptedReadId, originalWriteId);
+    assert.equal(verifiedReceiptId, originalWriteId);
     assert.equal(faultEvidence?.currentAfterRestart, false);
+    assert.ok(deliveryEvidence);
     assert.ok(activeFinal, 'desktop reached the original active-range result before archiving');
     const final = activeFinal;
     assert.equal(final.rooms[0].before.source, 'GRADE');
@@ -212,9 +253,10 @@ export async function verifyClassroomActionPolicyConsole({prisma, origin, fixtur
     const [{data}] = await prisma.$queryRaw`SELECT data FROM "NpepClassroomActionState" WHERE "schoolId"=${school.id}`;
     assert.ok(data.keys.some(key => key.keyId === oldKey.keyId && key.termId === term.id && key.scopeId === grade.id && key.revoked));
     await writeFile(join(evidence, 'cross-check.json'), JSON.stringify({passed: true, writes, ownReads, dropped,
+      originalWriteId, interruptedReadId, verifiedReceiptId,
       originalGradeId: grade.id, originalTermId: term.id, originalClassId: room.id, front: front.screenBindingId, rear: rear.id,
       verifiedSource: final.rooms[0].before.source, lastKeyRevoked: final.rooms[0].before.usbCount === 0, physicalUsbWritten: false,
-      historicalKeyId: oldKey.keyId, historicalKeyRevokedWithNoActiveTerm: true, versionEvidence, faultEvidence}, null, 2));
+      historicalKeyId: oldKey.keyId, historicalKeyRevokedWithNoActiveTerm: true, versionEvidence, faultEvidence, deliveryEvidence}, null, 2));
     console.log('PASS real Windows Console, isolated KV/PostgreSQL, independent per-screen observations and historical USB revocation without an active term. No physical USB was written.');
   } finally {
     proxy.closeAllConnections();

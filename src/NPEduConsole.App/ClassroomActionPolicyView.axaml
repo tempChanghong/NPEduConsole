@@ -1,0 +1,190 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.ClassroomActionPolicyView">
+  <UserControl.Styles>
+    <Style Selector="Grid.compact-policy ComboBox">
+      <Setter Property="MinHeight" Value="31" />
+      <Setter Property="Padding" Value="9,3,0,3" />
+    </Style>
+    <Style Selector="Button.action.policy-step">
+      <Setter Property="MinHeight" Value="32" />
+    </Style>
+    <Style Selector="TabControl#ActionPolicyTabs TabItem">
+      <Setter Property="FontSize" Value="16" />
+      <Setter Property="Padding" Value="9,4" />
+    </Style>
+    <Style Selector="Button.action.policy-step.selected">
+      <Setter Property="Background" Value="{DynamicResource FieldBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid x:Name="PolicyRoot" RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <!-- 固定页首：标题、学校·学期、固定办理范围与范围选择器 -->
+    <Border Grid.Row="0" Padding="16,5" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <StackPanel Spacing="3">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+          <TextBlock x:Name="ActionPolicyHeading" Text="NPEduTools 安全策略" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+          <TextBlock x:Name="ActionPolicyContext" Grid.Column="1" Classes="muted" TextWrapping="Wrap" VerticalAlignment="Center" />
+          <Button x:Name="ActionPolicyOpenHistory" Grid.Column="2" Classes="action policy-step" Content="历史 U 盘登记" Click="OpenHistoryClicked" />
+        </Grid>
+        <TextBlock x:Name="WorkingScope" IsVisible="False" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <Grid x:Name="ScopePicker" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" MaxWidth="680" HorizontalAlignment="Left">
+          <ComboBox x:Name="ActionPolicyKind" AutomationProperties.Name="策略范围" MinWidth="112" SelectionChanged="KindChanged">
+            <ComboBoxItem Content="年级默认" /><ComboBoxItem Content="班级覆盖" />
+          </ComboBox>
+          <ComboBox x:Name="ActionPolicyTarget" Grid.Column="1" MinWidth="180" HorizontalAlignment="Stretch" PlaceholderText="选择年级或行政班"
+                    AutomationProperties.Name="选择年级或行政班" SelectionChanged="TargetChanged" />
+          <Button x:Name="ActionPolicyLoad" Grid.Column="2" Classes="action" Content="读取范围" Click="LoadClicked" />
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <!-- 窄窗分段导航（由 C# 控制显示与 selected 类） -->
+    <Border x:Name="StepBar" Grid.Row="1" Padding="16,3" IsVisible="False"
+            Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+        <Button x:Name="EditStepButton" Classes="action policy-step" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Content="编辑规则" Click="EditStepClicked" />
+        <Button x:Name="VerifyStepButton" Grid.Column="1" Classes="action policy-step" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Content="核对与发布" Click="VerifyStepClicked" />
+      </Grid>
+    </Border>
+
+    <!-- 主体双栏：宽窗左编辑右核对，窄窗由 C# 切换 Grid.Column/ColumnSpan/IsVisible -->
+    <Grid x:Name="WorkspaceGrid" Grid.Row="2" ColumnDefinitions="1.4*,1*" ColumnSpacing="16" Margin="16,7">
+      <Grid x:Name="EditorPane" Grid.Column="0">
+        <TabControl x:Name="ActionPolicyTabs" IsVisible="False">
+          <TabItem Header="操作权限">
+            <ScrollViewer x:Name="PolicyRulesScroll" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Margin="0,2,6,8" Spacing="4">
+                <DockPanel x:Name="RuleSummary" LastChildFill="True">
+                  <TextBlock x:Name="ActionPolicyDraft" DockPanel.Dock="Right" Classes="muted" Text="修改未发布" Margin="12,0,0,0" IsVisible="False" />
+                  <WrapPanel ItemSpacing="12" LineSpacing="3">
+                    <TextBlock x:Name="ActionPolicySource" Classes="label" TextWrapping="Wrap" />
+                    <TextBlock x:Name="ActionPolicyFollowNote" Classes="muted" Text="跟随项随年级更新" VerticalAlignment="Center" IsVisible="False" />
+                  </WrapPanel>
+                </DockPanel>
+                <Border Classes="card" Padding="9,6">
+                  <Grid x:Name="ActionPolicyRuleGrid" Classes="compact-policy" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="1.18*,Auto,1.18*,1.1*" RowSpacing="3" ColumnSpacing="7">
+                    <TextBlock Text="停止本场学校监测" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    <ComboBox x:Name="ActionPolicyStopSource" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="停止本场的规则来源" SelectionChanged="SourceChanged" />
+                    <ComboBox x:Name="ActionPolicyStopMode" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的现场权限" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyStopModeRead" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyStopFactor" Grid.Column="3" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的验证方式" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyStopFactorRead" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+
+                    <TextBlock Grid.Row="1" Text="退出后台" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    <ComboBox x:Name="ActionPolicyExitSource" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="退出后台的规则来源" SelectionChanged="SourceChanged" />
+                    <ComboBox x:Name="ActionPolicyExitMode" Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的现场权限" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyExitModeRead" Grid.Row="1" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyExitFactor" Grid.Row="1" Grid.Column="3" HorizontalAlignment="Stretch" AutomationProperties.Name="退出后台的验证方式" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyExitFactorRead" Grid.Row="1" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+
+                    <TextBlock Grid.Row="2" Text="切换课堂模式" VerticalAlignment="Center" TextWrapping="Wrap" />
+                    <ComboBox x:Name="ActionPolicyClassroomSource" Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="切换课堂模式的规则来源" SelectionChanged="SourceChanged" />
+                    <ComboBox x:Name="ActionPolicyClassroomMode" Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="切换课堂模式的现场权限" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyClassroomModeRead" Grid.Row="2" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyClassroomFactor" Grid.Row="2" Grid.Column="3" HorizontalAlignment="Stretch" AutomationProperties.Name="切换课堂模式的验证方式" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyClassroomFactorRead" Grid.Row="2" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+
+                    <TextBlock x:Name="ActionPolicyManualStudyLabel" Grid.Row="3" Text="发起手动自习" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyManualStudySource" Grid.Row="3" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="发起手动自习的规则来源" SelectionChanged="SourceChanged" />
+                    <ComboBox x:Name="ActionPolicyManualStudyMode" Grid.Row="3" Grid.Column="2" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="发起手动自习的现场权限" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyManualStudyModeRead" Grid.Row="3" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyManualStudyFactor" Grid.Row="3" Grid.Column="3" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="发起手动自习的验证方式" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyManualStudyFactorRead" Grid.Row="3" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+
+                    <TextBlock x:Name="ActionPolicyManualRecordingLabel" Grid.Row="4" Text="开始手动录课" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyManualRecordingSource" Grid.Row="4" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="开始手动录课的规则来源" SelectionChanged="SourceChanged" />
+                    <ComboBox x:Name="ActionPolicyManualRecordingMode" Grid.Row="4" Grid.Column="2" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="开始手动录课的现场权限" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyManualRecordingModeRead" Grid.Row="4" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyManualRecordingFactor" Grid.Row="4" Grid.Column="3" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="开始手动录课的验证方式" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyManualRecordingFactorRead" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                  </Grid>
+                </Border>
+                <TextBlock Text="使用班级口令时，各班继续用自己的现行口令。返回作业板仍可直接使用。离线大屏沿用最后已应用的策略。"
+                           Classes="muted" TextWrapping="Wrap" />
+                <TextBlock x:Name="ActionPolicyModeNote" Classes="muted" TextWrapping="Wrap" />
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+          <TabItem Header="U 盘钥匙">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Margin="0,8,6,8" Spacing="8">
+                <TextBlock Text="插入要登记的 U 盘。系统会核对 USB 实物标识，并在所选盘根目录保存钥匙文件。" Classes="muted" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="*,*,Auto" ColumnSpacing="8">
+                  <ComboBox x:Name="ActionPolicyUsbVolumes" HorizontalAlignment="Stretch" PlaceholderText="选择已插入的 USB 存储设备" AutomationProperties.Name="选择实体 U 盘" SelectionChanged="UsbChanged" />
+                  <TextBox x:Name="ActionPolicyUsbLabel" Grid.Column="1" MaxLength="64" PlaceholderText="用途或保管人" AutomationProperties.Name="U 盘登记名称" TextChanged="UsbChanged" />
+                  <Button x:Name="ActionPolicyScanUsb" Grid.Column="2" Classes="action" Content="刷新 U 盘" Click="ScanUsbClicked" />
+                </Grid>
+                <WrapPanel ItemSpacing="8" LineSpacing="4">
+                  <Button x:Name="ActionPolicyEnroll" Classes="action accent" Content="预览这支 U 盘的登记范围" Click="PreviewEnrollmentClicked" />
+                  <Button x:Name="ActionPolicyReissue" Classes="action" Content="重新登记已撤销的 U 盘" Click="PreviewReissueClicked" />
+                </WrapPanel>
+                <TextBlock Classes="muted" TextWrapping="Wrap" Text="一支盘在本校只登记到一个范围。班级可以使用本班或所在年级登记的钥匙。请到原登记范围撤销；已撤销的盘可以重新发钥匙。" />
+                <TextBlock Text="本范围已登记的 U 盘" Classes="label" />
+                <ListBox x:Name="ActionPolicyUsbRegistry" Classes="object-list" MinHeight="48" MaxHeight="220" AutomationProperties.Name="本范围已登记 U 盘" SelectionChanged="UsbChanged" />
+                <Button x:Name="ActionPolicyRevoke" Classes="action" Content="预览撤销这支 U 盘" Click="PreviewRevokeClicked" />
+              </StackPanel>
+            </ScrollViewer>
+          </TabItem>
+        </TabControl>
+
+        <Grid x:Name="ActionPolicyHistoryPane" RowDefinitions="Auto,*,Auto" RowSpacing="8" IsVisible="False">
+          <StackPanel Spacing="4">
+            <TextBlock Classes="label" Text="本校历史 U 盘登记" />
+            <TextBlock Classes="muted" TextWrapping="Wrap" Text="这里可挂失仍有效的原登记。撤销不会启用原学期，也不会把钥匙带到新学期。" />
+          </StackPanel>
+          <ListBox Grid.Row="1" x:Name="ActionPolicyHistoryList" Classes="object-list" AutomationProperties.Name="历史 U 盘登记列表" SelectionChanged="UsbChanged">
+            <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding .}" TextWrapping="Wrap" Margin="4" /></DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+          <WrapPanel Grid.Row="2" ItemSpacing="8" LineSpacing="4">
+            <Button x:Name="ActionPolicyHistoryBack" Classes="action" Content="返回当前策略" Click="HistoryBackClicked" />
+            <Button x:Name="ActionPolicyHistoryRevoke" Classes="action accent" Content="预览撤销所选登记" Click="PreviewHistoricalRevokeClicked" />
+          </WrapPanel>
+        </Grid>
+      </Grid>
+
+      <Grid x:Name="VerifyPane" Grid.Column="1">
+        <Grid x:Name="ActionPolicyEvidencePane" RowDefinitions="Auto,Auto,*" RowSpacing="6">
+          <TextBlock x:Name="EvidenceHeading" Text="逐屏核对" FontWeight="SemiBold" TextWrapping="Wrap" />
+          <TextBlock x:Name="EvidenceEmpty" Grid.Row="1" Text="读取范围后，可在这里查看逐屏策略回执。" Classes="muted" TextWrapping="Wrap" />
+          <ListBox x:Name="ActionPolicyScreenEvidence" Grid.Row="2" Classes="object-list" Background="Transparent" AutomationProperties.Name="逐屏策略回执">
+            <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding .}" TextWrapping="Wrap" Margin="4" /></DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+
+        <Grid x:Name="ActionPolicyReviewPane" IsVisible="False" RowDefinitions="Auto,*" RowSpacing="8">
+          <TextBlock x:Name="ActionPolicyReviewSummary" Classes="label" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+          <ListBox Grid.Row="1" x:Name="ActionPolicyReviewRows" Classes="object-list" Background="Transparent" AutomationProperties.Name="实际影响的班级和大屏">
+            <ListBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding .}" TextWrapping="Wrap" Margin="4" /></DataTemplate></ListBox.ItemTemplate>
+          </ListBox>
+        </Grid>
+      </Grid>
+    </Grid>
+
+    <!-- 固定底栏：单主动作步进与原号查回执优先 -->
+    <Border Grid.Row="3" Padding="16,7" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="ActionPolicyStatus" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+        <DockPanel LastChildFill="False">
+          <WrapPanel ItemSpacing="8" LineSpacing="4">
+            <Button x:Name="ActionPolicyClose" Classes="action" Content="返回教室设备" Click="CloseClicked" />
+            <Button x:Name="ActionPolicyRefresh" Classes="action" Content="刷新范围与回执" Click="RefreshClicked" />
+          </WrapPanel>
+          <WrapPanel DockPanel.Dock="Right" ItemSpacing="8" LineSpacing="4">
+            <Button x:Name="ActionPolicyDiscardRule" Classes="action" Content="放弃修改" IsVisible="False" Click="DiscardRuleClicked" />
+            <Button x:Name="ActionPolicyInherit" Classes="action" Content="恢复继承" IsVisible="False" Click="PreviewInheritClicked" />
+            <Button x:Name="ActionPolicyReviewBack" Classes="action" Content="返回修改" IsVisible="False" Click="ReviewBackClicked" />
+            <CheckBox x:Name="ActionPolicyConfirmed" Content="已核对本次范围与影响" IsVisible="False" IsCheckedChanged="ConfirmedChanged" />
+            <Button x:Name="ActionPolicySavePreview" Classes="action accent" Content="预览策略影响" IsVisible="False" Click="PreviewRulesClicked" />
+            <Button x:Name="ActionPolicyApply" Classes="action accent" Content="确认发布" IsVisible="False" Click="ApplyClicked" />
+            <Button x:Name="ActionPolicyReadReceipt" Classes="action accent" Content="查本人原回执" IsVisible="False" Click="ReadReceiptClicked" />
+            <Button x:Name="ActionPolicyRetry" Classes="action" Content="按原编号重试" IsVisible="False" Click="RetryClicked" />
+          </WrapPanel>
+        </DockPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>
