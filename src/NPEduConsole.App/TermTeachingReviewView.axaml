@@ -21,6 +21,8 @@
             <Border Classes="review-row" Classes.issue="{Binding HasIssue}" AutomationProperties.Name="{Binding Title}">
                 <StackPanel Spacing="2">
                     <TextBlock Classes="review-title" Text="{Binding Title}" TextWrapping="Wrap" />
+                    <TextBlock Classes="review-issue" Text="{Binding Issue}" IsVisible="{Binding HasIssue}"
+                               TextWrapping="Wrap" />
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6">
                         <TextBlock Grid.Column="0" Classes="review-label" Text="变更前" />
                         <TextBlock Grid.Column="1" Classes="review-value" Text="{Binding Before}" TextWrapping="Wrap" />
@@ -29,8 +31,6 @@
                         <TextBlock Grid.Column="0" Classes="review-label" Text="变更后" />
                         <TextBlock Grid.Column="1" Classes="review-value" Text="{Binding After}" TextWrapping="Wrap" />
                     </Grid>
-                    <TextBlock Classes="review-issue" Text="{Binding Issue}" IsVisible="{Binding HasIssue}"
-                               TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
         </DataTemplate>

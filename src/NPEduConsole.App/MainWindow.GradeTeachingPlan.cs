@@ -1,12 +1,13 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
 public sealed partial class MainWindow
 {
-    private GradeTeachingPlanWindow? _gradeTeachingPlanWindow;
     private ClassSubjectRulesWindow? _classRulesWindow;
 
     private async void OpenCurrentClassRulesClicked(object? sender, RoutedEventArgs args)
@@ -27,36 +28,42 @@ public sealed partial class MainWindow
 
     private async void OpenGradeTeachingPlanClicked(object? sender, RoutedEventArgs args)
     {
-        if (_client is not { } client || _school is not { } school || _page != ShellPage.Classes) return;
-        await ShowGradeTeachingPlanAsync(this, client, school);
-        if (_client == client && _school == school && _page == ShellPage.Classes) OpenGradeTeachingPlanButton.Focus();
+        if (_client is not { } client || _school is not { } school || _page != ShellPage.Classes || _academicPages.Count != 0) return;
+        var offset = ClassWorkspaceScroll.Offset;
+        await ShowGradeTeachingPlanAsync(client, school);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_client != client || _school != school || _page != ShellPage.Classes || _academicPages.Count != 0 ||
+                !OpenGradeTeachingPlanButton.IsEffectivelyVisible) return;
+            ClassWorkspaceScroll.Offset = offset;
+            OpenGradeTeachingPlanButton.BringIntoView();
+            OpenGradeTeachingPlanButton.Focus(NavigationMethod.Tab);
+        }, DispatcherPriority.Loaded);
     }
 
-    private async Task<bool> ShowGradeTeachingPlanAsync(Window owner, ConsoleClient client, School school, string? grade = null,
+    private async Task<bool> ShowGradeTeachingPlanAsync(ConsoleClient client, School school, string? grade = null,
         string? subject = null, string? group = null, string? term = null, string? room = null, string? teacher = null,
-        string? teachingIssue = null)
+        string? teachingIssue = null, bool requireInitialTarget = false, string? requiredCurrentTermId = null)
     {
-        if (_gradeTeachingPlanWindow is not null || _client != client || _school != school) return false;
-        var window = new GradeTeachingPlanWindow(client, school, grade, subject, group, term, room, teacher,
-            requireInitialTarget: teachingIssue is not null, teachingIssue: teachingIssue)
+        if (_client != client || _school != school || _academicPages.Any(page => page.Content is GradeTeachingPlanView)) return false;
+        var view = new GradeTeachingPlanView(client, school, grade, subject, group, term, room, teacher,
+            requireInitialTarget: requireInitialTarget || teachingIssue is not null || requiredCurrentTermId is not null,
+            teachingIssue: teachingIssue, inWorkspace: true, requiredCurrentTermId: requiredCurrentTermId)
         {
-            SessionExpired = error => { if (_client == client && _school == school) ReturnToLoginIfExpired(error); }
+            SessionExpired = error => AcademicScopeUnavailable(error, client, school)
         };
-        _gradeTeachingPlanWindow = window;
-        window.Closed += (_, _) => { if (_gradeTeachingPlanWindow == window) _gradeTeachingPlanWindow = null; };
-        try { await window.ShowDialog(owner); }
-        finally { if (_gradeTeachingPlanWindow == window) _gradeTeachingPlanWindow = null; }
-        if (window.WorkspaceChanged && _client == client && _school == school)
+        view.CloseRequested = () => ReturnFromAcademicPage(view);
+        var exit = PushAcademicPage(view, view.CanClose, view.End);
+        await view.StartAsync();
+        if (!await exit) return false;
+        if (view.WorkspaceChanged && _client == client && _school == school && !_showSchoolOverview)
             await SchoolOverviewWorkspace.RefreshAsync(restoreTask: _showSchoolOverview);
-        return window.WorkspaceChanged;
+        return view.WorkspaceChanged;
     }
 
     private void CloseGradeTeachingPlan()
     {
         _classRulesWindow?.CloseForScopeChange();
         _classRulesWindow = null;
-        var window = _gradeTeachingPlanWindow;
-        _gradeTeachingPlanWindow = null;
-        window?.CloseForScopeChange();
     }
 }

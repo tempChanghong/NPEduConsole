@@ -1,23 +1,26 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.GradeTeachingPlanWindow"
-        Title="年级教学安排" Width="1160" Height="780" MinWidth="680" MinHeight="450" WindowStartupLocation="CenterOwner">
-  <Window.Styles>
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.GradeTeachingPlanView">
+  <UserControl.Styles>
     <Style Selector="TextBlock#PlanNotice.error"><Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/></Style>
-    <Style Selector="Grid.plan-row.conflict"><Setter Property="Background" Value="{DynamicResource ErrorTintBrush}"/></Style>
-    <Style Selector="Window.compact-plan ListBoxItem TextBlock.plan-cell">
+    <Style Selector="Panel.plan-row.conflict"><Setter Property="Background" Value="{DynamicResource ErrorTintBrush}"/></Style>
+    <Style Selector="Panel.plan-row.conflict TextBlock.plan-action-label"><Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/></Style>
+    <Style Selector="StackPanel.plan-compact-only"><Setter Property="IsVisible" Value="False"/></Style>
+    <Style Selector=":is(UserControl).compact-plan Grid.plan-wide-only"><Setter Property="IsVisible" Value="False"/></Style>
+    <Style Selector=":is(UserControl).compact-plan StackPanel.plan-compact-only"><Setter Property="IsVisible" Value="True"/></Style>
+    <Style Selector="UserControl.compact-plan ListBoxItem TextBlock.plan-cell">
       <Setter Property="MaxLines" Value="3"/>
       <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
     </Style>
-    <Style Selector="Window.compact-plan ListBoxItem:selected TextBlock.plan-cell">
+    <Style Selector="UserControl.compact-plan ListBoxItem:selected TextBlock.plan-cell">
       <Setter Property="MaxLines" Value="0"/>
       <Setter Property="TextTrimming" Value="None"/>
     </Style>
-  </Window.Styles>
+  </UserControl.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
-    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="16,9">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="18,9">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-        <StackPanel Spacing="3">
-          <TextBlock x:Name="PlanHeading" Text="年级教学安排" FontSize="24" Classes="label"/>
+        <StackPanel Spacing="2">
+          <TextBlock x:Name="PlanHeading" Text="年级教学安排" FontSize="24" FontWeight="SemiBold"/>
           <TextBlock x:Name="PlanScope" Classes="muted" TextWrapping="Wrap"/>
         </StackPanel>
         <WrapPanel Grid.Column="1" ItemSpacing="7" VerticalAlignment="Center">
@@ -27,9 +30,10 @@
         </WrapPanel>
       </Grid>
     </Border>
-    <Grid Grid.Row="1" Margin="13,8" RowDefinitions="Auto,*" RowSpacing="5">
+    <Grid Grid.Row="1" Margin="18,8" RowDefinitions="Auto,Auto,*" RowSpacing="6">
       <TextBlock x:Name="PlanNotice" TextWrapping="Wrap" IsVisible="False" AutomationProperties.LiveSetting="Polite"/>
-      <Grid x:Name="PlanColumns" Grid.Row="1" ColumnSpacing="10" RowSpacing="6">
+      <TextBlock x:Name="PlanWorkspaceStep" Grid.Row="1" Classes="muted" TextWrapping="Wrap" IsVisible="False"/>
+      <Grid x:Name="PlanColumns" Grid.Row="2" ColumnSpacing="10" RowSpacing="6">
         <TabControl x:Name="PlanTabs" SelectionChanged="TermPlanTabChanged">
           <TabItem Header="逐班对照">
             <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="6">
@@ -38,9 +42,9 @@
                 <ComboBox x:Name="PlanRuleMode" MinWidth="100" AutomationProperties.Name="授课方式"/>
                 <ComboBox x:Name="PlanCompulsory" MinWidth="105" AutomationProperties.Name="必修设置"/>
                 <Button x:Name="PlanStageRules" Classes="action" Click="StageRules" Content="加入所选班级"/>
-                <Button Classes="action" Click="ShowPlanChanges" Content="核对本次变更"/>
+                <Button x:Name="PlanInlineChanges" Classes="action" Click="ShowPlanChanges" Content="核对本次变更"/>
               </WrapPanel>
-              <Grid Grid.Row="1" ColumnDefinitions="0.85*,1.15*,1.15*,0.8*" ColumnSpacing="6" Margin="8,0,16,0">
+              <Grid Grid.Row="1" Classes="plan-wide-only" ColumnDefinitions="0.7*,1.35*,1.35*,0.65*" ColumnSpacing="6" Margin="8,0,16,0">
                 <TextBlock Text="行政班" Classes="label"/><TextBlock Grid.Column="1" Text="当前" Classes="label"/>
                 <TextBlock Grid.Column="2" Text="调整后" Classes="label"/><TextBlock Grid.Column="3" Text="需要处理" Classes="label"/>
               </Grid>
@@ -49,13 +53,30 @@
                        AutomationProperties.Name="行政班逐行对照表">
                 <ListBox.ItemTemplate>
                   <DataTemplate x:DataType="local:GradeTeachingPlanRowView">
-                    <Grid Classes="plan-row" Classes.conflict="{Binding Conflict}" ColumnDefinitions="0.85*,1.15*,1.15*,0.8*"
-                          ColumnSpacing="6" AutomationProperties.AutomationId="{Binding ClassId}">
-                      <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Classes="label"/>
-                      <TextBlock Grid.Column="1" Text="{Binding Current}" Classes="plan-cell" TextWrapping="Wrap"/>
-                      <TextBlock Grid.Column="2" Text="{Binding After}" Classes="plan-cell" TextWrapping="Wrap"/>
-                      <TextBlock Grid.Column="3" Text="{Binding Action}" Classes="plan-cell" TextWrapping="Wrap" ToolTip.Tip="{Binding Action}"/>
-                    </Grid>
+                    <Panel Classes="plan-row" Classes.conflict="{Binding Conflict}" AutomationProperties.AutomationId="{Binding ClassId}">
+                      <Grid Classes="plan-wide-only" ColumnDefinitions="0.7*,1.35*,1.35*,0.65*" ColumnSpacing="6">
+                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Classes="label"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Current}" Classes="plan-cell" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Column="2" Text="{Binding After}" Classes="plan-cell" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Column="3" Text="{Binding Action}" Classes="plan-cell" TextWrapping="Wrap" ToolTip.Tip="{Binding Action}"/>
+                      </Grid>
+                      <StackPanel Classes="plan-compact-only" Spacing="4">
+                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Classes="label"/>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                          <TextBlock Text="当前" Classes="muted" MinWidth="44"/>
+                          <TextBlock Grid.Column="1" Text="{Binding Current}" Classes="plan-cell" TextWrapping="Wrap"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                          <TextBlock Text="调整后" Classes="muted" MinWidth="44"/>
+                          <TextBlock Grid.Column="1" Text="{Binding After}" Classes="plan-cell" TextWrapping="Wrap"/>
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8"
+                              IsVisible="{Binding Action, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                          <TextBlock Text="需要处理" Classes="label plan-action-label" MinWidth="44"/>
+                          <TextBlock Grid.Column="1" Text="{Binding Action}" Classes="plan-cell" TextWrapping="Wrap" ToolTip.Tip="{Binding Action}"/>
+                        </Grid>
+                      </StackPanel>
+                    </Panel>
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>
@@ -198,20 +219,24 @@
           </Grid>
         </Border>
       </Grid>
+      <Border x:Name="PlanWorkspaceReviewHost" Grid.Row="2" Classes="card" Padding="10" IsVisible="False"/>
     </Grid>
     <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
-            BorderThickness="0,1,0,0" Padding="13,8">
-      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="7">
+            BorderThickness="0,1,0,0" Padding="18,7">
+      <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="7">
         <WrapPanel ItemSpacing="6" LineSpacing="4">
           <Button x:Name="PlanBack" Classes="action" Click="Back" Content="返回"/>
+          <Button x:Name="PlanWorkspaceEdit" Classes="action" Click="ReturnWorkspaceEdit" Content="返回编辑" IsVisible="False"/>
+          <Button x:Name="PlanWorkspaceLocate" Classes="action" Click="LocateScopedReviewClicked" Content="定位所选" IsVisible="False"/>
           <Button x:Name="PlanReset" Classes="action" Click="Reset" Content="清空草稿"/>
           <Button x:Name="PlanReload" Classes="action" Click="Refresh" Content="刷新"/>
           <Button x:Name="PlanContinueTeaching" Classes="action" Click="ContinueTeachingClicked"
                   Content="为此班补任课" IsVisible="False"/>
         </WrapPanel>
-        <Button x:Name="PlanPreview" Grid.Column="1" Classes="action" Click="Preview" Content="预览整份方案"/>
-        <Button x:Name="PlanSave" Grid.Column="2" Classes="action accent" Click="Save" Content="保存整份方案"/>
+        <Button x:Name="PlanWorkspaceChanges" Grid.Column="1" Classes="action" Click="OpenWorkspaceChanges" Content="查看本次变更" IsVisible="False"/>
+        <Button x:Name="PlanPreview" Grid.Column="2" Classes="action" Click="Preview" Content="预览整份方案"/>
+        <Button x:Name="PlanSave" Grid.Column="3" Classes="action accent" Click="Save" Content="保存整份方案"/>
       </Grid>
     </Border>
   </Grid>
-</Window>
+</UserControl>

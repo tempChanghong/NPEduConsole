@@ -96,7 +96,7 @@ internal static partial class Program
             await Until(() => (reviewList.SelectedItem as ClassRuleReviewLine)?.SubjectId == access.HistoryId && reviewList.IsKeyboardFocusWithin,
                 "历史冲突行取得真实 Avalonia 键盘焦点");
             reviewList.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
-            var resolver = await Opened<GradeTeachingPlanWindow>(exclude: plan);
+            var resolver = await Opened<GradeTeachingPlanWindow>();
             var existing = Find<ComboBox>(resolver, "PlanTeachingExisting");
             await Until(() => existing.Items.OfType<GradePlanAssignment>().Any(item => item.Id == access.TeacherId), "按原班与历史科定位现有任课");
             existing.SelectedItem = existing.Items.OfType<GradePlanAssignment>().Single(item => item.Id == access.TeacherId);
@@ -304,10 +304,10 @@ internal static partial class Program
                 Click(apply);
                 await Until(() => !modal.IsVisible, "应用预设后回到整班规则");
             }
-            async Task<(GradeTeachingPlanWindow, ClassSubjectRulesWindow)> OpenRules(TermPreparationView owner)
+            async Task<(GradeTeachingPlanView, ClassSubjectRulesWindow)> OpenRules(TermPreparationView owner)
             {
                 await PressScoped(owner, "TermManageTeaching");
-                var parent = await Opened<GradeTeachingPlanWindow>();
+                var parent = await AcademicPageAsync<GradeTeachingPlanView>(main);
                 var tabs = Find<TabControl>(parent, "PlanTabs");
                 var picker = Find<ComboBox>(parent, "PlanSummaryClass");
                 await Until(() => picker.Items.Cast<object>().Any(row => row.ToString()!.Contains("RULE-8")), "读取指定学期的八班");

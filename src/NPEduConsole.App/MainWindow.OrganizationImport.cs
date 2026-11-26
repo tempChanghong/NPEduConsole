@@ -36,7 +36,6 @@ public sealed partial class MainWindow
             return Task.FromResult<ManagedAcademicTerm?>(null);
         };
         view.OpenTeacherAllocation = OpenTeachersAsync;
-        GradeTeachingPlanWindow? historyTeaching = null;
         view.OpenReceiptTarget = async current =>
         {
             if (!ShowsAcademicPage(current) || current.ConfirmedReceipt is not { } receipt ||
@@ -66,12 +65,8 @@ public sealed partial class MainWindow
                         current.NavigationNotice("这份回执中找不到所选教学班的学科。请从该学期的教学安排核对。");
                         return;
                     }
-                    var plan = new GradeTeachingPlanWindow(client, school, receipt.GradeId, subject, target.IsGroup ? target.WorkspaceId : null,
-                        receipt.TermId, target.IsGroup ? null : target.WorkspaceId, requireInitialTarget: true)
-                    { SessionExpired = error => AcademicScopeUnavailable(error, client, school) };
-                    historyTeaching = plan;
-                    try { await plan.ShowDialog(this); }
-                    finally { if (historyTeaching == plan) historyTeaching = null; }
+                    await ShowGradeTeachingPlanAsync(client, school, receipt.GradeId, subject, target.IsGroup ? target.WorkspaceId : null,
+                        receipt.TermId, target.IsGroup ? null : target.WorkspaceId, requireInitialTarget: true);
                 }
                 else await ShowTeachingPageAsync(client, school, receipt.TermId, target.WorkspaceId, null,
                     courseGroup: target.IsGroup, termName: current.ReceiptTerm?.Name);
@@ -82,11 +77,7 @@ public sealed partial class MainWindow
             if (ShowsAcademicPage(view)) await ShowOrganizationImportAsync(client, school, term, correction, id);
         };
         view.CloseRequested = () => ReturnFromAcademicPage(view);
-        var exit = PushAcademicPage(view, view.CanClose, () =>
-        {
-            historyTeaching?.CloseForScopeChange();
-            view.End();
-        });
+        var exit = PushAcademicPage(view, view.CanClose, view.End);
         await view.StartAsync();
         var returned = await exit;
         if (!returned || _client != client || _school != school) return false;

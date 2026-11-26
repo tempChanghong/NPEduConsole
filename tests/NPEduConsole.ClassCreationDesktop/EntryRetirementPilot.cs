@@ -137,12 +137,12 @@ internal static partial class Program
             history = await TaskButton("ADMIN_CLASS_SUBJECT_WITHOUT_TEACHER", access.ArchivedClassId);
             history.Focus();
             Click(history);
-            var plan = await WindowOf<GradeTeachingPlanWindow>();
+            var plan = await AcademicPageAsync<GradeTeachingPlanView>(main);
             await Until(() => (Find<ComboBox>(plan, "PlanSubject").SelectedItem as GradePlanLabel)?.Id == access.SubjectId &&
                 Find<TextBlock>(plan, "PlanScope").Text!.Contains("历史秋季"), "exact archived term and physics selected");
             Check(!Find<Button>(plan, "PlanPreview").IsEnabled, "archive open remains read-only");
             await Capture(plan, output, "02-archive-teaching-target");
-            plan.Close();
+            Click(Find<Button>(plan, "PlanBack"));
             await Until(() => Find<ComboBox>(diagView, "OverviewTaskFilter").SelectedIndex == 1 &&
                 diagView.GetVisualDescendants().OfType<Button>().Any(btn => btn.IsFocused && AutomationProperties.GetAutomationId(btn)?.Contains(access.ArchivedClassId) == true),
                 "return restores filtered task focus after reread");

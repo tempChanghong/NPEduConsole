@@ -29,8 +29,8 @@ public sealed partial class MainWindow
         if (_client != client || _school != school || _academicPages.Any(page => page.Content is CourseGroupsView)) return false;
         var view = new CourseGroupsView(client, school, term, group, room, subject, teaching)
         {
-            OpenGradePlan = (grade, planSubject, selectedGroup) =>
-                ShowGradeTeachingPlanAsync(this, client, school, grade, planSubject, selectedGroup),
+            OpenGradePlan = (termId, grade, planSubject, selectedGroup) =>
+                ShowGradeTeachingPlanAsync(client, school, grade, planSubject, selectedGroup, requiredCurrentTermId: termId),
             OpenTeaching = (termId, target, course, isGroup, termName) =>
                 ShowTeachingPageAsync(client, school, termId, target, course, courseGroup: isGroup, termName: termName),
             AccessLost = error => AcademicScopeUnavailable(error, client, school)

@@ -48,7 +48,7 @@ internal static partial class Program
             await Until(() => termList.Items.OfType<ManagedAcademicTerm>().Count() == 3, "三学期到达界面");
             SelectTerm(access.SpringId);
             await PressScoped(terms, "TermManageTeaching");
-            var planner = await WindowOf<GradeTeachingPlanWindow>();
+            var planner = await AcademicPageAsync<GradeTeachingPlanView>(main);
             var tabs = Find<TabControl>(planner, "PlanTabs");
             var rows = Find<ListBox>(planner, "PlanRows");
             await Until(() => Read(planner, "PlanScope").Contains("春季师资草稿") &&
@@ -104,9 +104,9 @@ internal static partial class Program
             groups.SelectedItem = a1;
             Find<TextBox>(planner, "PlanGroupName").Text = "物理 A1 校订";
             await PressScoped(planner, "PlanStageGroup");
-            planner.Width = 840;
-            planner.Height = 480;
-            await Until(() => planner.ClientSize is { Width: <= 845, Height: <= 485 }, "840×480 桌面");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "840×480 桌面");
             await PressScoped(planner, "PlanPreview");
             await Until(() => Find<Button>(planner, "PlanSave").IsEffectivelyEnabled, "有可提交的原预览");
             await Signal("web-sources");
@@ -150,7 +150,7 @@ internal static partial class Program
 
             SelectTerm(access.ArchiveId);
             await PressScoped(terms, "TermManageTeaching");
-            planner = await WindowOf<GradeTeachingPlanWindow>();
+            planner = await AcademicPageAsync<GradeTeachingPlanView>(main);
             tabs = Find<TabControl>(planner, "PlanTabs");
             rows = Find<ListBox>(planner, "PlanRows");
             await PickSubject(planner, access.PhysicsId, access.ArchiveSevenId);
@@ -205,7 +205,7 @@ internal static partial class Program
         finally { desktop.Shutdown(Environment.ExitCode); }
     }
 
-    private static async Task PickSubject(Window planner, string subjectId, string classId)
+    private static async Task PickSubject(Control planner, string subjectId, string classId)
     {
         var picker = Find<ComboBox>(planner, "PlanSubject");
         var rows = Find<ListBox>(planner, "PlanRows");
@@ -221,7 +221,7 @@ internal static partial class Program
         rows.SelectedItem = rows.Items.OfType<GradeTeachingPlanRowView>().Single(row => row.ClassId == id);
     }
 
-    private static async Task StageTeacher(Window planner, string teacherId, int role)
+    private static async Task StageTeacher(Control planner, string teacherId, int role)
     {
         var teachers = Find<ComboBox>(planner, "PlanTeacher");
         teachers.SelectedItem = teachers.Items.OfType<GradePlanTeacher>().Single(row => row.Id == teacherId);

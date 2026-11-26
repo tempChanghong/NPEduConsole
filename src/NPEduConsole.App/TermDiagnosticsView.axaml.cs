@@ -14,7 +14,6 @@ public sealed partial class TermDiagnosticsView : UserControl
     internal Func<SchoolOverview, SchoolOverviewTask, Task<bool>>? OpenTask { get; set; }
     internal Action<ConsoleApiException>? ScopeUnavailable { get; init; }
     internal Action? CloseRequested { get; set; }
-    internal Action? CloseLegacyDialog { get; set; }
 
     public TermDiagnosticsView() => InitializeComponent();
 
@@ -53,7 +52,6 @@ public sealed partial class TermDiagnosticsView : UserControl
     internal void End()
     {
         _closed = true;
-        CloseLegacyDialog?.Invoke();
         DiagnosticsOverview.SetScope(null, null);
     }
 

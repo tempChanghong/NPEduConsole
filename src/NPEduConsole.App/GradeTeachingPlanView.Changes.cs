@@ -5,7 +5,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class GradeTeachingPlanWindow
+public sealed partial class GradeTeachingPlanView
 {
     private Option? TeachingTarget => PlanTeachingTarget.SelectedItem as Option;
 
@@ -290,6 +290,7 @@ public sealed partial class GradeTeachingPlanWindow
 
     private void ShowPlanChanges(object? sender, RoutedEventArgs args)
     {
+        if (_inWorkspace && _compact) { OpenWorkspaceChanges(sender, args); return; }
         if (_compact) PlanTabs.SelectedIndex = 2;
         Focus(PlanChangeRows);
     }
@@ -297,6 +298,8 @@ public sealed partial class GradeTeachingPlanWindow
     private void FocusKey(string key)
     {
         if (_catalog is not { } catalog) return;
+        LeaveWorkspaceReview();
+        RenderWorkspaceReview();
         var parts = key.Split(':', 2);
         if (parts.Length == 2 && catalog.Subjects.FirstOrDefault(row => row.Id == parts[1]) is { } subject &&
             catalog.Classes.Any(row => row.Id == parts[0]))

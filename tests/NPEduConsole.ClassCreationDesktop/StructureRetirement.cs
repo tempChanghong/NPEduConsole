@@ -63,20 +63,20 @@ internal static partial class Program
             await PressScoped(plan, "PlanStageMixedTeaching");
             await PressScoped(plan, "PlanPreview");
             await Until(() => Find<Button>(plan, "PlanSave").IsEffectivelyEnabled, "mixed preview can be saved");
-            await Fit(plan, 1160, 780);
-            await CaptureWithFrame(plan, output, "01-wide-mixed-teaching-preview");
-            await Fit(plan, 840, 480);
+            await Fit(main, 1160, 780);
+            await CaptureWithFrame(main, output, "01-wide-mixed-teaching-preview");
+            await Fit(main, 840, 480);
             var review = Find<ListBox>(Find<TermTeachingReviewView>(plan, "PlanScopedReview"), "TermTeachingReviewList");
             await Until(() => review.ItemCount == 2 && review.ContainerFromIndex(1) is ListBoxItem groupRow &&
                 review.GetVisualDescendants().OfType<ScrollContentPresenter>().FirstOrDefault() is { } viewport &&
                 groupRow.TranslatePoint(new Point(0, groupRow.Bounds.Height), viewport) is { Y: var bottom } &&
                 bottom <= viewport.Bounds.Height, "both direct-access rows are wholly visible at 840 × 480");
-            await CaptureWithFrame(plan, output, "02-narrow-mixed-teaching-preview");
+            await CaptureWithFrame(main, output, "02-narrow-mixed-teaching-preview");
             await Signal("other-admin-changes-access");
             await PressScoped(plan, "PlanSave");
             await Until(() => Read(plan, "PlanNotice").Contains("整份零写入"), "membership-only change invalidates whole plan");
             await Signal("stale");
-            await CaptureWithFrame(plan, output, "03-narrow-stale-membership");
+            await CaptureWithFrame(main, output, "03-narrow-stale-membership");
             await PressScoped(plan, "PlanPreview");
             await PressScoped(plan, "PlanSave");
             await Until(() => Read(plan, "PlanNotice").Contains("整份方案已保存"), "lost application read by original number");
@@ -92,8 +92,8 @@ internal static partial class Program
             var assignments = await OriginalAssignments(plan, access.SecondId);
             Check(assignments.Items.OfType<GradePlanAssignment>().Count(row => row.Position == "PRIMARY") == 2, "the correct same-named group opens");
             assignments.SelectedItem = assignments.Items.OfType<GradePlanAssignment>().Single(row => row.AccountId == access.SecondId);
-            await Fit(plan, 840, 480);
-            await CaptureWithFrame(plan, output, "04-narrow-original-group-conflict");
+            await Fit(main, 840, 480);
+            await CaptureWithFrame(main, output, "04-narrow-original-group-conflict");
             await PressScoped(plan, "PlanStageRemoval");
             await PressScoped(plan, "PlanPreview");
             await PressScoped(plan, "PlanSave");
@@ -136,7 +136,7 @@ internal static partial class Program
                 Find<ListBox>(plan, "PlanChangeRows").ItemCount == 0,
                 "same group and subject do not switch to a different teacher's pending REMOVE");
             await Signal("separate-pending");
-            await CaptureWithFrame(plan, output, "05-original-teacher-pending-separate");
+            await CaptureWithFrame(main, output, "05-original-teacher-pending-separate");
             await PressScoped(plan, "PlanBack");
             await Until(() => !plan.IsVisible && main.IsEffectivelyEnabled, "return to cached diagnosis");
             disabled = await TaskItem("DISABLED_TEACHER_ASSIGNED");
@@ -147,8 +147,8 @@ internal static partial class Program
             Check(Find<ComboBox>(plan, "PlanTeachingExisting").SelectedItem is null &&
                 !Find<Button>(plan, "PlanStageRemoval").IsEffectivelyEnabled && !Find<Button>(plan, "PlanSave").IsEffectivelyEnabled,
                 "re-enabled teacher keeps healthy assignment under original ID");
-            await Fit(plan, 840, 480);
-            await CaptureWithFrame(plan, output, "06-narrow-resolved-task-removal-disabled");
+            await Fit(main, 840, 480);
+            await CaptureWithFrame(main, output, "06-narrow-resolved-task-removal-disabled");
             await PressScoped(plan, "PlanBack");
             await Until(() => tasks.Items.Count > 0 && !tasks.Items.OfType<OverviewTaskItem>()
                 .Any(row => row.AutomationId == disabled.AutomationId), "overview refresh removes the resolved task");
@@ -157,11 +157,7 @@ internal static partial class Program
             desktop.Shutdown(0);
             return;
 
-            async Task<GradeTeachingPlanWindow> Planner()
-            {
-                await Until(() => desktop.Windows.OfType<GradeTeachingPlanWindow>().Any(window => window.IsVisible), "normal teaching plan window");
-                return desktop.Windows.OfType<GradeTeachingPlanWindow>().Single(window => window.IsVisible);
-            }
+            Task<GradeTeachingPlanView> Planner() => AcademicPageAsync<GradeTeachingPlanView>(main);
             async Task<OverviewTaskItem> TaskItem(string code)
             {
                 OverviewTaskItem? item = null;
@@ -183,7 +179,7 @@ internal static partial class Program
                 }, "overview task available");
                 Click(action!);
             }
-            async Task<ComboBox> OriginalAssignments(GradeTeachingPlanWindow window, string account)
+            async Task<ComboBox> OriginalAssignments(GradeTeachingPlanView window, string account)
             {
                 var picker = Find<ComboBox>(window, "PlanTeachingExisting");
                 await Until(() => picker.Items.OfType<GradePlanAssignment>().Any(row => row.AccountId == account) &&

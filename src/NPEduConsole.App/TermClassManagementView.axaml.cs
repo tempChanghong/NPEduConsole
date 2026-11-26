@@ -310,14 +310,14 @@ public sealed partial class TermClassManagementView : UserControl
         if (CurrentClass is { } room) await OpenRosterAsync(room);
     }
 
+    internal Func<string, string, string, Task<bool>>? OpenTeachingPlan { get; init; }
+
     private async void TeachingClicked(object? sender, RoutedEventArgs args)
     {
-        if (_client is not { } client || _school is not { } school ||
-            CurrentClass is not { IsActive: true, GradeId: { } gradeId } room) return;
-        var window = new GradeTeachingPlanWindow(client, school, gradeId, null, null, room.TermId, room.Id) { SessionExpired = Access };
-        await ShowChildAsync(window, window.CloseForScopeChange);
+        if (_closed || CurrentClass is not { IsActive: true, GradeId: { } gradeId } room || OpenTeachingPlan is not { } open) return;
+        CancelRosterRead();
+        if (await open(room.TermId, gradeId, room.Id) && !_closed) await ReadAsync(room.Id);
         if (_closed) return;
-        StructureColumns.IsEnabled = StructureReload.IsEnabled = true;
         RestoreFocus(StructureClassTeaching);
     }
 

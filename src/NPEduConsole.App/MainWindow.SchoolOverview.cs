@@ -79,7 +79,7 @@ public sealed partial class MainWindow
             if (task.Action == "OPEN_TERM_TEACHING" && overview.Term is { } originalTerm &&
                 task.GradeId is { } teachingGrade && task.SubjectId is { } teachingSubject)
             {
-                await ShowGradeTeachingPlanAsync(this, client, school, teachingGrade, teachingSubject, task.CourseGroupId,
+                await ShowGradeTeachingPlanAsync(client, school, teachingGrade, teachingSubject, task.CourseGroupId,
                     originalTerm.Id, task.CourseGroupId is null ? task.ClassId : null, task.AccountId, task.Code);
                 if (StillHere()) await SchoolOverviewWorkspace.RefreshAsync(restoreTask: true);
                 return;

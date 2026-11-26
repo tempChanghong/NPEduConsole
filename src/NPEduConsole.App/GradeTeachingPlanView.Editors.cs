@@ -4,7 +4,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class GradeTeachingPlanWindow
+public sealed partial class GradeTeachingPlanView
 {
     private string? _newKey, _replaceOriginal;
     private GradePlanCourse? Existing => PlanExistingGroup.SelectedItem as GradePlanCourse;

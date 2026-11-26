@@ -64,7 +64,7 @@ public sealed partial class CourseGroupsView : UserControl
     internal Action<ConsoleApiException>? AccessLost { get; init; }
     internal Action? CloseRequested { get; set; }
     internal Func<string, string, string, bool, string?, Task<bool>>? OpenTeaching { get; init; }
-    internal Func<string, string, string, Task<bool>>? OpenGradePlan { get; init; }
+    internal Func<string, string, string, string, Task<bool>>? OpenGradePlan { get; init; }
     internal bool ReturningWithDraft => _dirty && Pending is null;
     internal Task StartAsync() => RunAsync(OpenInitialAsync);
 
@@ -665,8 +665,11 @@ public sealed partial class CourseGroupsView : UserControl
     {
         if (DirectorySelection?.Group is not { } group || OpenGradePlan is not { } open || _catalog?.TermId is not { } term) return;
         RememberPosition();
-        if (await open(group.GradeId, group.SubjectId, group.Id) && !_closed)
+        if (await open(term, group.GradeId, group.SubjectId, group.Id) && !_closed)
+        {
             await RunAsync(() => LoadAsync(term));
+            if (!_closed) RestoreDirectoryView();
+        }
         if (!_closed) Focus(CourseGradePlan.IsEnabled ? CourseGradePlan : CourseGroupRows);
     }
 

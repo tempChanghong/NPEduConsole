@@ -1,4 +1,3 @@
-using Avalonia.Controls;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
@@ -7,7 +6,7 @@ public sealed partial class MainWindow
 {
     private TermDiagnosticsView? _termDiagnostics;
 
-    private async Task ShowTermDiagnosticsAsync(Window owner, ConsoleClient client, School school, ManagedAcademicTerm term)
+    private async Task ShowTermDiagnosticsAsync(ConsoleClient client, School school, ManagedAcademicTerm term)
     {
         if (_termDiagnostics is not null || _client != client || _school != school ||
             _termPreparationView is not { } preparation || !ShowsAcademicPage(preparation)) return;
@@ -57,33 +56,26 @@ public sealed partial class MainWindow
                 case "OPEN_COURSE_GROUP_SOURCE":
                 case "OPEN_TERM_TEACHING":
                     if (task.GradeId is null) return false;
-                    var teaching = new GradeTeachingPlanWindow(client, school, task.GradeId, task.SubjectId, task.CourseGroupId,
-                        selected.Id, task.ClassId, task.AccountId, requireInitialTarget: true) {SessionExpired = Expired};
-                    await ShowLegacyAsync(teaching, teaching.CloseForScopeChange);
+                    await ShowGradeTeachingPlanAsync(client, school, task.GradeId, task.SubjectId, task.CourseGroupId,
+                        selected.Id, task.ClassId, task.AccountId, requireInitialTarget: true);
                     return true;
                 case "OPEN_STAFF_REVIEW":
                     await ShowStaffReviewAsync(client, school, selected.Id,
-                        StaffReviewIssue.IssueKey(task.Code, task.GradeId, task.ClassId, task.AccountId), task.GradeId, task.ClassId, owner);
+                        StaffReviewIssue.IssueKey(task.Code, task.GradeId, task.ClassId, task.AccountId), task.GradeId, task.ClassId, this);
                     return true;
                 case "OPEN_TEACHER_ACCOUNT" when task.AccountId is { } account:
-                    await ShowTeacherAccountsAsync(client, school, account, owner);
+                    await ShowTeacherAccountsAsync(client, school, account, this);
                     return true;
                 case "OPEN_CLASS_RESPONSIBILITY" when task.ClassId is { } classTarget:
-                    await ShowStaffResponsibilitiesAsync(client, school, selected.Id, "classes", classTarget, task.AccountId, owner);
+                    await ShowStaffResponsibilitiesAsync(client, school, selected.Id, "classes", classTarget, task.AccountId, this);
                     return true;
                 case "OPEN_GRADE_RESPONSIBILITY" when task.GradeId is { } gradeTarget:
-                    await ShowStaffResponsibilitiesAsync(client, school, selected.Id, "grades", gradeTarget, task.AccountId, owner);
+                    await ShowStaffResponsibilitiesAsync(client, school, selected.Id, "grades", gradeTarget, task.AccountId, this);
                     return true;
                 default: return false;
             }
         }
 
-        async Task ShowLegacyAsync(Window window, Action closeForScopeChange)
-        {
-            view.CloseLegacyDialog = closeForScopeChange;
-            try { await window.ShowDialog(owner); }
-            finally { view.CloseLegacyDialog = null; }
-        }
     }
 
 }

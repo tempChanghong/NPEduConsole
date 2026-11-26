@@ -7,7 +7,7 @@ namespace NPEduConsole.App;
 
 public sealed record TermTeachingSubjectLine(string Id, string Name, string Detail);
 
-public sealed partial class GradeTeachingPlanWindow
+public sealed partial class GradeTeachingPlanView
 {
     private CancellationTokenSource? _staffRead;
     private StaffResponsibilitiesWindow? _staffEditor;
@@ -86,7 +86,9 @@ public sealed partial class GradeTeachingPlanWindow
 
     private void TermPlanTabChanged(object? sender, SelectionChangedEventArgs args)
     {
-        if (_specifiedTermId is null || _closed || args.Source != PlanTabs) return;
+        if (_closed || args.Source != PlanTabs) return;
+        if (_inWorkspace && PlanTabs.SelectedItem is { } selected && selected != PlanReviewTab) _workspaceEditTab = selected;
+        if (_specifiedTermId is null) return;
         UpdateReviewLayout();
         if (PlanTabs.SelectedItem == PlanStaffTab) _ = ReadRolesAsync();
     }
@@ -175,7 +177,7 @@ public sealed partial class GradeTeachingPlanWindow
         var window = new StaffReviewWindow(_client, _school, term.Id, grade: _gradeId, classroom: StaffClassId)
         { SessionExpired = SessionExpired };
         _staffReview = window;
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(OwnerWindow); }
         finally { _staffReview = null; }
         if (_closed) return;
         WorkspaceChanged |= window.WorkspaceChanged;
@@ -212,7 +214,7 @@ public sealed partial class GradeTeachingPlanWindow
             null, term, catalog.ActiveTerm, catalog.ScopeVersion) { SessionExpired = SessionExpired };
         _staffEditor = editor;
         Render();
-        try { await editor.ShowDialog(this); }
+        try { await editor.ShowDialog(OwnerWindow); }
         finally { _staffEditor = null; }
         if (_closed) return;
         WorkspaceChanged |= editor.RolesChanged;
@@ -252,7 +254,7 @@ public sealed partial class GradeTeachingPlanWindow
         var window = new ClassSubjectRulesWindow(_client, _school, term.Id, room.Id) { AccessChanged = SessionExpired };
         _classRulesEditor = window;
         Render();
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(OwnerWindow); }
         finally { _classRulesEditor = null; }
         if (_closed) return;
         WorkspaceChanged |= window.WorkspaceChanged;
@@ -344,10 +346,22 @@ public sealed partial class GradeTeachingPlanWindow
         }
         foreach (string key in _changedKeys.Concat(preview.Issues.Select(issue => issue.Key)).Distinct().Except(lines.Select(row => row.Key)))
             lines.Add(new(key, TargetName(key), "原预览", "请重新核对", Issue(key)));
+        bool compactWorkspace = _inWorkspace && _compact;
+        if (compactWorkspace)
+            lines = lines.OrderByDescending(line => line.Key == focusKey).ThenByDescending(line => line.HasIssue).ToList();
         PlanScopedReview.SetRows(lines, focusKey ?? PlanScopedReview.SelectedKey);
         UpdateReviewActions();
-        PlanTabs.SelectedItem = PlanReviewTab;
-        if (focusKey is not null) Dispatcher.UIThread.Post(() => { if (!_closed) PlanScopedReview.FocusIssue(focusKey); }, DispatcherPriority.Loaded);
+        if (compactWorkspace)
+        {
+            _workspaceReview = true;
+            _workspaceDraftList = false;
+            ArrangeWorkspaceReview();
+        }
+        else PlanTabs.SelectedItem = PlanReviewTab;
+        if (focusKey is not null) Dispatcher.UIThread.Post(() =>
+        {
+            if (!_closed) PlanScopedReview.FocusIssue(focusKey, showFirstRowHeading: compactWorkspace);
+        }, DispatcherPriority.Loaded);
         return;
 
         string? Issue(string key)
@@ -363,7 +377,7 @@ public sealed partial class GradeTeachingPlanWindow
     {
         bool simpleTeachingPreview = _preview is { CanApply: true } preview && preview.TeacherChanges.Length > 0 &&
             preview.Notices.Length == 0 && _changedKeys.Count == 0 && _rules.Count == 0 && _groups.Count == 0;
-        PlanReviewActions.IsVisible = !_compact || !simpleTeachingPreview;
+        PlanReviewActions.IsVisible = !_compact || !_inWorkspace && !simpleTeachingPreview;
     }
 
     private static string DescribeTeachers(IEnumerable<GradePlanTeacherChange> changes, bool after) =>
@@ -388,7 +402,9 @@ public sealed partial class GradeTeachingPlanWindow
 
     private void ReturnToPlanRowsClicked(object? sender, RoutedEventArgs args)
     {
+        LeaveWorkspaceReview();
         PlanTabs.SelectedIndex = 0;
+        Render();
         Focus(PlanRows);
     }
 }

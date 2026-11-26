@@ -8,7 +8,7 @@ public sealed partial class TermPreparationView
 {
     private TermStatusWindow? _termStatusWindow;
     private bool _openingTermClasses;
-    private GradeTeachingPlanWindow? _termTeachingWindow;
+    private bool _openingTermTeaching;
     private ManagedAcademicTerm[] CatalogTerms => _catalog?.Terms ??
         (_catalog is { } catalog ? (catalog.ActiveTerm is { } active ? [active, ..catalog.Drafts] : catalog.Drafts) : []);
 
@@ -50,7 +50,7 @@ public sealed partial class TermPreparationView
         TermManageClasses.IsEnabled = TermPrepareClasses.IsEnabled = editable;
         TermManageTeaching.IsVisible = TermManageClasses.IsVisible;
         TermPrepareTeaching.IsVisible = TermPrepareClasses.IsVisible;
-        TermManageTeaching.IsEnabled = TermPrepareTeaching.IsEnabled = editable && _termTeachingWindow is null;
+        TermManageTeaching.IsEnabled = TermPrepareTeaching.IsEnabled = editable && !_openingTermTeaching && OpenTermTeaching is not null;
         TermStatusActivate.IsVisible = supportsStatus && term?.Status is "DRAFT" or "ARCHIVED";
         TermStatusActivate.Content = term?.Status == "ARCHIVED" ? "重新启用" : "预览启用";
         TermMoreActions.IsVisible = supportsStatus && term is not null;
@@ -77,15 +77,16 @@ public sealed partial class TermPreparationView
     private async void TermManageClassesClicked(object? sender, RoutedEventArgs args) =>
         await OpenTermClassesAsync(SelectedTerm, TermManageClasses);
 
-    internal Func<Window, ManagedAcademicTerm, Task>? OpenTermDiagnostics { get; init; }
+    internal Func<ManagedAcademicTerm, Task>? OpenTermDiagnostics { get; init; }
     internal Func<ManagedAcademicTerm, Task<bool>>? OpenTermClassDirectory { get; init; }
+    internal Func<ManagedAcademicTerm, Task<bool>>? OpenTermTeaching { get; init; }
 
     private async void TermDiagnosticsClicked(object? sender, RoutedEventArgs args)
     {
         if (_busy || _closed || SelectedTerm is not { } term || OpenTermDiagnostics is not { } open) return;
         await RunAsync(async () =>
         {
-            await open(HostWindow, term);
+            await open(term);
             if (!_closed) await LoadCatalogAsync();
         });
         if (!_closed) Focus(TermViewDiagnostics);
@@ -102,14 +103,14 @@ public sealed partial class TermPreparationView
 
     private async Task OpenTermTeachingAsync(ManagedAcademicTerm? term, Button source)
     {
-        if (term is null || _busy || _closed || _termTeachingWindow is not null) return;
-        var window = new GradeTeachingPlanWindow(_client, _school, null, null, null, term.Id) { SessionExpired = SessionExpired };
-        _termTeachingWindow = window;
+        if (term is null || _busy || _closed || _openingTermTeaching || OpenTermTeaching is not { } open) return;
+        _openingTermTeaching = true;
         TermManageTeaching.IsEnabled = TermPrepareTeaching.IsEnabled = false;
-        try { await window.ShowDialog(HostWindow); }
-        finally { _termTeachingWindow = null; }
+        bool changed;
+        try { changed = await open(term); }
+        finally { _openingTermTeaching = false; }
         if (_closed) return;
-        if (_page == Page.Check && window.WorkspaceChanged) await RunAsync(() => ReadCheckAsync(term.Id));
+        if (_page == Page.Check && changed) await RunAsync(() => ReadCheckAsync(term.Id));
         Render();
         Focus(source);
     }

@@ -86,6 +86,8 @@ public sealed partial class MainWindow
             SessionExpired = error => AcademicScopeUnavailable(error, client, school),
             OpenMaintenance = edit => ShowClassMaintenancePageAsync(client, school, edit),
             OpenRoster = roster => ShowRosterPageAsync(client, school, roster),
+            OpenTeachingPlan = (termId, grade, room) => ShowGradeTeachingPlanAsync(client, school, grade,
+                term: termId, room: room, requireInitialTarget: true),
         };
         if (returnLabel is not null) view.ReturnLabel = returnLabel;
         view.CloseRequested = () => ReturnFromAcademicPage(view);

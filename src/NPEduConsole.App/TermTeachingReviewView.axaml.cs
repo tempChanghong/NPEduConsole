@@ -83,7 +83,7 @@ public sealed partial class TermTeachingReviewView : UserControl
     /// 按 Key 定位一条冲突并让键盘抵达它：选中、滚进视口、把焦点交给该行。
     /// 不是冲突行（或 Key 不在当前列表）返回 false，由宿主决定提示什么。
     /// </summary>
-    public bool FocusIssue(string key)
+    public bool FocusIssue(string key, bool showFirstRowHeading = false)
     {
         var target = Find(key);
         if (target is null || !target.HasIssue) return false;
@@ -95,6 +95,8 @@ public sealed partial class TermTeachingReviewView : UserControl
             {
                 container.BringIntoView();
                 container.Focus();
+                if (showFirstRowHeading && ReferenceEquals(_rows[0], target) && TermTeachingReviewList.Scroll is { } scroll)
+                    scroll.Offset = default;
             }
             else
             {

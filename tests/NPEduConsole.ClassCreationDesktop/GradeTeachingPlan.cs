@@ -2,7 +2,9 @@ using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Controls.Presenters;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using NPEduConsole.App;
 using NPEduConsole.Core;
 
@@ -28,7 +30,7 @@ internal static partial class Program
         var desktop = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
         var main = (MainWindow)desktop.MainWindow!;
         using var checkpoint = new HttpClient { BaseAddress = new Uri(access.Origin), Timeout = TimeSpan.FromSeconds(12) };
-        GradeTeachingPlanWindow? window = null;
+        GradeTeachingPlanView? window = null;
         try
         {
             main.Width = 1160;
@@ -46,22 +48,35 @@ internal static partial class Program
             Click(classes);
             var entry = Find<Button>(main, "OpenGradeTeachingPlanButton");
             await Until(() => entry.IsEffectivelyVisible && entry.IsEffectivelyEnabled, "existing class workspace exposes grade plan");
-            Click(entry);
-            window = await WindowOf<GradeTeachingPlanWindow>();
+            Click(Find<Button>(main, "OpenCourseGroupsButton"));
+            var originalDirectory = await AcademicPageAsync<CourseGroupsView>(main);
+            var originalGroups = Find<ListBox>(originalDirectory, "CourseGroupRows");
+            await Until(() => originalGroups.Items.OfType<CourseGroupDirectoryRow>().Any(row => row.Group.Id == access.A1Id), "existing A1 available");
+            originalGroups.SelectedItem = originalGroups.Items.OfType<CourseGroupDirectoryRow>().Single(row => row.Group.Id == access.A1Id);
+            Click(Find<Button>(originalDirectory, "CourseGradePlan"));
+            window = await AcademicPageAsync<GradeTeachingPlanView>(main);
             var rows = Find<ListBox>(window, "PlanRows");
             var grade = Find<ComboBox>(window, "PlanGrade");
             var subject = Find<ComboBox>(window, "PlanSubject");
+            var courses = Find<ComboBox>(window, "PlanExistingGroup");
+            await Until(() => courses.SelectedItem is GradePlanCourse selected && selected.Id == access.A1Id,
+                "walking action starts at the exact A1");
             await Until(() => rows.Items.OfType<GradeTeachingPlanRowView>().Any(row => row.ClassId == access.EightId), "grade comparison loaded");
             Check((grade.SelectedItem as GradePlanLabel)?.Id == access.GradeId, "agreement on exact grade ID");
-            subject.SelectedItem = subject.Items.OfType<GradePlanLabel>().Single(row => row.Id == access.SubjectId);
+            Check((subject.SelectedItem as GradePlanLabel)?.Id == access.SubjectId, "agreement on exact subject ID");
+            var tabs = Find<TabControl>(window, "PlanTabs");
+            tabs.SelectedIndex = 0;
             await Until(() => rows.Items.OfType<GradeTeachingPlanRowView>().Any(row => row.Key == access.EightId + ":" + access.SubjectId),
                 "physics loaded and scoped by ID");
-            Check(window.ClientSize.Width >= 1100 && window.ClientSize.Height >= 710, "wide desktop window measured");
+            Check(main.ClientSize.Width >= 1100 && main.ClientSize.Height >= 710 && ReferenceEquals(TopLevel.GetTopLevel(window), main),
+                "wide main window measured");
+            var caption = main.GetVisualAncestors().Last().GetVisualDescendants().OfType<Button>().Where(button =>
+                button.IsEffectivelyVisible && button.Name is "PART_MinimizeButton" or "PART_MaximizeButton" or "PART_CloseButton" or "PART_FullScreenButton");
+            Check(main.IsExtendedIntoWindowDecorations && caption.Select(button => button.Name).ToHashSet().SetEquals(
+                ["PART_MinimizeButton", "PART_MaximizeButton", "PART_CloseButton"]), "grade plan uses the three existing caption buttons");
             rows.SelectedItem = Room(access.EightId);
             Click(Find<Button>(window, "PlanStageRules"));
-            var tabs = Find<TabControl>(window, "PlanTabs");
             tabs.SelectedIndex = 1;
-            var courses = Find<ComboBox>(window, "PlanExistingGroup");
             courses.SelectedItem = courses.Items.OfType<GradePlanCourse>().Single(row => row.Id == access.A1Id);
             var operation = Find<ComboBox>(window, "PlanGroupOperation");
             operation.SelectedIndex = 1;
@@ -79,23 +94,48 @@ internal static partial class Program
             Check(Room(access.SevenId).After.Contains("物理 A2") && !Room(access.SevenId).After.Contains("物理 A1") &&
                   Room(access.EightId).After.Contains("随行政班 · 必修") && Room(access.EightId).After.Contains("八班物理老师") &&
                   Room(access.NineId).After.Contains("沿用当前安排"), "exact three classroom outcomes before save");
-            await Capture(window, output, "01-wide-78-9-preview");
+            await CaptureWithFrame(main, output, "01-wide-78-9-preview");
 
-            window.Width = 840;
-            window.Height = 480;
-            await Until(() => window.ClientSize is { Width: <= 845, Height: <= 485 }, "compact window measured");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "compact window measured");
+            var compactReview = Find<Border>(window, "PlanWorkspaceReviewHost");
+            var edit = Find<Button>(window, "PlanWorkspaceEdit");
+            await Until(() => compactReview.IsEffectivelyVisible && save.IsEffectivelyVisible && !tabs.IsEffectivelyVisible,
+                "narrow confirmed preview moves into the second step");
+            Click(edit);
+            await Until(() => tabs.IsEffectivelyVisible && tabs.SelectedIndex == 0 &&
+                Find<Button>(window, "PlanWorkspaceChanges").Content?.ToString() == "本次变更（3）", "one draft survives returning to the original tab");
+            Click(Find<Button>(window, "PlanWorkspaceChanges"));
+            await Until(() => Find<ListBox>(window, "PlanChangeRows").IsEffectivelyVisible && !tabs.IsEffectivelyVisible,
+                "the compact draft checklist is accessible from comparison");
+            Click(edit);
+            await Until(() => tabs.IsEffectivelyVisible, "return from the checklist");
+            main.Close();
+            Check(main.IsVisible && window.IsEffectivelyVisible && Status().Contains("未保存"), "main window close keeps the draft");
+            await CaptureWithFrame(main, output, "02a-compact-editing");
+            Click(preview);
+            await Until(() => compactReview.IsEffectivelyVisible && save.IsEffectivelyEnabled, "draft can still be previewed");
             await Signal("web-change");
             Click(save);
             await Until(() => Status().Contains("整份零写入") && !save.IsEffectivelyEnabled, "concurrent legacy write blocked entire plan");
-            await Until(() => rows.SelectedItem is GradeTeachingPlanRowView {Conflict: true} conflict &&
-                rows.ContainerFromItem(conflict) is ListBoxItem {IsFocused: true}, "keyboard focus lands on a changed row");
+            var review = Find<TermTeachingReviewView>(window, "PlanScopedReview");
+            var reviewRows = Find<ListBox>(review, "TermTeachingReviewList");
+            await Until(() => compactReview.IsEffectivelyVisible && review.IsKeyboardFocusWithin &&
+                reviewRows.SelectedItem is TermTeachingReviewLine {Issue: not null} line &&
+                reviewRows.ContainerFromItem(line) is ListBoxItem item &&
+                item.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(text => text.Text == line.Title) is { } heading &&
+                reviewRows.GetVisualDescendants().OfType<ScrollContentPresenter>().FirstOrDefault() is { } viewport &&
+                heading.TranslatePoint(new Point(0, 0), viewport)?.Y >= 0 &&
+                heading.TranslatePoint(new Point(0, heading.Bounds.Height), viewport)?.Y <= viewport.Bounds.Height,
+                "keyboard focus lands on the changed item in the compact review");
             await Signal("stale");
             Check(preview.IsEffectivelyEnabled &&
                   Find<ListBox>(window, "PlanChangeRows").Items.OfType<GradeTeachingPlanChangeView>().Any(row => row.Key == access.A1Id) &&
                   Find<TextBlock>(window, "PlanChangeCount").Text?.Contains("任课 1 项") == true &&
-                  save.TranslatePoint(new Point(0, save.Bounds.Height), window)?.Y <= window.ClientSize.Height,
+                  preview.TranslatePoint(new Point(0, preview.Bounds.Height), main)?.Y <= main.ClientSize.Height,
                   "compact window preserves the draft and bottom action");
-            await Capture(window, output, "02-compact-legacy-concurrency");
+            await CaptureWithFrame(main, output, "02-compact-legacy-concurrency");
             Click(preview);
             await Until(() => save.IsEffectivelyEnabled, "rechecked plan can be saved");
             Click(save);
@@ -103,20 +143,23 @@ internal static partial class Program
             await Until(() => !Find<Button>(window, "PlanReload").Content!.Equals("核对回执") && Find<Button>(window, "PlanBack").IsEffectivelyEnabled,
                 "receipt confirmed and current data rested");
             await Signal("applied");
-            // Reopen through the same product entry and observe persisted state by identity.
             Click(Find<Button>(window, "PlanBack"));
-            await Until(() => !window.IsVisible && entry.IsEffectivelyEnabled, "normal class workspace regained");
+            await Until(() => originalGroups.IsEffectivelyVisible && originalGroups.Items.OfType<CourseGroupDirectoryRow>()
+                .All(row => row.Group.Id != access.A1Id) && originalGroups.SelectedItem is null,
+                "returns to the walking directory and removes the retired group without selecting a replacement");
+            Click(Find<Button>(originalDirectory, "CourseBack"));
+            await Until(() => !window.IsEffectivelyVisible && entry.IsEffectivelyEnabled, "normal class workspace regained");
             Click(entry);
-            window = await WindowOf<GradeTeachingPlanWindow>();
+            window = await AcademicPageAsync<GradeTeachingPlanView>(main);
             var reopenedSubject = Find<ComboBox>(window, "PlanSubject");
             await Until(() => reopenedSubject.Items.OfType<GradePlanLabel>().Any(row => row.Id == access.SubjectId), "reopened catalog loaded");
             reopenedSubject.SelectedItem = reopenedSubject.Items.OfType<GradePlanLabel>().Single(row => row.Id == access.SubjectId);
             rows = Find<ListBox>(window, "PlanRows");
             await Until(() => rows.Items.OfType<GradeTeachingPlanRowView>().Any(row => row.ClassId == access.EightId &&
                 row.Current.Contains("八班物理老师")), "reopened exact class has confirmed teaching");
-            await Capture(window, output, "03-wide-persisted-arrangement");
+            await CaptureWithFrame(main, output, "03-wide-persisted-arrangement");
             Click(Find<Button>(window, "PlanBack"));
-            await Until(() => !window.IsVisible && entry.IsEffectivelyEnabled, "ready to open the exact course group");
+            await Until(() => !window.IsEffectivelyVisible && entry.IsEffectivelyEnabled, "ready to open the exact course group");
             Click(Find<Button>(main, "OpenCourseGroupsButton"));
             var directory = await AcademicPageAsync<CourseGroupsView>(main);
             var courseRows = Find<ListBox>(directory, "CourseGroupRows");
@@ -124,15 +167,17 @@ internal static partial class Program
             var a2 = courseRows.Items.OfType<CourseGroupDirectoryRow>().Single(row => row.Group.Name == "物理 A2");
             courseRows.SelectedItem = a2;
             Click(Find<Button>(directory, "CourseGradePlan"));
-            await Until(() => desktop.Windows.OfType<GradeTeachingPlanWindow>().Any(candidate => candidate.IsVisible), "walking group opens grade plan");
-            window = desktop.Windows.OfType<GradeTeachingPlanWindow>().Single(candidate => candidate.IsVisible);
+            window = await AcademicPageAsync<GradeTeachingPlanView>(main);
+            Check(ReferenceEquals(TopLevel.GetTopLevel(window), main) && desktop.Windows.Count(candidate => candidate.IsVisible) == 1,
+                "stop or change subject stays in the shared window");
             await Until(() => Find<ComboBox>(window, "PlanExistingGroup").SelectedItem is GradePlanCourse picked && picked.Id == a2.Group.Id,
                 "opens exact group ID and scope");
             Check(Find<TabControl>(window, "PlanTabs").SelectedIndex == 1, "group resolves to source editor");
             Click(Find<Button>(window, "PlanBack"));
             var teachingEntry = Find<Button>(directory, "CourseTeaching");
-            await Until(() => !window.IsVisible && courseRows.Items.OfType<CourseGroupDirectoryRow>()
-                .Any(row => row.Group.Id == access.ConsoleHistoryGroupId), "course directory shows group used by existing teaching flow");
+            await Until(() => !window.IsEffectivelyVisible && courseRows.IsEffectivelyVisible &&
+                courseRows.SelectedItem is CourseGroupDirectoryRow kept && kept.Group.Id == a2.Group.Id,
+                "the group that opened the planner is still selected on return");
             courseRows.SelectedItem = courseRows.Items.OfType<CourseGroupDirectoryRow>().Single(row => row.Group.Id == access.ConsoleHistoryGroupId);
             Check(teachingEntry.IsEffectivelyEnabled, "existing course assignment editor available");
             Click(teachingEntry);
@@ -153,12 +198,6 @@ internal static partial class Program
             desktop.Shutdown(0);
             return;
 
-            async Task<T> WindowOf<T>() where T : Window
-            {
-                await Until(() => desktop.Windows.OfType<T>().Any(candidate => candidate.IsVisible), typeof(T).Name + " opened");
-                return desktop.Windows.OfType<T>().Single(candidate => candidate.IsVisible);
-            }
-
             GradeTeachingPlanRowView Room(string id) => rows.Items.OfType<GradeTeachingPlanRowView>().Single(row => row.ClassId == id);
             string Status() => Find<TextBlock>(window!, "PlanNotice").Text ?? "";
         }
@@ -166,7 +205,7 @@ internal static partial class Program
         {
             if (window is { IsVisible: true })
             {
-                try { await Capture(window, output, "desktop-failure"); }
+                try { await CaptureWithFrame(main, output, "desktop-failure"); }
                 catch (Exception captureError) { Console.Error.WriteLine(captureError.Message); }
             }
             await File.WriteAllTextAsync(Path.Combine(output, "desktop-failure.txt"), error.ToString());

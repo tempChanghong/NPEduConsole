@@ -288,7 +288,8 @@ internal static partial class Program
     }
 
     private static T Find<T>(Control root, string name) where T : Control =>
-        (root is TeachingWindow { Content: TeachingView view } ? view : root).FindControl<T>(name) ?? throw new InvalidDataException(name);
+        (root switch { TeachingWindow teaching => (Control)teaching.Content!, GradeTeachingPlanWindow plan => plan.View, _ => root })
+            .FindControl<T>(name) ?? throw new InvalidDataException(name);
     private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
     private static async Task<T> AcademicPageAsync<T>(MainWindow main) where T : UserControl
