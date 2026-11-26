@@ -133,13 +133,18 @@ let prisma, server, fixtureSocket, stopClassroom, lostReply, rename, batch;
 
 // Model a gateway losing an acknowledgement after KV has already committed.
 // The destination is pinned to this run's loopback fixture for every request.
-async function loseWriteReply(origin, matches, method = 'POST', dropStatus = 200) {
+async function loseWriteReply(origin, matches, method = 'POST', dropStatus = 200, observeReceipt = null) {
   const target = new URL(origin);
   let committedRequests = 0;
   let attempts = 0;
+  const received = { writes: [], receipts: [] };
   const relay = createHttpServer((req, res) => {
     const watched = req.method === method && matches(req.url);
-    if (watched) attempts++;
+    if (watched) {
+      attempts++;
+      if (observeReceipt) received.writes.push(req.headers['x-request-id']);
+    }
+    if (req.method === 'GET' && observeReceipt?.(req.url)) received.receipts.push(req.url.split('/').at(-1));
     const forward = httpRequest({ hostname: '127.0.0.1', port: target.port, method: req.method,
       path: req.url, headers: { ...req.headers, host: target.host } }, upstream => {
       if (watched && upstream.statusCode === dropStatus) {
@@ -155,7 +160,7 @@ async function loseWriteReply(origin, matches, method = 'POST', dropStatus = 200
     req.pipe(forward);
   });
   await new Promise((resolve, reject) => relay.once('error', reject).listen(0, '127.0.0.1', resolve));
-  return { server: relay, origin: 'http://127.0.0.1:' + relay.address().port, count: () => committedRequests, attempts: () => attempts };
+  return { server: relay, origin: 'http://127.0.0.1:' + relay.address().port, count: () => committedRequests, attempts: () => attempts, received };
 }
 
 function run(command, args, env = process.env, logName = basename(command) + '.log') {
@@ -686,7 +691,11 @@ async function runFixture() {
     const {verifyNativeClassroomActions} = await import('./classroom-action-native-fixture.mjs');
     const project = fileURLToPath(new URL('./NPEduConsole.TermPreparationNative/NPEduConsole.TermPreparationNative.csproj', import.meta.url));
     const consoleProject = fileURLToPath(new URL('./NPEduConsole.ClassCreationDesktop/NPEduConsole.ClassCreationDesktop.csproj', import.meta.url));
-    return verifyNativeClassroomActions({prisma, origin, directory, fixture, runNative: args => runDesktop(project, args),
+    if (mode === '--website-policy') {
+      const policy = '/api/v2/npep/schools/' + fixture.school.id + '/website-policy';
+      lostReply = await loseWriteReply(origin, path => path === policy, 'POST', 200, path => path.startsWith(policy + '/receipts/'));
+    }
+    return verifyNativeClassroomActions({prisma, origin, directory, fixture, relay: lostReply, runNative: args => runDesktop(project, args),
       runWebsiteDesktop: mode === '--website-policy' ? args => runDesktop(consoleProject, args) : null});
   }
   if (mode === '--school-transfer-target') {

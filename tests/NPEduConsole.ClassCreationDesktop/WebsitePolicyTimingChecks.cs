@@ -145,8 +145,8 @@ internal static class WebsitePolicyTimingChecks
         var reqId = Guid.NewGuid();
         var target = new ClassroomActionTarget("t1", "GRADE", "g2");
         var draft = new WebsitePolicyDraft([new("douyin.com", "LESSON|AFTER_SCHOOL")], "ALLOW");
-        var timedWrite = new WebsitePolicyWindow.Write(reqId, target, ["douyin.com"], "v1", UseTimedApi: true, Draft: draft);
-        var pending = new WebsitePolicyWindow.Pending { Value = timedWrite };
+        var timedWrite = new WebsitePolicyView.Write(reqId, target, ["douyin.com"], "v1", UseTimedApi: true, Draft: draft);
+        var pending = new WebsitePolicyView.Pending { Value = timedWrite };
         Require(pending.Value!.RequestId == reqId && pending.Value.UseTimedApi &&
             WebsitePolicyTiming.DraftEquals(pending.Value.Draft, draft),
             "Pending.Write retains RequestId, timed capability, and composite LESSON|AFTER_SCHOOL draft.");

@@ -318,7 +318,7 @@ public static class WebsitePolicyTiming
     }
 }
 
-public sealed partial class WebsitePolicyWindow
+public sealed partial class WebsitePolicyView
 {
     private readonly Dictionary<string, string?> _hostPeriods = new(StringComparer.OrdinalIgnoreCase);
     private string _unavailableBehavior = WebsitePolicyTiming.BehaviorBlock;
@@ -400,7 +400,7 @@ public sealed partial class WebsitePolicyWindow
     {
         if (_updating || _scope is null || _pending.Value is not null || _downgradeBlocked) return;
         _hostPeriods[host] = period;
-        _preview = null;
+        InvalidatePreview();
         RecomputeDirtyState();
         RenderRows();
         UpdateActions();
@@ -412,7 +412,7 @@ public sealed partial class WebsitePolicyWindow
         _unavailableBehavior = UnavailableBehavior.SelectedIndex == 1
             ? WebsitePolicyTiming.BehaviorAllow
             : WebsitePolicyTiming.BehaviorBlock;
-        _preview = null;
+        InvalidatePreview();
         RecomputeDirtyState();
         RenderRows();
         UpdateActions();

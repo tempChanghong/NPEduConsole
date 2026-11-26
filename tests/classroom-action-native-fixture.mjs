@@ -6,7 +6,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 
 // Cross the actual KV / native-runtime boundary. Only the input device inventory
 // is synthetic. No production account, capture, USB drive or Guard is involved.
-export async function verifyNativeClassroomActions({prisma, origin, directory, fixture, runNative, runWebsiteDesktop}) {
+export async function verifyNativeClassroomActions({prisma, origin, directory, fixture, relay, runNative, runWebsiteDesktop}) {
   const {school, term, managerId, classes} = fixture;
   const inheritance = process.env.NP_CLASSROOM_ACTION_INHERITANCE === '1';
   const manualStudy = process.env.NP_MANUAL_STUDY_POLICY === '1';
@@ -49,16 +49,16 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   const websiteDirectory = resolve(process.env.NP_CONSOLE_WEBSITE_POLICY_EVIDENCE || '.artifacts/website-policy/live');
   const websiteScope = `${root}/website-policy/scope/${term.id}/CLASS/${classId}`;
   let websiteEvidence = null;
-  async function websiteDesktop(readReceipt) {
+  async function websiteDesktop(options = {}) {
     const grade = await prisma.grade.findUniqueOrThrow({where: {id: room.gradeId}});
     const path = join(directory, 'website-access.json');
     await mkdir(websiteDirectory, {recursive: true});
     await writeFile(path, JSON.stringify({origin, schoolId: school.id, schoolCode: school.code, pin: fixture.pin,
-      gradeCode: grade.code, classCode: room.code, readReceipt}));
+      gradeCode: grade.code, classCode: room.code, ...options}));
     await runWebsiteDesktop(['--live-website-policy', path, websiteDirectory]);
   }
   if (runWebsiteDesktop) {
-    await websiteDesktop(false);
+    await websiteDesktop({verifyWorkspace: true});
     const desired = await call(websiteScope);
     assert.deepEqual(desired.rows[0].before.blockedHosts, ['douyin.com']);
     assert.equal(desired.rows[0].before.source, 'GRADE');
@@ -142,9 +142,24 @@ export async function verifyNativeClassroomActions({prisma, origin, directory, f
   if (runWebsiteDesktop) {
     await publishAndObserve('GRADE', gradeActions, 'allow', 'deny');
     assert.ok(websiteEvidence);
-    await websiteDesktop(true);
-    await writeFile(join(websiteDirectory, 'website-policy-live.json'), JSON.stringify({passed: true, ...websiteEvidence}, null, 2));
-    console.log('PASS actual Console publication and receipt display with the bound native Host; Edge application was not claimed.');
+    await websiteDesktop({readReceipt: true});
+    await websiteDesktop({origin: relay.origin, allowClass: true, verifyWorkspace: true, dropPublishReply: true, windowWidth: 840, windowHeight: 480});
+    assert.equal(relay.attempts(), 1);
+    assert.equal(relay.count(), 1);
+    const [requestId] = relay.received.writes;
+    assert.match(requestId, /^[\da-f-]{36}$/);
+    assert.deepEqual(relay.received.receipts, [requestId]);
+    const saved = await call(websiteScope);
+    assert.equal(saved.rows[0].before.source, 'CLASS');
+    assert.deepEqual(saved.rows[0].before.blockedHosts, []);
+    const neighbor = await prisma.workspace.findFirstOrThrow({where: {id: {in: classes.slice(1)}, gradeId: room.gradeId}});
+    const outsideException = await call(`${root}/website-policy/scope/${term.id}/CLASS/${neighbor.id}`);
+    assert.equal(outsideException.rows[0].before.source, 'GRADE');
+    assert.deepEqual(outsideException.rows[0].before.blockedHosts, ['douyin.com']);
+    await writeFile(join(websiteDirectory, 'website-policy-live.json'), JSON.stringify({passed: true, ...websiteEvidence,
+      classException: {schoolId: school.id, termId: term.id, scopeId: classId, requestId, attempts: relay.attempts(),
+        accepted: relay.count(), reads: relay.received.receipts, unchangedClassId: neighbor.id}}, null, 2));
+    console.log('PASS Console width/step/draft, live bound Host receipts, class exception and one original receipt read after a lost reply.');
     return;
   } else if (manualRecording) {
     const gradeAllow = {...gradeActions, switchClassroomMode: null, startManualStudy: null, startManualRecording: rule('ALLOW')};

@@ -1,0 +1,206 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App"
+             x:Class="NPEduConsole.App.WebsitePolicyView">
+  <UserControl.Styles>
+    <Style Selector="Border.timing-row CheckBox">
+      <Setter Property="MinHeight" Value="28" />
+      <Setter Property="Padding" Value="4,0,0,0" />
+    </Style>
+    <Style Selector="Grid.compact-timing ComboBox">
+      <Setter Property="MinHeight" Value="30" />
+      <Setter Property="Padding" Value="9,3,0,3" />
+    </Style>
+    <Style Selector="Border#NarrowTabs">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Button.action.policy-step">
+      <Setter Property="MinHeight" Value="32" />
+    </Style>
+    <Style Selector="Button.action.policy-step.selected">
+      <Setter Property="Background" Value="{DynamicResource FieldBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="ScrollViewer#VerifyDetailsScroll">
+      <Setter Property="Grid.Column" Value="1" />
+    </Style>
+    <Style Selector="Grid#PolicyRoot.narrow Border#NarrowTabs">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Grid#PolicyRoot.narrow ScrollViewer#WebsiteDetailsScroll">
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+    </Style>
+    <Style Selector="Grid#PolicyRoot.narrow ScrollViewer#VerifyDetailsScroll">
+      <Setter Property="Grid.Column" Value="0" />
+      <Setter Property="Grid.ColumnSpan" Value="2" />
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Grid#PolicyRoot.narrow.show-verify ScrollViewer#WebsiteDetailsScroll">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="Grid#PolicyRoot.narrow.show-verify ScrollViewer#VerifyDetailsScroll">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="Border.policy-badge">
+      <Setter Property="Padding" Value="6,1" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="Background" Value="{DynamicResource FieldBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Border.policy-badge.changed">
+      <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}" />
+    </Style>
+    <Style Selector="Border.policy-badge.unreported TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+    </Style>
+  </UserControl.Styles>
+
+  <Grid x:Name="PolicyRoot" RowDefinitions="Auto,Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <!-- 固定页首：学校·学期 + 范围选择 -->
+    <Border Grid.Row="0" Padding="16,8" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <StackPanel Spacing="6">
+        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+          <TextBlock Text="教室网站访问规则" FontSize="20" FontWeight="SemiBold" />
+          <TextBlock x:Name="ContextText" Grid.Column="1" Classes="muted" TextWrapping="Wrap" VerticalAlignment="Center" />
+        </Grid>
+        <TextBlock x:Name="WorkingScope" IsVisible="False" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <Grid x:Name="ScopePicker" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" MaxWidth="640" HorizontalAlignment="Left">
+          <ComboBox x:Name="ScopeKind" MinWidth="114" AutomationProperties.Name="规则范围" SelectionChanged="ChangeKind">
+            <ComboBoxItem Content="年级默认" /><ComboBoxItem Content="班级规则" />
+          </ComboBox>
+          <ComboBox x:Name="ScopeChoice" Grid.Column="1" HorizontalAlignment="Stretch" PlaceholderText="选择年级或行政班"
+                    AutomationProperties.Name="选择规则范围" />
+          <Button x:Name="ReadScopeButton" Grid.Column="2" Classes="action" Content="读取范围" Click="ReadScopeClicked" />
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <!-- 窄窗分段导航（默认隐藏，.narrow 时显示） -->
+    <Border x:Name="NarrowTabs" Grid.Row="1" Padding="16,4" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+        <Button x:Name="EditTabButton" Classes="action policy-step" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Content="编辑规则" Click="EditTabClicked" />
+        <Button x:Name="VerifyTabButton" Grid.Column="1" Classes="action policy-step" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                Content="核对与发布" Click="VerifyTabClicked" />
+      </Grid>
+    </Border>
+
+    <!-- 主体：宽窗左编辑右核对各自滚动，窄窗由 .narrow / .show-verify 切换 -->
+    <Grid x:Name="WorkspaceGrid" Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="16" Margin="16,10">
+      <ScrollViewer x:Name="WebsiteDetailsScroll" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="DetailsBody" Spacing="10">
+          <TextBlock x:Name="EditorEmpty" Text="选择年级或班级，再读取该范围的规则。" Classes="muted" TextWrapping="Wrap" />
+          <Border x:Name="Editor" Classes="card" Padding="12" IsVisible="False">
+            <StackPanel Spacing="6">
+              <TextBlock x:Name="EditorHeading" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <CheckBox x:Name="Inherit" Content="沿用上级或未设置规则" />
+              <TextBox x:Name="Hosts" AcceptsReturn="True" MinHeight="68" MaxHeight="156" MaxLength="6200" TextWrapping="Wrap"
+                       PlaceholderText="每行一个域名，例如 douyin.com" AutomationProperties.Name="限制访问的域名" />
+              <TextBlock x:Name="HostTips" TextWrapping="Wrap" Classes="muted" Text="最多 24 个。按完整域名匹配，douyin.com 和 www.douyin.com 分开填。留空表示本范围不下发限制清单。" />
+              <TextBlock x:Name="TimingNotice" TextWrapping="Wrap" Classes="muted" IsVisible="False" />
+              <StackPanel x:Name="TimingSection" Spacing="6" IsVisible="False">
+                <TextBlock x:Name="TimingHeading" Classes="label" Text="单域名生效时段（默认全天，可多选上课、课间、放学后）" TextWrapping="Wrap" />
+                <ItemsControl x:Name="TimingRows" AutomationProperties.Name="各域名生效时段">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="local:WebsitePolicyTimingRow">
+                      <Border Classes="timing-row" Padding="8,4" Margin="0,1" CornerRadius="6"
+                              Background="{DynamicResource FieldBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1">
+                        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto" ColumnSpacing="10" RowSpacing="2">
+                          <TextBlock Text="{Binding Host}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Host}" />
+                          <WrapPanel Grid.Column="1" Orientation="Horizontal" ItemSpacing="8" LineSpacing="2" VerticalAlignment="Center">
+                            <CheckBox Content="全天" IsChecked="{Binding IsAllDay, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                                      AutomationProperties.Name="{Binding AllDayAutomationName}" AutomationProperties.AutomationId="{Binding AllDayAutomationId}" />
+                            <CheckBox Content="上课" IsChecked="{Binding IsLesson, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                                      AutomationProperties.Name="{Binding LessonAutomationName}" AutomationProperties.AutomationId="{Binding LessonAutomationId}" />
+                            <CheckBox Content="课间" IsChecked="{Binding IsBreak, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                                      AutomationProperties.Name="{Binding BreakAutomationName}" AutomationProperties.AutomationId="{Binding BreakAutomationId}" />
+                            <CheckBox Content="放学后" IsChecked="{Binding IsAfterSchool, Mode=TwoWay}" IsEnabled="{Binding CanEdit}"
+                                      AutomationProperties.Name="{Binding AfterSchoolAutomationName}" AutomationProperties.AutomationId="{Binding AfterSchoolAutomationId}" />
+                          </WrapPanel>
+                          <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="请至少勾选一个时段，或勾回「全天」。"
+                                     Foreground="{DynamicResource ErrorBrush}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding IsIncomplete}" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Grid x:Name="UnavailablePanel" Classes="compact-timing" ColumnDefinitions="*,Auto" ColumnSpacing="10" IsVisible="False">
+                  <StackPanel VerticalAlignment="Center" Spacing="1">
+                    <TextBlock x:Name="UnavailableLabel" Text="课表不可核对时" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock x:Name="UnavailableHint" Classes="muted" Text="仅对分时域名生效；全天域名始终限制。" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ComboBox x:Name="UnavailableBehavior" Grid.Column="1" MinWidth="148" VerticalAlignment="Center"
+                            AutomationProperties.Name="课表不可核对时本范围行为" SelectionChanged="UnavailableBehaviorChanged">
+                    <ComboBoxItem Content="本范围限制" /><ComboBoxItem Content="本范围暂不限制" />
+                  </ComboBox>
+                </Grid>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
+
+      <ScrollViewer x:Name="VerifyDetailsScroll" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel x:Name="VerifyBody" Spacing="7">
+          <TextBlock x:Name="ReviewEmpty" Text="读取范围后，可在这里核对班级规则和逐屏状态。" Classes="muted" TextWrapping="Wrap" />
+          <TextBlock x:Name="PreviewHeading" IsVisible="False" FontWeight="SemiBold" TextWrapping="Wrap" />
+          <ItemsControl x:Name="RoomRows">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="local:WebsitePolicyRoomRow">
+                <Border Classes="card" Padding="10,7" Margin="0,0,0,6">
+                  <StackPanel Spacing="3">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                      <Border Grid.Column="1" Classes="policy-badge" Classes.changed="{Binding HasChanges}">
+                        <TextBlock Text="{Binding StatusBadge}" FontSize="12" />
+                      </Border>
+                    </Grid>
+                    <TextBlock Text="{Binding PublishedSummary}" Classes="muted" FontSize="12" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding PendingSummary}" FontSize="12" TextWrapping="Wrap" IsVisible="{Binding HasPending}" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock x:Name="ScreenHeading" IsVisible="False" Text="逐屏核对" FontWeight="SemiBold" />
+          <ItemsControl x:Name="ScreenRows">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="local:WebsitePolicyScreenRow">
+                <Border Classes="card" Padding="10,7" Margin="0,0,0,6">
+                  <StackPanel Spacing="3">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                      <Border Grid.Column="1" Classes="policy-badge" Classes.unreported="{Binding IsUnreported}">
+                        <TextBlock Text="{Binding StatusBadge}" FontSize="12" />
+                      </Border>
+                    </Grid>
+                    <TextBlock Text="{Binding Evidence}" Classes="muted" FontSize="12" TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <TextBlock x:Name="PublicationNote" IsVisible="False" TextWrapping="Wrap" Classes="muted"
+                     Text="Edge 可能稍后才对新访问采用规则，已打开的页面可能继续播放。" />
+        </StackPanel>
+      </ScrollViewer>
+    </Grid>
+
+    <!-- 固定底栏：单主动作 PublishButton，480 高度始终可达 -->
+    <Border Grid.Row="3" Padding="16,8" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <StackPanel Spacing="4">
+        <TextBlock x:Name="Feedback" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+        <DockPanel LastChildFill="False">
+          <Button x:Name="ReturnButton" Classes="action" Content="返回" Click="ReturnClicked" />
+          <WrapPanel DockPanel.Dock="Right" ItemSpacing="8" LineSpacing="4">
+            <Button x:Name="DiscardButton" Classes="action" Content="放弃本次编辑" Click="DiscardClicked" />
+            <Button x:Name="PreviewButton" Classes="action accent" Content="预览变更" Click="PreviewClicked" />
+            <Button x:Name="PublishButton" Classes="action accent" Content="发布这份配置" Click="PublishClicked" />
+            <Button x:Name="ReceiptButton" Classes="action accent" Content="查原回执" Click="ReceiptClicked" />
+          </WrapPanel>
+        </DockPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>
