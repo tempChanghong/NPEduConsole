@@ -45,7 +45,8 @@ export async function verifyHomeworkSettings({prisma, origin, fixture, directory
     body: {administrativeClassId: roomId, name: '作业验收大屏', loginCode: 'homework-screen', pin}});
   const checks = [];
   let webPage, screenPage, teacherPage, edgeOrigin, releaseRead, readDelayed;
-  let dropped = null, saveRequests = 0, receiptReads = 0, delayRead = false;
+  let dropped = null, saveRequests = 0, receiptReads = 0, delayRead = false, allowReceipt = false;
+  const receiptPaths = new Set();
   let conflictAttempt;
   const check = name => { checks.push(name); console.log('PASS homework settings: ' + name); };
 
@@ -65,12 +66,17 @@ export async function verifyHomeworkSettings({prisma, origin, fixture, directory
         check('Edge independently saved the deadline partition');
         break;
       }
+      case 'allow-receipt':
+        assert.ok(dropped && receiptReads === 1 && saveRequests === 1);
+        allowReceipt = true;
+        break;
       case 'receipt': {
         const latest = await snapshot(school.id);
         assert.deepEqual(latest.versions, {quickInputs: 1, quickDeadlines: 1});
         assert.deepEqual(latest.quickInputs.find(row => row.label === label)?.subjectIds, [physics.id]);
         assert.equal(latest.quickDeadlines.at(-1).label, deadlineLabel);
-        assert.ok(dropped && receiptReads === 1 && saveRequests === 1);
+        assert.ok(dropped && receiptReads === 2 && saveRequests === 1);
+        assert.deepEqual([...receiptPaths], [path(school.id) + '/receipts/' + dropped]);
         const failure = await webPage.evaluate(async ({path, initial}) => {
           const token = localStorage.getItem('classworks-v2-access-token');
           const response = await fetch(path, {method: 'PUT', headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
@@ -98,6 +104,22 @@ export async function verifyHomeworkSettings({prisma, origin, fixture, directory
         assert.equal(latest.quickInputs[0].text, '学校另一次编辑');
         assert.equal(latest.quickDeadlines[0].label, initial.quickDeadlines[0].label);
         check('same-section conflict blocked both changed sections atomically');
+        break;
+      }
+      case 'reviewed-no-write': {
+        const latest = await snapshot(school.id);
+        assert.equal(saveRequests, 2);
+        assert.deepEqual(latest.versions, {quickInputs: 2, quickDeadlines: 1});
+        check('review and refused school switch both preserved drafts without writing');
+        break;
+      }
+      case 'saved-after-review': {
+        const latest = await snapshot(school.id);
+        assert.equal(saveRequests, 3);
+        assert.deepEqual(latest.versions, {quickInputs: 3, quickDeadlines: 2});
+        assert.equal(latest.quickInputs[0].text, '本地尚未保存的正文');
+        assert.equal(latest.quickDeadlines[0].label, '本地未提交的时间');
+        check('explicit save committed both drafts after reviewing the changed partition');
         delayRead = true;
         break;
       }
@@ -112,7 +134,7 @@ export async function verifyHomeworkSettings({prisma, origin, fixture, directory
       case 'no-term': {
         assert.equal(await prisma.academicTerm.count({where: {schoolId: other.id}}), 0);
         assert.equal((await snapshot(other.id)).quickDeadlines[0].label, '无学期也可设置');
-        assert.equal((await snapshot(school.id)).quickDeadlines[0].label, initial.quickDeadlines[0].label);
+        assert.equal((await snapshot(school.id)).quickDeadlines[0].label, '本地未提交的时间');
         check('school without an active term saved its own settings only');
         break;
       }
@@ -129,7 +151,11 @@ export async function verifyHomeworkSettings({prisma, origin, fixture, directory
       });
       return;
     }
-    if (req.method === 'GET' && req.url.startsWith(path(school.id) + '/receipts/')) receiptReads++;
+    if (req.method === 'GET' && req.url.startsWith(path(school.id) + '/receipts/')) {
+      receiptReads++;
+      receiptPaths.add(req.url);
+      if (!allowReceipt) { res.writeHead(503).end(); return; }
+    }
     const target = new URL(req.url, origin);
     if (req.method === 'PUT' && req.url === path(school.id) && saveRequests === 1) {
       const parts = [];

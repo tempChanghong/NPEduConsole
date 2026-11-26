@@ -246,7 +246,6 @@ public sealed partial class MainWindow : Window
         CloseSchoolProfile();
         CloseSchoolManagementAccounts();
         CloseTeacherAccounts();
-        CloseHomeworkSettings();
         CloseScreenDuty();
         CloseScreenExam();
         CloseDeviceRunReports();
@@ -660,7 +659,6 @@ public sealed partial class MainWindow : Window
         CloseSchoolProfile();
         CloseTeacherAccounts();
         CloseSchoolManagementAccounts();
-        CloseHomeworkSettings();
         CloseScreenDuty();
         CloseScreenExam();
         CloseDeviceRunReports();

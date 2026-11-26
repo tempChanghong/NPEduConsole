@@ -78,7 +78,7 @@ public sealed partial class HomeworkSettingsPreview : UserControl
         _knownSubjects = new HashSet<string>(_subjects.Select((item) => item.Id), StringComparer.Ordinal);
 
         HomeworkPreviewWordsPanel.IsVisible = !deadlines;
-        HomeworkPreviewDeadlinesPanel.IsVisible = deadlines;
+        HomeworkPreviewDeadlineDate.IsVisible = HomeworkPreviewDeadlines.IsVisible = deadlines;
         HomeworkPreviewSubjectRow.IsVisible = !deadlines;
         HomeworkPreviewHint.IsVisible = !deadlines;
 

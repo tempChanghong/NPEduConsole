@@ -58,8 +58,14 @@
         </Border>
 
         <TextBlock Grid.Row="2" x:Name="HomeworkPreviewHint" Classes="hw-note" />
+        <StackPanel Grid.Row="2" x:Name="HomeworkPreviewDeadlineDate" IsVisible="False" Spacing="3">
+            <TextBlock Text="基准日" Classes="label" />
+            <DatePicker x:Name="HomeworkPreviewBaseDate" SelectedDateChanged="BaseDateChanged"
+                        AutomationProperties.Name="快捷截止时间的基准日" />
+            <TextBlock x:Name="HomeworkPreviewBaseHint" Classes="hw-note" />
+        </StackPanel>
 
-        <ScrollViewer Grid.Row="3" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer Grid.Row="3" x:Name="HomeworkPreviewScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                 <StackPanel x:Name="HomeworkPreviewWordsPanel">
                     <TextBlock Text="作业正文（试填）" Classes="hw-head" />
@@ -70,13 +76,7 @@
                     <StackPanel x:Name="HomeworkPreviewGroups" Margin="0,2,0,0" />
                 </StackPanel>
 
-                <StackPanel x:Name="HomeworkPreviewDeadlinesPanel" IsVisible="False">
-                    <TextBlock Text="基准日" Classes="hw-head" />
-                    <DatePicker x:Name="HomeworkPreviewBaseDate" SelectedDateChanged="BaseDateChanged"
-                                AutomationProperties.Name="快捷截止时间的基准日" />
-                    <TextBlock x:Name="HomeworkPreviewBaseHint" Classes="hw-note" Margin="0,4,0,0" />
-                    <StackPanel x:Name="HomeworkPreviewDeadlines" Margin="0,8,0,0" />
-                </StackPanel>
+                <StackPanel x:Name="HomeworkPreviewDeadlines" IsVisible="False" />
             </StackPanel>
         </ScrollViewer>
     </Grid>

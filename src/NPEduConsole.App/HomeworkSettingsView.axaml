@@ -1,7 +1,6 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.HomeworkSettingsWindow"
-        Title="作业录入设置" Width="1160" Height="780" MinWidth="700" MinHeight="430" WindowStartupLocation="CenterOwner">
-  <Window.Styles>
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App" x:Class="NPEduConsole.App.HomeworkSettingsView">
+  <UserControl.Styles>
     <Style Selector="Button.homework-tab.current">
       <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource FocusBrush}"/>
@@ -9,7 +8,7 @@
     <Style Selector="TextBlock.homework-status.error">
       <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
     </Style>
-  </Window.Styles>
+  </UserControl.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
     <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="18,9">
       <Grid RowDefinitions="Auto,Auto" RowSpacing="7">
@@ -25,21 +24,32 @@
       </Grid>
     </Border>
     <Grid Grid.Row="1" Margin="18,8" RowDefinitions="Auto,*" RowSpacing="6">
-      <TextBlock x:Name="HomeworkFeedback" Classes="homework-status" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" IsVisible="False"/>
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+        <TextBlock x:Name="HomeworkFeedback" Classes="homework-status" VerticalAlignment="Center" TextWrapping="Wrap"
+                   AutomationProperties.LiveSetting="Polite" IsVisible="False"/>
+        <Button x:Name="HomeworkReviewOpen" Grid.Column="1" Classes="action" Content="核对服务器配置"
+                VerticalAlignment="Center" IsVisible="False" Click="ReviewOpenClicked"/>
+      </Grid>
       <Grid Grid.Row="1" x:Name="HomeworkPanes" ColumnDefinitions="1.25*,*" ColumnSpacing="12">
         <Border x:Name="HomeworkEditor" Classes="card" Padding="12,9">
-          <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6">
-            <WrapPanel ItemSpacing="6" LineSpacing="4">
-              <Button x:Name="HomeworkAdd" Classes="action" Click="AddClicked" Content="添加"/>
-              <Button x:Name="HomeworkRemove" Classes="action" Click="RemoveClicked" Content="删除所选"/>
-              <Button x:Name="HomeworkEarlier" Classes="action" Click="EarlierClicked" Content="上移"/>
-              <Button x:Name="HomeworkLater" Classes="action" Click="LaterClicked" Content="下移"/>
-              <Button x:Name="HomeworkGroupEarlier" Classes="action" Click="GroupEarlierClicked" Content="本组上移"/>
-              <Button x:Name="HomeworkGroupLater" Classes="action" Click="GroupLaterClicked" Content="本组下移"/>
-              <Button x:Name="HomeworkClearWords" Classes="action" Click="ClearWordsClicked" Content="清空快捷词"/>
-              <Button x:Name="HomeworkDefaults" Classes="action" Click="DefaultsClicked" Content="恢复本区默认"/>
-            </WrapPanel>
-            <Grid Grid.Row="1" RowDefinitions="*,Auto,*" RowSpacing="6">
+          <Grid RowDefinitions="Auto,*" RowSpacing="6">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+              <WrapPanel ItemSpacing="6" LineSpacing="4" VerticalAlignment="Top">
+                <Button x:Name="HomeworkAdd" Classes="action" Click="AddClicked" Content="添加"/>
+                <Button x:Name="HomeworkRemove" Classes="action" Click="RemoveClicked" Content="删除所选"/>
+              </WrapPanel>
+              <Expander x:Name="HomeworkBatchActions" Grid.Column="1" Header="排序与批量操作" IsExpanded="False" HorizontalAlignment="Left">
+                <WrapPanel ItemSpacing="6" LineSpacing="4">
+                  <Button x:Name="HomeworkEarlier" Classes="action" Click="EarlierClicked" Content="上移"/>
+                  <Button x:Name="HomeworkLater" Classes="action" Click="LaterClicked" Content="下移"/>
+                  <Button x:Name="HomeworkGroupEarlier" Classes="action" Click="GroupEarlierClicked" Content="本组上移"/>
+                  <Button x:Name="HomeworkGroupLater" Classes="action" Click="GroupLaterClicked" Content="本组下移"/>
+                  <Button x:Name="HomeworkClearWords" Classes="action" Click="ClearWordsClicked" Content="清空快捷词"/>
+                  <Button x:Name="HomeworkDefaults" Classes="action" Click="DefaultsClicked" Content="恢复本区默认"/>
+                </WrapPanel>
+              </Expander>
+            </Grid>
+            <Grid Grid.Row="1" x:Name="HomeworkEditorRows" RowDefinitions="*,Auto,*" RowSpacing="6">
               <ListBox x:Name="HomeworkRows" Classes="object-list" SelectionChanged="RowChanged"
                        ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="作业设置条目">
                 <ListBox.ItemTemplate>
@@ -89,20 +99,38 @@
                 </StackPanel>
               </ScrollViewer>
             </Grid>
-            <Expander Grid.Row="2" x:Name="HomeworkConflict" Header="核对服务器当前配置" IsVisible="False">
-              <StackPanel Spacing="6">
-                <ScrollViewer MaxHeight="125" HorizontalScrollBarVisibility="Disabled">
-                  <TextBlock x:Name="HomeworkConflictRows" TextWrapping="Wrap"/>
-                </ScrollViewer>
-                <Button x:Name="HomeworkAdopt" Classes="action" Click="AdoptClicked" Content="已核对，保留本区草稿"/>
-              </StackPanel>
-            </Expander>
           </Grid>
         </Border>
         <Border x:Name="HomeworkPreviewPane" Grid.Column="1" Classes="card" Padding="12,9">
           <local:HomeworkSettingsPreview x:Name="HomeworkPreview"/>
         </Border>
       </Grid>
+      <Border Grid.Row="1" x:Name="HomeworkReviewView" Classes="card" Padding="14,12" IsVisible="False">
+        <Grid x:Name="HomeworkConflict" RowDefinitions="Auto,*,Auto" RowSpacing="10">
+          <StackPanel Spacing="3">
+            <TextBlock x:Name="HomeworkReviewTitle" FontSize="17" FontWeight="SemiBold"/>
+            <TextBlock Classes="muted" TextWrapping="Wrap"
+                       Text="请对照服务器当前值和本区草稿。保留草稿后，回到编辑页再确认保存。"/>
+          </StackPanel>
+          <Border Grid.Row="1" Background="{DynamicResource CanvasBrush}" BorderBrush="{DynamicResource LineBrush}"
+                  BorderThickness="1" CornerRadius="6" Padding="12,10">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+              <TextBlock x:Name="HomeworkConflictRows" TextWrapping="Wrap"/>
+            </ScrollViewer>
+          </Border>
+          <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <Button x:Name="HomeworkReviewBack" Classes="action" Content="返回编辑" Click="ReviewBackClicked"/>
+            <Button x:Name="HomeworkAdopt" Grid.Column="1" Classes="action accent" Click="AdoptClicked" Content="已核对，保留本区草稿"/>
+          </Grid>
+        </Grid>
+      </Border>
+      <Border Grid.Row="1" x:Name="HomeworkPendingView" Classes="card" Padding="14,12" IsVisible="False" VerticalAlignment="Top">
+        <StackPanel Spacing="5">
+          <TextBlock Text="原保存请求" FontSize="17" FontWeight="SemiBold"/>
+          <TextBlock x:Name="HomeworkPendingSummary" TextWrapping="Wrap"/>
+          <TextBlock x:Name="HomeworkPendingRequest" Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
     </Grid>
     <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="18,7">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="7">
@@ -117,4 +145,4 @@
       </Grid>
     </Border>
   </Grid>
-</Window>
+</UserControl>

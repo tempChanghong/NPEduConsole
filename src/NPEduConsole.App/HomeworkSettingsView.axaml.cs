@@ -24,9 +24,9 @@ public sealed class HomeworkEditRow(string caption) : INotifyPropertyChanged
     }
 }
 
-public sealed partial class HomeworkSettingsWindow : Window
+public sealed partial class HomeworkSettingsView : UserControl
 {
-    private const double CompactWidth = 960;
+    private const double CompactWidth = 880;
     private static readonly string[] Weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
     private static readonly string[] Rules = Enumerable.Range(0, 15)
         .Select(day => day switch { 0 => "当天", 1 => "明天", 2 => "后天", _ => $"{day} 天后" })
@@ -42,9 +42,8 @@ public sealed partial class HomeworkSettingsWindow : Window
     private HomeworkSettings? _baseline;
     private HomeworkSettings? _latest;
     private PendingSave? _pending;
-    private Control? _lastEditorFocus;
-    private Control? _lastPreviewFocus;
-    private bool _showDeadlines, _showPreview, _binding, _working, _closed, _discard, _allowRetry;
+    private Control? _lastWordEditorFocus, _lastDeadlineEditorFocus, _lastWordPreviewFocus, _lastDeadlinePreviewFocus;
+    private bool _compact, _showDeadlines, _showPreview, _showReview, _binding, _working, _posting, _closed, _discard, _allowRetry;
     private int _wordIndex = -1, _deadlineIndex = -1;
 
     public Action<ConsoleApiException>? SessionExpired { get; init; }
@@ -53,6 +52,7 @@ public sealed partial class HomeworkSettingsWindow : Window
     private bool DeadlinesChanged => _baseline is { } b && !_deadlines.SequenceEqual(b.QuickDeadlines);
     private bool WordsConflict => _baseline is { } b && _latest is { } latest && WordsChanged && b.Versions.QuickInputs != latest.Versions.QuickInputs;
     private bool DeadlinesConflict => _baseline is { } b && _latest is { } latest && DeadlinesChanged && b.Versions.QuickDeadlines != latest.Versions.QuickDeadlines;
+    private bool CurrentConflict => _showDeadlines ? DeadlinesConflict : WordsConflict;
     private int RowCount => _showDeadlines ? _deadlines.Count : _words.Count;
     private int CurrentIndex
     {
@@ -60,9 +60,9 @@ public sealed partial class HomeworkSettingsWindow : Window
         set { if (_showDeadlines) _deadlineIndex = value; else _wordIndex = value; }
     }
 
-    public HomeworkSettingsWindow() => InitializeComponent();
+    public HomeworkSettingsView() => InitializeComponent();
 
-    public HomeworkSettingsWindow(ConsoleClient client, School school) : this()
+    internal HomeworkSettingsView(ConsoleClient client, School school) : this()
     {
         _client = client;
         HomeworkScope.Text = $"{school.Name} · 全校生效";
@@ -78,38 +78,42 @@ public sealed partial class HomeworkSettingsWindow : Window
             _deadlines.AddRange(unresolved.Deadlines ?? unresolved.Baseline.QuickDeadlines);
             PopulateRows();
         }
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            LayoutPanes();
-            await RunAsync(ReadAsync);
-        };
         SizeChanged += (_, _) => LayoutPanes();
-        Closing += (_, args) =>
-        {
-            if (_discard || !WordsChanged && !DeadlinesChanged && _pending is null) return;
-            args.Cancel = true;
-            if (_working) return;
-            HomeworkDiscard.IsVisible = true;
-            HomeworkDiscard.Content = _pending is null ? "放弃草稿并返回" : "返回，稍后核对";
-            Feedback(_pending is null ? "有未保存的修改。可以返回编辑，或放弃草稿。" :
-                "保存结果仍需核对。重新打开本校设置后可继续核对原请求。", true);
-        };
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
         UpdateState();
     }
 
     private string SchoolId { get; } = "";
 
-    public void CloseForScopeChange()
+    internal Action? CloseRequested { get; set; }
+
+    internal async Task StartAsync()
     {
-        _discard = true;
-        Close();
+        LayoutPanes();
+        await RunAsync(ReadAsync);
+    }
+
+    internal bool CanClose()
+    {
+        if (_closed || _discard) return true;
+        if (_posting)
+        {
+            Feedback("正在提交本校配置，请等服务器响应后再离开。", true);
+            return false;
+        }
+        if (_pending is not null) return true;
+        CaptureSelectedFields();
+        if (!WordsChanged && !DeadlinesChanged) return true;
+        HomeworkDiscard.IsVisible = true;
+        Feedback("有未保存的修改。可以继续编辑，或放弃草稿。", true);
+        return false;
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _lifetime.Cancel();
+        _lifetime.Dispose();
     }
 
     private async Task RunAsync(Func<CancellationToken, Task> work)
@@ -141,6 +145,7 @@ public sealed partial class HomeworkSettingsWindow : Window
         var settings = await _client.GetHomeworkSettingsAsync(SchoolId, ct);
         if (ct.IsCancellationRequested) return;
         ApplyRead(settings);
+        if (WordsConflict || DeadlinesConflict) OpenReview();
         Feedback(WordsConflict || DeadlinesConflict ? "服务器有更新，请核对相应分区。草稿已保留。" : "");
     }
 
@@ -159,7 +164,6 @@ public sealed partial class HomeworkSettingsWindow : Window
         if (!keepWords) { _words.Clear(); _words.AddRange(settings.QuickInputs); }
         if (!keepDeadlines) { _deadlines.Clear(); _deadlines.AddRange(settings.QuickDeadlines); }
         PopulateRows();
-        if (_showDeadlines ? DeadlinesConflict : WordsConflict) HomeworkConflict.IsExpanded = true;
     }
 
     private async void ReadClicked(object? sender, RoutedEventArgs args) => await RunAsync(ReadAsync);
@@ -191,7 +195,11 @@ public sealed partial class HomeworkSettingsWindow : Window
         _allowRetry = false;
         try
         {
-            var receipt = await _client.SaveHomeworkSettingsAsync(request.Baseline, request.Words, request.Deadlines, request.Id, ct);
+            _posting = true;
+            UpdateState();
+            HomeworkSettingsReceipt receipt;
+            try { receipt = await _client.SaveHomeworkSettingsAsync(request.Baseline, request.Words, request.Deadlines, request.Id, ct); }
+            finally { _posting = false; if (!_closed) UpdateState(); }
             if (!ct.IsCancellationRequested) Accept(receipt, receipt.Settings, request, recovered: false);
         }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or 429 or >= 500)
@@ -207,12 +215,7 @@ public sealed partial class HomeworkSettingsWindow : Window
                 var current = await _client.GetHomeworkSettingsAsync(SchoolId, ct);
                 if (ct.IsCancellationRequested) return;
                 ApplyRead(current);
-                if (WordsConflict || DeadlinesConflict)
-                {
-                    SelectSection(preferDeadlines: !WordsConflict);
-                    HomeworkConflict.IsExpanded = true;
-                    HomeworkAdopt.BringIntoView();
-                }
+                if (WordsConflict || DeadlinesConflict) OpenReview();
                 else ValidateDraft();
             }
             Feedback(error.Message, true);
@@ -292,16 +295,26 @@ public sealed partial class HomeworkSettingsWindow : Window
 
     private void AdoptClicked(object? sender, RoutedEventArgs args)
     {
-        if (_baseline is not { } b || _latest is not { } latest || _pending is not null) return;
+        if (!_showReview || !CurrentConflict || _working || _baseline is not { } b || _latest is not { } latest || _pending is not null) return;
         _baseline = _showDeadlines
             ? b with { QuickDeadlines = latest.QuickDeadlines, Versions = b.Versions with { QuickDeadlines = latest.Versions.QuickDeadlines } }
             : b with { QuickInputs = latest.QuickInputs, Versions = b.Versions with { QuickInputs = latest.Versions.QuickInputs } };
-        Feedback("已采用核对过的服务器版本。草稿仍由你确认保存。");
-        UpdateState();
+        Feedback("已核对本分区的服务器版本。草稿已保留，请确认后保存。");
+        ReturnToEditor();
     }
 
-    private void BackClicked(object? sender, RoutedEventArgs args) => Close();
-    private void DiscardClicked(object? sender, RoutedEventArgs args) => CloseForScopeChange();
+    private void BackClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_pending is null && (_showReview || _compact && _showPreview)) ReturnToEditor();
+        else CloseRequested?.Invoke();
+    }
+
+    private void DiscardClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_posting) return;
+        _discard = true;
+        CloseRequested?.Invoke();
+    }
     private void WordsClicked(object? sender, RoutedEventArgs args) => ChangeSection(preferDeadlines: false);
     private void DeadlinesClicked(object? sender, RoutedEventArgs args) => ChangeSection(preferDeadlines: true);
 
@@ -314,31 +327,81 @@ public sealed partial class HomeworkSettingsWindow : Window
     private void SelectSection(bool preferDeadlines)
     {
         _showDeadlines = preferDeadlines;
-        _showPreview = false;
+        _showPreview = _showReview = false;
         LayoutPanes();
         PopulateRows();
     }
 
     private void LayoutPanes()
     {
-        bool compact = ClientSize.Width is > 0 and < CompactWidth;
-        HomeworkPreviewToggle.IsVisible = compact;
-        HomeworkPreviewToggle.Content = _showPreview ? "返回编辑" : "试用";
-        HomeworkPanes.ColumnDefinitions[1].Width = compact ? new(0) : new(1, GridUnitType.Star);
-        Grid.SetColumn(HomeworkPreviewPane, compact ? 0 : 1);
-        HomeworkEditor.IsVisible = !compact || !_showPreview;
-        HomeworkPreviewPane.IsVisible = !compact || _showPreview;
+        _compact = Bounds.Width is > 0 and < CompactWidth;
+        UpdatePaneVisibility();
+        HomeworkPreviewToggle.Content = _showPreview && _compact ? "返回编辑" : _showDeadlines ? "预览日期" : "试用快捷词";
+        HomeworkPanes.ColumnDefinitions[1].Width = _compact ? new(0) : new(1, GridUnitType.Star);
+        HomeworkPanes.ColumnSpacing = _compact ? 0 : 12;
+        Grid.SetColumn(HomeworkPreviewPane, _compact ? 0 : 1);
+        HomeworkEditorRows.RowDefinitions[0].Height = new(_compact ? .65 : 1, Avalonia.Controls.GridUnitType.Star);
+        HomeworkEditor.IsVisible = !_compact || !_showPreview;
+        HomeworkPreviewPane.IsVisible = !_compact || _showPreview;
+    }
+
+    private void UpdatePaneVisibility()
+    {
+        bool hasRequest = _pending is not null;
+        HomeworkPreviewToggle.IsVisible = _compact && !_showReview && !hasRequest;
+        HomeworkPanes.IsVisible = !_showReview && !hasRequest;
+        HomeworkReviewView.IsVisible = _showReview && !hasRequest;
+        HomeworkPendingView.IsVisible = hasRequest;
+        HomeworkBack.IsVisible = !_showReview || hasRequest;
+        HomeworkWordsTab.IsEnabled = HomeworkDeadlinesTab.IsEnabled = !hasRequest;
+    }
+
+    private void ReviewOpenClicked(object? sender, RoutedEventArgs args)
+    {
+        if (_working || _pending is not null) return;
+        CaptureSelectedFields();
+        OpenReview();
+    }
+
+    private void OpenReview()
+    {
+        if (!WordsConflict && !DeadlinesConflict) return;
+        if (!CurrentConflict) SelectSection(preferDeadlines: !WordsConflict);
+        _showReview = true;
+        LayoutPanes();
+        UpdateState();
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_closed && _showReview && HomeworkReviewBack.IsEffectivelyVisible) HomeworkReviewBack.Focus(NavigationMethod.Tab);
+        }, DispatcherPriority.Loaded);
+    }
+
+    private void ReviewBackClicked(object? sender, RoutedEventArgs args) => ReturnToEditor();
+
+    private void ReturnToEditor()
+    {
+        _showReview = _showPreview = false;
+        LayoutPanes();
+        UpdateState();
+        RestorePaneFocus(_showDeadlines ? _lastDeadlineEditorFocus : _lastWordEditorFocus, preview: false);
     }
 
     private void TogglePreviewClicked(object? sender, RoutedEventArgs args)
     {
-        _showPreview = !_showPreview;
+        if (_showPreview) { ReturnToEditor(); return; }
+        _showPreview = true;
         LayoutPanes();
-        var destination = _showPreview ? _lastPreviewFocus : _lastEditorFocus ?? HomeworkRows;
+        RestorePaneFocus(_showDeadlines ? _lastDeadlinePreviewFocus : _lastWordPreviewFocus, preview: true);
+    }
+
+    private void RestorePaneFocus(Control? destination, bool preview)
+    {
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_closed && destination is { IsEffectivelyVisible: true }) destination.Focus(NavigationMethod.Tab);
-            else if (!_closed && _showPreview) HomeworkPreview.FocusPreview();
+            if (_closed || _showReview) return;
+            if (destination is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true } && destination.Focus(NavigationMethod.Tab)) return;
+            if (preview) HomeworkPreview.FocusPreview();
+            else HomeworkRows.Focus(NavigationMethod.Tab);
         }, DispatcherPriority.Loaded);
     }
 
@@ -346,8 +409,16 @@ public sealed partial class HomeworkSettingsWindow : Window
     {
         base.OnGotFocus(args);
         if (args.Source is not Control control) return;
-        if (HomeworkEditor.IsVisualAncestorOf(control)) _lastEditorFocus = control;
-        if (HomeworkPreviewPane.IsVisualAncestorOf(control)) _lastPreviewFocus = control;
+        if (HomeworkEditor.IsVisualAncestorOf(control))
+        {
+            if (_showDeadlines) _lastDeadlineEditorFocus = control;
+            else _lastWordEditorFocus = control;
+        }
+        if (HomeworkPreviewPane.IsVisualAncestorOf(control))
+        {
+            if (_showDeadlines) _lastDeadlinePreviewFocus = control;
+            else _lastWordPreviewFocus = control;
+        }
     }
 
     private void PopulateRows()
@@ -550,11 +621,22 @@ public sealed partial class HomeworkSettingsWindow : Window
     {
         var selected = !_showDeadlines && CurrentIndex >= 0 && CurrentIndex < _words.Count ? _words[CurrentIndex] : null;
         var enabled = _baseline is not null && !_working && _pending is null;
+        UpdatePaneVisibility();
+        if (_pending is { } request)
+        {
+            var sections = request.Words is null ? "截止时间" : request.Deadlines is null ? "快捷词" : "快捷词和截止时间";
+            HomeworkPendingSummary.Text = $"本次提交包含{sections}。重新打开本校设置后可继续核对。";
+            HomeworkPendingRequest.Text = $"请求编号 {request.Id:D}";
+        }
         HomeworkEditor.IsEnabled = enabled;
-        HomeworkBack.IsEnabled = HomeworkRead.IsEnabled = !_working;
+        HomeworkBack.IsEnabled = HomeworkDiscard.IsEnabled = !_posting;
+        HomeworkRead.IsEnabled = !_working;
+        if (_pending is not null || !WordsChanged && !DeadlinesChanged) HomeworkDiscard.IsVisible = false;
+        HomeworkBack.Content = _pending is null ? "返回" : "返回，稍后核对";
         HomeworkRead.Content = _pending is null ? "刷新配置" : "核对原请求";
         HomeworkRetry.IsVisible = !_working && _pending is not null && _allowRetry;
-        HomeworkSave.IsEnabled = enabled && (WordsChanged || DeadlinesChanged) && !WordsConflict && !DeadlinesConflict;
+        HomeworkSave.IsEnabled = enabled && !_showReview && (WordsChanged || DeadlinesChanged) && !WordsConflict && !DeadlinesConflict;
+        HomeworkSave.IsVisible = !_showReview && _pending is null;
         HomeworkWordsTab.Classes.Set("current", !_showDeadlines);
         HomeworkDeadlinesTab.Classes.Set("current", _showDeadlines);
         HomeworkWordsTab.Content = "快捷词" + (WordsConflict ? " · 待核对" : WordsChanged ? " · 已修改" : "");
@@ -575,9 +657,14 @@ public sealed partial class HomeworkSettingsWindow : Window
         HomeworkWordText.IsEnabled = selected?.InsertMode != "NEW_LINE";
         HomeworkWordScope.Text = selected is { SubjectIds.Count: > 0 } ? "限定学科" : "全科通用";
         HomeworkRowsHint.Text = _baseline is null ? "请先读取当前配置。" : RowCount == 0 ? "快捷词关闭，保存后各端不再显示。" : "";
-        bool conflict = _showDeadlines ? DeadlinesConflict : WordsConflict;
-        HomeworkConflict.IsVisible = conflict;
-        if (conflict && _latest is { } latest)
+        HomeworkReviewOpen.IsVisible = !_showReview && _pending is null && (WordsConflict || DeadlinesConflict);
+        HomeworkReviewOpen.IsEnabled = !_working;
+        HomeworkReviewOpen.Content = CurrentConflict ? (_showDeadlines ? "核对截止时间" : "核对快捷词")
+            : WordsConflict ? "核对快捷词" : "核对截止时间";
+        HomeworkConflict.IsVisible = CurrentConflict;
+        HomeworkAdopt.IsEnabled = !_working && _pending is null && CurrentConflict;
+        HomeworkReviewTitle.Text = _showDeadlines ? "核对截止时间变更" : "核对快捷词变更";
+        if (CurrentConflict && _latest is { } latest)
         {
             HomeworkConflictRows.Text = _showDeadlines
                 ? Differences(latest.QuickDeadlines, _deadlines, (a, b) => a == b, row => $"{row.Label} · {RuleLabel(row)} {row.Time}")
