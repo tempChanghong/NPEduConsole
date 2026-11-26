@@ -59,8 +59,8 @@ internal static partial class Program
             await Signal("arm");
             await PressScoped(main, "OpenScreenFieldButton");
             var window = await FieldWindow();
-            window.Width = 1160;
-            window.Height = 780;
+            Check(ReferenceEquals(TopLevel.GetTopLevel(window), main) && desktop.Windows.Count(item => item.IsVisible) == 1,
+                "ordinary field action shares the main window and its three controls");
             await Until(() => Ready(window, "FieldResume") && Read(window, "FieldIdentifiers").Contains(access.RearDeviceId), "fixed rear device and eligible stopped window");
             await Capture(window, output, "01-wide-rear-preflight");
             await PressScoped(window, "FieldResume");
@@ -91,16 +91,17 @@ internal static partial class Program
             if (access.WithReports)
             {
                 var ended = await LinkedReports(window, "已定位此次处置对应的结束报告");
-                ended.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
-                ended.Width = 1160;
-                ended.Height = 780;
-                await Until(() => ended.ClientSize.Width >= 1155, "wide report workspace");
+                await Until(() => main.ClientSize.Width >= 1155 && Find<Border>(ended, "RunReportListPane").IsEffectivelyVisible &&
+                    Find<Border>(ended, "RunReportDetailPane").IsEffectivelyVisible, "wide report workspace places list and detail side by side");
                 var reportRows = Find<ListBox>(ended, "RunReportRows");
                 var filter = Find<ComboBox>(ended, "RunReportFilter");
                 filter.SelectedIndex = 1;
                 var row = (DeviceRunReportRow)reportRows.SelectedItem!;
                 Check(row.Report.Ownership?.ClassId == access.RoomId && row.Report.Summary.SampledSeconds > 0, "ended native report has exact class and sampling");
-                await CaptureWithFrame(ended, output, "08-wide-resume-linked-report");
+                Check(row.Report.Study is { } study && Read(ended, "RunReportSessionTime").Contains(study.Window.Label) &&
+                    Read(Find<DeviceRunReportDetail>(ended, "RunReportDetail"), "ReportWindow").StartsWith("报告起止"),
+                    "school period and device report interval are identified independently");
+                await CaptureWithFrame(main, output, "08-wide-resume-linked-report");
                 var sessionId = row.Report.SessionId;
                 var liveToggle = Find<Avalonia.Controls.Primitives.ToggleButton>(ended, "ReportLiveToggle");
                 liveToggle.IsChecked = true;
@@ -121,15 +122,15 @@ internal static partial class Program
                     row = (DeviceRunReportRow)Find<ListBox>(ended, "RunReportRows").SelectedItem!;
                     Check(row.Report.SessionId == sessionId, "refresh keeps the originally selected capture session");
                 }
-                ended.Width = 840;
-                ended.Height = 480;
-                await Until(() => ended.ClientSize is { Width: <= 845, Height: <= 485 }, "narrow report window");
-                Console.WriteLine($"Report narrow window {ended.Width}×{ended.Height} DIP at {ended.RenderScaling * 100:0}% display scaling.");
+                main.Width = 840;
+                main.Height = 480;
+                await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 } && !reportRows.IsEffectivelyVisible, "narrow report shows only the selected detail");
+                Console.WriteLine($"Report narrow window {main.Width}×{main.Height} DIP at {main.RenderScaling * 100:0}% display scaling.");
                 var reportDetail = Find<DeviceRunReportDetail>(ended, "RunReportDetail");
                 var scroll = Find<ScrollViewer>(reportDetail, "ReportScroll");
                 await Until(() => new[] {"SummarySampled","SummaryElapsed","SummaryCoverage","ReportHints"}.All(name =>
                     FullyInView(Find<TextBlock>(reportDetail, name), scroll)), "three measured values and warnings are fully visible without scrolling");
-                await CaptureWithFrame(ended, output, "09-narrow-resume-linked-report");
+                await CaptureWithFrame(main, output, "09-narrow-resume-linked-report");
                 await Signal("hold-records-read");
                 await PressScoped(ended, "RunReportRecords");
                 await Signal("records-read-started");
@@ -150,12 +151,12 @@ internal static partial class Program
                 await Until(() => scroll.Offset.Y > 0 && FullyInView(Find<TextBlock>(reportDetail,"ReportTrace"), scroll),
                     "one detail viewport reaches the final time evidence");
                 var previousOffset = scroll.Offset;
-                var windowHandle = ended.TryGetPlatformHandle()!.Handle;
+                var windowHandle = main.TryGetPlatformHandle()!.Handle;
                 var windowCount = desktop.Windows.Count(w => w.IsVisible);
                 var records = await OpenReportPhoto(ended);
-                Check(windowCount == desktop.Windows.Count(w => w.IsVisible) && ended.TryGetPlatformHandle()!.Handle == windowHandle &&
-                    ReferenceEquals(TopLevel.GetTopLevel(records), ended), "matched photo opens in the original report HWND");
-                await CaptureWithFrame(ended, output, "09a-narrow-report-photo");
+                Check(windowCount == 1 && desktop.Windows.Count(w => w.IsVisible) == 1 && main.TryGetPlatformHandle()!.Handle == windowHandle &&
+                    ReferenceEquals(TopLevel.GetTopLevel(records), main), "matched photo opens in the original main HWND");
+                await CaptureWithFrame(main, output, "09a-narrow-report-photo");
                 var view = Find<StudyRecordsView>(records, "Records");
                 var photos = Find<ListBox>(view, "StudyRecordsList");
                 var originalPhoto = photos.SelectedItem;
@@ -174,11 +175,31 @@ internal static partial class Program
                 await Until(() => reportList.IsEffectivelyVisible && reportList.IsKeyboardFocusWithin && ReferenceEquals(reportList.SelectedItem, row),
                     "narrow report returns to the selected row and focus");
                 await PressScoped(ended, "RunReportBack");
+                await Until(() => !ended.IsEffectivelyVisible && Find<Button>(window, "FieldReports").IsFocused && Ready(window, "FieldReports"),
+                    "report list returns to the field action and its original button");
+                ended = await LinkedReports(window, "已定位此次处置对应的结束报告");
+                reportList = Find<ListBox>(ended, "RunReportRows");
+                var switchingPhoto = Find<StudyRecordsView>(await OpenReportPhoto(ended), "Records");
+                schools.SelectedItem = schools.Items.OfType<School>().Single(item => item.Id == access.OtherSchoolId);
+                await Until(() => !ended.IsEffectivelyVisible && !window.IsEffectivelyVisible &&
+                    Find<Image>(switchingPhoto, "StudyRecordsImage").Source is null && reportList.ItemCount == 0,
+                    "changing school clears the old photo, reports and field page together");
+                schools.SelectedItem = schools.Items.OfType<School>().Single(item => item.Id == access.SchoolId);
+                await PressScoped(main, "OpenDeviceDirectoryButton");
+                search.Text = "七班后屏";
+                await Until(() => (details = list.GetVisualDescendants().OfType<Button>().FirstOrDefault(button =>
+                    button.IsEffectivelyVisible && button.Tag is OverviewScreenItem item && item.ScreenId == access.RearId)) is not null,
+                    "explicitly reopen the original rear screen after school switch");
+                Click(details!);
+                await PressScoped(main, "OpenScreenFieldButton");
+                window = await FieldWindow();
+                await Until(() => Read(window, "FieldIdentifiers").Contains(access.RearDeviceId) && Ready(window, "FieldRevoke"),
+                    "same account can reopen the original field action by its binding");
             }
 
-            window.Width = 840;
-            window.Height = 480;
-            await Until(() => window.ClientSize is { Width: <= 845, Height: <= 485 }, "actual 840 x 480 window");
+            main.Width = 840;
+            main.Height = 480;
+            await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "actual 840 x 480 window");
             var confirmation = Find<DeviceFieldActionConfirmation>(window, "FieldConfirmation");
             var cancel = Find<Button>(confirmation, "DismissButton");
             await PressScoped(window, "FieldRevoke");
@@ -210,7 +231,7 @@ internal static partial class Program
                     Read(historic, "RunReportTarget").Contains("访问已失效") && Find<ListBox>(historic,"RunReportRows").ItemCount == 0,
                     "periodic access check clears the open photo and the original report after school access is revoked");
                 await Signal("records-restored");
-                historic.Close();
+                await PressScoped(historic, "RunReportBack");
             }
             await PressScoped(window, "FieldReturn");
             await Until(() => !window.IsVisible && (Find<Button>(main, "OpenScreenFieldButton").IsFocused || main.GetVisualDescendants().OfType<Control>().Any(control =>
@@ -262,15 +283,17 @@ internal static partial class Program
                 await Until(() => (details = list.GetVisualDescendants().OfType<Button>().FirstOrDefault(button => button.IsEffectivelyVisible &&
                     button.Tag is OverviewScreenItem item && item.ScreenId == access.FrontId)) is not null, "independent front screen action");
                 Click(details!);
+                main.Width = 1160;
+                main.Height = 780;
                 await PressScoped(main, "OpenScreenReportsButton");
-                var frontReports = await Open<DeviceRunReportsWindow>();
+                var frontReports = await AcademicPageAsync<DeviceRunReportsView>(main);
                 await Until(() => Find<ListBox>(frontReports, "RunReportRows").Items.OfType<DeviceRunReportRow>().Any(row =>
                     row.Report.SessionId == access.FrontReportId && row.Report.Estimate?.Status == "DEVICE_CHANGED" && row.Report.Timing?.ClockDiscontinuity == true),
                     "front sample fixture shows lost reference and clock discontinuity separately");
                 await Capture(frontReports, output, "11-front-invalidated-reference");
-                frontReports.Width = 840;
-                frontReports.Height = 480;
-                await Until(() => frontReports.ClientSize is { Width: <= 845, Height: <= 485 }, "narrow clock report");
+                main.Width = 840;
+                main.Height = 480;
+                await Until(() => main.ClientSize is { Width: <= 845, Height: <= 485 }, "narrow clock report");
                 var clockRows = Find<ListBox>(frontReports, "RunReportRows");
                 var clockRow = clockRows.Items.OfType<DeviceRunReportRow>().Single(row => row.Report.SessionId == access.FrontReportId);
                 clockRows.SelectedItem = clockRow;
@@ -284,12 +307,19 @@ internal static partial class Program
                     "reported interval, server receipt and device wall clock are named separately");
                 await Until(() => FullyInView(Find<TextBlock>(clockDetail, "ReportHints"), Find<ScrollViewer>(clockDetail, "ReportScroll")),
                     "clock warning is visible alongside coverage");
-                await CaptureWithFrame(frontReports, output, "11b-narrow-clock-detail");
-                frontReports.RequestedThemeVariant = ConsoleHighContrast.Dark;
-                await CaptureWithFrame(frontReports, output, "11e-high-contrast-clock-detail");
-                frontReports.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
-                await CaptureWithFrame(frontReports, output, "11d-dark-clock-detail");
-                frontReports.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Default;
+                await CaptureWithFrame(main, output, "11b-narrow-clock-detail");
+                main.RequestedThemeVariant = ConsoleHighContrast.Dark;
+                await CaptureWithFrame(main, output, "11e-high-contrast-clock-detail");
+                main.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Dark;
+                await CaptureWithFrame(main, output, "11d-dark-clock-detail");
+                main.RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Default;
+                await PressScoped(frontReports, "RunReportField");
+                var frontField = await FieldWindow();
+                await Until(() => Read(frontField, "FieldIdentifiers").Contains(access.FrontDeviceId) &&
+                    !Ready(frontField, "FieldReports"), "report opens the exact front field action without a circular child link");
+                await PressScoped(frontField, "FieldReturn");
+                await Until(() => Find<Button>(frontReports, "RunReportField").IsFocused && clockDetail.Report?.SessionId == access.FrontReportId,
+                    "returning from field action restores the original report and focus");
                 await Signal("report-revoke");
                 if (Ready(frontReports, "RunReportRefresh")) await PressScoped(frontReports, "RunReportRefresh");
                 await Until(() => Read(frontReports, "RunReportTarget").Contains("报告访问已失效") &&
@@ -297,7 +327,7 @@ internal static partial class Program
                     "revocation clears the report contents and current device information");
                 await Capture(frontReports, output, "11c-report-access-revoked");
                 await Signal("report-restored");
-                frontReports.Close();
+                await PressScoped(frontReports, "RunReportBack");
                 await PressScoped(main, "OpenDeviceDirectoryButton");
                 await Until(() => search.IsEffectivelyVisible, "export from the ordinary directory");
                 search.Text = "诊断批次";
@@ -369,15 +399,23 @@ internal static partial class Program
             await Until(() => desktop.Windows.OfType<T>().Any(window => window.IsVisible), "open " + typeof(T).Name);
             return desktop.Windows.OfType<T>().Single(window => window.IsVisible);
         }
-        Task<DeviceFieldActionWindow> FieldWindow() => Open<DeviceFieldActionWindow>();
-        async Task<DeviceRunReportsWindow> LinkedReports(DeviceFieldActionWindow field, string feedback)
+        async Task<DeviceFieldActionView> FieldWindow()
+        {
+            DeviceFieldActionView? view = null;
+            await Until(() => (view = desktop.Windows.Where(item => item.IsVisible).SelectMany(item => item.GetVisualDescendants())
+                .OfType<DeviceFieldActionView>().SingleOrDefault(item => item.IsEffectivelyVisible)) is not null, "open field action page");
+            return view!;
+        }
+        async Task<DeviceRunReportsView> LinkedReports(DeviceFieldActionView field, string feedback)
         {
             await PressScoped(field, "FieldReports");
-            var reports = await Open<DeviceRunReportsWindow>();
+            var reports = await AcademicPageAsync<DeviceRunReportsView>(main);
+            Check(ReferenceEquals(TopLevel.GetTopLevel(reports), main) && desktop.Windows.Count(item => item.IsVisible) == 1,
+                "field and linked report use the same main window");
             await Until(() => Read(reports, "RunReportFeedback").Contains(feedback), feedback);
             return reports;
         }
-        async Task<StudyRecordsPage> OpenReportPhoto(DeviceRunReportsWindow host)
+        async Task<StudyRecordsPage> OpenReportPhoto(DeviceRunReportsView host)
         {
             await PressScoped(host, "RunReportRecords");
             var content = Find<ContentControl>(host, "ReportRecordsHost");

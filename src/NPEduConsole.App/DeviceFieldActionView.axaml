@@ -1,8 +1,7 @@
-<Window xmlns="https://github.com/avaloniaui"
+<UserControl xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:NPEduConsole.App"
-        x:Class="NPEduConsole.App.DeviceFieldActionWindow" Title="现场处置" Width="960" Height="650"
-        MinWidth="640" MinHeight="440" WindowStartupLocation="CenterOwner">
+        x:Class="NPEduConsole.App.DeviceFieldActionView">
   <Border Background="{DynamicResource CanvasBrush}" Padding="16,12">
   <Grid RowDefinitions="Auto,*,Auto" RowSpacing="8">
     <StackPanel Spacing="3">
@@ -49,4 +48,4 @@
     </WrapPanel>
   </Grid>
   </Border>
-</Window>
+</UserControl>

@@ -15,37 +15,38 @@ public sealed record DeviceRunReportRow(DeviceRunReport Report)
         (Report.Timing?.ClockDiscontinuity == true ? " · 设备时钟跳变" : "");
 }
 
-public sealed partial class DeviceRunReportsWindow : Window
+public sealed partial class DeviceRunReportsView : UserControl
 {
     private readonly ConsoleClient _client = null!;
     private readonly DeviceFieldScope _scope = null!;
     private readonly string _school = "", _classroom = "", _screen = "", _device = "";
     private readonly DeviceFieldResult? _fromReceipt;
+    private readonly bool _fromField;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(1) };
     private DeviceRunReport[] _reports = [];
     private StudyEvidenceReceipt? _live;
-    private Window? _child;
     private StudyRecordsPage? _recordsPage;
     private CancellationTokenSource? _recordsLookup;
-    private bool _closed, _busy, _loss, _compact, _showDetail, _needsReceiptFocus;
+    private bool _closed, _busy, _loss, _compact, _showDetail, _needsReceiptFocus, _openingField, _renderingRows;
     private string? _selected;
     private long _accessCheckedAt = Stopwatch.GetTimestamp();
 
-    public DeviceRunReportsWindow() => InitializeComponent();
+    public DeviceRunReportsView() => InitializeComponent();
 
-    internal DeviceRunReportsWindow(ConsoleClient client, DeviceFieldScope scope, string school, string classroom, string screen,
+    internal DeviceRunReportsView(ConsoleClient client, DeviceFieldScope scope, string school, string classroom, string screen,
         string device, DeviceFieldResult? fromReceipt = null, bool fromField = false) : this()
     {
         _client = client;
         _scope = scope;
         (_school, _classroom, _screen, _device) = (school, classroom, screen, device);
+        _fromField = fromField;
         _fromReceipt = fromReceipt?.Target.Scope == scope ? fromReceipt : null;
         _needsReceiptFocus = _fromReceipt?.SampleSessionId is not null;
         RunReportTarget.Text = $"{school} · {classroom} · {screen}";
         RunReportDevice.Text = $"原生设备 {device} · {_scope.DeviceId}";
         RunReportField.IsVisible = !fromField;
-        RunReportRows.SelectionChanged += (_, _) => SelectRow();
+        RunReportRows.SelectionChanged += (_, _) => { if (!_renderingRows) SelectRow(); };
         RunReportFilter.SelectionChanged += (_, _) => RenderRows();
         RunReportRows.KeyDown += (_, e) =>
         {
@@ -54,23 +55,37 @@ public sealed partial class DeviceRunReportsWindow : Window
         _timer.Tick += async (_, _) =>
         {
             RenderLive();
-            if (!_busy && !_loss && Stopwatch.GetElapsedTime(_accessCheckedAt) >= TimeSpan.FromSeconds(20)) await CheckAccessAsync();
+            if (!_busy && !_loss && !_openingField && Stopwatch.GetElapsedTime(_accessCheckedAt) >= TimeSpan.FromSeconds(20)) await CheckAccessAsync();
         };
-        Opened += async (_, _) => { BatchWorkspaceWindow.FitSchoolWindow(this); Arrange(); await ReadAsync(); if (!_closed) _timer.Start(); };
         SizeChanged += (_, _) => Arrange();
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _timer.Stop();
-            _child?.Close();
-            CloseRecordsPage();
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
         RenderLive();
         SelectRow();
     }
 
+    internal async Task StartAsync()
+    {
+        Arrange();
+        await ReadAsync();
+        if (!_closed) _timer.Start();
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _timer.Stop();
+        _lifetime.Cancel();
+        CloseRecordsPage();
+        _lifetime.Dispose();
+        _reports = [];
+        _live = null;
+        ReportLiveToggle.IsChecked = false;
+        RunReportRows.ItemsSource = null;
+        RunReportDetail.SetReport(null);
+    }
+
+    internal Action? CloseRequested { get; set; }
+    internal Func<DeviceFieldActionView, Task<bool>>? OpenFieldPage { get; set; }
     internal bool Revoked { get; private set; }
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     private StudyEvidenceScope StudyScope => new(_scope.SchoolId, _scope.TermId, _scope.ClassId);
@@ -96,13 +111,13 @@ public sealed partial class DeviceRunReportsWindow : Window
             if (_closed || _loss) return;
             string? capture = _fromReceipt?.SampleSessionId?.ToString("D");
             _reports = list?.Items ?? [];
-            if (capture is not null && !_reports.Any(row => row.SessionId == capture))
+            if (capture is not null && !_reports.Any(IsReceiptReport))
             {
                 try
                 {
                     var historic = await _client.FindDeviceRunClassReportAsync(_scope, capture, _lifetime.Token);
                     if (_closed || _loss) return;
-                    if (historic is not null) _reports = [historic.Report, .. _reports];
+                    if (historic is not null) _reports = [historic.Report, .. _reports.Where(row => row.SessionId != capture)];
                 }
                 catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
                 { issue = Join(issue, "原班场次读取失败，请刷新核对。" + error.Message); }
@@ -118,7 +133,7 @@ public sealed partial class DeviceRunReportsWindow : Window
                 catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403)) { }
             }
             if (_closed || _loss) return;
-            bool exact = capture is not null && _reports.Any(row => row.SessionId == capture);
+            bool exact = _reports.Any(IsReceiptReport);
             if (_needsReceiptFocus && exact)
             {
                 _selected = capture;
@@ -152,9 +167,14 @@ public sealed partial class DeviceRunReportsWindow : Window
         var rows = _reports.Where(row => RunReportFilter.SelectedIndex == 0 || row.SessionKind == filter)
             .Select(row => new DeviceRunReportRow(row)).ToArray();
         string? keep = _selected;
-        RunReportRows.ItemsSource = rows;
-        RunReportRows.SelectedItem = rows.FirstOrDefault(row => row.Report.SessionId == keep) ??
-            (!_compact && _fromReceipt is null ? rows.FirstOrDefault() : null);
+        _renderingRows = true;
+        try
+        {
+            RunReportRows.ItemsSource = rows;
+            RunReportRows.SelectedItem = rows.FirstOrDefault(row => row.Report.SessionId == keep) ??
+                (!_compact && _fromReceipt is null ? rows.FirstOrDefault() : null);
+        }
+        finally { _renderingRows = false; }
         if (RunReportRows.SelectedItem is null) _showDetail = false;
         SelectRow();
         Arrange();
@@ -169,12 +189,18 @@ public sealed partial class DeviceRunReportsWindow : Window
         RunReportDetailStatus.IsVisible = report is not null;
         RunReportDetailStatus.Text = report?.Ownership is not null ? "按入库时的班级归属显示 · 报告为已结束会话" : "设备历史 · 无可核对的班级归属";
         if (report is not null && _fromReceipt is not null)
-            RunReportDetailStatus.Text += _fromReceipt.SampleSessionId?.ToString("D") == report.SessionId
+            RunReportDetailStatus.Text += IsReceiptReport(report)
                 ? " · 本次恢复对应报告" : " · 当前选中另一采样会话";
+        RunReportSessionTime.Text = report?.Study is { } study ? $"学校排程（课表时钟） · {study.Window.Label}"
+            : report?.SessionKind == "Scheduled" ? "学校排程时间待核对" : null;
+        RunReportSessionTime.IsVisible = RunReportSessionTime.Text is not null;
         RunReportRecords.IsVisible = report?.Ownership == StudyScope && (!_compact || _showDetail);
         RunReportRecords.IsEnabled = !_busy && !_loss && _recordsLookup is null;
         RunReportOpen.IsEnabled = report is not null && !_loss;
     }
+
+    private bool IsReceiptReport(DeviceRunReport report) => report.Ownership == StudyScope &&
+        _fromReceipt?.SampleSessionId?.ToString("D") == report.SessionId;
 
     private void RenderLive() => RunReportLive.Text = _live is { } live
         ? "设备当下执行 · " + live.Describe().Replace("\n", " · ", StringComparison.Ordinal)
@@ -192,7 +218,7 @@ public sealed partial class DeviceRunReportsWindow : Window
     private void GoBack(object? sender, RoutedEventArgs args)
     {
         _recordsLookup?.Cancel();
-        if (!_compact || !_showDetail) { Close(); return; }
+        if (!_compact || !_showDetail) { CloseRequested?.Invoke(); return; }
         _showDetail = false;
         Arrange();
         RunReportRows.Focus();
@@ -206,22 +232,23 @@ public sealed partial class DeviceRunReportsWindow : Window
 
     private async void OpenField(object? sender, RoutedEventArgs args)
     {
-        if (_closed || _loss || _busy || _recordsPage is not null || _child is not null) return;
+        if (_closed || _loss || _busy || _recordsPage is not null || _openingField || OpenFieldPage is not { } open) return;
         _recordsLookup?.Cancel();
-        var window = new DeviceFieldActionWindow(_client, _scope, _school, _classroom, _screen, _device, fromReports: true)
+        var field = new DeviceFieldActionView(_client, _scope, _school, _classroom, _screen, _device, fromReports: true)
         { SessionExpired = Handle };
-        _child = window;
-        try { await window.ShowDialog(this); }
-        finally { if (_child == window) _child = null; }
-        if (_closed) return;
-        Revoked |= window.Revoked;
+        _openingField = true;
+        bool returned;
+        try { returned = await open(field); }
+        finally { _openingField = false; }
+        if (!returned || _closed || _loss) return;
+        Revoked |= field.Revoked;
         await ReadAsync();
         if (!_closed) RunReportField.Focus();
     }
 
     private async void OpenRecords(object? sender, RoutedEventArgs args)
     {
-        if (_closed || _loss || _busy || _child is not null || _recordsPage is not null || _recordsLookup is not null ||
+        if (_closed || _loss || _busy || _openingField || _recordsPage is not null || _recordsLookup is not null ||
             RunReportRows.SelectedItem is not DeviceRunReportRow row || row.Report.Ownership != StudyScope) return;
         using var lookup = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _recordsLookup = lookup;
@@ -230,7 +257,7 @@ public sealed partial class DeviceRunReportsWindow : Window
         try
         {
             var result = await _client.FindDeviceRunClassReportAsync(_scope, row.Report.SessionId, lookup.Token);
-            if (lookup.IsCancellationRequested || _selected != row.Report.SessionId) return;
+            if (_closed || _loss || lookup.IsCancellationRequested || _selected != row.Report.SessionId) return;
             if (result is null) { RunReportFeedback.Text = "已无法查到原班的对应场次，可能超出报告保留期。"; return; }
             var page = new StudyRecordsPage(_client, StudyScope, _school, _classroom, null, result.Group,
                 new Dictionary<string, string> { [_scope.DeviceId] = _screen }, _scope, returnLabel: "返回运行报告");
@@ -303,7 +330,6 @@ public sealed partial class DeviceRunReportsWindow : Window
         _recordsLookup?.Cancel();
         _recordsPage?.RevokeAccess();
         CloseRecordsPage();
-        _child?.Close();
         _reports = [];
         _live = null;
         _showDetail = false;
@@ -319,7 +345,7 @@ public sealed partial class DeviceRunReportsWindow : Window
 
     private void Arrange()
     {
-        _compact = ClientSize.Width is > 0 and < 920;
+        _compact = Bounds.Width is > 0 and < 880;
         RunReportColumns.ColumnDefinitions[1].Width = _compact ? new(0) : new(1.6, GridUnitType.Star);
         RunReportColumns.ColumnSpacing = _compact ? 0 : 10;
         Grid.SetColumn(RunReportDetailPane, _compact ? 0 : 1);
@@ -327,7 +353,7 @@ public sealed partial class DeviceRunReportsWindow : Window
         RunReportListPane.IsVisible = !_compact || !_showDetail;
         RunReportOpen.IsVisible = _compact;
         RunReportRecords.IsVisible = (!_compact || _showDetail) && RunReportDetail.Report?.Ownership == StudyScope;
-        RunReportBack.Content = _compact && _showDetail ? "返回报告列表" : "返回";
+        RunReportBack.Content = _compact && _showDetail ? "返回报告列表" : _fromField ? "返回现场处置" : "返回";
     }
 
     private static string Join(string? primary, string? extra) => string.Join(" ", new[] { primary, extra }.Where(value => !string.IsNullOrWhiteSpace(value)));

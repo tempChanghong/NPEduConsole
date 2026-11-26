@@ -365,13 +365,14 @@ internal static partial class Program
                 var field = await WindowOf<DeviceFieldActionWindow>();
                 field.Width = 1160;
                 field.Height = 780;
-                await Until(() => field.ClientSize.Width >= 1100 && Find<TextBlock>(field, "FieldTargetName").Text?.EndsWith(name) == true &&
-                    Find<TextBlock>(field, "FieldIdentifiers").Text is { } ids && ids.Contains(row.Registration.BindingId) &&
+                var fieldView = field.GetVisualDescendants().OfType<DeviceFieldActionView>().Single();
+                await Until(() => field.ClientSize.Width >= 1100 && Find<TextBlock>(fieldView, "FieldTargetName").Text?.EndsWith(name) == true &&
+                    Find<TextBlock>(fieldView, "FieldIdentifiers").Text is { } ids && ids.Contains(row.Registration.BindingId) &&
                     ids.Contains(row.Registration.DeviceId!) &&
-                    Find<Button>(field, "FieldRead").IsEffectivelyEnabled, "wide action window preserves the selected screen and device");
+                    Find<Button>(fieldView, "FieldRead").IsEffectivelyEnabled, "wide action window preserves the selected screen and device");
                 var identifiers = field.GetVisualDescendants().OfType<Expander>().Single(panel => Equals(panel.Header, "设备和绑定编号"));
                 identifiers.IsExpanded = true;
-                await Until(() => Find<TextBlock>(field, "FieldIdentifiers").IsEffectivelyVisible, "validation identifiers visible in capture");
+                await Until(() => Find<TextBlock>(fieldView, "FieldIdentifiers").IsEffectivelyVisible, "validation identifiers visible in capture");
                 await CaptureWithFrame(field, output, file);
                 field.Close();
                 await Until(() => !field.IsVisible && seating.IsActive && (entry!.IsFocused || deviceRows.IsFocused),

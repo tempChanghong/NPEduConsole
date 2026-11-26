@@ -2,13 +2,14 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class DeviceFieldActionWindow : Window
+public sealed partial class DeviceFieldActionView : UserControl
 {
     private sealed class Operation(DeviceFieldRequest request)
     {
@@ -24,24 +25,24 @@ public sealed partial class DeviceFieldActionWindow : Window
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DispatcherTimer _timer = new() { Interval = TimeSpan.FromSeconds(2) };
     private (string School, string Classroom, string Screen) _context;
-    private DeviceRunReportsWindow? _reports;
     private bool _fromReports;
     private DeviceFieldState? _state;
     private DeviceFieldRequest? _confirm;
     private string _targetLabel = "";
     private string _originalDevice = "";
     private long _checkedAt;
-    private bool _closed, _busy, _forbidden;
+    private bool _closed, _busy, _posting, _forbidden, _openingReports;
 
-    public DeviceFieldActionWindow() => InitializeComponent();
+    public DeviceFieldActionView() => InitializeComponent();
 
-    internal DeviceFieldActionWindow(ConsoleClient client, DeviceFieldScope scope, string school, string classroom, string screen,
+    internal DeviceFieldActionView(ConsoleClient client, DeviceFieldScope scope, string school, string classroom, string screen,
         string device, bool fromReports = false) : this()
     {
         _client = client;
         _scope = scope;
         _context = (school, classroom, screen);
         _fromReports = fromReports;
+        if (fromReports) FieldReturn.Content = "返回运行报告";
         _originalDevice = device;
         FieldTargetName.Text = _targetLabel = $"{school} · {classroom} · {screen}";
         FieldConfirmation.Approved += async (_, _) =>
@@ -55,20 +56,19 @@ public sealed partial class DeviceFieldActionWindow : Window
         {
             _confirm = null;
             Render();
-            FieldRevoke.Focus();
-        };
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            Arrange();
-            await RunAsync(ReadAsync);
-            if (!_closed) _timer.Start();
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!_closed && _confirm is null && FieldRevoke.IsEffectivelyVisible && FieldRevoke.IsEffectivelyEnabled)
+                {
+                    FieldRevoke.BringIntoView();
+                    FieldRevoke.Focus(NavigationMethod.Tab);
+                }
+            }, DispatcherPriority.Loaded);
         };
         SizeChanged += (_, _) => Arrange();
-        Closed += (_, _) => { _closed = true; _timer.Stop(); _reports?.Close(); _lifetime.Cancel(); _lifetime.Dispose(); };
         _timer.Tick += async (_, _) =>
         {
-            if (_closed || _busy || _confirm is not null || _forbidden) return;
+            if (_closed || _busy || _openingReports || _confirm is not null || _forbidden) return;
             if (FindOperation("RESUME")?.Receipt is { ExpiresAt: { } expiry } current &&
                 (current.Outcome == "QUEUED" || current is { Outcome: "ACCEPTED", SampleAt: null } && DateTimeOffset.UtcNow < expiry.AddSeconds(20)))
                 await RunAsync(ReadAsync);
@@ -77,6 +77,34 @@ public sealed partial class DeviceFieldActionWindow : Window
         Render();
     }
 
+    internal async Task StartAsync()
+    {
+        Arrange();
+        await RunAsync(ReadAsync);
+        if (!_closed) _timer.Start();
+    }
+
+    internal bool CanClose()
+    {
+        if (!_posting) return true;
+        FieldNotice.Text = "原请求正在提交，请等服务器响应后再离开。";
+        return false;
+    }
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _timer.Stop();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+        _state = null;
+        _confirm = null;
+        FieldConfirmation.Clear();
+    }
+
+    internal Action? CloseRequested { get; set; }
+    internal Func<DeviceRunReportsView, Task<bool>>? OpenReportsPage { get; set; }
     internal Action<ConsoleApiException>? SessionExpired { get; init; }
     internal bool Revoked { get; private set; }
     private Dictionary<(DeviceFieldScope, string), Operation> Operations => Requests.GetOrCreateValue(_client);
@@ -87,14 +115,24 @@ public sealed partial class DeviceFieldActionWindow : Window
     private async void ReadClicked(object? sender, RoutedEventArgs args) => await RunAsync(ReadAsync);
     private async void ReportsClicked(object? sender, RoutedEventArgs args)
     {
-        if (_closed || _busy || _forbidden || _confirm is not null || _reports is not null) return;
-        var window = new DeviceRunReportsWindow(_client, _scope, _context.School, _context.Classroom, _context.Screen,
+        if (_closed || _busy || _forbidden || _confirm is not null || _openingReports || OpenReportsPage is not { } open) return;
+        var reports = new DeviceRunReportsView(_client, _scope, _context.School, _context.Classroom, _context.Screen,
             _state?.Target.DeviceName ?? _originalDevice, FindOperation("RESUME")?.Receipt, fromField: true)
-        { SessionExpired = SessionExpired };
-        _reports = window;
-        try { await window.ShowDialog(this); }
-        finally { if (_reports == window) _reports = null; }
-        if (!_closed) { await RunAsync(ReadAsync); FieldReports.Focus(); }
+        { SessionExpired = HandleAccessLoss };
+        _openingReports = true;
+        Render();
+        bool returned = false;
+        try
+        {
+            returned = await open(reports);
+            if (returned && !_closed) await RunAsync(ReadAsync);
+        }
+        finally
+        {
+            _openingReports = false;
+            if (!_closed) Render();
+        }
+        if (returned && !_closed && FieldReports.IsEffectivelyEnabled) FieldReports.Focus(NavigationMethod.Tab);
     }
     private async void VerifyClicked(object? sender, RoutedEventArgs args)
     {
@@ -121,7 +159,7 @@ public sealed partial class DeviceFieldActionWindow : Window
     private void ReturnClicked(object? sender, RoutedEventArgs args)
     {
         if (_confirm is not null) FieldConfirmation.Dismiss();
-        else Close();
+        else CloseRequested?.Invoke();
     }
 
     private async Task BeginAsync(DeviceFieldRequest request)
@@ -137,7 +175,10 @@ public sealed partial class DeviceFieldActionWindow : Window
         operation.CheckedMissing = false;
         try
         {
-            var receipt = await _client.SubmitDeviceFieldActionAsync(operation.Request, _lifetime.Token);
+            _posting = true;
+            DeviceFieldResult receipt;
+            try { receipt = await _client.SubmitDeviceFieldActionAsync(operation.Request, _lifetime.Token); }
+            finally { _posting = false; }
             if (!_closed) Record(operation, receipt);
         }
         catch (ConsoleApiException error) when (error.StatusCode is 0 or 408 or >= 500)
@@ -221,17 +262,22 @@ public sealed partial class DeviceFieldActionWindow : Window
         catch (ConsoleApiException error)
         {
             if (_closed) return;
-            if (error.StatusCode is 401 or 403)
-            {
-                _forbidden = true;
-                _state = null;
-                _confirm = null;
-                FieldConfirmation.Clear();
-                SessionExpired?.Invoke(error);
-            }
+            if (error.StatusCode is 401 or 403) HandleAccessLoss(error);
             if (!_closed) FieldNotice.Text = error.Message;
         }
         finally { _busy = false; if (!_closed) Render(); }
+    }
+
+    private void HandleAccessLoss(ConsoleApiException error)
+    {
+        if (_closed || _forbidden) return;
+        _forbidden = true;
+        _state = null;
+        _confirm = null;
+        FieldConfirmation.Clear();
+        FieldNotice.Text = error.Message;
+        Render();
+        SessionExpired?.Invoke(error);
     }
 
     private void Render()
@@ -239,7 +285,7 @@ public sealed partial class DeviceFieldActionWindow : Window
         var target = _state?.Target;
         var resume = _state?.Resume;
         var pending = Pending;
-        bool available = !_busy && !_forbidden && _confirm is null;
+        bool available = !_busy && !_openingReports && !_forbidden && _confirm is null;
         bool fresh = _checkedAt != 0 && Stopwatch.GetElapsedTime(_checkedAt) < TimeSpan.FromSeconds(12);
         FieldDeviceName.Text = _forbidden ? "原生设备信息暂不可读" :
             $"原生设备 {target?.DeviceName ?? _originalDevice} · 最近联系 {Stamp(target?.LastSeenAt)}";
@@ -309,7 +355,7 @@ public sealed partial class DeviceFieldActionWindow : Window
 
     private void Arrange()
     {
-        bool compact = ClientSize.Width is > 0 and < 900;
+        bool compact = Bounds.Width is > 0 and < 880;
         FieldColumns.ColumnDefinitions[1].Width = compact ? new(0) : new(1, GridUnitType.Star);
         FieldColumns.ColumnSpacing = compact ? 0 : 8;
         Grid.SetColumn(FieldAuthorization, compact ? 0 : 1);
