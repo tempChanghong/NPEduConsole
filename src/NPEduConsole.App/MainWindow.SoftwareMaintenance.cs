@@ -9,14 +9,30 @@ public sealed partial class MainWindow
 {
     private readonly DispatcherTimer _softwarePoll = new() { Interval = TimeSpan.FromSeconds(6) };
     private readonly Dictionary<(string SchoolId, string DeviceId), SoftwareFeedback> _softwareFeedback = new();
+    private readonly Dictionary<(string SchoolId, string DeviceId), SoftwareReceiptProjection> _softwareHistory = new();
+    private ConsoleClient? _softwareHistoryClient;
     private CancellationTokenSource? _softwareRead;
     private CancellationTokenSource? _softwareSession;
     private SoftwareUpdate? _software;
     private string? _softwareError;
+    private bool _softwareErrorAllowsHistory;
+    private bool _softwareReceiptExpanded;
     private const string LocalRecoveryHelp = "请在这台大屏打开已安装的 NPDownloader。若本机显示「恢复上次升级」，按本机提示处理。该入口仅在本机有可恢复记录时出现。";
 
     private sealed record SoftwareFeedback(string Message, bool Writing = false, bool Unconfirmed = false,
         Guid? ConflictingInvitation = null, WithdrawalState? WithdrawalResult = null, bool ReviewInvitation = false);
+
+    private sealed record SoftwareReceiptProjection(
+        string? PlanId,
+        string? State,
+        string? Reason,
+        string? PreviousVersion,
+        string? TargetVersion,
+        DateTimeOffset? PlanUpdatedAt,
+        SoftwareRollbackConfirmation? RollbackConfirmation,
+        string? ObservedVersion,
+        DateTimeOffset? LastSeenAt,
+        DateTimeOffset CapturedAt);
 
     private readonly record struct WithdrawalState(long Revision, string Enrollment, bool Managed, Guid? EnrollmentId)
     {
@@ -60,7 +76,11 @@ public sealed partial class MainWindow
         _softwarePoll.Stop();
         _software = null;
         _softwareError = null;
+        _softwareErrorAllowsHistory = false;
+        _softwareReceiptExpanded = false;
         SoftwareReleasePicker.ItemsSource = null;
+        SoftwareReceiptSection.IsVisible = false;
+        SoftwareReceiptDetails.IsVisible = false;
         SoftwareMaintenanceCard.IsVisible = false;
     }
 
@@ -70,6 +90,70 @@ public sealed partial class MainWindow
         _softwareSession?.Dispose();
         _softwareSession = null;
         _softwareFeedback.Clear();
+        _softwareHistory.Clear();
+        _softwareHistoryClient = null;
+        _softwareErrorAllowsHistory = false;
+        _softwareReceiptExpanded = false;
+    }
+
+    private void ToggleSoftwareReceiptClicked(object? sender, RoutedEventArgs args)
+    {
+        _softwareReceiptExpanded = !_softwareReceiptExpanded;
+        RenderSoftwareMaintenance();
+        if (_softwareReceiptExpanded && EquipmentKey is { } key) ShowSoftwareMaintenance(key);
+    }
+
+    private static bool ShouldClearSoftwareHistory(Exception error) => error is ConsoleApiException
+    {
+        StatusCode: 401 or 403 or 404 or 409 or 426
+    };
+
+    private static bool CanUseSoftwareHistoryOnError(Exception error) => error switch
+    {
+        ConsoleApiException { StatusCode: 0 or 408 or 429 or >= 500 } => true,
+        HttpRequestException or OperationCanceledException => true,
+        _ => false
+    };
+
+    private void SaveSoftwareHistory(ConsoleClient client, (string SchoolId, string DeviceId) key, SoftwareUpdate snapshot)
+    {
+        if (_softwareHistoryClient is not null && !ReferenceEquals(_softwareHistoryClient, client))
+            _softwareHistory.Clear();
+        _softwareHistoryClient = client;
+        if (snapshot.Plan is null && snapshot.ObservedVersion is null)
+        {
+            _softwareHistory.Remove(key);
+            return;
+        }
+        _softwareHistory[key] = CreateSoftwareReceiptProjection(snapshot, DateTimeOffset.Now);
+    }
+
+    private SoftwareReceiptProjection? GetSoftwareHistory(ConsoleClient? client, (string SchoolId, string DeviceId) key) =>
+        client is not null && ReferenceEquals(_softwareHistoryClient, client)
+            ? _softwareHistory.GetValueOrDefault(key)
+            : null;
+
+    private void ClearSoftwareHistory(ConsoleClient? client, (string SchoolId, string DeviceId) key)
+    {
+        if (client is not null && ReferenceEquals(_softwareHistoryClient, client))
+            _softwareHistory.Remove(key);
+    }
+
+    private static SoftwareReceiptProjection CreateSoftwareReceiptProjection(SoftwareUpdate snapshot, DateTimeOffset capturedAt)
+    {
+        var plan = snapshot.Plan;
+        var confirmation = snapshot.IsEnrolled ? plan?.RollbackConfirmation : null;
+        return new SoftwareReceiptProjection(
+            plan?.Id,
+            plan?.State,
+            plan?.Reason,
+            plan?.ValidPreviousVersion,
+            plan?.TargetVersion,
+            plan?.UpdatedAt,
+            confirmation,
+            snapshot.ObservedVersion,
+            snapshot.LastSeenAt,
+            capturedAt);
     }
 
     private async void RefreshSoftwareClicked(object? sender, RoutedEventArgs args) => await ReadSoftwareAsync(userRefresh: true);
@@ -96,6 +180,8 @@ public sealed partial class MainWindow
             if (_softwareRead != request || _client != client || EquipmentKey != key) return;
             _software = snapshot;
             _softwareError = null;
+            _softwareErrorAllowsHistory = false;
+            SaveSoftwareHistory(client, key, snapshot);
             var feedback = CurrentSoftwareFeedback;
             if (feedback?.ConflictingInvitation is { } invitation)
                 _softwareFeedback[key] = ReviewWithdrawalConflict(snapshot, invitation);
@@ -115,7 +201,11 @@ public sealed partial class MainWindow
         }
         catch (Exception error) when (IsServiceError(error))
         {
-            if (_softwareRead != request || _client != client || ReturnToLoginIfExpired(error)) return;
+            if (_softwareRead != request || _client != client || EquipmentKey != key || ReturnToLoginIfExpired(error)) return;
+            _software = null;
+            if (ShouldClearSoftwareHistory(error))
+                ClearSoftwareHistory(client, key);
+            _softwareErrorAllowsHistory = CanUseSoftwareHistoryOnError(error);
             _softwareError = error is ConsoleApiException { StatusCode: 404 or 426 } ?
                 "当前服务未提供此设备的软件维护接口，请刷新班级列表或核对服务版本。" : ServiceMessage(error);
         }
@@ -143,6 +233,7 @@ public sealed partial class MainWindow
         {
             var saved = await client.SetSoftwareUpdateAsync(snapshot, action, targetVersion, Guid.NewGuid(), session.Token);
             if (_client != client) return;
+            SaveSoftwareHistory(client, key, saved);
             if (withdrawing)
                 _softwareFeedback[key] = new(wasOffline
                     ? "学校端已撤回邀请。终端最近观测离线，需重新连接学校服务才能获取最新状态。"
@@ -150,11 +241,25 @@ public sealed partial class MainWindow
                     WithdrawalResult: new WithdrawalState(saved));
             else
                 _softwareFeedback.Remove(key);
-            if (EquipmentKey == key && SoftwareMaintenanceCard.IsVisible) _software = saved;
+            if (EquipmentKey == key && SoftwareMaintenanceCard.IsVisible)
+            {
+                _software = saved;
+                _softwareError = null;
+                _softwareErrorAllowsHistory = false;
+            }
         }
         catch (Exception error) when (IsServiceError(error))
         {
             if (_client != client || ReturnToLoginIfExpired(error)) return;
+            if (ShouldClearSoftwareHistory(error))
+            {
+                ClearSoftwareHistory(client, key);
+                if (EquipmentKey == key && SoftwareMaintenanceCard.IsVisible)
+                {
+                    _software = null;
+                    _softwareErrorAllowsHistory = false;
+                }
+            }
             bool unknown = error is ConsoleApiException { Code: "UPDATE_UNCONFIRMED" } or HttpRequestException or OperationCanceledException;
             _softwareFeedback[key] = withdrawing && error is ConsoleApiException
                 { StatusCode: 409, Code: "REVISION_CONFLICT" or "UPDATE_ENROLLMENT_CHANGED" }
@@ -217,6 +322,7 @@ public sealed partial class MainWindow
         string details = snapshot is null || _softwareError is not null ? "" : SoftwareDetails(snapshot, _device?.Device.Connectivity, confirmation);
         SoftwareMaintenanceDetails.Text = details;
         SoftwareMaintenanceDetails.IsVisible = details.Length > 0;
+        RenderSoftwareReceipt(snapshot);
         SoftwareApprovalForm.IsVisible = releases.Length > 0 && _softwareError is null;
         InviteSoftwareButton.IsVisible = snapshot?.CanInvite == true && _softwareError is null;
         WithdrawInvitationButton.IsVisible = snapshot?.CanWithdraw == true && _softwareError is null;
@@ -234,6 +340,85 @@ public sealed partial class MainWindow
             snapshot?.IsEnrolled == true && plan is { HasRollbackReport: true, ValidPreviousVersion: not null } && confirmation is null)
             _softwarePoll.Start();
         else _softwarePoll.Stop();
+    }
+
+    private void RenderSoftwareReceipt(SoftwareUpdate? snapshot)
+    {
+        SoftwareReceiptProjection? projection = null;
+        bool isHistorical = false;
+        if (_softwareError is null && snapshot is not null && (snapshot.Plan is not null || snapshot.ObservedVersion is not null))
+        {
+            projection = CreateSoftwareReceiptProjection(snapshot, DateTimeOffset.Now);
+        }
+        else if (((_softwareError is null && snapshot is null) || (_softwareError is not null && _softwareErrorAllowsHistory)) &&
+                 EquipmentKey is { } key && GetSoftwareHistory(_client, key) is { } cached)
+        {
+            projection = cached;
+            isHistorical = true;
+        }
+
+        if (projection is null)
+        {
+            SoftwareReceiptSection.IsVisible = false;
+            SoftwareReceiptDetails.IsVisible = false;
+            return;
+        }
+
+        SoftwareReceiptSection.IsVisible = true;
+        SoftwareReceiptHeading.Text = isHistorical ? "上次已确认维护详情" : "本次维护详情";
+        string? hint = isHistorical
+            ? $"上次已确认（只读回看，未启用写入） · 记录于 {FormatTime(projection.CapturedAt)}"
+            : projection.PlanUpdatedAt is { } updated
+                ? $"任务更新于 {FormatTime(updated)}"
+                : projection.LastSeenAt is { } seen
+                    ? $"最近上报于 {FormatTime(seen)}"
+                    : null;
+        SoftwareReceiptHint.Text = hint;
+        SoftwareReceiptHint.IsVisible = !string.IsNullOrEmpty(hint);
+        ToggleSoftwareReceiptButton.Content = _softwareReceiptExpanded ? "收起详情" : "展开详情";
+        SoftwareReceiptDetails.IsVisible = _softwareReceiptExpanded;
+        SoftwareReceiptDetails.Text = _softwareReceiptExpanded ? FormatSoftwareReceipt(projection, EquipmentKey?.DeviceId, isHistorical) : null;
+    }
+
+    private static string FormatSoftwareReceipt(SoftwareReceiptProjection receipt, string? deviceId, bool isHistorical)
+    {
+        string stage = FormatSoftwareReceiptStage(receipt.State, receipt.Reason, receipt.RollbackConfirmation is not null);
+        string rollback = receipt.RollbackConfirmation is { } confirmed
+            ? $"已确认（原版本 {confirmed.Version} · 确认于 {FormatTime(confirmed.ConfirmedAt)}）"
+            : "未确认";
+        return string.Join("\n",
+        [
+            $"记录性质：{(isHistorical ? $"上次已确认（只读回看，记录于 {FormatTime(receipt.CapturedAt)}）" : "本次维护")}",
+            $"任务编号：{receipt.PlanId ?? "暂无"}",
+            $"设备编号：{deviceId ?? "未提供"}",
+            $"阶段与代码：{stage}",
+            $"原版本：{receipt.PreviousVersion ?? "未提供"}",
+            $"目标版本：{receipt.TargetVersion ?? "暂无"}",
+            $"最近上报版本：{receipt.ObservedVersion ?? "尚无版本回执"}",
+            $"任务更新时间：{FormatTime(receipt.PlanUpdatedAt)}",
+            $"最近上报时间：{FormatTime(receipt.LastSeenAt)}",
+            $"回退确认：{rollback}"
+        ]);
+    }
+
+    private static string FormatSoftwareReceiptStage(string? state, string? reason, bool rollbackConfirmed)
+    {
+        if (string.IsNullOrWhiteSpace(state)) return "暂无任务";
+        string label = state switch
+        {
+            "APPROVED" => "更新已批准",
+            "DEFERRED" => "等待安全更新时机",
+            "INSTALLING" => "等待安装器报告结果",
+            "AWAITING_RESTART" => "等待新版教室后台上报",
+            "SUCCEEDED" => "升级成功",
+            "FAILED" when reason is "ROLLED_BACK" or "ROLLBACK_SUCCEEDED" && rollbackConfirmed => "升级失败（已确认原版本重新运行）",
+            "FAILED" when reason is "ROLLED_BACK" or "ROLLBACK_SUCCEEDED" => "升级失败（安装器已报告回退）",
+            "FAILED" => "升级失败",
+            "CANCELLED" => "更新任务已取消",
+            _ => "维护状态待核对"
+        };
+        string code = string.IsNullOrWhiteSpace(reason) ? state : $"{state} / {reason}";
+        return $"{label}（{code}）";
     }
 
     private static string SoftwareStatusText(SoftwareUpdate snapshot, SoftwareRollbackConfirmation? confirmation) => snapshot.Enrollment switch

@@ -559,6 +559,22 @@
                 </Grid>
                 <TextBlock x:Name="SoftwareRollbackReceipt" Classes="label" IsVisible="False" />
                 <TextBlock x:Name="SoftwareMaintenanceDetails" Classes="muted" />
+                <Border x:Name="SoftwareReceiptSection" Background="{DynamicResource CanvasBrush}"
+                        BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8"
+                        Padding="12,10" IsVisible="False">
+                  <StackPanel Spacing="8">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                      <StackPanel Spacing="2">
+                        <TextBlock x:Name="SoftwareReceiptHeading" Classes="label" />
+                        <TextBlock x:Name="SoftwareReceiptHint" Classes="muted" IsVisible="False" />
+                      </StackPanel>
+                      <Button x:Name="ToggleSoftwareReceiptButton" Grid.Column="1" Classes="action"
+                              Content="展开详情" VerticalAlignment="Center" Click="ToggleSoftwareReceiptClicked" />
+                    </Grid>
+                    <TextBlock x:Name="SoftwareReceiptDetails" Classes="muted" TextWrapping="Wrap"
+                               IsVisible="False" />
+                  </StackPanel>
+                </Border>
                 <StackPanel x:Name="SoftwareApprovalForm" Spacing="7" IsVisible="False">
                   <TextBlock Text="学校更新目录" Classes="muted" />
                   <ComboBox x:Name="SoftwareReleasePicker" HorizontalAlignment="Stretch"
