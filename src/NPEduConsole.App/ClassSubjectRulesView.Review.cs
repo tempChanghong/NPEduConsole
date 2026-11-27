@@ -29,7 +29,7 @@ public sealed class ClassRuleReviewLine(string? subjectId, string title, string 
     }
 }
 
-public sealed partial class ClassSubjectRulesWindow
+public sealed partial class ClassSubjectRulesView
 {
     private ClassRuleChoice[] Choices => _baseline!.Rows.Select(row => _draft[row.SubjectId]).ToArray();
     private ClassRuleReviewLine? SelectedReview => RulesReviewRows.SelectedItem as ClassRuleReviewLine;
@@ -76,7 +76,7 @@ public sealed partial class ClassSubjectRulesWindow
         if (preview.Issues.Length > 0)
             Notice($"有 {blocked.Count} 科需先处理。", true);
         else if (preview.Removals.Length > 0)
-            Notice("请在对应科目核对将解除的来源。可用 F8 定位下个未核对项。");
+            Notice("请在对应科目核对将解除的来源。可用 F8 定位下个未核对项。", reviewListHint: true);
         else if (preview.ClearsClass)
             Notice("整班清空需要单独确认。可用 F8 定位确认项。");
         else Notice("请核对逐科调整，再确认保存。");
@@ -206,13 +206,20 @@ public sealed partial class ClassSubjectRulesWindow
     {
         if (_working || _resolver is not null || Pending is not null || SelectedIssue is not { } issue ||
             _baseline is not { Classroom.GradeId: { } grade } baseline) return;
-        var window = new GradeTeachingPlanWindow(_client, _school, grade, issue.SubjectId, null, _termId, _classId,
-            ruleAction: issue.Action) { SessionExpired = AccessChanged };
-        _resolver = window;
-        try { await window.ShowDialog(this); }
-        finally { _resolver = null; }
+        bool changed;
+        if (OpenConflict is { } open)
+            changed = await open(_termId, grade, _classId, issue.SubjectId, issue.Action);
+        else
+        {
+            var window = new GradeTeachingPlanWindow(_client, _school, grade, issue.SubjectId, null, _termId, _classId,
+                ruleAction: issue.Action) { SessionExpired = AccessChanged };
+            _resolver = window;
+            try { await window.ShowDialog(OwnerWindow); }
+            finally { _resolver = null; }
+            changed = window.WorkspaceChanged;
+        }
         if (_closed) return;
-        WorkspaceChanged |= window.WorkspaceChanged;
+        WorkspaceChanged |= changed;
         DropReview();
         await RunAsync(ReloadAsync);
         if (_closed) return;
@@ -261,8 +268,21 @@ public sealed partial class ClassSubjectRulesWindow
 
     private async Task VerifyAsync(Submission operation)
     {
-        var receipt = await _client.GetClassRuleReceiptAsync(operation.Baseline, operation.Preview, operation.Id, _lifetime.Token);
-        var current = await ReadAsync();
+        ClassRuleReceipt? receipt;
+        ClassRuleSnapshot current;
+        _checkingReceipt = true;
+        Render();
+        try
+        {
+            receipt = await _client.GetClassRuleReceiptAsync(operation.Baseline, operation.Preview, operation.Id, _lifetime.Token);
+            if (_closed) return;
+            current = await ReadAsync();
+        }
+        finally
+        {
+            _checkingReceipt = false;
+            if (!_closed) Render();
+        }
         if (_closed) return;
         if (receipt is not null)
         {
@@ -365,7 +385,7 @@ public sealed partial class ClassSubjectRulesWindow
         Update();
         _presetWindow = window;
         window.Closed += (_, _) => { if (_presetWindow == window) _presetWindow = null; };
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(OwnerWindow); }
         finally { if (_presetWindow == window) _presetWindow = null; }
         if (!_closed && _presetWindow is null) RulesPreset.Focus();
     }

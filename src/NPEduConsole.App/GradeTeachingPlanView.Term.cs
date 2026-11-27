@@ -13,6 +13,7 @@ public sealed partial class GradeTeachingPlanView
     private StaffResponsibilitiesWindow? _staffEditor;
     private StaffReviewWindow? _staffReview;
     private ClassSubjectRulesWindow? _classRulesEditor;
+    internal Func<string, string, string?, Task<(bool Returned, bool Changed)>>? OpenClassRules { get; init; }
     private sealed record LinkedClassRule(string ClassId, string SubjectId, string Action);
     private LinkedClassRule? _linkedClassRule;
     private sealed record LinkedTeacher(string? GradeId, string? SubjectId, string? ClassId, string? GroupId, string AccountId);
@@ -237,7 +238,8 @@ public sealed partial class GradeTeachingPlanView
         PlanOpenSubjectFromClass.IsEnabled = !_busy && !_scopeLost && !HasDraft && Pending is null &&
             SummaryClass is not null && PlanClassSubjects.SelectedItem is TermTeachingSubjectLine;
         PlanEditClassRules.IsEnabled = !_busy && !_scopeLost && !HasDraft && Pending is null &&
-            _classRulesEditor is null && SummaryClass is not null && _catalog?.Term is not null;
+            !_fromClassRules && _classRulesEditor is null && SummaryClass is not null && _catalog?.Term is not null;
+        PlanEditClassRules.IsVisible = !_fromClassRules;
         PlanOpenGradeStaff.IsEnabled = editable && _staffEditor is null && _staffReadError is null && _gradeStaff is not null;
         PlanOpenClassStaff.IsEnabled = editable && _staffEditor is null && _staffReadError is null && _classStaff is not null;
         PlanOpenStaffReview.IsVisible = !_openedFromStaffReview;
@@ -251,14 +253,31 @@ public sealed partial class GradeTeachingPlanView
     private async void EditClassRulesClicked(object? sender, RoutedEventArgs args)
     {
         if (!PlanEditClassRules.IsEnabled || SummaryClass is not { } room || _catalog?.Term is not { } term) return;
-        var window = new ClassSubjectRulesWindow(_client, _school, term.Id, room.Id) { AccessChanged = SessionExpired };
-        _classRulesEditor = window;
-        Render();
-        try { await window.ShowDialog(OwnerWindow); }
-        finally { _classRulesEditor = null; }
+        var subject = (PlanClassSubjects.SelectedItem as TermTeachingSubjectLine)?.Id;
+        var scroll = PlanClassSubjects.Scroll as ScrollViewer;
+        var offset = scroll?.Offset;
+        if (OpenClassRules is { } open)
+        {
+            var (returned, changed) = await open(term.Id, room.Id, subject);
+            if (!returned || _closed) return;
+            WorkspaceChanged |= changed;
+        }
+        else
+        {
+            var window = new ClassSubjectRulesWindow(_client, _school, term.Id, room.Id, subject) { AccessChanged = SessionExpired };
+            _classRulesEditor = window;
+            Render();
+            try { await window.ShowDialog(OwnerWindow); }
+            finally { _classRulesEditor = null; }
+            WorkspaceChanged |= window.WorkspaceChanged;
+        }
         if (_closed) return;
-        WorkspaceChanged |= window.WorkspaceChanged;
         await RunAsync(LoadAsync);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (!_closed && PlanEditClassRules.IsEffectivelyVisible && scroll is not null && offset is { } previous)
+                scroll.Offset = previous;
+        }, DispatcherPriority.Loaded);
         Focus(PlanEditClassRules);
     }
 

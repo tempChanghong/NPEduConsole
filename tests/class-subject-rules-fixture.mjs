@@ -47,7 +47,8 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
   const loginBody = await login.json();
   const access = loginBody.data ?? loginBody;
   const endpoint = '/api/v2/admin/schools/' + school.id + '/administrative-classes/' + eight.id + '/subject-rules';
-  let browser, site, savedId, ownReads = 0, applied = 0;
+  let browser, site, savedId, ownReads = 0, receiptAttempts = 0, applied = 0;
+  let heldReadCancelled = false;
   const springWrites = [], archiveWrites = [];
   const cases = [];
 
@@ -193,6 +194,13 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
       assert.deepEqual(await sources(inactiveChemistry), [seven.id, eight.id].sort());
       assert.equal(applied, 0);
       assert.deepEqual(springWrites.map(row => row.confirmedSourceIds), [[a1.id, inactive.id, c1.id, inactiveChemistry.id].sort()]);
+    } else if (name === 'receipt-reading' || name === 'receipt-left') {
+      for (let tries = 0; tries < 60; tries++) {
+        if (receiptAttempts === 1 && (name === 'receipt-reading' || heldReadCancelled)) break;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.deepEqual([applied, receiptAttempts, ownReads, springWrites.length], [1, 1, 0, 2]);
+      if (name === 'receipt-left') assert.equal(heldReadCancelled, true);
     } else if (name === 'saved') {
       assert.equal(await rule(eight, physics), null);
       assert.equal((await rule(eight, chemistry)).deliveryMode, 'ADMIN_CLASS');
@@ -209,7 +217,7 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
       assert.equal((await prisma.teachingAssignment.findUniqueOrThrow({where: {id: teacher.id}})).isActive, false);
       assert.equal((await prisma.workspaceMember.findUniqueOrThrow({where: {workspaceId_accountId: {workspaceId: eight.id, accountId: managerId}}})).role, 'TEACHER');
       assert.ok(await prisma.publicationTarget.findFirst({where: {publicationId: publication.id, workspaceId: a1.id}}));
-      assert.deepEqual([applied, ownReads], [1, 1]);
+      assert.deepEqual([applied, receiptAttempts, ownReads], [1, 2, 1]);
       assert.deepEqual(springWrites.at(-1).confirmedSourceIds, [a2.id, inactive.id, c1.id, inactiveChemistry.id].sort());
       assert.equal(springWrites.length, 2);
     } else if (name === 'clear-preview-only') {
@@ -253,7 +261,14 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
           return res.writeHead(502).end();
         }
       }
-      if (savedId && url.pathname === endpoint + '/receipts/' + savedId && upstream.ok) ownReads++;
+      if (req.method === 'GET' && savedId && url.pathname === endpoint + '/receipts/' + savedId && upstream.ok) {
+        receiptAttempts++;
+        if (receiptAttempts === 1) {
+          res.once('close', () => { heldReadCancelled = true; });
+          return;
+        }
+        ownReads++;
+      }
       const responseHeaders = Object.fromEntries(upstream.headers);
       for (const key of ['connection', 'transfer-encoding', 'content-encoding', 'content-length']) delete responseHeaders[key];
       res.writeHead(upstream.status, responseHeaders).end(responseBody);
@@ -276,8 +291,9 @@ export async function verifyClassSubjectRules({prisma, origin, fixture, director
         allowClassRuleWrites: true}), {mode: 0o600});
       await runDesktop(['--live-class-rules', config, evidence]);
     }});
-    assert.deepEqual(cases, ['start', 'presets', 'partially-reviewed', 'swap', 'stale', 'saved', 'clear-preview-only', 'archive', 'active']);
-    await writeFile(join(evidence, 'class-rules-result.json'), JSON.stringify({result: 'PASS', cases, applied, ownReads,
+    assert.deepEqual(cases, ['start', 'presets', 'partially-reviewed', 'swap', 'stale', 'receipt-reading', 'receipt-left',
+      'saved', 'clear-preview-only', 'archive', 'active']);
+    await writeFile(join(evidence, 'class-rules-result.json'), JSON.stringify({result: 'PASS', cases, applied, receiptAttempts, ownReads, heldReadCancelled,
       receiptId: savedId, springWrites, archiveWrites, sameNameClassIds: [fall8.id, eight.id, archive8.id],
       sourceIds: [a1.id, a2.id, inactive.id, c1.id, inactiveChemistry.id],
       protectedPublication: publication.id}, null, 2));

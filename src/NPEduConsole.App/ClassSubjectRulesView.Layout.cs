@@ -7,14 +7,14 @@ using Avalonia.VisualTree;
 
 namespace NPEduConsole.App;
 
-public sealed partial class ClassSubjectRulesWindow
+public sealed partial class ClassSubjectRulesView
 {
     private bool _compact, _editorDetail, _reviewDetail;
     private string? _pinnedEditorSubject;
 
     private void Arrange()
     {
-        var compact = ClientSize.Width is > 0 and < 900;
+        var compact = Bounds.Width < 850;
         var leavingEditorReturn = !compact && RulesReturnSubjects.IsFocused;
         var leavingReviewReturn = !compact && RulesReturnReviewList.IsFocused;
         if (compact != _compact)
@@ -29,6 +29,7 @@ public sealed partial class ClassSubjectRulesWindow
             }
             _compact = compact;
         }
+        Classes.Set("compact-rules", compact);
         ApplyPaneLayout();
         if (leavingEditorReturn) FocusList(RulesRows);
         if (leavingReviewReturn) FocusList(RulesReviewRows);
@@ -51,6 +52,7 @@ public sealed partial class ClassSubjectRulesWindow
         RulesOpenReviewSubject.IsVisible = _compact;
         RulesOpenReviewSubject.IsEnabled = SelectedReview is not null && !_working;
         RulesReturnReviewList.IsVisible = reviewDetail;
+        UpdateNoticeVisibility();
     }
 
     private void SetColumns(Grid grid, Control detail, int listWidth, int detailWidth)
@@ -161,7 +163,7 @@ public sealed partial class ClassSubjectRulesWindow
         }, DispatcherPriority.Loaded);
     }
 
-    private void WindowKeyDown(object? sender, KeyEventArgs args)
+    private void RulesKeyDown(object? sender, KeyEventArgs args)
     {
         if (_working || _closed) return;
         if (args.Key == Key.F8 && RulesNextUnconfirmed.IsEffectivelyEnabled && RulesNextUnconfirmed.IsEffectivelyVisible)

@@ -41,7 +41,8 @@ public sealed partial class MainWindow
         // A child page can sit above a separate, unfinished draft.
         var owner = _academicPages.Skip(1).FirstOrDefault(page => page.Content is
             OrganizationImportView { ReturningWithDraft: true } or TeacherAllocationView { ReturningWithDraft: true } or
-            CourseGroupsView { ReturningWithDraft: true } or GradeTeachingPlanView { ReturningWithDraft: true });
+            CourseGroupsView { ReturningWithDraft: true } or GradeTeachingPlanView { ReturningWithDraft: true } or
+            ClassSubjectRulesView { ReturningWithDraft: true });
         if (owner is null) return true;
         while (_academicPages.Peek() != owner)
             RemoveAcademicPage(_academicPages.Pop(), returned: false);

@@ -1,0 +1,199 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="using:NPEduConsole.App"
+             x:Class="NPEduConsole.App.ClassSubjectRulesView">
+  <UserControl.Styles>
+    <Style Selector="CheckBox.rule-confirmation">
+      <Setter Property="Padding" Value="8,5,10,5"/>
+      <Setter Property="FocusAdorner">
+        <Template><Border CornerRadius="6" BorderThickness="2" BorderBrush="{DynamicResource FocusBrush}" IsHitTestVisible="False"/></Template>
+      </Setter>
+    </Style>
+    <Style Selector="Border.rules-header"><Setter Property="Padding" Value="18,9"/></Style>
+    <Style Selector="TextBlock.rules-heading"><Setter Property="FontSize" Value="24"/></Style>
+    <Style Selector="Grid.rules-body">
+      <Setter Property="Margin" Value="18,10"/>
+      <Setter Property="RowSpacing" Value="8"/>
+    </Style>
+    <Style Selector="ScrollViewer#RulesNoticeScroll"><Setter Property="MaxHeight" Value="75"/></Style>
+    <Style Selector="Border.rules-detail-card"><Setter Property="Padding" Value="14,12"/></Style>
+    <Style Selector="Border.rules-footer"><Setter Property="Padding" Value="18,8"/></Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules Border.rules-header">
+      <Setter Property="Padding" Value="14,7"/>
+    </Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules TextBlock.rules-heading">
+      <Setter Property="FontSize" Value="20"/>
+    </Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules Grid.rules-body">
+      <Setter Property="Margin" Value="12,6"/>
+      <Setter Property="RowSpacing" Value="6"/>
+    </Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules ScrollViewer#RulesNoticeScroll">
+      <Setter Property="MaxHeight" Value="52"/>
+    </Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules Border.rules-detail-card">
+      <Setter Property="Padding" Value="10,8"/>
+    </Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules Border.rules-footer">
+      <Setter Property="Padding" Value="12,6"/>
+    </Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules CheckBox.rule-confirmation">
+      <Setter Property="Padding" Value="8,3,10,3"/>
+    </Style>
+    <Style Selector="Grid.rules-review-detail"><Setter Property="RowSpacing" Value="8"/></Style>
+    <Style Selector="StackPanel.rules-review-content"><Setter Property="Spacing" Value="8"/></Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules Grid.rules-review-detail">
+      <Setter Property="RowSpacing" Value="5"/>
+    </Style>
+    <Style Selector="local|ClassSubjectRulesView.compact-rules StackPanel.rules-review-content">
+      <Setter Property="Spacing" Value="5"/>
+    </Style>
+  </UserControl.Styles>
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Classes="rules-header" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1">
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+        <StackPanel Spacing="2">
+          <TextBlock Text="整班授课规则" Classes="rules-heading" FontWeight="SemiBold"/>
+          <TextBlock x:Name="RulesScope" Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+        <Button x:Name="RulesEditArchive" Grid.Column="1" Content="更正安排" Classes="action" VerticalAlignment="Center" IsVisible="False" Click="EditArchiveClicked"/>
+      </Grid>
+    </Border>
+
+    <Grid Grid.Row="1" Classes="rules-body" RowDefinitions="Auto,*">
+      <ScrollViewer x:Name="RulesNoticeScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" AllowAutoHide="False" IsVisible="False">
+        <TextBlock x:Name="RulesNotice" TextWrapping="Wrap" Margin="0,0,6,0" AutomationProperties.LiveSetting="Polite"/>
+      </ScrollViewer>
+
+      <Grid Grid.Row="1">
+        <Grid x:Name="RulesEditor" RowDefinitions="Auto,*" RowSpacing="8">
+          <Grid x:Name="RulesEditorTools" ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox x:Name="RulesFilter" PlaceholderText="搜索学科名称或代码" AutomationProperties.Name="搜索学科" TextChanged="FilterChanged"/>
+            <Button x:Name="RulesPreset" Grid.Column="1" Classes="action" Content="套用预设…" Click="PresetClicked"/>
+          </Grid>
+          <Grid x:Name="RulesEditorPanes" Grid.Row="1" ColumnDefinitions="2*,3*" ColumnSpacing="8">
+            <Border x:Name="RulesEditorListPane" Classes="card" Padding="10,9">
+              <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6">
+                <TextBlock Text="学校科目目录" Classes="label" Margin="4,0"/>
+                <ListBox x:Name="RulesRows" Grid.Row="1" Classes="object-list" Background="Transparent" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False"
+                         SelectionChanged="RowChanged" KeyDown="EditorListKeyDown" Tapped="EditorSubjectTapped"
+                         AutomationProperties.Name="整班规则科目">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="local:ClassRuleEditorLine">
+                      <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding Label}" Classes="label" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding Detail}" Classes="muted" TextWrapping="Wrap"/>
+                      </StackPanel>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+                <Button x:Name="RulesOpenSubject" Grid.Row="2" Classes="action accent" Content="查看科目规则" Click="OpenEditorSubject" IsVisible="False"/>
+              </Grid>
+            </Border>
+            <Border x:Name="RulesEditorDetailPane" Grid.Column="1" Classes="card rules-detail-card">
+              <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBlock x:Name="RulesSelectedName" Classes="label" FontSize="17" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                  <Button x:Name="RulesReturnSubjects" Grid.Column="1" Classes="action" Content="返回科目列表" Click="ReturnEditorSubjects" IsVisible="False"/>
+                </Grid>
+                <ScrollViewer x:Name="RulesEditorScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" AllowAutoHide="False">
+                  <StackPanel x:Name="RulesSelected" Spacing="8" Margin="0,0,6,0">
+                    <TextBlock x:Name="RulesBefore" Classes="muted" TextWrapping="Wrap"/>
+                    <TextBlock Text="我的草稿" Classes="label"/>
+                    <ComboBox x:Name="RulesMode" HorizontalAlignment="Stretch" AutomationProperties.Name="授课方式" SelectionChanged="ModeChanged"/>
+                    <ComboBox x:Name="RulesRequirement" HorizontalAlignment="Stretch" AutomationProperties.Name="必修属性" SelectionChanged="RequirementChanged"/>
+                    <TextBlock x:Name="RulesRelations" Classes="muted" TextWrapping="Wrap"/>
+                    <StackPanel x:Name="RulesResolveDraft" Spacing="6" IsVisible="False">
+                      <TextBlock x:Name="RulesOverlap" TextWrapping="Wrap" Foreground="{DynamicResource ErrorBrush}"/>
+                      <WrapPanel ItemSpacing="6" LineSpacing="4">
+                        <Button x:Name="RulesKeepChoice" Classes="action" Content="保留我的写法" Click="KeepChoiceClicked"/>
+                        <Button Classes="action" Content="采用学校当前值" Click="UseServerClicked"/>
+                      </WrapPanel>
+                    </StackPanel>
+                  </StackPanel>
+                </ScrollViewer>
+              </Grid>
+            </Border>
+          </Grid>
+        </Grid>
+
+        <Grid x:Name="RulesReview" IsVisible="False" ColumnDefinitions="3*,2*" ColumnSpacing="8">
+          <Border x:Name="RulesReviewListPane" Classes="card" Padding="10,9">
+            <Grid RowDefinitions="Auto,*,Auto" RowSpacing="6">
+              <TextBlock Text="逐科核对" Classes="label" Margin="4,0"/>
+              <ListBox x:Name="RulesReviewRows" Grid.Row="1" Classes="object-list" Background="Transparent" BorderThickness="0"
+                       ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.AllowAutoHide="False"
+                       SelectionChanged="ReviewRowChanged" KeyDown="ReviewKeyDown" Tapped="ReviewSubjectTapped"
+                       AutomationProperties.Name="按科核对本批调整">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="local:ClassRuleReviewLine">
+                    <StackPanel Spacing="3">
+                      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+                        <TextBlock Text="{Binding Title}" Classes="label" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Status}" Classes="muted" TextWrapping="Wrap"/>
+                      </Grid>
+                      <Grid ColumnDefinitions="*,*" ColumnSpacing="8" IsVisible="{Binding IsSubject}">
+                        <TextBlock Text="{Binding Before, StringFormat='原来 · {0}'}" Classes="muted" TextWrapping="Wrap"/>
+                        <TextBlock Grid.Column="1" Text="{Binding After, StringFormat='调整后 · {0}'}" TextWrapping="Wrap"/>
+                      </Grid>
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+              <Button x:Name="RulesOpenReviewSubject" Grid.Row="2" Classes="action accent" Content="查看核对详情" Click="OpenReviewSubject" IsVisible="False"/>
+            </Grid>
+          </Border>
+          <Border x:Name="RulesConfirmBox" Grid.Column="1" Classes="card rules-detail-card">
+            <Grid Classes="rules-review-detail" RowDefinitions="Auto,*">
+              <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBlock x:Name="RulesReviewTitle" Classes="label" FontSize="17" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                <Button x:Name="RulesReturnReviewList" Grid.Column="1" Content="返回核对列表" Classes="action" Click="ReturnReviewSubjects" IsVisible="False"/>
+              </Grid>
+              <ScrollViewer x:Name="RulesReviewScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" AllowAutoHide="False">
+                <StackPanel Classes="rules-review-content" Margin="0,0,6,0">
+                  <Grid x:Name="RulesReviewValues" ColumnDefinitions="*,*" ColumnSpacing="12">
+                    <StackPanel Spacing="3">
+                      <TextBlock Text="学校当前" Classes="muted"/>
+                      <TextBlock x:Name="RulesReviewBefore" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="3">
+                      <TextBlock Text="保存后" Classes="muted"/>
+                      <TextBlock x:Name="RulesReviewAfter" TextWrapping="Wrap"/>
+                    </StackPanel>
+                  </Grid>
+                  <TextBlock x:Name="RulesReviewDetail" TextWrapping="Wrap"/>
+                  <Button x:Name="RulesOpenConflict" Classes="action" Click="OpenConflictClicked" HorizontalAlignment="Left" IsVisible="False"/>
+                  <StackPanel x:Name="RulesSourceChecks" Spacing="6"/>
+                  <CheckBox x:Name="RulesClearCheck" Classes="rule-confirmation" IsVisible="False" IsCheckedChanged="ConfirmationChanged">
+                    <TextBlock Text="确认本班将不再开设任何科目" TextWrapping="Wrap"/>
+                  </CheckBox>
+                </StackPanel>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+        </Grid>
+      </Grid>
+    </Grid>
+
+    <Border Grid.Row="2" Classes="rules-footer" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0">
+      <Grid RowDefinitions="Auto,Auto" RowSpacing="5">
+        <TextBlock x:Name="RulesReviewSummary" Classes="muted" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" IsVisible="False"/>
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="10">
+          <WrapPanel ItemSpacing="6" LineSpacing="4" VerticalAlignment="Center">
+            <Button x:Name="RulesClose" Classes="action" Content="返回" Click="CloseClicked"/>
+            <Button x:Name="RulesReload" Classes="action" Content="重新读取" Click="ReloadClicked"/>
+            <Button x:Name="RulesBack" Classes="action" Content="返回编辑" Click="BackClicked" IsVisible="False"/>
+            <Button x:Name="RulesRecheck" Classes="action" Content="核对本人回执" Click="VerifyClicked" IsVisible="False"/>
+            <Button x:Name="RulesRetry" Classes="action" Content="按原编号重试" Click="RetryClicked" IsVisible="False"/>
+          </WrapPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <Button x:Name="RulesNextUnconfirmed" Classes="action" Content="下个未核对" Click="NextUnconfirmedClicked" ToolTip.Tip="F8 · 定位下个未核对项" IsVisible="False"/>
+            <Button x:Name="RulesPreview" Classes="action accent" Content="预览调整" Click="PreviewClicked"/>
+            <Button x:Name="RulesSave" Classes="action accent" Content="确认保存" Click="SaveClicked" IsVisible="False"/>
+          </StackPanel>
+        </Grid>
+      </Grid>
+    </Border>
+  </Grid>
+</UserControl>

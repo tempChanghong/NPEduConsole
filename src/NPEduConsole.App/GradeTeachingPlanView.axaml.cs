@@ -25,6 +25,7 @@ public sealed partial class GradeTeachingPlanView : UserControl
     private readonly string? _specifiedTermId;
     private readonly string? _requiredCurrentTermId, _entryGroupId;
     private readonly bool _inWorkspace;
+    private readonly bool _fromClassRules;
     private string? _initialClassId;
     private readonly bool _requireInitialTarget;
     private readonly TeachingIssue? _teachingIssue;
@@ -52,7 +53,7 @@ public sealed partial class GradeTeachingPlanView : UserControl
     private (string School, string? Term) PendingKey => (_school.Id, _specifiedTermId);
     private Submission? SavedPending => PendingOperations.GetValueOrDefault(PendingKey);
     private Submission? Pending => SavedPending is { } operation &&
-        (_teachingIssue is null || operation.RequestId == _ownRequestId) &&
+        (_teachingIssue is null && !_fromClassRules || operation.RequestId == _ownRequestId) &&
         (_requiredCurrentTermId is null || operation.Draft.TermId == _requiredCurrentTermId) &&
         (_entryGroupId is null || operation.RequestId == _ownRequestId ||
             operation.Draft.GradeId == _gradeId && operation.Draft.SubjectId == _subjectId &&
@@ -76,6 +77,7 @@ public sealed partial class GradeTeachingPlanView : UserControl
         _requiredCurrentTermId = requiredCurrentTermId;
         _entryGroupId = requiredCurrentTermId is null ? null : groupId;
         _inWorkspace = inWorkspace;
+        _fromClassRules = inWorkspace && ruleAction is not null;
         _initialClassId = classId;
         _requireInitialTarget = requireInitialTarget;
         _openingGroup = groupId;
@@ -123,7 +125,7 @@ public sealed partial class GradeTeachingPlanView : UserControl
             }
             if (!_closed) await LoadAsync();
             if (!_closed && _inWorkspace && _compact && Pending is not null) ShowScopedReview(null);
-            if (!_closed && OtherPlanPending && _entryGroupId is not null)
+            if (!_closed && OtherPlanPending && (_entryGroupId is not null || _fromClassRules))
                 Notice("年级教学安排还有另一份待核对的方案。可返回常规入口查原回执。", true);
         });
     }

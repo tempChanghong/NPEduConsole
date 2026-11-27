@@ -11,7 +11,7 @@ namespace NPEduConsole.App;
 
 public sealed record ClassRuleEditorLine(string Id, string Label, string Detail);
 
-public sealed partial class ClassSubjectRulesWindow : Window
+public sealed partial class ClassSubjectRulesView : UserControl
 {
     private sealed record Option(string Id, string Label) { public override string ToString() => Label; }
     private sealed record Submission(ClassRuleSnapshot Baseline, ClassRuleChoice[] Choices, bool EditArchive,
@@ -27,6 +27,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
     private readonly string _termId = null!, _classId = null!;
+    private readonly string? _initialSubjectId;
     private readonly bool _currentEntry;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, ClassRuleChoice> _draft = [];
@@ -38,11 +39,16 @@ public sealed partial class ClassSubjectRulesWindow : Window
     private ClassRuleSourceReview? _sourceReview;
     private GradeTeachingPlanWindow? _resolver;
     private Window? _presetWindow;
-    private bool _working, _closed, _forceClose, _filling, _archiveEditable, _scopeLost, _recoveryRead;
-    private bool _closeRequested;
+    private bool _working, _checkingReceipt, _closed, _filling, _archiveEditable, _scopeLost, _recoveryRead;
+    private bool _closeRequested, _discardDraft, _reviewListHint;
 
-    internal Action<ConsoleApiException>? AccessChanged { get; init; }
+    internal Action<ConsoleApiException>? AccessChanged { get; set; }
+    internal Action? CloseRequested { get; set; }
+    internal Func<string, string, string, string, string, Task<bool>>? OpenConflict { get; init; }
     internal bool WorkspaceChanged { get; private set; }
+    internal bool ReturningWithDraft => Pending is null && ChangeCount > 0 && !_scopeLost;
+    private bool MayLeave => !_working || _checkingReceipt;
+    private Window OwnerWindow => (Window)TopLevel.GetTopLevel(this)!;
     private Dictionary<(string, string, string), Submission> PendingOperations => Submissions.GetOrCreateValue(_client);
     private (string, string, string) PendingKey => (_school.Id, _termId, _classId);
     private Submission? Pending => PendingOperations.GetValueOrDefault(PendingKey);
@@ -51,64 +57,60 @@ public sealed partial class ClassSubjectRulesWindow : Window
     private int ChangeCount => _baseline?.Rows.Count(row => _draft.GetValueOrDefault(row.SubjectId) != row.Choice) ?? 0;
     private string? SelectedId => (RulesRows.SelectedItem as ClassRuleEditorLine)?.Id;
 
-    public ClassSubjectRulesWindow()
+    public ClassSubjectRulesView()
     {
         InitializeComponent();
         RulesMode.ItemsSource = Modes;
         RulesRequirement.ItemsSource = Requirements;
     }
 
-    internal ClassSubjectRulesWindow(ConsoleClient client, School school, string termId, string classId, bool currentEntry = false) : this()
+    internal ClassSubjectRulesView(ConsoleClient client, School school, string termId, string classId, bool currentEntry = false,
+        string? initialSubjectId = null) : this()
     {
         _client = client;
         _school = school;
         _termId = termId;
         _classId = classId;
         _currentEntry = currentEntry;
+        _initialSubjectId = initialSubjectId;
         RulesScope.Text = school.Name;
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            Arrange();
-            await RunAsync(Pending is { } operation ? () => VerifyAsync(operation) : ReloadAsync);
-            if (!_closed) RulesFilter.Focus();
-        };
         SizeChanged += (_, _) => Arrange();
-        KeyDown += WindowKeyDown;
-        Closing += OnClosing;
-        Closed += (_, _) => { _closed = true; _lifetime.Cancel(); _lifetime.Dispose(); };
+        KeyDown += RulesKeyDown;
         Render();
     }
 
-    internal void CloseForScopeChange()
+    internal async Task StartAsync()
     {
-        _forceClose = true;
-        _resolver?.CloseForScopeChange();
-        _presetWindow?.Close();
-        Close();
+        Arrange();
+        await RunAsync(Pending is { } operation ? () => VerifyAsync(operation) : ReloadAsync);
+        if (!_closed && RulesFilter.IsEffectivelyEnabled) RulesFilter.Focus();
     }
 
-    private void OnClosing(object? sender, WindowClosingEventArgs args)
+    internal void End()
     {
-        if (_forceClose) return;
-        if (_working)
-        {
-            args.Cancel = true;
-            return;
-        }
-        if (Pending is not null || ChangeCount == 0 || _scopeLost || _closeRequested) return;
-        args.Cancel = true;
+        if (_closed) return;
+        _closed = true;
+        _resolver?.CloseForScopeChange();
+        _presetWindow?.Close();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+
+    internal bool CanClose()
+    {
+        if (!MayLeave) return false;
+        if (!ReturningWithDraft || _discardDraft) return true;
         _closeRequested = true;
-        RulesClose.Content = "放弃草稿并关闭";
-        Notice("本次调整尚未保存。继续编辑，或再次点击「放弃草稿并关闭」。");
+        Render();
+        Notice("本次调整尚未保存。继续编辑，或点击「放弃草稿并返回」。");
         RulesClose.Focus();
+        return false;
     }
 
     private async Task RunAsync(Func<Task> action)
     {
         if (_working || _closed) return;
-        _closeRequested = false;
-        RulesClose.Content = "关闭";
+        ResetExitPrompt();
         _working = true;
         Render();
         try { await action(); }
@@ -163,10 +165,11 @@ public sealed partial class ClassSubjectRulesWindow : Window
 
     private void SetBaseline(ClassRuleSnapshot current)
     {
+        var initialSubject = _baseline is null ? _initialSubjectId : null;
         if (_baseline?.Term.Status != current.Term.Status) _archiveEditable = false;
         _baseline = current;
         RulesScope.Text = $"{_school.Name}  /  {current.Term.Name} · {current.Term.StatusLabel}  /  {current.Classroom.Name}（{current.Classroom.Code}）";
-        RefreshRows();
+        RefreshRows(initialSubject);
     }
 
     private void Merge(ClassRuleSnapshot current)
@@ -298,7 +301,8 @@ public sealed partial class ClassSubjectRulesWindow : Window
         RulesEditArchive.IsEnabled = !_working && pending is null;
         RulesSave.IsVisible = reviewing && pending is null;
         RulesSave.IsEnabled = CanConfirmReview;
-        RulesClose.IsEnabled = !_working;
+        RulesClose.IsEnabled = MayLeave;
+        RulesClose.Content = _closeRequested ? "放弃草稿并返回" : _checkingReceipt ? "返回，稍后核对" : "返回";
         RulesRecheck.IsVisible = pending is not null && !_scopeLost;
         RulesRetry.IsVisible = RulesRecheck.IsVisible && _recoveryRead;
         RulesRecheck.IsEnabled = RulesRetry.IsEnabled = !_working;
@@ -309,12 +313,17 @@ public sealed partial class ClassSubjectRulesWindow : Window
         ApplyPaneLayout();
     }
 
-    private void Notice(string message, bool error = false)
+    private void Notice(string message, bool error = false, bool reviewListHint = false)
     {
+        _reviewListHint = reviewListHint;
         RulesNotice.Text = message;
-        RulesNoticeScroll.IsVisible = message.Length > 0;
+        UpdateNoticeVisibility();
         RulesNotice[!TextBlock.ForegroundProperty] = new DynamicResourceExtension(error ? "ErrorBrush" : "MutedBrush");
     }
+
+    private void UpdateNoticeVisibility() =>
+        RulesNoticeScroll.IsVisible = !string.IsNullOrEmpty(RulesNotice.Text) &&
+            !(_reviewListHint && _compact && _reviewDetail && _preview is not null);
 
     private void FilterChanged(object? sender, TextChangedEventArgs args)
     {
@@ -341,6 +350,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
     {
         var current = _draft[id];
         if (current.Mode == mode) return;
+        ResetExitPrompt();
         if (current.Mode != NotOffered) _lastRequirement[id] = current.Compulsory;
         var required = _lastRequirement.GetValueOrDefault(id, _baseline!.Rows.First(row => row.SubjectId == id).Category == "CORE");
         _draft[id] = new(id, mode, mode != NotOffered && required);
@@ -349,6 +359,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
     private void RequirementChanged(object? sender, SelectionChangedEventArgs args)
     {
         if (_filling || !CanEdit || SelectedId is not { } id || RulesRequirement.SelectedItem is not Option requirement) return;
+        ResetExitPrompt();
         _draft[id] = _draft[id] with { Compulsory = requirement.Id == "REQUIRED" };
         RefreshRows(id);
         Render();
@@ -359,6 +370,7 @@ public sealed partial class ClassSubjectRulesWindow : Window
     private void ResolveOverlap(bool useServer)
     {
         if (!CanEdit || SelectedId is not { } id || !_overlaps.Remove(id)) return;
+        ResetExitPrompt();
         if (useServer) _draft[id] = _baseline!.Rows.First(row => row.SubjectId == id).Choice;
         RefreshRows(id);
         Render();
@@ -376,11 +388,24 @@ public sealed partial class ClassSubjectRulesWindow : Window
 
     private async void ReloadClicked(object? sender, RoutedEventArgs args) => await RunAsync(ReloadAsync);
     private async void PreviewClicked(object? sender, RoutedEventArgs args) => await RunAsync(PreviewAsync);
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
+    private void CloseClicked(object? sender, RoutedEventArgs args)
+    {
+        _discardDraft = _closeRequested;
+        try { CloseRequested?.Invoke(); }
+        finally { _discardDraft = false; }
+    }
+
+    private void ResetExitPrompt()
+    {
+        if (!_closeRequested) return;
+        _closeRequested = false;
+        Notice("");
+    }
     private void ConfirmationChanged(object? sender, RoutedEventArgs args) { if (_client is not null && !_filling) Render(); }
 
     private void BackClicked(object? sender, RoutedEventArgs args)
     {
+        ResetExitPrompt();
         if (SelectedReview?.SubjectId is { } key) SelectEditorSubject(key);
         DropReview();
         Render();
