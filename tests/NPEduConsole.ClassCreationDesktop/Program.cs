@@ -288,7 +288,11 @@ internal static partial class Program
     }
 
     private static T Find<T>(Control root, string name) where T : Control =>
-        (root switch { TeachingWindow teaching => (Control)teaching.Content!, GradeTeachingPlanWindow plan => plan.View, _ => root })
+        (root switch
+        {
+            TeachingWindow teaching => (Control)teaching.Content!, GradeTeachingPlanWindow plan => plan.View,
+            TeacherAccountsWindow accounts => accounts.View, TeacherAccountForm form => form.View, _ => root
+        })
             .FindControl<T>(name) ?? throw new InvalidDataException(name);
     private static void Click(Button button) => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 

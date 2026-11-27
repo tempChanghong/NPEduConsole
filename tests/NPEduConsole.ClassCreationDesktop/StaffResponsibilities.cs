@@ -226,7 +226,7 @@ internal static partial class Program
         }
     }
 
-    private static string StaffText(Window window, string name) => Find<TextBlock>(window, name).Text ?? "";
+    private static string StaffText(Control window, string name) => Find<TextBlock>(window, name).Text ?? "";
     private static IEnumerable<StaffEditorRow> Draft(Window window) => Find<ListBox>(window, "StaffDraftRows").Items.Cast<StaffEditorRow>();
 
     private static async Task AddTeacher(StaffResponsibilitiesWindow editor, string accountId)

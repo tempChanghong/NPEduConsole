@@ -45,6 +45,9 @@ export async function verifyTeacherAccounts({prisma, origin, fixture, directory,
   }
   const login = (username, password, expected) => api('/accounts/local/login', {method: 'POST', expected,
     body: {schoolCode: school.code, username, password}});
+  const manager = await login('admin', pin);
+  await api(schoolPath + '/teaching-assignments', {method: 'PUT', token: manager.access_token,
+    body: {workspaceId: rooms[1].id, subjectId: physics.id, accountId: sameName.id, position: 'CO_TEACHER'}});
   const workspaces = (token, expected) => api('/api/v2/me/workspaces?termId=' + term.id, {token, expected});
   function holdReceipt(action) {
     let started;
@@ -126,6 +129,11 @@ export async function verifyTeacherAccounts({prisma, origin, fixture, directory,
       assert.equal(restored.account.disabled, false);
       break;
     }
+    case 'separate-account-receipt':
+      assert.deepEqual([recovery.writes, recovery.reads, recovery.cancelled], [1, 1, true],
+        'opening the other teacher did not read or replay the original status operation');
+      assert.equal((await prisma.account.findUniqueOrThrow({where: {id: sameName.id}})).localDisabled, false);
+      break;
     case 'switch-term-after-held-pin': {
       nextTerm = await prisma.academicTerm.create({data: {schoolId: school.id, status: 'DRAFT', name: '同名班新学期',
         academicYear: term.academicYear + 1, semester: term.semester}});
@@ -218,7 +226,8 @@ export async function verifyTeacherAccounts({prisma, origin, fixture, directory,
     await runDesktop(['--live-teacher-accounts', access, evidence]);
     await check('audit');
     assert.deepEqual(checks, ['before-assignment', 'sign-in', 'disabled', 'restored', 'pin-reset', 'hold-disable',
-      'receipt-read-started', 'restore-after-held-disable', 'hold-pin-reset', 'receipt-read-started', 'switch-term-after-held-pin', 'check-recovery', 'audit']);
+      'receipt-read-started', 'restore-after-held-disable', 'separate-account-receipt', 'hold-pin-reset', 'receipt-read-started',
+      'switch-term-after-held-pin', 'check-recovery', 'audit']);
     await runDatabase();
     await writeFile(join(evidence, 'server-result.json'), JSON.stringify({checks, createWrites, readReceipts, lost,
       accountId: teacher.id, rooms: [eight.id, nextRoom.id], recoveries: recoveries.map(({action, requestId, writes, reads, cancelled}) =>

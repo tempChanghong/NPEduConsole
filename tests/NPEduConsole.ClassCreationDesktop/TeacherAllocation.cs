@@ -85,7 +85,7 @@ internal static partial class Program
                 "the original pending draft is not exposed at another school");
             await PressScoped(otherWorkbench.View, "AllocationClose");
             await Until(() => otherDirectory.IsEnabled, "other directory restores");
-            otherDirectory.Close();
+            await PressScoped(otherDirectory, "CloseTeacherAccountsButton");
             await SelectSchool(access.SchoolId);
 
             await PressScoped(main, "OpenOrganizationImportButton");
@@ -397,7 +397,7 @@ internal static partial class Program
                 Find<ListBox>(noTermView, "AllocationReceiptRows").Items.Count == 0, "school revocation clears the result and blocks the pending file operation");
             Check((await File.ReadAllBytesAsync(access.NoTermFile)).SequenceEqual(priorFile), "revocation keeps the existing CSV intact");
             if (noTermWorkbench.IsVisible) await PressScoped(noTermView, "AllocationClose");
-            if (noTermDirectory.IsVisible) noTermDirectory.Close();
+            if (noTermDirectory.IsEffectivelyVisible) await PressScoped(noTermDirectory, "CloseTeacherAccountsButton");
             await SelectSchool(access.SchoolId);
 
             var (accounts, regular) = await OpenTeacherBulk();
@@ -420,7 +420,7 @@ internal static partial class Program
                 "recovery leaves the original regular term unchanged");
             await PressScoped(regularView, "AllocationClose");
             await Until(() => accounts.IsEnabled, "teacher directory restores after workbench");
-            accounts.Close();
+            Click(Find<Button>(accounts, "CloseTeacherAccountsButton"));
             await Until(() => main.IsEnabled, "regular teacher directory closes");
 
             await SelectSchool(access.OauthSchoolId);
@@ -550,12 +550,12 @@ internal static partial class Program
             await Signal("batch-ordinary-file");
         }
 
-        async Task<(TeacherAccountsWindow Owner, TeacherAllocationWindow Window)> OpenTeacherBulk()
+        async Task<(TeacherAccountsView Owner, TeacherAllocationWindow Window)> OpenTeacherBulk()
         {
             var entry = Find<Button>(main, "OpenTeacherAccountsButton");
             await Until(() => entry.IsEffectivelyVisible && entry.IsEnabled, "normal teacher account entry");
             Click(entry);
-            var owner = await WindowOf<TeacherAccountsWindow>();
+            var owner = await AcademicPageAsync<TeacherAccountsView>(main);
             var bulk = Find<Button>(owner, "TeacherAccountBulk");
             await Until(() => bulk.IsEffectivelyVisible && bulk.IsEnabled, "teacher bulk action available");
             Click(bulk);

@@ -87,7 +87,7 @@ internal static partial class Program
             await PressAutomation(exact, "TeacherAccessBack");
             await PressScoped(page, "AllocationClose");
             await Until(() => !workbench.IsVisible, "return to accounts");
-            owner.Close();
+            Click(Find<Button>(owner, "CloseTeacherAccountsButton"));
             await PressScoped(main, "OpenSchoolOverviewButton");
             var tasks = Find<ListBox>(Find<SchoolOverviewView>(main, "SchoolOverviewWorkspace"), "OverviewTasksList");
             var taskId = "SchoolOverviewTask-TEACHER_ACCESS_MISSING-" + access.Room + "-" + access.SubjectId + "-" + access.ActiveId;
@@ -108,10 +108,10 @@ internal static partial class Program
             desktop.Shutdown(0);
             return;
 
-            async Task<(TeacherAccountsWindow, TeacherAllocationWindow)> Bulk()
+            async Task<(TeacherAccountsView, TeacherAllocationWindow)> Bulk()
             {
                 await PressScoped(main, "OpenTeacherAccountsButton");
-                var accounts = await WindowOf<TeacherAccountsWindow>();
+                var accounts = await AcademicPageAsync<TeacherAccountsView>(main);
                 await PressScoped(accounts, "TeacherAccountBulk");
                 return (accounts, await WindowOf<TeacherAllocationWindow>());
             }

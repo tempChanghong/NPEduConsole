@@ -303,14 +303,14 @@ internal static partial class Program
             await PickSchool(access.SchoolId);
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
             Click(Find<Button>(main, "OpenTeacherAccountsButton"));
-            var directory = await WindowOf<TeacherAccountsWindow>();
+            var directory = await AcademicPageAsync<TeacherAccountsView>(main);
             var emailDirectory = Find<Button>(directory, "TeacherAccountBulk");
             await Until(() => Equals(emailDirectory.Content, "按邮箱分配") && emailDirectory.IsEnabled, "teacher directory points to same desktop workbench");
             Click(emailDirectory);
             allocation = await WindowOf<TeacherAllocationWindow>();
             allocation.Close();
             await Until(() => directory.IsEnabled, "returns to teacher directory");
-            directory.Close();
+            Click(Find<Button>(directory, "CloseTeacherAccountsButton"));
 
             Click(Find<Button>(main, "OpenTermPreparationButton"));
             terms = await AcademicPageAsync<TermPreparationView>(main);

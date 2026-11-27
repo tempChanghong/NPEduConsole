@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -11,13 +12,14 @@ namespace NPEduConsole.App;
 
 internal sealed record TeacherAccountDestination(string Kind, string TermId, string TargetId, string? SubjectId, string AccountId);
 
-public sealed partial class TeacherAccountsWindow : Window
+public sealed partial class TeacherAccountsView : UserControl
 {
-    private sealed record StatusIntent(string AccountId, string Action, Guid RequestId);
+    private sealed record StatusIntent(string AccountId, string Display, string Action, Guid RequestId);
     private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<string, StatusIntent>> PendingBySession = new();
     private readonly ConsoleClient _client = null!;
     private readonly School _school = null!;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly string? _entryAccountId;
     private TeacherAccountDirectory? _directory;
     private TeacherAccountForm? _form;
     private string? _selectedId;
@@ -25,49 +27,54 @@ public sealed partial class TeacherAccountsWindow : Window
     private Vector _listOffset;
     private bool _busy, _writing, _closed, _showDetails, _binding;
 
-    public TeacherAccountsWindow() => InitializeComponent();
+    public TeacherAccountsView() => InitializeComponent();
 
-    internal TeacherAccountsWindow(ConsoleClient client, School school, string? targetId) : this()
+    internal TeacherAccountsView(ConsoleClient client, School school, string? targetId) : this()
     {
         _client = client;
         _school = school;
-        _selectedId = targetId;
+        _entryAccountId = _selectedId = targetId;
         _showDetails = targetId is not null;
         TeacherAccountsScope.Text = school.Name;
         AddHandler(KeyDownEvent, OnConfirmationKeyDown, RoutingStrategies.Tunnel);
         SizeChanged += (_, _) => LayoutPanes();
-        Opened += async (_, _) =>
-        {
-            TeacherAccountsSchoolProfile.IsVisible = OpenSchoolProfile is not null;
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            await RunAsync(async () =>
-            {
-                if (Pending is { } pending) await ReadReceiptAsync(pending);
-                else await LoadAsync();
-            });
-            Focus(targetId is null ? TeacherAccountSearch : BackToTeacherList);
-        };
-        Closing += (_, args) => args.Cancel = _writing && !_closed;
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _form?.CloseForScopeChange();
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
         Render();
     }
 
-    internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal Action<ConsoleApiException>? SessionExpired { get; set; }
+    internal Action<ConsoleApiException>? AuthorizationLost { get; init; }
+    internal Action? CloseRequested { get; set; }
+    internal Func<TeacherAccountEditor, Task<bool>>? OpenEditor { get; init; }
+    internal Func<TeacherAccountDestination, Task>? OpenDestination { get; init; }
     internal Func<Window, Task<bool>>? OpenBulkAllocation { get; init; }
     internal Uri? AllocationLegacyWebLink => SchoolAdminBrowser.Link(_directory?.AdminUrl, _school.Id, _directory?.ActiveTermId, "teachers");
     internal Func<Window, string, Task>? OpenSchoolAccount { get; init; }
     internal Func<Window, Task<bool>>? OpenSchoolProfile { get; init; }
+    private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
+
+    internal async Task StartAsync()
+    {
+        if (OpenEditor is not null) CloseTeacherAccountsButton.Content = "返回";
+        TeacherAccountsSchoolProfile.IsVisible = OpenSchoolProfile is not null;
+        await RunAsync(() => PendingForSelection is { } pending ? ReadReceiptAsync(pending, keepSelection: false) : LoadAsync());
+        if (!_closed) Focus(_entryAccountId is null ? TeacherAccountSearch : Narrow ? BackToTeacherList : TeacherAccountRows);
+    }
+
+    internal bool CanClose() => !_writing;
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _form?.CloseForScopeChange();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
 
     private async void OpenSchoolProfileClicked(object? sender, RoutedEventArgs e)
     {
         if (OpenSchoolProfile is not { } open || Pending is not null) return;
-        await RunAsync(async () => { if (await open(this) && !_closed) await LoadAsync(); });
+        await RunAsync(async () => { if (await open(HostWindow) && !_closed) await LoadAsync(); });
         if (!_closed) Focus(TeacherAccountsSchoolProfile);
     }
 
@@ -76,7 +83,7 @@ public sealed partial class TeacherAccountsWindow : Window
         if (OpenSchoolAccount is not { } open || Current is not { } account) return;
         await RunAsync(async () =>
         {
-            await open(this, account.Id);
+            await open(HostWindow, account.Id);
             if (!_closed) await LoadAsync();
         });
         if (!_closed) TeacherSchoolAccount.Focus();
@@ -85,12 +92,13 @@ public sealed partial class TeacherAccountsWindow : Window
     private async void OpenBulkClicked(object? sender, RoutedEventArgs args)
     {
         if (OpenBulkAllocation is not { } open) return;
-        await RunAsync(async () => { if (await open(this) && !_closed) await LoadAsync(); });
+        await RunAsync(async () => { if (await open(HostWindow) && !_closed) await LoadAsync(); });
         if (!_closed) TeacherAccountBulk.Focus();
     }
-    internal TeacherAccountDestination? Destination { get; private set; }
     private Dictionary<string, StatusIntent> Operations => PendingBySession.GetOrCreateValue(_client);
     private StatusIntent? Pending => Operations.GetValueOrDefault(_school.Id);
+    private StatusIntent? PendingForSelection => Pending is { } pending &&
+        ((_selectedId ?? _entryAccountId) is not { } selected || pending.AccountId == selected) ? pending : null;
     private ManagedTeacherAccount? Current => _directory?.Accounts.SingleOrDefault(account => account.Id == _selectedId);
 
     private async Task LoadAsync()
@@ -128,11 +136,14 @@ public sealed partial class TeacherAccountsWindow : Window
         ShowDetails();
     }
 
+    private bool Narrow => Bounds.Width < 850;
+
     private void LayoutPanes()
     {
-        bool narrow = ClientSize.Width < 900;
-        bool details = _showDetails && Current is not null;
-        TeacherAccountsWorkspace.ColumnDefinitions = new(narrow ? "*" : "1*,1.2*");
+        bool narrow = Narrow;
+        bool details = _showDetails;
+        if (TeacherAccountsWorkspace.ColumnDefinitions.Count != (narrow ? 1 : 2))
+            TeacherAccountsWorkspace.ColumnDefinitions = new(narrow ? "*" : "1*,1.55*");
         TeacherListPane.IsVisible = !narrow || !details;
         TeacherDetailsPane.IsVisible = !narrow || details;
         Grid.SetColumn(TeacherDetailsPane, narrow ? 0 : 1);
@@ -171,21 +182,28 @@ public sealed partial class TeacherAccountsWindow : Window
 
     private void AddReference(Panel panel, string label, TeacherAccountDestination? destination)
     {
-        if (destination is null)
+        if (destination is null || OpenDestination is not { } open)
         {
             panel.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
             return;
         }
         var button = new Button
         {
-            Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap }, Classes = { "action" },
+            Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap }, Classes = { "action" }, Tag = destination,
             IsEnabled = !_busy && Pending is null
         };
-        button.Click += (_, _) =>
+        button.Click += async (_, _) =>
         {
             if (_busy || Pending is not null || Current?.Id != destination.AccountId) return;
-            Destination = destination;
-            Close();
+            RememberListPosition();
+            await RunAsync(async () =>
+            {
+                await open(destination);
+                if (!_closed) await LoadAsync();
+            });
+            if (_closed) return;
+            RestoreListPosition();
+            Focus(panel.Children.OfType<Button>().FirstOrDefault(row => Equals(row.Tag, destination)) ?? TeacherAccountRefresh);
         };
         panel.Children.Add(button);
     }
@@ -199,8 +217,16 @@ public sealed partial class TeacherAccountsWindow : Window
         TeacherAccountBulk.Content = _directory?.Mode == "OAUTH_EMAIL" ? "按邮箱分配" : "批量导入与分配";
         TeacherAccountBulk.IsEnabled = !_busy && _directory is not null && OpenBulkAllocation is not null;
         TeacherAccountRefresh.IsEnabled = !_busy;
-        TeacherAccountRefresh.Content = Pending is null ? "刷新目录" : "核对操作回执";
-        TeacherAccountRefresh.Classes.Set("accent", Pending is not null);
+        TeacherAccountRefresh.Content = PendingForSelection is null ? "刷新目录" : "核对操作回执";
+        TeacherAccountRefresh.Classes.Set("accent", PendingForSelection is not null);
+        TeacherOtherReceipt.IsVisible = Pending is not null && PendingForSelection is null;
+        TeacherOtherReceipt.IsEnabled = !_busy;
+        if (TeacherOtherReceipt.IsVisible)
+        {
+            string label = $"核对 {Pending!.Display} 的操作回执";
+            ToolTip.SetTip(TeacherOtherReceipt, label);
+            AutomationProperties.SetName(TeacherOtherReceipt, label);
+        }
         TeacherAccountRows.IsEnabled = TeacherAccountSearch.IsEnabled = !_busy;
         CloseTeacherAccountsButton.IsEnabled = !_writing;
         TeacherDetailActions.IsVisible = account is not null && _confirmation is null;
@@ -258,32 +284,54 @@ public sealed partial class TeacherAccountsWindow : Window
         _confirmation = null;
         _showDetails = false;
         Render();
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (_closed || !TeacherListPane.IsEffectivelyVisible) return;
-            if (TeacherAccountRows.Scroll is ScrollViewer scroll) scroll.Offset = _listOffset;
-            if (TeacherAccountRows.SelectedItem is { } account && TeacherAccountRows.ContainerFromItem(account) is ListBoxItem row) row.Focus();
-            else TeacherAccountSearch.Focus();
-        }, DispatcherPriority.Loaded);
+        RestoreListPosition(focus: true);
     }
 
-    private async void CreateClicked(object? sender, RoutedEventArgs args) => await ShowFormAsync(null);
+    private void RestoreListPosition(bool focus = false) => Dispatcher.UIThread.Post(() =>
+    {
+        if (_closed || !TeacherListPane.IsEffectivelyVisible) return;
+        if (TeacherAccountRows.Scroll is ScrollViewer scroll) scroll.Offset = _listOffset;
+        if (!focus) return;
+        if (TeacherAccountRows.SelectedItem is { } account && TeacherAccountRows.ContainerFromItem(account) is ListBoxItem row) row.Focus();
+        else TeacherAccountSearch.Focus();
+    }, DispatcherPriority.Loaded);
+
+    private async void CreateClicked(object? sender, RoutedEventArgs args)
+    {
+        if (NewTeacherAccountButton.IsEffectivelyEnabled) await ShowFormAsync(null);
+    }
+
     private async void ResetClicked(object? sender, RoutedEventArgs args)
     {
         if (ResetTeacherPin.IsEffectivelyEnabled && Current is { } account) await ShowFormAsync(account.Id);
     }
 
-    private async Task ShowFormAsync(string? resetId) => await RunAsync(async () =>
+    private async Task ShowFormAsync(string? resetId)
     {
-        var form = new TeacherAccountForm(_client, _school, resetId) { SessionExpired = SessionExpired };
-        _form = form;
-        try { await form.ShowDialog(this); }
-        finally { _form = null; }
-        if (_closed || form.Receipt is not { } receipt) return;
-        if (resetId is null) TeacherAccountSearch.Clear();
-        _showDetails = true;
-        await RefreshAfterConfirmedAsync(receipt, resetId is null ? $"已创建 {receipt.Account.Display}。" : "PIN 已重置，教师需重新登录。");
-    });
+        RememberListPosition();
+        await RunAsync(async () =>
+        {
+            var editor = new TeacherAccountEditor(_client, _school, resetId) { SessionExpired = SessionExpired };
+            if (OpenEditor is { } open)
+            {
+                if (!await open(editor)) return;
+            }
+            else
+            {
+                var window = new TeacherAccountForm(editor);
+                _form = window;
+                try { await window.ShowDialog(HostWindow); }
+                finally { _form = null; }
+            }
+            if (_closed || editor.Receipt is not { } receipt) return;
+            if (resetId is null) TeacherAccountSearch.Clear();
+            await RefreshAfterConfirmedAsync(receipt, resetId is null ? $"已创建 {receipt.Account.Display}。" : "PIN 已重置，教师需重新登录。");
+        });
+        if (_closed) return;
+        RestoreListPosition();
+        Focus(resetId is not null && ResetTeacherPin.IsEffectivelyVisible ? ResetTeacherPin :
+            BackToTeacherList.IsEffectivelyVisible ? BackToTeacherList : TeacherAccountSearch);
+    }
 
     private void ChangeStatusClicked(object? sender, RoutedEventArgs args)
     {
@@ -321,7 +369,7 @@ public sealed partial class TeacherAccountsWindow : Window
         {
             _writing = true;
             _confirmation = null;
-            var pending = new StatusIntent(account.Id, action, Guid.NewGuid());
+            var pending = new StatusIntent(account.Id, account.Display, action, Guid.NewGuid());
             Operations[_school.Id] = pending;
             Render();
             TeacherAccountReceipt result;
@@ -334,9 +382,9 @@ public sealed partial class TeacherAccountsWindow : Window
                     if (!_closed) Render();
                 }
             }
-            catch (ConsoleApiException error) when (TeacherAccountForm.Uncertain(error))
+            catch (ConsoleApiException error) when (TeacherAccountEditor.Uncertain(error))
             {
-                await ReadReceiptAsync(pending);
+                await ReadReceiptAsync(pending, keepSelection: false);
                 return;
             }
             catch (ConsoleApiException error)
@@ -345,36 +393,41 @@ public sealed partial class TeacherAccountsWindow : Window
                 if (error.StatusCode == 409) await LoadAsync();
                 throw;
             }
-            await ApplyReceiptAsync(pending, result);
+            await ApplyReceiptAsync(pending, result, keepSelection: false);
         });
     }
 
-    private async Task ReadReceiptAsync(StatusIntent pending)
+    private async Task ReadReceiptAsync(StatusIntent pending, bool keepSelection)
     {
-        Notice("正在按原请求编号只读核对操作结果…");
+        Notice($"正在按原请求编号只读核对 {pending.Display} 的操作结果…");
         var receipt = await _client.GetTeacherAccountReceiptAsync(_school.Id, pending.RequestId, pending.Action, _lifetime.Token);
         if (_closed) return;
-        if (receipt is not null) { await ApplyReceiptAsync(pending, receipt); return; }
+        if (receipt is not null) { await ApplyReceiptAsync(pending, receipt, keepSelection); return; }
         await LoadAsync();
         if (_closed) return;
         Operations.Remove(_school.Id);
         var observed = _directory?.Accounts.SingleOrDefault(account => account.Id == pending.AccountId);
-        Notice($"暂无本次操作回执。服务器当前{(observed is null ? "已无此目录项" : $"显示{observed.StateLabel}")}，可刷新复核后再决定。");
+        Notice($"暂无 {pending.Display} 的操作回执。服务器当前{(observed is null ? "已无此目录项" : $"显示{observed.StateLabel}")}，可刷新复核后再决定。");
     }
 
-    private async Task ApplyReceiptAsync(StatusIntent pending, TeacherAccountReceipt receipt)
+    private async Task ApplyReceiptAsync(StatusIntent pending, TeacherAccountReceipt receipt, bool keepSelection)
     {
         if (_closed) return;
         if (receipt.Account.Id != pending.AccountId) throw new ConsoleApiException(0, "账号回执与原操作不一致，请重新核对。");
         Operations.Remove(_school.Id);
         bool disabledByOperation = pending.Action == "DISABLE";
         string confirmation = $"回执确认本次已{(disabledByOperation ? "停用" : "恢复")} {receipt.Account.Display}。";
-        await RefreshAfterConfirmedAsync(receipt, confirmation, disabledByOperation);
+        await RefreshAfterConfirmedAsync(receipt, confirmation, disabledByOperation, keepSelection);
     }
 
-    private async Task RefreshAfterConfirmedAsync(TeacherAccountReceipt receipt, string confirmation, bool? disabledByOperation = null)
+    private async Task RefreshAfterConfirmedAsync(TeacherAccountReceipt receipt, string confirmation, bool? disabledByOperation = null,
+        bool keepSelection = false)
     {
-        _selectedId = receipt.Account.Id;
+        if (!keepSelection)
+        {
+            _selectedId = receipt.Account.Id;
+            _showDetails = true;
+        }
         try { await LoadAsync(); }
         catch (ConsoleApiException error) when (error.StatusCode is not (401 or 403))
         {
@@ -386,7 +439,7 @@ public sealed partial class TeacherAccountsWindow : Window
         if (_closed) return;
         if (disabledByOperation is { } expected)
         {
-            var current = Current;
+            var current = _directory?.Accounts.SingleOrDefault(account => account.Id == receipt.Account.Id);
             if (current is null) confirmation += "当前目录中已无此账号。";
             else if (current.Disabled != expected) confirmation += $"该账号当前{current.StateLabel}。";
             else confirmation += expected ? "任课和岗位保留。" : "教师可以重新登录。";
@@ -396,9 +449,19 @@ public sealed partial class TeacherAccountsWindow : Window
 
     private async void RefreshClicked(object? sender, RoutedEventArgs args) => await RunAsync(async () =>
     {
-        if (Pending is { } pending) await ReadReceiptAsync(pending);
+        if (PendingForSelection is { } pending) await ReadReceiptAsync(pending, keepSelection: false);
         else { await LoadAsync(); if (!_closed) Notice("目录已刷新。"); }
     });
+
+    private async void OtherReceiptClicked(object? sender, RoutedEventArgs args)
+    {
+        if (Pending is not { } pending || PendingForSelection is not null) return;
+        RememberListPosition();
+        await RunAsync(() => ReadReceiptAsync(pending, keepSelection: true));
+        if (_closed) return;
+        RestoreListPosition();
+        Focus(TeacherOtherReceipt.IsEffectivelyVisible ? TeacherOtherReceipt : TeacherAccountRefresh);
+    }
 
     private async Task RunAsync(Func<Task> work)
     {
@@ -412,11 +475,13 @@ public sealed partial class TeacherAccountsWindow : Window
             if (_closed) return;
             if (error.StatusCode is 401 or 403)
             {
+                Operations.Remove(_school.Id);
                 _selectedId = null;
                 ClearDirectory();
             }
             Notice(Pending is null ? error.Message : $"操作回执待核对。{error.Message}", error: true);
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
+            else if (error.StatusCode == 403) AuthorizationLost?.Invoke(error);
         }
         finally
         {
@@ -437,6 +502,5 @@ public sealed partial class TeacherAccountsWindow : Window
         if (!_closed && target.IsEffectivelyVisible && target.IsEffectivelyEnabled) target.Focus();
     }, DispatcherPriority.Loaded);
 
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
-    internal void CloseForScopeChange() { _closed = true; _form?.CloseForScopeChange(); Close(); }
+    private void CloseClicked(object? sender, RoutedEventArgs args) { if (CanClose()) CloseRequested?.Invoke(); }
 }

@@ -115,10 +115,12 @@ internal static partial class Program
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
             Click(Find<Button>(main, "OpenSchoolAffairsButton"));
             Click(Find<Button>(main, "OpenTeacherAccountsButton"));
-            var teacherDirectory = await WindowOf<TeacherAccountsWindow>();
+            var teacherDirectory = await AcademicPageAsync<TeacherAccountsView>(main);
             var teacherRows = Find<ListBox>(teacherDirectory, "TeacherAccountRows");
             await Until(() => teacherRows.Items.OfType<ManagedTeacherAccount>().Any(row => row.Id == access.TeacherId), "the original teacher remains in the active directory");
             teacherRows.SelectedItem = teacherRows.Items.OfType<ManagedTeacherAccount>().Single(row => row.Id == access.TeacherId);
+            var teacherDetails = Find<Button>(teacherDirectory, "OpenTeacherDetails");
+            if (teacherDetails.IsEffectivelyVisible) Click(teacherDetails);
             Click(Find<Button>(teacherDirectory, "TeacherSchoolAccount"));
             var pinned = await WindowOf<SchoolManagementAccountsWindow>();
             await Until(() => Find<TextBlock>(pinned, "ManagementAccountTitle").Text?.Contains("viewer")==true &&
@@ -128,9 +130,9 @@ internal static partial class Program
             await Capture(pinned, output, "04a-pinned-account-other-pending", includeFrame: true);
             pinned.Close();
             await Until(() => !pinned.IsVisible, "the pinned account closes without ending the original request");
-            teacherDirectory.Close();
+            Click(Find<Button>(teacherDirectory, "CloseTeacherAccountsButton"));
             var globalAccounts = Find<Button>(main,"OpenSchoolManagementAccountsButton");
-            await Until(() => !teacherDirectory.IsVisible && globalAccounts.IsEffectivelyEnabled, "the school-level receipt entry is available again");
+            await Until(() => !teacherDirectory.IsEffectivelyVisible && globalAccounts.IsEffectivelyEnabled, "the school-level receipt entry is available again");
             await Dispatcher.UIThread.InvokeAsync(() => Click(globalAccounts), DispatcherPriority.ApplicationIdle);
             window = await WindowOf<SchoolManagementAccountsWindow>();
             await RetryReady(window);

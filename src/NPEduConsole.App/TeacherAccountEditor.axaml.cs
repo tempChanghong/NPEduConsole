@@ -9,7 +9,7 @@ using NPEduConsole.Core;
 
 namespace NPEduConsole.App;
 
-public sealed partial class TeacherAccountForm : Window
+public sealed partial class TeacherAccountEditor : UserControl
 {
     private sealed record Intent(Guid RequestId, TeacherAccountDirectory Baseline, string Username, string Name);
     private static readonly ConditionalWeakTable<ConsoleClient, Dictionary<(string School, string Target), Intent>> PendingBySession = new();
@@ -25,9 +25,9 @@ public sealed partial class TeacherAccountForm : Window
     private Guid? _abandonedRequest, _missingReceipt;
     private bool _closed, _busy, _writing, _retryAllowed, _accessLost;
 
-    public TeacherAccountForm() => InitializeComponent();
+    public TeacherAccountEditor() => InitializeComponent();
 
-    internal TeacherAccountForm(ConsoleClient client, School school, string? resetId = null, string? createLabel = null) : this()
+    internal TeacherAccountEditor(ConsoleClient client, School school, string? resetId = null, string? createLabel = null) : this()
     {
         _client = client;
         _school = school;
@@ -35,39 +35,41 @@ public sealed partial class TeacherAccountForm : Window
         if (createLabel is not null) _createLabel = createLabel;
         TeacherFormPin.CopyingToClipboard += (_, args) => args.Handled = true;
         TeacherFormPin.CuttingToClipboard += (_, args) => args.Handled = true;
-        // Esc 只关本窗；写入中被 Closing 的守卫拦下，不会把未写完的请求留在后台。
         AddHandler(KeyDownEvent, (_, args) =>
         {
             if (args.Key != Key.Escape) return;
             args.Handled = true;
-            Close();
+            RequestClose();
         }, RoutingStrategies.Tunnel);
         TeacherFormScope.Text = school.Name;
         TeacherFormHeading.Text = resetId is null ? "新建教师账号" : "重置教师 PIN";
-        Opened += async (_, _) =>
-        {
-            BatchWorkspaceWindow.FitSchoolWindow(this);
-            await RunAsync(LoadAsync);
-        };
-        Closing += (_, args) => args.Cancel = _writing && !_closed;
-        Closed += (_, _) =>
-        {
-            _closed = true;
-            _delivery = null;
-            _allocationWindow?.CloseForScopeChange();
-            TeacherFormPin.Clear();
-            _lifetime.Cancel();
-            _lifetime.Dispose();
-        };
+    }
+
+    internal Action? CloseRequested { get; set; }
+    internal Task StartAsync() => RunAsync(LoadAsync);
+    internal bool CanClose() => !_writing;
+    internal string Caption => TeacherFormHeading.Text ?? "教师账号";
+    private Window HostWindow => (Window)TopLevel.GetTopLevel(this)!;
+
+    internal void End()
+    {
+        if (_closed) return;
+        _closed = true;
+        _delivery = null;
+        _allocationWindow?.CloseForScopeChange();
+        TeacherFormPin.Clear();
+        _lifetime.Cancel();
+        _lifetime.Dispose();
     }
 
     internal TeacherAccountReceipt? Receipt { get; private set; }
     internal bool AllocationChanged { get; private set; }
     internal string? AllocatedAccountId { get; private set; }
-    internal string? AllocationTermId { get; init; }
-    internal string? AllocationGradeId { get; init; }
-    internal string? AllocationWorkspaceId { get; init; }
-    internal Action<ConsoleApiException>? SessionExpired { get; init; }
+    internal string? AllocationTermId { get; set; }
+    internal string? AllocationGradeId { get; set; }
+    internal string? AllocationWorkspaceId { get; set; }
+    internal Action<ConsoleApiException>? SessionExpired { get; set; }
+    internal Action<ConsoleApiException>? AuthorizationLost { get; set; }
     private string Action => _resetId is null ? "CREATE" : "RESET_PIN";
     private (string, string) OperationKey => (_school.Id, _resetId ?? "");
     private Dictionary<(string, string), Intent> Operations => PendingBySession.GetOrCreateValue(_client);
@@ -261,7 +263,7 @@ public sealed partial class TeacherAccountForm : Window
         Operations.Remove(OperationKey);
         Receipt = receipt with { PinApplied = false };
         _writing = false;
-        if (TeacherWantDelivery.IsChecked != true) { Close(); return; }
+        if (TeacherWantDelivery.IsChecked != true) { RequestClose(); return; }
         TeacherFormScope.Text = $"{_school.Name} · {receipt.Account.Display}";
         Status(_delivery is null ? "服务器已确认办理。当前没有可交付的 PIN，如需新 PIN 可在账号目录重置。" :
             "本次 PIN 已生效。可复制或另存一次，返回后清除。");
@@ -283,7 +285,7 @@ public sealed partial class TeacherAccountForm : Window
                 return false;
             }
             bool save = sender == TeacherSavePin;
-            if (!await delivery.DeliverAsync(this, save, _school.Name, code, "教师短账号", Verify, _lifetime.Token, SelectPinFile)) return;
+            if (!await delivery.DeliverAsync(HostWindow, save, _school.Name, code, "教师短账号", Verify, _lifetime.Token, SelectPinFile)) return;
             _delivery = null;
             if (!_closed) Status(save ? "已另存这位教师的账号与 PIN。" : "已将这位教师的账号与 PIN 复制到剪贴板。");
         });
@@ -326,6 +328,7 @@ public sealed partial class TeacherAccountForm : Window
             if (error.Code == "SNAPSHOT_CHANGED") _directory = null;
             Status(Pending is null ? error.Message : $"操作回执待核对。{error.Message}", error: true);
             if (error.StatusCode == 401) SessionExpired?.Invoke(error);
+            else if (error.StatusCode == 403) AuthorizationLost?.Invoke(error);
         }
         catch (ArgumentException error) when (!_closed) { Status(error.Message, error: true); }
         finally { _busy = _writing = false; if (!_closed) Render(); }
@@ -360,19 +363,19 @@ public sealed partial class TeacherAccountForm : Window
             LegacyWebLink = SchoolAdminBrowser.Link(directory.AdminUrl, _school.Id, term, "teachers")
         };
         _allocationWindow = window;
-        try { await window.ShowDialog(this); }
+        try { await window.ShowDialog(HostWindow); }
         finally { _allocationWindow = null; }
         if (_closed) return;
         if (window.AccessChanged)
         {
             AllocationChanged = true;
             AllocatedAccountId = window.AllocatedAccountId;
-            Close();
+            RequestClose();
         }
         else Focus(TeacherFormAllocation);
     }
 
-    private void CloseClicked(object? sender, RoutedEventArgs args) => Close();
-    internal void CloseForScopeChange() { _closed = true; Close(); }
+    private void CloseClicked(object? sender, RoutedEventArgs args) => RequestClose();
+    private void RequestClose() { if (CanClose()) CloseRequested?.Invoke(); }
     internal static bool Uncertain(ConsoleApiException error) => error.StatusCode is 0 or 408 or >= 500;
 }

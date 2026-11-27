@@ -64,7 +64,7 @@ public sealed partial class MainWindow
                         StaffReviewIssue.IssueKey(task.Code, task.GradeId, task.ClassId, task.AccountId), task.GradeId, task.ClassId, this);
                     return true;
                 case "OPEN_TEACHER_ACCOUNT" when task.AccountId is { } account:
-                    await ShowTeacherAccountsAsync(client, school, account, this);
+                    await ShowTeacherAccountsAsync(client, school, account);
                     return true;
                 case "OPEN_CLASS_RESPONSIBILITY" when task.ClassId is { } classTarget:
                     await ShowStaffResponsibilitiesAsync(client, school, selected.Id, "classes", classTarget, task.AccountId, this);

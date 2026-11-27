@@ -47,17 +47,22 @@ internal static partial class Program
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
             await Until(() => adminEntry.IsEffectivelyVisible && adminEntry.IsEffectivelyEnabled, "teacher directory available without a term");
             Click(adminEntry);
-            var accounts = await WindowOf<TeacherAccountsWindow>();
+            var accounts = await AcademicPageAsync<TeacherAccountsView>(main);
+            var caption = main.GetVisualAncestors().Last().GetVisualDescendants().OfType<Button>().Where(button =>
+                button.IsEffectivelyVisible && button.Name is "PART_MinimizeButton" or "PART_MaximizeButton" or "PART_CloseButton" or "PART_FullScreenButton");
+            Check(ReferenceEquals(TopLevel.GetTopLevel(accounts), main) && desktop.Windows.Count(window => window.IsVisible) == 1 &&
+                main.IsExtendedIntoWindowDecorations && caption.Select(button => button.Name).ToHashSet().SetEquals(
+                    ["PART_MinimizeButton", "PART_MaximizeButton", "PART_CloseButton"]), "teacher accounts stays in the main window with its three original buttons");
             await Until(() => Find<Button>(accounts, "NewTeacherAccountButton").IsEffectivelyEnabled &&
                 Find<Button>(accounts, "NewTeacherAccountButton").IsEffectivelyVisible, "no-term school can create teachers");
             Check(StaffText(accounts, "TeacherListMessage").Contains("暂无"), "the empty directory is explicit");
-            await Capture(accounts, output, "01-school-without-term");
+            await CaptureWithFrame(main, output, "01-school-without-term");
             Click(Find<Button>(accounts, "NewTeacherAccountButton"));
-            await CreateInlineTeacher("无学期教师", "no-term-teacher");
+            await CreateInlineTeacher("无学期教师", "no-term-teacher", inWorkspace: true);
             await Until(() => StaffText(accounts, "TeacherDetailName").Contains("no-term-teacher") &&
                 StaffText(accounts, "TeacherDetailLogin") == "从未登录", "created without an active term or class");
             Click(Find<Button>(accounts, "CloseTeacherAccountsButton"));
-            await Until(() => !accounts.IsVisible, "empty school directory closed");
+            await Until(() => !accounts.IsEffectivelyVisible, "empty school directory closed");
 
             schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == access.SchoolId);
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
@@ -115,20 +120,31 @@ internal static partial class Program
             overview.FindControl<ComboBox>("OverviewTaskFilter")!.SelectedIndex = 3;
             await Until(() => FindTask("LOCAL_ACCOUNT_NEVER_LOGGED_IN") is not null, "first-login task is present for the exact new account");
             await OpenTask("LOCAL_ACCOUNT_NEVER_LOGGED_IN");
-            accounts = await WindowOf<TeacherAccountsWindow>();
+            accounts = await AcademicPageAsync<TeacherAccountsView>(main);
             var directoryRows = Find<ListBox>(accounts, "TeacherAccountRows");
             await Until(() => directoryRows.SelectedItem is ManagedTeacherAccount row && row.Id == id, "task opens exact account rather than same-name teacher");
             var search = Find<TextBox>(accounts, "TeacherAccountSearch");
             search.Text = "王老师";
             await Until(() => directoryRows.ItemCount == 2, "both same-name accounts are distinguishable");
             Check(StaffText(accounts, "TeacherDetailLogin") == "从未登录", "assignment does not count as a login");
-            await Capture(accounts, output, "03-wide-same-name-accounts");
+            await CaptureWithFrame(main, output, "03-wide-same-name-accounts");
 
             await Signal("sign-in");
             Click(Find<Button>(accounts, "TeacherAccountRefresh"));
             await Until(() => StaffText(accounts, "TeacherDetailLogin").Length > 10, "actual teacher login updates last-login evidence");
+            var assignment = Find<StackPanel>(accounts, "TeacherDetailAssignments").Children.OfType<Button>().Single();
+            Click(assignment);
+            var exactTeaching = await AcademicPageAsync<TeachingView>(main);
+            await Until(() => Find<ComboBox>(exactTeaching, "TeachingSubjectPicker").SelectedItem is TeachingSubject linkedSubject &&
+                linkedSubject.Id == access.PhysicsId && Find<ComboBox>(exactTeaching, "TeachingExistingPicker").SelectedItem is TeachingAssignment linkedTeacher &&
+                linkedTeacher.AccountId == id, "account opens the original class, subject and teacher in the same window");
+            Click(Find<Button>(exactTeaching, "CloseTeachingButton"));
+            await Until(() => accounts.IsEffectivelyVisible && search.Text == "王老师" &&
+                directoryRows.SelectedItem is ManagedTeacherAccount same && same.Id == id &&
+                Find<StackPanel>(accounts, "TeacherDetailAssignments").Children.OfType<Button>().Any(button => button.IsFocused),
+                "return from teaching preserves the exact teacher and search");
             Click(Find<Button>(accounts, "CloseTeacherAccountsButton"));
-            await Until(() => !accounts.IsVisible && FindTask("LOCAL_ACCOUNT_NEVER_LOGGED_IN") is null, "return refresh clears first-login task after actual sign-in");
+            await Until(() => !accounts.IsEffectivelyVisible && FindTask("LOCAL_ACCOUNT_NEVER_LOGGED_IN") is null, "return refresh clears first-login task after actual sign-in");
 
             main.Width = 840;
             main.Height = 480;
@@ -137,7 +153,7 @@ internal static partial class Program
             Click(Find<Button>(main, "OpenSchoolAffairsButton"));
             await Until(() => adminEntry.IsEffectivelyVisible, "teacher directory is visible in school affairs");
             Click(adminEntry);
-            accounts = await WindowOf<TeacherAccountsWindow>();
+            accounts = await AcademicPageAsync<TeacherAccountsView>(main);
             directoryRows = Find<ListBox>(accounts, "TeacherAccountRows");
             search = Find<TextBox>(accounts, "TeacherAccountSearch");
             await Until(() => directoryRows.Items.Cast<ManagedTeacherAccount>().Any(row => row.Id == id), "compact directory loaded");
@@ -168,18 +184,21 @@ internal static partial class Program
             await Until(() => !confirm.IsEffectivelyVisible, "Escape leaves confirmation");
             Click(Find<Button>(accounts, "ChangeTeacherStatus"));
             await Until(() => cancelStatus.IsFocused, "an explicit choice is required to disable");
-            await Capture(accounts, output, "04-narrow-disable-confirmation", includeFrame: true);
+            Check(confirm.TranslatePoint(new Point(0, confirm.Bounds.Height), main)?.Y <= main.ClientSize.Height - 8 &&
+                cancelStatus.TranslatePoint(new Point(0, cancelStatus.Bounds.Height), main)?.Y <= main.ClientSize.Height - 8,
+                "both actions are above the fold in the inline confirmation");
+            await CaptureWithFrame(main, output, "04-narrow-disable-confirmation");
             Click(confirm);
             await Until(() => StaffText(accounts, "TeacherDetailState") == "已停用" &&
                 Find<Button>(accounts, "CloseTeacherAccountsButton").IsEffectivelyEnabled, "directory confirms disabled");
             await Signal("disabled");
             Click(Find<Button>(accounts, "CloseTeacherAccountsButton"));
-            await Until(() => !accounts.IsVisible, "returns to class workspace");
+            await Until(() => !accounts.IsEffectivelyVisible, "returns to class workspace");
             Click(Find<Button>(main, "OpenSchoolOverviewButton"));
             await ExpandTaskQueue(overview);
             overview.FindControl<ComboBox>("OverviewTaskFilter")!.SelectedIndex = 3;
             await OpenTask("DISABLED_ACCOUNT_HAS_ASSIGNMENT");
-            accounts = await WindowOf<TeacherAccountsWindow>();
+            accounts = await AcademicPageAsync<TeacherAccountsView>(main);
             await Until(() => StaffText(accounts, "TeacherDetailName").Contains(access.TeacherUsername) &&
                 StaffText(accounts, "TeacherDetailState") == "已停用", "disabled-with-assignment task selects the original account");
             Click(Find<Button>(accounts, "ChangeTeacherStatus"));
@@ -187,19 +206,21 @@ internal static partial class Program
             await Until(() => StaffText(accounts, "TeacherDetailState") == "已启用" &&
                 Find<Button>(accounts, "CloseTeacherAccountsButton").IsEffectivelyEnabled, "restored same teacher in desktop");
             await Signal("restored");
-            await Capture(accounts, output, "05-narrow-restored-original-account");
+            await CaptureWithFrame(main, output, "05-narrow-restored-original-account");
             Click(Find<Button>(accounts, "ResetTeacherPin"));
-            var reset = await WindowOf<TeacherAccountForm>();
+            var reset = await AcademicPageAsync<TeacherAccountEditor>(main);
             var resetSave = Find<Button>(reset, "TeacherFormSave");
             await Until(() => resetSave.IsEffectivelyEnabled && resetSave.IsEffectivelyVisible, "the original account supports a PIN reset");
             Check(StaffText(reset, "TeacherFormScope").Contains(access.TeacherUsername), "PIN reset applies only to the selected account");
-            await Capture(reset, output, "08-narrow-reset-pin");
+            Check(ReferenceEquals(TopLevel.GetTopLevel(reset), main) && desktop.Windows.Count(window => window.IsVisible) == 1 &&
+                !accounts.IsEffectivelyVisible, "PIN reset is an in-window step of the same directory");
+            await CaptureWithFrame(main, output, "08-narrow-reset-pin");
             Find<TextBox>(reset, "TeacherFormPin").Text = access.ResetPin;
             Click(resetSave);
-            await Until(() => !reset.IsVisible && StaffText(accounts, "TeacherAccountsNotice").Contains("PIN 已重置"), "PIN reset reported by the server");
+            await Until(() => !reset.IsEffectivelyVisible && StaffText(accounts, "TeacherAccountsNotice").Contains("PIN 已重置"), "PIN reset reported by the server");
             await Signal("pin-reset");
             Click(Find<Button>(accounts, "CloseTeacherAccountsButton"));
-            await Until(() => !accounts.IsVisible && FindTask("DISABLED_ACCOUNT_HAS_ASSIGNMENT") is null, "restoring account refreshes the corresponding task");
+            await Until(() => !accounts.IsEffectivelyVisible && FindTask("DISABLED_ACCOUNT_HAS_ASSIGNMENT") is null, "restoring account refreshes the corresponding task");
             Click(Find<Button>(main, "OpenClassWorkspaceButton"));
             await Until(() => classRows.IsEffectivelyVisible && classRows.Items.Cast<Classroom>().Any(row => row.Id == access.EightId), "return to class 8");
             classRows.SelectedItem = classRows.Items.Cast<Classroom>().Single(row => row.Id == access.EightId);
@@ -208,17 +229,17 @@ internal static partial class Program
             await VerifyReceiptRecovery();
             Finish("PASS: Windows 1160×780 / 840×480, teacher creation and status changes, exact account and scope, and leaving/recovering stalled status and PIN receipt reads.", 0);
 
-            async Task<TeacherAccountsWindow> OpenDirectory(string schoolId)
+            async Task<TeacherAccountsView> OpenDirectory(string schoolId)
             {
                 schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == schoolId);
                 Click(Find<Button>(main, "OpenClassWorkspaceButton"));
                 if (!adminEntry.IsEffectivelyVisible) Click(Find<Button>(main, "OpenSchoolAffairsButton"));
                 await Until(() => adminEntry.IsEffectivelyVisible && adminEntry.IsEffectivelyEnabled, "school affairs for the selected school");
                 Click(adminEntry);
-                return await WindowOf<TeacherAccountsWindow>();
+                return await AcademicPageAsync<TeacherAccountsView>(main);
             }
 
-            async Task SelectOriginal(TeacherAccountsWindow directory)
+            async Task SelectOriginal(TeacherAccountsView directory)
             {
                 var rows = Find<ListBox>(directory, "TeacherAccountRows");
                 await Until(() => rows.Items.Cast<ManagedTeacherAccount>().Any(row => row.Id == id), "directory includes the original account ID");
@@ -240,10 +261,10 @@ internal static partial class Program
                 Check(!close.IsEffectivelyEnabled, "directory protects the status write itself");
                 await Until(() => StaffText(directory, "TeacherAccountsNotice").Contains("只读核对"), "disable moved from writing to receipt lookup");
                 await Signal("receipt-read-started");
-                await Capture(directory, output, "09-status-receipt-wait", includeFrame: true);
+                await CaptureWithFrame(main, output, "09-status-receipt-wait");
                 Check(close.IsEffectivelyEnabled, "A stalled read of the disable receipt still locks the teacher directory.");
                 Click(close);
-                await Until(() => !directory.IsVisible, "the directory can close without its pending receipt response");
+                await Until(() => !directory.IsEffectivelyVisible, "the directory can close without its pending receipt response");
 
                 var other = await OpenDirectory(access.NoTermSchoolId);
                 var otherRows = Find<ListBox>(other, "TeacherAccountRows");
@@ -252,19 +273,34 @@ internal static partial class Program
                     Find<Button>(other, "TeacherAccountRefresh").Content is "刷新目录", "other school never inherits the prior school receipt or account");
                 await Signal("restore-after-held-disable");
                 Click(Find<Button>(other, "CloseTeacherAccountsButton"));
-                await Until(() => !other.IsVisible, "returns from the other school");
+                await Until(() => !other.IsEffectivelyVisible, "returns from the other school");
 
-                directory = await OpenDirectory(access.SchoolId);
+                schools.SelectedItem = schools.Items.Cast<School>().Single(school => school.Id == access.SchoolId);
+                Click(Find<Button>(main, "OpenSchoolOverviewButton"));
+                await ExpandTaskQueue(overview);
+                overview.FindControl<ComboBox>("OverviewTaskFilter")!.SelectedIndex = 3;
+                await OpenTask("LOCAL_ACCOUNT_NEVER_LOGGED_IN", access.SameNameId);
+                directory = await AcademicPageAsync<TeacherAccountsView>(main);
+                var separateReceipt = Find<Button>(directory, "TeacherOtherReceipt");
+                await Until(() => separateReceipt.IsEffectivelyVisible && separateReceipt.IsEffectivelyEnabled &&
+                    StaffText(directory, "TeacherDetailName").Contains("wang-a"), "exact task opens the other same-name account");
+                await Signal("separate-account-receipt");
+                await CaptureWithFrame(main, output, "09a-other-account-receipt-available");
+                Click(separateReceipt);
                 await Until(() => StaffText(directory, "TeacherAccountsNotice").Contains("本次已停用") &&
-                    StaffText(directory, "TeacherAccountsNotice").Contains("当前已启用"), "own disable receipt and the later current status are shown separately");
-                Check(Find<ListBox>(directory, "TeacherAccountRows").SelectedItem is ManagedTeacherAccount { Disabled: false } recovered && recovered.Id == id,
-                    "the actual restored original ID is selected on reopening");
-                await Capture(directory, output, "10-status-receipt-recovered", includeFrame: true);
+                    StaffText(directory, "TeacherAccountsNotice").Contains("wang-b") && StaffText(directory, "TeacherAccountsNotice").Contains("当前已启用"),
+                    "the original receipt and its later status are shown by name");
+                Check(Find<ListBox>(directory, "TeacherAccountRows").SelectedItem is ManagedTeacherAccount { Disabled: false } recovered &&
+                    recovered.Id == access.SameNameId, "explicit receipt lookup keeps the teacher selected by the task");
+                await CaptureWithFrame(main, output, "10-status-receipt-keeps-selected-account");
+                Click(Find<Button>(directory, "CloseTeacherAccountsButton"));
+                await Until(() => !directory.IsEffectivelyVisible, "returns after checking the other receipt");
+                directory = await OpenDirectory(access.SchoolId);
                 await SelectOriginal(directory);
 
                 await Signal("hold-pin-reset");
                 Click(Find<Button>(directory, "ResetTeacherPin"));
-                var form = await WindowOf<TeacherAccountForm>();
+                var form = await AcademicPageAsync<TeacherAccountEditor>(main);
                 var save = Find<Button>(form, "TeacherFormSave");
                 var formClose = Find<Button>(form, "TeacherFormClose");
                 await Until(() => save.IsEffectivelyVisible && save.IsEffectivelyEnabled, "same account permits PIN reset");
@@ -273,11 +309,11 @@ internal static partial class Program
                 Check(!formClose.IsEffectivelyEnabled, "single-account form protects the PIN write itself");
                 await Until(() => StaffText(form, "TeacherFormNotice").Contains("只读核对"), "PIN reset moved from writing to receipt lookup");
                 await Signal("receipt-read-started");
-                await Capture(form, output, "11-pin-receipt-wait", includeFrame: true);
+                await CaptureWithFrame(main, output, "11-pin-receipt-wait");
                 Check(formClose.IsEffectivelyEnabled && string.IsNullOrEmpty(Find<TextBox>(form, "TeacherFormPin").Text),
                     "The read-only PIN receipt can be left and the PIN input is cleared.");
                 Click(formClose);
-                await Until(() => !form.IsVisible && Find<Button>(directory, "ResetTeacherPin").IsEffectivelyEnabled, "PIN lookup can close without blocking the directory");
+                await Until(() => !form.IsEffectivelyVisible && Find<Button>(directory, "ResetTeacherPin").IsEffectivelyEnabled, "PIN lookup can close without blocking the directory");
                 await Signal("switch-term-after-held-pin");
 
                 Click(Find<Button>(directory, "ResetTeacherPin"));
@@ -287,30 +323,30 @@ internal static partial class Program
                     !Find<Button>(directory, "ResetTeacherPin").IsEffectivelyVisible &&
                     StaffText(directory, "TeacherDetailName") == "教师目录待读取",
                     "receipt facts cannot populate teaching or duties into a stale directory or enable another reset");
-                await Capture(directory, output, "12-pin-receipt-directory-awaits-refresh", includeFrame: true);
-                directory.Width = 1160;
-                directory.Height = 780;
+                await CaptureWithFrame(main, output, "12-pin-receipt-directory-awaits-refresh");
+                main.Width = 1160;
+                main.Height = 780;
                 await Until(() => Find<TextBlock>(directory, "TeacherDetailName").IsEffectivelyVisible &&
-                    directory.ClientSize.Width > 900, "wide directory also shows the awaiting-read state");
-                await Capture(directory, output, "13-wide-directory-awaits-refresh", includeFrame: true);
+                    main.ClientSize.Width > 900, "wide directory also shows the awaiting-read state");
+                await CaptureWithFrame(main, output, "13-wide-directory-awaits-refresh");
                 Click(Find<Button>(directory, "TeacherAccountRefresh"));
                 await Until(() => StaffText(directory, "TeacherAccountsNotice") == "目录已刷新。" &&
                     Find<ListBox>(directory, "TeacherAccountRows").SelectedItem is ManagedTeacherAccount current && current.Id == id &&
                     current.Assignments.Count == 0, "directory reload shows the same account with the new active term's assignments");
                 await Signal("check-recovery");
                 Click(Find<Button>(directory, "CloseTeacherAccountsButton"));
-                await Until(() => !directory.IsVisible, "the recovered directory returns normally");
+                await Until(() => !directory.IsEffectivelyVisible, "the recovered directory returns normally");
             }
 
-            OverviewTaskItem? FindTask(string code) => list.Items.Cast<OverviewTaskItem>()
-                .FirstOrDefault(item => item.Task.Code == code && item.Task.AccountId == id);
+            OverviewTaskItem? FindTask(string code, string? accountId = null) => list.Items.Cast<OverviewTaskItem>()
+                .FirstOrDefault(item => item.Task.Code == code && item.Task.AccountId == (accountId ?? id));
 
-            async Task OpenTask(string code)
+            async Task OpenTask(string code, string? accountId = null)
             {
                 Button? action = null;
                 await Until(() =>
                 {
-                    if (FindTask(code) is not { } item) return false;
+                    if (FindTask(code, accountId) is not { } item) return false;
                     Check(item.Task.Action == "OPEN_TEACHER_ACCOUNT", "account task routes to the Console directory");
                     action = list.GetVisualDescendants().OfType<Button>().FirstOrDefault(button => ReferenceEquals(button.Tag, item) && button.IsEffectivelyVisible);
                     if (action is null) list.ScrollIntoView(list.Items.IndexOf(item));
@@ -326,15 +362,18 @@ internal static partial class Program
                 if (desktop.Windows.LastOrDefault(window => window.IsVisible) is { } window)
                 {
                     if (window is TeacherAccountForm) Find<TextBox>(window, "TeacherFormPin").Clear();
+                    foreach (var editor in main.GetVisualDescendants().OfType<TeacherAccountEditor>())
+                        Find<TextBox>(editor, "TeacherFormPin").Clear();
                     await Capture(window, output, "failure");
                 }
             }
             finally { Finish(error.ToString(), 1); }
         }
 
-        async Task CreateInlineTeacher(string name, string username)
+        async Task CreateInlineTeacher(string name, string username, bool inWorkspace = false)
         {
-            var form = await WindowOf<TeacherAccountForm>();
+            var compatibilityWindow = inWorkspace ? null : await WindowOf<TeacherAccountForm>();
+            var form = compatibilityWindow?.View ?? await AcademicPageAsync<TeacherAccountEditor>(main);
             var submit = Find<Button>(form, "TeacherFormSave");
             await Until(() => submit.IsEffectivelyEnabled && submit.IsEffectivelyVisible, "ready to create " + username);
             Find<TextBox>(form, "TeacherFormName").Text = name;
@@ -351,7 +390,7 @@ internal static partial class Program
                 await File.WriteAllTextAsync(file, "");
                 try
                 {
-                    form.SelectPinFile = _ => form.StorageProvider.TryGetFileFromPathAsync(new Uri(file));
+                    form.SelectPinFile = _ => TopLevel.GetTopLevel(form)!.StorageProvider.TryGetFileFromPathAsync(new Uri(file));
                     Click(button);
                     await Until(() => StaffText(form, "TeacherFormNotice").Contains("已另存"), "single-teacher PIN delivered");
                     var saved = await File.ReadAllTextAsync(file);
@@ -360,7 +399,8 @@ internal static partial class Program
                 finally { File.Delete(file); }
                 Click(Find<Button>(form, "TeacherFormClose"));
             }
-            await Until(() => !form.IsVisible && form.Receipt?.Account.Username == username, "confirmed " + username);
+            await Until(() => !(compatibilityWindow?.IsVisible ?? form.IsEffectivelyVisible) && form.Receipt?.Account.Username == username,
+                "confirmed " + username);
         }
 
         async Task VerifyStaffPicker(string entry, string username)

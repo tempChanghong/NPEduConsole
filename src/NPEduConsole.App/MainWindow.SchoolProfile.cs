@@ -26,7 +26,7 @@ public sealed partial class MainWindow
     private void ApplyPendingSchoolLabel()
     {
         if (_schoolProfileWindow is not null || _schoolManagementAccountsWindow is not null ||
-            _teacherAccountsWindow is not null || _teacherAllocationWindow is not null ||
+            _academicPages.Any(page => page.Content is TeacherAccountsView) || _teacherAllocationWindow is not null ||
             _pendingSchoolLabel is not { } saved || _school is not { } selected || selected.Id != saved.Id) return;
         _pendingSchoolLabel = null;
         var renamed = selected with {Name = saved.Name};

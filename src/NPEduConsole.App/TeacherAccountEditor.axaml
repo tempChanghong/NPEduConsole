@@ -1,39 +1,38 @@
-<Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        x:Class="NPEduConsole.App.TeacherAccountForm" Title="教师账号" Width="790" Height="510" MinWidth="640" MinHeight="455"
-        WindowStartupLocation="CenterOwner">
-  <Window.Styles>
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.TeacherAccountEditor">
+  <UserControl.Styles>
     <!-- 外壳的全局样式里没有错误文本样式，通知栏靠 Classes.Set("error") 切换，这里补上，避免错误提示与普通提示同色。 -->
     <Style Selector="TextBlock.error">
-      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
+      <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}"/>
     </Style>
-  </Window.Styles>
+  </UserControl.Styles>
   <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
-    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="22,12">
-      <StackPanel Spacing="3">
-        <TextBlock x:Name="TeacherFormHeading" Text="新建教师账号" Classes="label" FontSize="25"/>
-        <TextBlock x:Name="TeacherFormScope" Classes="muted" TextTrimming="CharacterEllipsis"/>
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="18,9">
+      <StackPanel Spacing="2">
+        <TextBlock x:Name="TeacherFormHeading" Text="新建教师账号" FontSize="24" FontWeight="SemiBold"/>
+        <TextBlock x:Name="TeacherFormScope" Classes="muted" TextWrapping="Wrap"/>
       </StackPanel>
     </Border>
     <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-      <StackPanel Margin="20,12" Spacing="10" MaxWidth="930">
+      <StackPanel Margin="18,10" Spacing="8" MaxWidth="930">
         <Border x:Name="TeacherFormNoticeBox" Background="{DynamicResource AccentSoftBrush}" CornerRadius="8" Padding="10,7" IsVisible="False">
           <TextBlock x:Name="TeacherFormNotice" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
         </Border>
-        <Border x:Name="TeacherFormCard" Classes="card" Padding="14,12" IsVisible="False">
-          <StackPanel Spacing="10">
+        <Border x:Name="TeacherFormCard" Classes="card" Padding="12,10" IsVisible="False">
+          <StackPanel Spacing="8">
             <Grid x:Name="TeacherIdentityFields" ColumnDefinitions="*,*" ColumnSpacing="12">
-              <StackPanel Spacing="4">
+              <StackPanel Spacing="3">
                 <TextBlock Text="教师姓名" Classes="label"/>
                 <TextBox x:Name="TeacherFormName" AutomationProperties.Name="教师姓名"/>
                 <TextBlock x:Name="TeacherFormNameError" IsVisible="False" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap"/>
               </StackPanel>
-              <StackPanel Grid.Column="1" Spacing="4">
+              <StackPanel Grid.Column="1" Spacing="3">
                 <TextBlock Text="本校短账号" Classes="label"/>
                 <TextBox x:Name="TeacherFormUsername" AutomationProperties.Name="本校短账号"/>
                 <TextBlock x:Name="TeacherFormUsernameError" IsVisible="False" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap"/>
               </StackPanel>
             </Grid>
-            <StackPanel x:Name="TeacherPinField" IsVisible="False" Spacing="4" MaxWidth="350" HorizontalAlignment="Left">
+            <StackPanel x:Name="TeacherPinField" IsVisible="False" Spacing="3" MaxWidth="360" HorizontalAlignment="Left">
               <TextBlock Text="个人 PIN" Classes="label"/>
               <TextBox x:Name="TeacherFormPin" PasswordChar="●" MaxLength="8" PlaceholderText="4 至 8 位数字"
                        AutomationProperties.Name="个人 PIN"
@@ -53,9 +52,9 @@
         <Button x:Name="TeacherFormAllocation" Classes="action" Content="打开邮箱分配" Click="OpenAllocationClicked" IsVisible="False" HorizontalAlignment="Left"/>
       </StackPanel>
     </ScrollViewer>
-    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="20,8">
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="18,7">
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-        <WrapPanel ItemSpacing="8" LineSpacing="5">
+        <WrapPanel ItemSpacing="7" LineSpacing="4">
           <Button x:Name="TeacherFormClose" Classes="action" Click="CloseClicked" Content="返回"/>
           <Button x:Name="TeacherFormCheck" Classes="action" Click="CheckClicked" Content="核对回执" IsVisible="False"/>
           <Button x:Name="TeacherFormAbandon" Classes="action" Click="AbandonClicked" Content="放弃核对" IsVisible="False"/>
@@ -64,4 +63,4 @@
       </Grid>
     </Border>
   </Grid>
-</Window>
+</UserControl>

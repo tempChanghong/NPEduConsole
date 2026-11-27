@@ -156,8 +156,8 @@ internal static partial class Program
             opening = await OpenChecklistAsync();
             await Until(() => Ready(opening, "OpeningPrimary"), "开学配置原教师账号入口可继续使用");
             Click(Find<Button>(opening, "OpeningPrimary"));
-            var teacherAccounts = await WindowOf<TeacherAccountsWindow>();
-            await Until(() => Ready(teacherAccounts, "TeacherAccountBulk"), "教师账号旧窗口的原批量分配入口可达");
+            var teacherAccounts = await AcademicPageAsync<TeacherAccountsView>(main);
+            await Until(() => Ready(teacherAccounts, "TeacherAccountBulk"), "教师账号的原批量分配入口可达");
             Click(Find<Button>(teacherAccounts, "TeacherAccountBulk"));
             var teacherBulk = await WindowOf<TeacherAllocationWindow>();
             await Until(() => Ready(teacherBulk.View, "AllocationJson"), "批量分配旧窗口已读取作用域");
