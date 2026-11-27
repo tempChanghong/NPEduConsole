@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Serialization;
 
 namespace NPEduConsole.Core;
@@ -53,6 +54,8 @@ public sealed partial class ConsoleClient
     private async Task<SoftwareUpdate> RequestSoftwareUpdateAsync(HttpMethod method, Session session, string schoolId,
         string deviceId, CancellationToken ct, SoftwareUpdateWrite? body = null)
     {
+        var startedAt = DateTimeOffset.UtcNow;
+        long started = Stopwatch.GetTimestamp();
         var schoolPath = $"api/v2/npep/schools/{Segment(schoolId)}";
         var path = $"{schoolPath}/devices/{Segment(deviceId)}/software-update";
         Envelope envelope;
@@ -69,10 +72,14 @@ public sealed partial class ConsoleClient
         var status = ReadData<SoftwareUpdate>(envelope);
         if (status.Product != "NPEduTools" || status.Revision < 0 ||
             (status.ObservedVersion is not null && SoftwareRelease.Parse(status.ObservedVersion) is null) ||
-            status.Catalog.Any(release => SoftwareRelease.Parse(release.Version) is null) ||
+            status.Catalog is null || status.Catalog.Any(release => release is null || SoftwareRelease.Parse(release.Version) is null) ||
             status.Plan is { } plan && SoftwareRelease.Parse(plan.TargetVersion) is null)
             throw InvalidResponse();
-        return status with { Scope = new SoftwareUpdateScope(session.Id, schoolId, deviceId) };
+        return status with
+        {
+            Scope = new SoftwareUpdateScope(session.Id, schoolId, deviceId),
+            PilotRead = method == HttpMethod.Get ? new SoftwarePilotRead(startedAt, started) : null
+        };
     }
 
     private sealed record SoftwareUpdateWrite(Guid RequestId, long ExpectedRevision, string Action,

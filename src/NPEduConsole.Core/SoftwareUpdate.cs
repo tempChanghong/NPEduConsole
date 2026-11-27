@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 
 namespace NPEduConsole.Core;
@@ -43,18 +44,51 @@ public sealed record SoftwareUpdatePlan(string Id, string TargetVersion, string 
 }
 
 internal sealed record SoftwareUpdateScope(Guid SessionId, string SchoolId, string DeviceId);
+internal sealed record SoftwarePilotRead(DateTimeOffset StartedAt, long Timestamp);
+public sealed record SoftwarePilotEvidence(DateTimeOffset? CheckedAt, DateTimeOffset? ObservedVersionValidUntil);
+public sealed record SoftwarePilotPreflight(string Observation, string? ObservedVersion, DateTimeOffset? ObservedAt,
+    string Enrollment, string CatalogStatus, string RecoveryPackage, IReadOnlyList<string> TargetVersions, bool HasActiveTask);
 
 public sealed record SoftwareUpdate(string Product, bool Managed, string Enrollment, Guid? EnrollmentId, long Revision,
     IReadOnlyList<SoftwareRelease> Catalog, SoftwareUpdatePlan? Plan, string? ObservedVersion, DateTimeOffset? LastSeenAt,
     string? CatalogStatus = null, bool? CanWithdrawInvitation = null, DateTimeOffset? InvitationLastExchangeAt = null)
 {
     internal SoftwareUpdateScope? Scope { get; init; }
+    internal SoftwarePilotRead? PilotRead { get; init; }
+    public SoftwarePilotEvidence? PilotEvidence { get; init; }
 
     public bool CanInvite => !Managed && Enrollment == "UNMANAGED" && EnrollmentId is null;
     public bool CanWithdraw => CanWithdrawInvitation == true && !Managed && Enrollment == "INVITED" &&
         EnrollmentId is { } invitation && invitation != Guid.Empty;
     public bool CanCancel => IsEnrolled && Plan?.CanCancel == true;
     public bool IsEnrolled => Managed && Enrollment == "MANAGED" && EnrollmentId is not null;
+
+    public SoftwarePilotPreflight GetPilotPreflight(DateTimeOffset now)
+    {
+        var observed = SoftwareRelease.Parse(ObservedVersion);
+        bool hasObservation = observed is not null && LastSeenAt is not null;
+        bool current = hasObservation && HasCurrentPilotObservation(now);
+        bool pending = !Managed && Enrollment == "INVITED" && EnrollmentId is { } invitation && invitation != Guid.Empty;
+        string enrollment = IsEnrolled && EnrollmentId != Guid.Empty ? "MANAGED" :
+            pending ? "INVITED" : CanInvite ? "UNMANAGED" : "UNKNOWN";
+        string catalog = CatalogStatus is "AVAILABLE" or "NOT_CONFIGURED" or "UNAVAILABLE" ? CatalogStatus : "UNKNOWN";
+        bool knownCatalog = current && catalog == "AVAILABLE";
+        string recovery = !knownCatalog ? "UNKNOWN" : Catalog.Any(entry => entry.Version == ObservedVersion) ? "IN_CATALOG" : "MISSING";
+        var targets = knownCatalog ? Catalog.Where(entry => SoftwareRelease.Parse(entry.Version) > observed)
+            .Select(entry => entry.Version).ToArray() : [];
+        return new(current ? "CURRENT" : hasObservation ? "HISTORICAL" : "UNKNOWN", hasObservation ? ObservedVersion : null,
+            hasObservation ? LastSeenAt : null, enrollment, catalog, recovery, targets, Plan?.IsActive == true);
+    }
+
+    private bool HasCurrentPilotObservation(DateTimeOffset now)
+    {
+        if (PilotRead is not { } read || LastSeenAt is not { } observedAt ||
+            PilotEvidence is not { CheckedAt: { } checkedAt, ObservedVersionValidUntil: { } validUntil }) return false;
+        var lifetime = validUntil - checkedAt;
+        // Deduct the entire read time, without assuming the local and server clocks agree.
+        return observedAt <= checkedAt && validUntil - observedAt <= TimeSpan.FromSeconds(60) && lifetime > TimeSpan.Zero &&
+            now - read.StartedAt < lifetime && Stopwatch.GetElapsedTime(read.Timestamp) < lifetime;
+    }
 
     public IEnumerable<SoftwareRelease> EligibleReleases
     {

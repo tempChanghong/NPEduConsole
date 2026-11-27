@@ -36,11 +36,16 @@ internal static class SoftwareUpdateSmoke
         const string original = "1.1.10.0", next = "1.1.11.0", later = "1.1.12.0";
         var installation = await Read();
         Check(installation.CanInvite && !installation.IsEnrolled && !installation.EligibleReleases.Any(), "legacy binding alone is not managed");
+        Check(installation.GetPilotPreflight(DateTimeOffset.UtcNow) is
+            { Observation: "UNKNOWN", Enrollment: "UNMANAGED", RecoveryPackage: "UNKNOWN" }, "a paired screen is not pilot evidence");
         await Exchange(original, null);
         var available = await Read();
         var invitation = await admin.SetSoftwareUpdateAsync(available, SoftwareUpdateAction.Enroll, null, Guid.NewGuid(), ct);
         Check(invitation.CanWithdraw && invitation.InvitationLastExchangeAt is null && invitation.LastSeenAt.HasValue,
             "a historical version receipt does not confirm communication for the current invitation");
+        Check((await Read()).GetPilotPreflight(DateTimeOffset.UtcNow) is
+            { Observation: "HISTORICAL", Enrollment: "INVITED", RecoveryPackage: "UNKNOWN" },
+            "the exact active invitation needs local consent while the version remains historical");
         Check((await admin.GetSoftwareUpdateAsync(fixture.SchoolId, otherId, ct)).CanInvite, "invitation is isolated to a single device");
         await ExpectError(409, () => admin.SetSoftwareUpdateAsync(available, SoftwareUpdateAction.Enroll, null, Guid.NewGuid(), ct),
             "REVISION_CONFLICT");
@@ -74,9 +79,19 @@ internal static class SoftwareUpdateSmoke
         var consent = reissued.EnrollmentId!.Value;
         await Exchange(original, consent);
         await ExpectError(409, () => Withdraw(reissued), "REVISION_CONFLICT");
+        await ReportStatus(original);
         var managed = await Read();
         Check(managed.IsEnrolled && !managed.CanWithdraw && managed.ObservedVersion == original && managed.LastSeenAt.HasValue &&
             managed.EligibleReleases.Select(release => release.Version).Order().SequenceEqual([next, later]), "explicit consent and eligible catalog versions");
+        var now = DateTimeOffset.UtcNow;
+        Check(managed.GetPilotPreflight(now) is { Observation: "CURRENT", Enrollment: "MANAGED", RecoveryPackage: "IN_CATALOG" } ready &&
+            ready.TargetVersions.Order().SequenceEqual([next, later]), "matching N1 and maintenance version can be compared with the catalog");
+        Check((managed with { Catalog = [new(next)] }).GetPilotPreflight(now) is
+            { Observation: "CURRENT", RecoveryPackage: "MISSING", ObservedVersion: original }, "a readable catalog with no original version is missing recovery");
+        Check((managed with { Catalog = [], CatalogStatus = "UNAVAILABLE" }).GetPilotPreflight(now) is
+            { Observation: "CURRENT", RecoveryPackage: "UNKNOWN" }, "an unreadable catalog does not prove a missing version");
+        Check(managed.GetPilotPreflight(now.AddSeconds(61)) is
+            { Observation: "HISTORICAL", RecoveryPackage: "UNKNOWN", TargetVersions.Count: 0 }, "an open page expires its version evidence without another request");
         await ExpectError(409, () => admin.SetSoftwareUpdateAsync(managed, SoftwareUpdateAction.Approve, original, Guid.NewGuid(), ct));
 
         var cancelPlan = await admin.SetSoftwareUpdateAsync(managed, SoftwareUpdateAction.Approve, next, Guid.NewGuid(), ct);
@@ -101,6 +116,8 @@ internal static class SoftwareUpdateSmoke
         int oldEpoch = context.GetProperty("statusEpoch").GetInt32();
         context = await StartSession(oldEpoch);
         sequence = 0;
+        Check((await Read()).GetPilotPreflight(DateTimeOffset.UtcNow) is
+            { Observation: "HISTORICAL", RecoveryPackage: "UNKNOWN" }, "a new session cannot carry old Host version evidence");
         await Exchange(next, consent);
         var updated = await Read();
         Check(updated.Plan?.State == "SUCCEEDED" && updated.ObservedVersion == next, "new Host epoch observed on target version");
@@ -150,6 +167,7 @@ internal static class SoftwareUpdateSmoke
 
         await admin.LogoutAsync(ct);
         Console.WriteLine("PASS: KV invitation withdrawal, offline and historical/current device exchange, old consent rejected, reissue kept, and consent-won enrollment kept.");
+        Console.WriteLine("PASS: single-screen preflight evidence, pending consent, catalog triage and stale observations.");
         Console.WriteLine("PASS: KV software maintenance school/device scope, consent, cancellation, installer busy/restart, rollback report vs original runtime, later version, and proof tied to one task.");
 
         Task<SoftwareUpdate> Withdraw(SoftwareUpdate snapshot) =>
@@ -222,6 +240,8 @@ internal static class SoftwareUpdateSmoke
         var legacy = JsonSerializer.Deserialize<SoftwareUpdate>(json, JsonSerializerOptions.Web)!;
         Check(legacy.Plan is { PreviousVersion: null, RollbackConfirmedAt: null, HasRollbackReport: true, RollbackConfirmation: null } &&
             legacy.EligibleReleases.Any(), "older responses retain their conservative presentation and existing operations");
+        Check(legacy.GetPilotPreflight(DateTimeOffset.UtcNow) is { Observation: "HISTORICAL", RecoveryPackage: "UNKNOWN" },
+            "legacy responses can display a historical version without certifying preflight conditions");
         var plan = legacy.Plan! with { PreviousVersion = "1.1.10.0", RollbackConfirmedAt = "2026-01-01T00:00:01.123Z" };
         Check(plan.RollbackConfirmation == new SoftwareRollbackConfirmation("1.1.10.0",
             new DateTimeOffset(2026, 1, 1, 0, 0, 1, 123, TimeSpan.Zero)), "valid task-scoped UTC confirmation is read exactly");

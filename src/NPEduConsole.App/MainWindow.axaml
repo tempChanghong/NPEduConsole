@@ -540,11 +540,27 @@
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                   <StackPanel Spacing="5">
                     <TextBlock Text="NPEduTools 软件维护" FontSize="18" Classes="label" />
-                    <TextBlock x:Name="SoftwareMaintenanceScope" Classes="muted" />
+                    <TextBlock x:Name="SoftwareMaintenanceScope" Classes="muted" TextWrapping="Wrap" />
                   </StackPanel>
                   <Button Grid.Column="1" Classes="action" Content="关闭" VerticalAlignment="Top" Click="CloseSoftwareMaintenanceClicked" />
                 </Grid>
                 <TextBlock x:Name="SoftwareMaintenanceStatus" Classes="label" AutomationProperties.LiveSetting="Polite" />
+                <Border x:Name="SoftwarePilotPreflightSection" Background="{DynamicResource CanvasBrush}"
+                        BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" CornerRadius="8"
+                        Padding="14,12" IsVisible="False">
+                  <StackPanel Spacing="8">
+                    <TextBlock Text="试点预检" Classes="muted" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SoftwarePilotPreflightSummary" Classes="label" TextWrapping="Wrap"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <WrapPanel Orientation="Horizontal" ItemSpacing="16" LineSpacing="6">
+                      <TextBlock x:Name="SoftwarePilotPreflightEnrollment" Classes="muted" TextWrapping="Wrap" />
+                      <TextBlock x:Name="SoftwarePilotPreflightVersion" Classes="muted" TextWrapping="Wrap" />
+                      <TextBlock x:Name="SoftwarePilotPreflightRecovery" Classes="muted" TextWrapping="Wrap" />
+                    </WrapPanel>
+                    <TextBlock x:Name="SoftwarePilotPreflightTargets" Classes="muted" TextWrapping="Wrap" />
+                    <TextBlock x:Name="SoftwarePilotPreflightLocal" Classes="muted" TextWrapping="Wrap" />
+                  </StackPanel>
+                </Border>
                 <Grid x:Name="SoftwareVersions" ColumnDefinitions="*,*" ColumnSpacing="16" IsVisible="False">
                   <StackPanel Spacing="4">
                     <TextBlock Text="最近上报的运行版本" Classes="muted" />

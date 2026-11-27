@@ -74,11 +74,13 @@ public sealed partial class MainWindow
         _softwareRead = null;
         read?.Cancel();
         _softwarePoll.Stop();
+        StopSoftwarePreflightClock();
         _software = null;
         _softwareError = null;
         _softwareErrorAllowsHistory = false;
         _softwareReceiptExpanded = false;
         SoftwareReleasePicker.ItemsSource = null;
+        SoftwarePilotPreflightSection.IsVisible = false;
         SoftwareReceiptSection.IsVisible = false;
         SoftwareReceiptDetails.IsVisible = false;
         SoftwareMaintenanceCard.IsVisible = false;
@@ -89,6 +91,7 @@ public sealed partial class MainWindow
         _softwareSession?.Cancel();
         _softwareSession?.Dispose();
         _softwareSession = null;
+        StopSoftwarePreflightClock();
         _softwareFeedback.Clear();
         _softwareHistory.Clear();
         _softwareHistoryClient = null;
@@ -311,6 +314,7 @@ public sealed partial class MainWindow
         }
 
         SoftwareMaintenanceStatus.Text = _softwareError ?? (snapshot is null ? "正在读取软件维护状态…" : SoftwareStatusText(snapshot, confirmation));
+        RenderSoftwarePilotPreflight(snapshot);
         SoftwareVersions.IsVisible = snapshot is not null;
         SoftwareObservedVersion.Text = snapshot?.ObservedVersion ?? "尚无版本回执";
         SoftwareObservationTime.Text = snapshot?.LastSeenAt is { } seen ? $"上报于 {FormatTime(seen)}" : "";
