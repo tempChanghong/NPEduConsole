@@ -20,6 +20,8 @@ internal static partial class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args is ["--software-maintenance-poll"])
+            return CheckSoftwareMaintenancePolling();
         if (args is ["--live-website-policy", var websiteFixture, var websiteOutput])
             return StartWebsitePolicy(websiteFixture, websiteOutput);
         if (args is ["--live-classroom-action-policy", var classroomActionFixture, var classroomActionOutput])

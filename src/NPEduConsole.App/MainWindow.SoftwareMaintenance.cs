@@ -16,6 +16,7 @@ public sealed partial class MainWindow
     private SoftwareUpdate? _software;
     private string? _softwareError;
     private bool _softwareErrorAllowsHistory;
+    private bool _softwareReadRetryable;
     private bool _softwareReceiptExpanded;
     private const string LocalRecoveryHelp = "请在这台大屏打开已安装的 NPDownloader。若本机显示「恢复上次升级」，按本机提示处理。该入口仅在本机有可恢复记录时出现。";
 
@@ -78,6 +79,7 @@ public sealed partial class MainWindow
         _software = null;
         _softwareError = null;
         _softwareErrorAllowsHistory = false;
+        _softwareReadRetryable = false;
         _softwareReceiptExpanded = false;
         SoftwareReleasePicker.ItemsSource = null;
         SoftwarePilotPreflightSection.IsVisible = false;
@@ -96,6 +98,7 @@ public sealed partial class MainWindow
         _softwareHistory.Clear();
         _softwareHistoryClient = null;
         _softwareErrorAllowsHistory = false;
+        _softwareReadRetryable = false;
         _softwareReceiptExpanded = false;
     }
 
@@ -184,6 +187,7 @@ public sealed partial class MainWindow
             _software = snapshot;
             _softwareError = null;
             _softwareErrorAllowsHistory = false;
+            _softwareReadRetryable = false;
             SaveSoftwareHistory(client, key, snapshot);
             var feedback = CurrentSoftwareFeedback;
             if (feedback?.ConflictingInvitation is { } invitation)
@@ -209,6 +213,8 @@ public sealed partial class MainWindow
             if (ShouldClearSoftwareHistory(error))
                 ClearSoftwareHistory(client, key);
             _softwareErrorAllowsHistory = CanUseSoftwareHistoryOnError(error);
+            _softwareReadRetryable = error is ConsoleApiException { StatusCode: 0 or 408 or 500 or 502 or 503 or 504 }
+                or HttpRequestException or OperationCanceledException;
             _softwareError = error is ConsoleApiException { StatusCode: 404 or 426 } ?
                 "当前服务未提供此设备的软件维护接口，请刷新班级列表或核对服务版本。" : ServiceMessage(error);
         }
@@ -343,7 +349,9 @@ public sealed partial class MainWindow
         if (snapshot is { Enrollment: "INVITED" } || plan?.IsActive == true ||
             snapshot?.IsEnrolled == true && plan is { HasRollbackReport: true, ValidPreviousVersion: not null } && confirmation is null)
             _softwarePoll.Start();
-        else _softwarePoll.Stop();
+        // A transient read failure may keep an existing poll alive, but must not start a new one.
+        else if (snapshot is not null || !_softwareReadRetryable)
+            _softwarePoll.Stop();
     }
 
     private void RenderSoftwareReceipt(SoftwareUpdate? snapshot)
