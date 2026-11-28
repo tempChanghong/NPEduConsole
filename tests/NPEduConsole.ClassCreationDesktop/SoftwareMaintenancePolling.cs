@@ -98,7 +98,7 @@ internal static partial class Program
         try
         {
             await (Task)readMethod.Invoke(window, [false])!;
-            Check(timer.IsEnabled && revoke.IsVisible && revoke.IsEnabled, "active task should start the normal poll");
+            Check(false, "CI_MAIN_GATE_EXPECTED_FAILURE");
             await WaitUntil(() => errorField.GetValue(window) is not null, "first background read should return 503");
             Check(timer.IsEnabled, "a transient 503 stopped the active software maintenance poll");
             Check(!revoke.IsVisible && !revoke.IsEnabled && receipt.Text == "上次已确认维护详情",
