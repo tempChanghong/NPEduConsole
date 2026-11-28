@@ -5,6 +5,9 @@ on:
     branches:
       - ci/actions-pilot/green
       - ci/actions-pilot/red
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +19,7 @@ concurrency:
 
 jobs:
   windows-checks:
+    name: Console PR quick checks
     runs-on: windows-2022
     timeout-minutes: 20
     defaults:
