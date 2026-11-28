@@ -2,7 +2,9 @@ name: Console Windows checks
 
 on:
   push:
-    branches: ['ci/actions-pilot/**']
+    branches:
+      - ci/actions-pilot/green
+      - ci/actions-pilot/red
   pull_request:
     branches: ['codex/classroom-overview']
   workflow_dispatch:
