@@ -8,7 +8,7 @@ internal sealed record Envelope(JsonElement Data = default, bool? Success = null
 
 internal sealed record LoginResponse([property: JsonPropertyName("access_token")] string AccessToken);
 internal sealed record TermRow(string Id, string Status);
-internal sealed record SchoolRow(string Id, string Name, TermRow[] Terms);
+internal sealed record SchoolRow(string Id, string Name, TermRow[] Terms, string? Code = null);
 internal sealed record Membership(string Role, SchoolRow School);
 internal sealed record GradeRow(string Name, string? Id = null);
 internal sealed record ClassRow(string Id, string Name, bool IsActive, GradeRow? Grade, string? Code = null);

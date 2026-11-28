@@ -27,6 +27,8 @@
         <Button x:Name="DeviceActionPolicyButton" Content="NPEduTools 安全策略" Classes="action" Click="OpenActionPolicyClicked" />
         <Button x:Name="DeviceWebsitePolicyButton" Content="网站访问规则" Classes="action" Click="OpenWebsitePolicyClicked" />
         <Button x:Name="DeviceConnectionsButton" Content="大屏互联" Classes="action" Click="OpenConnectionsClicked" />
+        <Button x:Name="SchoolPresetExportButton" Content="教室接入配置" Classes="action" Click="OpenSchoolPresetClicked"
+                AutomationProperties.AutomationId="SchoolPresetExportButton" />
         <Button x:Name="DeviceDiagnosticExport" Content="导出原生诊断…" Classes="action" Click="OpenDiagnosticsClicked" />
         <Button x:Name="DeviceDutyDirectory" Content="大屏账号与值守" Classes="action" Click="OpenDutyDirectoryClicked" />
         <Button Content="刷新目录" Classes="action" Click="RefreshClicked" />

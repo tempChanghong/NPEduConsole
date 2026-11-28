@@ -377,6 +377,7 @@ public sealed partial class ConsoleClient : IDisposable
             request.Headers.Add("X-NPEP-Classroom-Action-Inheritance", "1");
             request.Headers.Add("X-NPEP-Manual-Study-Policy", "1");
             request.Headers.Add("X-NPEP-Manual-Recording-Policy", "1");
+            request.Headers.Add("X-NPEP-Managed-Uninstall-Policy", "1");
         }
         if (websitePolicyAutomation) request.Headers.Add("X-NPEP-Website-Policy-Automation", "1");
         if (websitePolicyTiming) request.Headers.Add("X-NPEP-Website-Policy-Timing", "1");

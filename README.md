@@ -41,10 +41,12 @@ $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 
 ## 开发启动
 
-安装 .NET 10 SDK 后，在仓库根目录运行以下命令。
+用 Visual Studio 2026 打开 [NPEduConsole.slnx](NPEduConsole.slnx)，选 **Debug** 和 **NPEduConsole · 本机调试**，按 **F5**。服务地址和待核对的教师配置记录保存在 App 的 Debug 输出目录下的 `vs-profile`。首次从这个入口打开时，在登录页输入待联调的 KV 地址。
+
+沿用普通本机配置时，安装 .NET 10 SDK 后在仓库根目录运行以下命令。
 
 ```powershell
-dotnet run --project src/NPEduConsole.App
+dotnet run --project src/NPEduConsole.App --no-launch-profile
 ```
 
 在登录页输入 KV 服务地址、学校代码、短账号和密码。校内服务使用 HTTPS，本机联调可使用 HTTP 回环地址。账号须在目标学校具有现有 KV 接口允许的 OWNER 或 ADMIN 权限。凭据仅在本次运行期间使用。

@@ -1,0 +1,82 @@
+<UserControl xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="NPEduConsole.App.SchoolPresetExportView"
+             AutomationProperties.AutomationId="SchoolPresetExportView">
+  <Grid RowDefinitions="Auto,*,Auto" Background="{DynamicResource CanvasBrush}">
+    <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,0,0,1" Padding="22,16">
+      <StackPanel Spacing="5">
+        <TextBlock Text="导出学校接入配置" FontSize="24" FontWeight="SemiBold" TextWrapping="Wrap" />
+        <TextBlock Text="生成当前学校的配置文件，在教室端用 NPDownloader 导入。"
+                   Classes="muted" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Margin="22,14" Spacing="12" HorizontalAlignment="Stretch" MaxWidth="820">
+        <Border x:Name="LoadingCard" Classes="card" Padding="18" IsVisible="False"
+                AutomationProperties.AutomationId="SchoolPresetExportLoading">
+          <StackPanel Spacing="10">
+            <TextBlock Text="正在读取当前学校接入信息…" Classes="label" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite" />
+            <ProgressBar IsIndeterminate="True" Height="4" />
+          </StackPanel>
+        </Border>
+
+        <Border x:Name="ErrorCard" Classes="card" Padding="18" IsVisible="False"
+                Background="{DynamicResource ErrorTintBrush}" BorderBrush="{DynamicResource ErrorBrush}"
+                AutomationProperties.AutomationId="SchoolPresetExportErrorCard">
+          <StackPanel Spacing="12">
+            <TextBlock x:Name="ErrorText" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap"
+                       AutomationProperties.LiveSetting="Polite"
+                       AutomationProperties.AutomationId="SchoolPresetExportErrorText" />
+            <Button x:Name="ReloadButton" Classes="action" MinHeight="44" Content="重新读取"
+                    HorizontalAlignment="Left" Click="ReloadClicked"
+                    AutomationProperties.AutomationId="SchoolPresetExportReloadButton" />
+          </StackPanel>
+        </Border>
+
+        <Border x:Name="PreviewCard" Classes="card" Padding="18" IsVisible="False"
+                AutomationProperties.AutomationId="SchoolPresetExportPreviewCard">
+          <StackPanel Spacing="12">
+            <TextBlock Text="将写入文件的学校信息" Classes="label" TextWrapping="Wrap" />
+            <StackPanel Spacing="3">
+              <TextBlock Text="学校名称" Classes="muted" />
+              <TextBlock x:Name="SchoolNameText" Classes="label" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="SchoolPresetExportSchoolName" />
+            </StackPanel>
+            <StackPanel Spacing="3">
+              <TextBlock Text="学校代码" Classes="muted" />
+              <TextBlock x:Name="SchoolCodeText" Classes="label" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="SchoolPresetExportSchoolCode" />
+            </StackPanel>
+            <StackPanel Spacing="3">
+              <TextBlock Text="学校服务地址" Classes="muted" />
+              <TextBlock x:Name="BackendUrlText" Classes="label" TextWrapping="Wrap"
+                         AutomationProperties.AutomationId="SchoolPresetExportBackendUrl" />
+            </StackPanel>
+            <TextBlock Text="导入后，在 NPEduTools 首次设置中核对服务并确认配对。"
+                       Classes="muted" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border Grid.Row="2" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}"
+            BorderThickness="0,1,0,0" Padding="22,12">
+      <StackPanel Spacing="8">
+        <ProgressBar x:Name="SaveProgress" IsIndeterminate="True" IsVisible="False" Height="4"
+                     AutomationProperties.AutomationId="SchoolPresetExportSavingProgress" />
+        <TextBlock x:Name="FeedbackText" Classes="muted" TextWrapping="Wrap" IsVisible="False"
+                   AutomationProperties.LiveSetting="Polite"
+                   AutomationProperties.AutomationId="SchoolPresetExportFeedback" />
+        <WrapPanel HorizontalAlignment="Right" ItemSpacing="8" LineSpacing="8">
+          <Button x:Name="CloseButton" Classes="action" MinHeight="44" Content="返回" Click="CloseClicked"
+                  AutomationProperties.AutomationId="SchoolPresetExportCloseButton" />
+          <Button x:Name="SaveButton" Classes="action accent" MinHeight="44" Content="导出配置文件…"
+                  Click="SaveClicked" IsEnabled="False"
+                  AutomationProperties.AutomationId="SchoolPresetExportSaveButton" />
+        </WrapPanel>
+      </StackPanel>
+    </Border>
+  </Grid>
+</UserControl>

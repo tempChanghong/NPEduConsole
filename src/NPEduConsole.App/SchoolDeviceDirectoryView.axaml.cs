@@ -21,6 +21,13 @@ public sealed partial class SchoolDeviceDirectoryView : UserControl
     public event Action<string?, string?, string?, Control?>? DutyRequested;
     public event Action<string, Control>? DiagnosticsRequested;
     public event Action<Control>? ConnectionsRequested;
+    internal event Action<Control>? SchoolPresetRequested;
+
+    private void OpenSchoolPresetClicked(object? sender, RoutedEventArgs args)
+    {
+        if (sender is Control anchor) SchoolPresetRequested?.Invoke(anchor);
+    }
+
     public event Action<Control>? ActionPolicyRequested;
     public event Action<Control>? WebsitePolicyRequested;
 

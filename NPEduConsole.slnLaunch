@@ -1,0 +1,12 @@
+[
+  {
+    "Name": "NPEduConsole · 本机调试",
+    "Projects": [
+      {
+        "Path": "src\\NPEduConsole.App\\NPEduConsole.App.csproj",
+        "Action": "Start",
+        "DebugTarget": "本机调试"
+      }
+    ]
+  }
+]

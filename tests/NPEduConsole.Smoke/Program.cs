@@ -1,6 +1,12 @@
 using System.Text.Json;
 using NPEduConsole.Core;
 
+if (args is ["--school-preset-export", var schoolPresetDestination])
+{
+    await ServerStatusSmoke.VerifySchoolPresetAsync(schoolPresetDestination);
+    return;
+}
+
 if (args is ["--teacher-pin-csv"])
 {
     await TeacherPinCsvChecks.VerifyAsync();

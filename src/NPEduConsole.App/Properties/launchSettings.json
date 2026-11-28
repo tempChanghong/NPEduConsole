@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "本机调试": {
+      "commandName": "Project",
+      "commandLineArgs": "--vs-local-profile"
+    }
+  }
+}

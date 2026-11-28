@@ -9,6 +9,15 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+#if DEBUG
+        const string localProfileArgument = "--vs-local-profile";
+        if (args.Contains(localProfileArgument, StringComparer.Ordinal))
+        {
+            var appArgs = args.Where(argument => argument != localProfileArgument).ToArray();
+            RunDesktop(appArgs, Path.Combine(AppContext.BaseDirectory, "vs-profile"));
+            return;
+        }
+#endif
         string localData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string profile = Path.Combine(localData, "NPEduConsole");
         if (OperatingSystem.IsWindows() &&

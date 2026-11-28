@@ -5,7 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using NPEduConsole.Core;
 
-internal static class ServerStatusSmoke
+internal static partial class ServerStatusSmoke
 {
     private const string FixtureToken = "isolated-fixture-token._~+/-=";
     private const string Snapshot = """

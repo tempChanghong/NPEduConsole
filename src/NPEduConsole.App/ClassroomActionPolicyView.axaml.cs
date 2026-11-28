@@ -18,7 +18,7 @@ public sealed partial class ClassroomActionPolicyView : UserControl
         public override string ToString() => Label;
     }
     private sealed record PolicyControls(ComboBox Source, ComboBox Mode, ComboBox Factor, TextBlock ModeRead, TextBlock FactorRead,
-        bool CanUseLegacy = false);
+        bool CanUseLegacy = false, bool IsUninstall = false);
 
     private sealed record HistoricalKeyRow(ClassroomHistoricalUsbKey Key)
     {
@@ -28,6 +28,7 @@ public sealed partial class ClassroomActionPolicyView : UserControl
     private static readonly Choice[] Modes = [new("ALLOW", "允许现场操作"), new("VERIFY", "验证后允许"), new("DENY", "禁止现场操作")];
     private static readonly Choice LegacyMode = new("LEGACY", "沿用原行为");
     private static readonly Choice[] ClassroomModes = [LegacyMode, .. Modes];
+    private static readonly Choice[] UninstallModes = [new("VERIFY", "需要验证"), new("DENY", "禁止卸载")];
     private static readonly Choice FollowGrade = new("GRADE", "跟随年级");
     private static readonly Choice ThisClass = new("CLASS", "本班自定");
     private static readonly Choice[] PolicySources = [FollowGrade, ThisClass];
@@ -67,7 +68,9 @@ public sealed partial class ClassroomActionPolicyView : UserControl
             new(ActionPolicyManualStudySource, ActionPolicyManualStudyMode, ActionPolicyManualStudyFactor,
                 ActionPolicyManualStudyModeRead, ActionPolicyManualStudyFactorRead, CanUseLegacy: true),
             new(ActionPolicyManualRecordingSource, ActionPolicyManualRecordingMode, ActionPolicyManualRecordingFactor,
-                ActionPolicyManualRecordingModeRead, ActionPolicyManualRecordingFactorRead, CanUseLegacy: true)
+                ActionPolicyManualRecordingModeRead, ActionPolicyManualRecordingFactorRead, CanUseLegacy: true),
+            new(ActionPolicyUninstallSource, ActionPolicyUninstallMode, ActionPolicyUninstallFactor,
+                ActionPolicyUninstallModeRead, ActionPolicyUninstallFactorRead, IsUninstall: true)
         ];
         foreach (var row in _policyRows)
         {
@@ -206,6 +209,7 @@ public sealed partial class ClassroomActionPolicyView : UserControl
         LoadRow(_policyRows[2], rules?.SwitchClassroomMode, inherited?.ActionOrigins?.SwitchClassroomMode);
         LoadRow(_policyRows[3], rules?.StartManualStudy, inherited?.ActionOrigins?.StartManualStudy);
         LoadRow(_policyRows[4], rules?.StartManualRecording, inherited?.ActionOrigins?.StartManualRecording);
+        LoadRow(_policyRows[5], rules?.UninstallTools, inherited?.ActionOrigins?.UninstallTools);
         _baselineRules = ClassInheritance ? null : ReadRules();
         _baselineOverrides = ClassInheritance ? ReadOverrides() : null;
         _loadingRules = false;
@@ -235,9 +239,10 @@ public sealed partial class ClassroomActionPolicyView : UserControl
 
     private static void DisplayRule(PolicyControls row, ClassroomActionRule? rule)
     {
-        var choices = row.CanUseLegacy || Equals(row.Source.SelectedItem, FollowGrade) ? ClassroomModes : Modes;
+        var choices = row.IsUninstall ? UninstallModes :
+            row.CanUseLegacy || Equals(row.Source.SelectedItem, FollowGrade) ? ClassroomModes : Modes;
         row.Mode.ItemsSource = choices;
-        row.Mode.SelectedItem = choices.Single(item => item.Id == (rule?.Mode ?? LegacyMode.Id));
+        row.Mode.SelectedItem = choices.Single(item => item.Id == (rule?.Mode ?? (row.IsUninstall ? "DENY" : LegacyMode.Id)));
         row.Factor.SelectedItem = Factors.FirstOrDefault(item => item.Id == rule?.Factor) ?? Factors[0];
     }
 
@@ -252,9 +257,10 @@ public sealed partial class ClassroomActionPolicyView : UserControl
             nameof(ActionPolicyExitSource) => grade?.ExitBackground,
             nameof(ActionPolicyManualStudySource) => grade?.StartManualStudy,
             nameof(ActionPolicyManualRecordingSource) => grade?.StartManualRecording,
+            nameof(ActionPolicyUninstallSource) => grade?.UninstallTools,
             _ => grade?.SwitchClassroomMode
         };
-        if (choice == ThisClass && !row.CanUseLegacy && rule is null) rule = InitialRules.StopScheduledMonitoring;
+        if (choice == ThisClass && !row.CanUseLegacy && !row.IsUninstall && rule is null) rule = InitialRules.StopScheduledMonitoring;
         DisplayRule(row, rule);
         UpdateActions();
     }
@@ -332,7 +338,8 @@ public sealed partial class ClassroomActionPolicyView : UserControl
         return new(scope.TermId, scope.ScopeKind, scope.ScopeId, operation, rules, usb, keyId,
             IncludeClassroomModeSwitch: rules is not null && _catalog?.SupportsClassroomModeSwitch == true,
             ClassActionOverrides: overrides, IncludeManualStudyPolicy: _catalog?.SupportsManualStudyPolicy == true,
-            IncludeManualRecordingPolicy: _catalog?.SupportsManualRecordingPolicy == true);
+            IncludeManualRecordingPolicy: _catalog?.SupportsManualRecordingPolicy == true,
+            IncludeManagedUninstallPolicy: _catalog?.SupportsManagedUninstallPolicy == true);
     }
 
     private static ClassroomActionRule? ReadRule(PolicyControls row)
@@ -344,9 +351,10 @@ public sealed partial class ClassroomActionPolicyView : UserControl
     private static ClassroomActionOverride? ReadOverride(PolicyControls row) => Equals(row.Source.SelectedItem, ThisClass) ?
         new(ReadRule(row)) : null;
     private ClassroomActionRules ReadRules() => new(ReadRule(_policyRows[0]), ReadRule(_policyRows[1]), ReadRule(_policyRows[2]),
-        ReadRule(_policyRows[3]), ReadRule(_policyRows[4]));
+        ReadRule(_policyRows[3]), ReadRule(_policyRows[4]), _catalog?.SupportsManagedUninstallPolicy == true ? ReadRule(_policyRows[5]) : null);
     private ClassroomActionOverrides ReadOverrides() => new(ReadOverride(_policyRows[0]), ReadOverride(_policyRows[1]),
-        ReadOverride(_policyRows[2]), ReadOverride(_policyRows[3]), ReadOverride(_policyRows[4]));
+        ReadOverride(_policyRows[2]), ReadOverride(_policyRows[3]), ReadOverride(_policyRows[4]),
+        _catalog?.SupportsManagedUninstallPolicy == true ? ReadOverride(_policyRows[5]) : null);
 
     private async void PreviewRulesClicked(object? sender, RoutedEventArgs args) => await RunAsync(ct =>
     {
@@ -402,8 +410,8 @@ public sealed partial class ClassroomActionPolicyView : UserControl
             _ when change.RestoresInheritedPolicy => change.ScopeKind == "GRADE" ? "撤下年级默认" : "恢复继承",
             _ => "发布操作权限"
         };
-        int changed = preview.Rooms.Count(room => room.Before.PolicyId != room.After.PolicyId);
-        int screens = preview.Screens.Count(screen => preview.Rooms.Any(room => room.Id == screen.ClassId && room.Before.PolicyId != room.After.PolicyId));
+        int changed = preview.Rooms.Count(ActionsChanged);
+        int screens = preview.Screens.Count(screen => preview.Rooms.Any(room => room.Id == screen.ClassId && ActionsChanged(room)));
         var note = change.Operation == "REVOKE_USB" ? "离线大屏同步后才会撤销。" :
             change.UsbKey?.Replaces is not null ? "确认时只替换这支盘上已撤销的本校钥匙。" : "离线大屏沿用上次已应用策略。";
         if (preview.CanApply && preview.Issues.Length > 0) note += " 受影响班级在补齐验证方式前，列出的现场操作将无法通过验证。";
@@ -427,7 +435,7 @@ public sealed partial class ClassroomActionPolicyView : UserControl
             string screenText = string.Join("、", targets);
             var before = _showingHistory ? "原策略" : "当前";
             var after = change.Operation == "REVOKE_USB" ? "撤销后" : "发布后";
-            string changeText = room.Before.PolicyId == room.After.PolicyId && room.Before.ActionOrigins == room.After.ActionOrigins ?
+            string changeText = !ActionsChanged(room) && room.Before.ActionOrigins == room.After.ActionOrigins ?
                 $"保持 {PolicyText(room.Before)}" :
                 $"{before} {PolicyText(room.Before)}\n{after} {PolicyText(room.After)}";
             var screenLabel = _showingHistory ? "可核对原大屏" : "大屏";
@@ -624,6 +632,7 @@ public sealed partial class ClassroomActionPolicyView : UserControl
             {
                 nameof(ActionPolicyManualStudySource) => _catalog?.SupportsManualStudyPolicy == true,
                 nameof(ActionPolicyManualRecordingSource) => _catalog?.SupportsManualRecordingPolicy == true,
+                nameof(ActionPolicyUninstallSource) => _catalog?.SupportsManagedUninstallPolicy == true,
                 _ => true
             };
             row.Source.IsVisible = available && ClassInheritance;
@@ -642,6 +651,7 @@ public sealed partial class ClassroomActionPolicyView : UserControl
         }
         ActionPolicyManualStudyLabel.IsVisible = _catalog?.SupportsManualStudyPolicy == true;
         ActionPolicyManualRecordingLabel.IsVisible = _catalog?.SupportsManualRecordingPolicy == true;
+        ActionPolicyUninstallLabel.IsVisible = ActionPolicyUninstallNote.IsVisible = _catalog?.SupportsManagedUninstallPolicy == true;
         ActionPolicyDraft.IsVisible = draft && !pending;
         ActionPolicySavePreview.IsVisible = ActionPolicyInherit.IsVisible = !previewing && !pending &&
             ActionPolicyTabs.IsVisible && ActionPolicyTabs.SelectedIndex == 0 && (!_narrow || !_verifyStep);
@@ -690,6 +700,10 @@ public sealed partial class ClassroomActionPolicyView : UserControl
         VerifyPane.IsVisible = !_narrow || _verifyStep;
     }
 
+    private static bool ActionsChanged(ClassroomActionRoom room) => room.Before.PolicyId != room.After.PolicyId ||
+        room.Before.Actions?.UninstallTools != room.After.Actions?.UninstallTools ||
+        room.Before.Actions?.UninstallTools?.Factor is not null && room.Before.UsbCount != room.After.UsbCount;
+
     private static string? SingleActionChange(ClassroomActionRoom room)
     {
         var before = room.Before;
@@ -705,11 +719,14 @@ public sealed partial class ClassroomActionPolicyView : UserControl
             ("发起手动自习", before.Actions?.StartManualStudy, before.ActionOrigins?.StartManualStudy,
                 after.Actions?.StartManualStudy, after.ActionOrigins?.StartManualStudy),
             ("开始手动录课", before.Actions?.StartManualRecording, before.ActionOrigins?.StartManualRecording,
-                after.Actions?.StartManualRecording, after.ActionOrigins?.StartManualRecording)
+                after.Actions?.StartManualRecording, after.ActionOrigins?.StartManualRecording),
+            ("卸载 NPEduTools", before.Actions?.UninstallTools, before.ActionOrigins?.UninstallTools,
+                after.Actions?.UninstallTools, after.ActionOrigins?.UninstallTools)
         };
         if (actions.Where(action => action.Before != action.After || action.BeforeSource != action.AfterSource).ToArray() is not [var changed])
             return null;
-        return $"{changed.Name} · {RuleText(changed.Before)}{OriginText(changed.BeforeSource)} → {RuleText(changed.After)}{OriginText(changed.AfterSource)}";
+        return $"{changed.Name} · {Shown(changed.Before)}{OriginText(changed.BeforeSource)} → {Shown(changed.After)}{OriginText(changed.AfterSource)}";
+        string Shown(ClassroomActionRule? rule) => changed.Name == "卸载 NPEduTools" ? UninstallRuleText(rule) : RuleText(rule);
     }
 
     private static IEnumerable<string> Evidence(ClassroomActionScope scope)
@@ -798,8 +815,10 @@ public sealed partial class ClassroomActionPolicyView : UserControl
             $"\n手动自习 {RuleText(actions.StartManualStudy)}{OriginText(startOrigin)}" : "";
         string recording = origins?.StartManualRecording is { } recordingOrigin ?
             $"\n手动录课 {RuleText(actions.StartManualRecording)}{OriginText(recordingOrigin)}" : "";
+        string uninstall = origins?.UninstallTools is { } uninstallOrigin ?
+            $"\n卸载 {UninstallRuleText(actions.UninstallTools)}{OriginText(uninstallOrigin)}（办理时联网核对）" : "";
         return $"{(policy.Source == "CLASS" ? "班级策略" : "年级默认")} · 停止 {RuleText(actions.StopScheduledMonitoring)}{OriginText(origins?.StopScheduledMonitoring)} · " +
-            $"退出 {RuleText(actions.ExitBackground)}{OriginText(origins?.ExitBackground)}\n课堂模式 {RuleText(actions.SwitchClassroomMode)}{OriginText(origins?.SwitchClassroomMode)}{manual}{recording}\n本班适用 U 盘 {policy.UsbCount} 支";
+            $"退出 {RuleText(actions.ExitBackground)}{OriginText(origins?.ExitBackground)}\n课堂模式 {RuleText(actions.SwitchClassroomMode)}{OriginText(origins?.SwitchClassroomMode)}{manual}{recording}{uninstall}\n本班适用 U 盘 {policy.UsbCount} 支";
     }
 
     private static string OriginText(string? origin) => origin switch
@@ -811,6 +830,7 @@ public sealed partial class ClassroomActionPolicyView : UserControl
 
     private static string RuleText(ClassroomActionRule? rule) => rule is null ? LegacyMode.Label : rule.Mode == "VERIFY" ? Factors.Single(item => item.Id == rule.Factor).Label :
         Modes.Single(item => item.Id == rule.Mode).Label;
+    private static string UninstallRuleText(ClassroomActionRule? rule) => rule?.Mode == "VERIFY" ? RuleText(rule) : "禁止卸载";
 
     private static string ActionName(string action) => action switch
     {
@@ -818,6 +838,7 @@ public sealed partial class ClassroomActionPolicyView : UserControl
         "switchClassroomMode" => "切换课堂模式",
         "startManualStudy" => "发起手动自习",
         "startManualRecording" => "开始手动录课",
+        "uninstallTools" => "卸载 NPEduTools",
         _ => "停止本场"
     };
 

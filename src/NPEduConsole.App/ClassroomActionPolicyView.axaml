@@ -66,7 +66,7 @@
                   </WrapPanel>
                 </DockPanel>
                 <Border Classes="card" Padding="9,6">
-                  <Grid x:Name="ActionPolicyRuleGrid" Classes="compact-policy" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="1.18*,Auto,1.18*,1.1*" RowSpacing="3" ColumnSpacing="7">
+                  <Grid x:Name="ActionPolicyRuleGrid" Classes="compact-policy" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="1.18*,Auto,1.18*,1.1*" RowSpacing="3" ColumnSpacing="7">
                     <TextBlock Text="停止本场学校监测" VerticalAlignment="Center" TextWrapping="Wrap" />
                     <ComboBox x:Name="ActionPolicyStopSource" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="停止本场的规则来源" SelectionChanged="SourceChanged" />
                     <ComboBox x:Name="ActionPolicyStopMode" Grid.Column="2" HorizontalAlignment="Stretch" AutomationProperties.Name="停止本场的现场权限" SelectionChanged="RuleChanged" />
@@ -101,11 +101,19 @@
                     <TextBlock x:Name="ActionPolicyManualRecordingModeRead" Grid.Row="4" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
                     <ComboBox x:Name="ActionPolicyManualRecordingFactor" Grid.Row="4" Grid.Column="3" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="开始手动录课的验证方式" SelectionChanged="RuleChanged" />
                     <TextBlock x:Name="ActionPolicyManualRecordingFactorRead" Grid.Row="4" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                    <TextBlock x:Name="ActionPolicyUninstallLabel" Grid.Row="5" Text="卸载 NPEduTools" VerticalAlignment="Center" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyUninstallSource" Grid.Row="5" Grid.Column="1" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="卸载规则来源" SelectionChanged="SourceChanged" />
+                    <ComboBox x:Name="ActionPolicyUninstallMode" Grid.Row="5" Grid.Column="2" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="卸载权限" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyUninstallModeRead" Grid.Row="5" Grid.Column="2" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
+                    <ComboBox x:Name="ActionPolicyUninstallFactor" Grid.Row="5" Grid.Column="3" HorizontalAlignment="Stretch" IsVisible="False" AutomationProperties.Name="卸载验证方式" SelectionChanged="RuleChanged" />
+                    <TextBlock x:Name="ActionPolicyUninstallFactorRead" Grid.Row="5" Grid.Column="3" VerticalAlignment="Center" Margin="6,0" TextWrapping="Wrap" IsVisible="False" />
                   </Grid>
                 </Border>
                 <TextBlock Text="使用班级口令时，各班继续用自己的现行口令。返回作业板仍可直接使用。离线大屏沿用最后已应用的策略。"
                            Classes="muted" TextWrapping="Wrap" />
                 <TextBlock x:Name="ActionPolicyModeNote" Classes="muted" TextWrapping="Wrap" />
+                <TextBlock x:Name="ActionPolicyUninstallNote" Classes="muted" TextWrapping="Wrap" IsVisible="False"
+                           Text="受管卸载在操作时联网核对最新规则。未配置或离线时禁止卸载。此项不使用逐屏后台回执。" />
               </StackPanel>
             </ScrollViewer>
           </TabItem>
