@@ -22,6 +22,8 @@ internal static partial class Program
     {
         if (args is ["--software-maintenance-poll"])
             return CheckSoftwareMaintenancePolling();
+        if (args is ["--software-maintenance-retry"])
+            return CheckSoftwareMaintenancePolling(retry: true);
         if (args is ["--live-website-policy", var websiteFixture, var websiteOutput])
             return StartWebsitePolicy(websiteFixture, websiteOutput);
         if (args is ["--live-classroom-action-policy", var classroomActionFixture, var classroomActionOutput])

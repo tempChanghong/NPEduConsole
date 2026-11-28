@@ -20,8 +20,11 @@ public sealed partial class MainWindow
     private bool _softwareReceiptExpanded;
     private const string LocalRecoveryHelp = "请在这台大屏打开已安装的 NPDownloader。若本机显示「恢复上次升级」，按本机提示处理。该入口仅在本机有可恢复记录时出现。";
 
-    private sealed record SoftwareFeedback(string Message, bool Writing = false, bool Unconfirmed = false,
-        Guid? ConflictingInvitation = null, WithdrawalState? WithdrawalResult = null, bool ReviewInvitation = false);
+    private sealed record SoftwareAttempt(SoftwareUpdate Snapshot, SoftwareUpdateAction Action, string? TargetVersion, Guid Id);
+
+    private sealed record SoftwareFeedback(string Message, bool Writing = false, SoftwareAttempt? Pending = null,
+        Guid? ConflictingInvitation = null, WithdrawalState? WithdrawalResult = null, bool ReviewInvitation = false,
+        bool RetryVerified = false);
 
     private sealed record SoftwareReceiptProjection(
         string? PlanId,
@@ -170,6 +173,11 @@ public sealed partial class MainWindow
     private async void ApproveSoftwareClicked(object? sender, RoutedEventArgs args) =>
         await SaveSoftwareAsync(SoftwareUpdateAction.Approve, SoftwareReleasePicker.SelectedItem as string);
     private async void CancelSoftwareClicked(object? sender, RoutedEventArgs args) => await SaveSoftwareAsync(SoftwareUpdateAction.Cancel);
+    private async void RetrySoftwareClicked(object? sender, RoutedEventArgs args)
+    {
+        if (CurrentSoftwareFeedback?.Pending is { } pending)
+            await SaveSoftwareAsync(pending.Action, pending.TargetVersion, pending);
+    }
     private void SoftwareReleaseChanged(object? sender, SelectionChangedEventArgs args) =>
         ApproveSoftwareButton.IsEnabled = CanEditSoftware && SoftwareReleasePicker.SelectedItem is string;
 
@@ -203,15 +211,30 @@ public sealed partial class MainWindow
                 else if (current != result || feedback.ReviewInvitation)
                     _softwareFeedback.Remove(key);
             }
-            else if (userRefresh && feedback?.Unconfirmed == true)
-                _softwareFeedback[key] = new("已重新读取学校状态。请核对纳管或任务结果，再决定下一步。");
+            else if (feedback?.Pending is { } pending)
+            {
+                if (snapshot.Revision > pending.Snapshot.Revision)
+                    _softwareFeedback[key] = new("学校状态已更新。请核对当前状态，单凭此次刷新无法确认原请求。");
+                else
+                {
+                    bool retryVerified = (userRefresh || feedback.RetryVerified) && CanRetrySoftwareAttempt(pending, snapshot);
+                    _softwareFeedback[key] = feedback with
+                    {
+                        RetryVerified = retryVerified,
+                        Message = retryVerified ? "上次操作结果尚未确认。可按原编号重试同一操作。" : PendingSoftwareMessage
+                    };
+                }
+            }
         }
         catch (Exception error) when (IsServiceError(error))
         {
             if (_softwareRead != request || _client != client || EquipmentKey != key || ReturnToLoginIfExpired(error)) return;
             _software = null;
             if (ShouldClearSoftwareHistory(error))
+            {
                 ClearSoftwareHistory(client, key);
+                _softwareFeedback.Remove(key);
+            }
             _softwareErrorAllowsHistory = CanUseSoftwareHistoryOnError(error);
             _softwareReadRetryable = error is ConsoleApiException { StatusCode: 0 or 408 or 500 or 502 or 503 or 504 }
                 or HttpRequestException or OperationCanceledException;
@@ -229,10 +252,14 @@ public sealed partial class MainWindow
         }
     }
 
-    private async Task SaveSoftwareAsync(SoftwareUpdateAction action, string? targetVersion = null)
+    private const string PendingSoftwareMessage = "学校是否接受本次操作尚未确认。请先刷新维护状态。";
+
+    private async Task SaveSoftwareAsync(SoftwareUpdateAction action, string? targetVersion = null, SoftwareAttempt? retry = null)
     {
-        if (!CanEditSoftware || _client is not { } client || EquipmentKey is not { } key || _software is not { } snapshot) return;
-        bool withdrawing = action == SoftwareUpdateAction.WithdrawInvitation;
+        if ((retry is null ? !CanEditSoftware : !CanRetrySoftware || CurrentSoftwareFeedback?.Pending != retry) ||
+            _client is not { } client || EquipmentKey is not { } key || _software is not { } snapshot) return;
+        var attempt = retry ?? new(snapshot, action, targetVersion, Guid.NewGuid());
+        bool withdrawing = attempt.Action == SoftwareUpdateAction.WithdrawInvitation;
         if (withdrawing && (!snapshot.CanWithdraw || CurrentSoftwareFeedback?.ReviewInvitation == true)) return;
         bool wasOffline = _device?.Device.Connectivity == "OFFLINE";
         var session = _softwareSession ??= new CancellationTokenSource();
@@ -240,8 +267,19 @@ public sealed partial class MainWindow
         RenderSoftwareMaintenance();
         try
         {
-            var saved = await client.SetSoftwareUpdateAsync(snapshot, action, targetVersion, Guid.NewGuid(), session.Token);
+            var saved = await client.SetSoftwareUpdateAsync(attempt.Snapshot, attempt.Action, attempt.TargetVersion, attempt.Id, session.Token);
             if (_client != client) return;
+            if (retry is not null)
+            {
+                // A replay can return the original accepted snapshot. Read the current state before offering actions.
+                _softwareFeedback[key] = new("学校已回应原请求。请以当前维护状态为准。");
+                if (EquipmentKey == key && SoftwareMaintenanceCard.IsVisible)
+                {
+                    _software = null;
+                    await ReadSoftwareAsync();
+                }
+                return;
+            }
             SaveSoftwareHistory(client, key, saved);
             if (withdrawing)
                 _softwareFeedback[key] = new(wasOffline
@@ -273,8 +311,7 @@ public sealed partial class MainWindow
             _softwareFeedback[key] = withdrawing && error is ConsoleApiException
                 { StatusCode: 409, Code: "REVISION_CONFLICT" or "UPDATE_ENROLLMENT_CHANGED" }
                 ? new("邀请状态已变化，正在核对最新状态。", ConflictingInvitation: snapshot.EnrollmentId)
-                : new(unknown ? "学校是否接受本次操作尚未确认。请先刷新维护状态。" : ServiceMessage(error),
-                    Unconfirmed: unknown);
+                : new(unknown ? PendingSoftwareMessage : ServiceMessage(error), Pending: unknown ? attempt : null);
             if (EquipmentKey == key && SoftwareMaintenanceCard.IsVisible)
                 await ReadSoftwareAsync();
         }
@@ -286,7 +323,27 @@ public sealed partial class MainWindow
     }
 
     private bool CanEditSoftware => SoftwareMaintenanceCard.IsVisible && _softwareError is null && _softwareRead is null &&
-        CurrentSoftwareFeedback is not ({ Writing: true } or { Unconfirmed: true } or { ConflictingInvitation: not null });
+        CurrentSoftwareFeedback is not ({ Writing: true } or { Pending: not null } or { ConflictingInvitation: not null });
+
+    private bool CanRetrySoftware => SoftwareMaintenanceCard.IsVisible && _softwareError is null && _softwareRead is null &&
+        CurrentSoftwareFeedback is { Writing: false, RetryVerified: true, Pending: { } pending } &&
+        _software is { } snapshot && CanRetrySoftwareAttempt(pending, snapshot);
+
+    private static bool CanRetrySoftwareAttempt(SoftwareAttempt attempt, SoftwareUpdate current)
+    {
+        var original = attempt.Snapshot;
+        if (original.Revision != current.Revision || original.Enrollment != current.Enrollment ||
+            original.EnrollmentId != current.EnrollmentId || original.Managed != current.Managed ||
+            original.Plan?.Id != current.Plan?.Id || original.Plan?.State != current.Plan?.State) return false;
+        return attempt.Action switch
+        {
+            SoftwareUpdateAction.Enroll => current.CanInvite,
+            SoftwareUpdateAction.WithdrawInvitation => current.CanWithdraw,
+            SoftwareUpdateAction.Cancel => current.CanCancel,
+            SoftwareUpdateAction.Approve => current.EligibleReleases.Any(release => release.Version == attempt.TargetVersion),
+            _ => false
+        };
+    }
 
     private static SoftwareFeedback ReviewWithdrawalConflict(SoftwareUpdate snapshot, Guid invitation)
     {
@@ -341,6 +398,8 @@ public sealed partial class MainWindow
         InviteSoftwareButton.IsEnabled = CancelSoftwareButton.IsEnabled = SoftwareReleasePicker.IsEnabled = CanEditSoftware;
         WithdrawInvitationButton.IsEnabled = CanEditSoftware && feedback?.ReviewInvitation != true;
         ApproveSoftwareButton.IsEnabled = CanEditSoftware && SoftwareReleasePicker.SelectedItem is string;
+        RetrySoftwareButton.IsVisible = feedback is { RetryVerified: true, Pending: not null } && _softwareError is null;
+        RetrySoftwareButton.IsEnabled = CanRetrySoftware;
         RefreshSoftwareButton.IsEnabled = _softwareRead is null && feedback?.Writing != true;
         bool showFeedback = feedback is not null && (feedback.WithdrawalResult is not { } result ||
             snapshot is not null && _softwareError is null && new WithdrawalState(snapshot) == result);

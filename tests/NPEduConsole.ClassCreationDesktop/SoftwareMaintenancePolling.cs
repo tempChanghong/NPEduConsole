@@ -11,7 +11,7 @@ using NPEduConsole.Core;
 
 internal static partial class Program
 {
-    private static int CheckSoftwareMaintenancePolling()
+    private static int CheckSoftwareMaintenancePolling(bool retry = false)
     {
         AppBuilder.Configure<ConsoleApplication>().UsePlatformDetect().SetupWithoutStarting();
         using var end = new CancellationTokenSource(TimeSpan.FromSeconds(12));
@@ -20,7 +20,7 @@ internal static partial class Program
         {
             try
             {
-                await ExerciseSoftwarePollingAsync(end.Token);
+                await (retry ? ExerciseSoftwareWriteRetryAsync(end.Token) : ExerciseSoftwarePollingAsync(end.Token));
                 result = 0;
             }
             catch (Exception error) { Console.Error.WriteLine(error); }
