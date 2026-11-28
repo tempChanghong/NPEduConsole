@@ -4,7 +4,7 @@
 
 ## Windows 管理员首次使用
 
-从学校部署方的 HTTPS 页面获取 Windows x64 ZIP，核对公布的版本和 SHA-256 后，完整解压到本机目录并打开 `NPEduConsole.App.exe`。发行包自带 .NET 运行时。继续保留解压目录中的其余文件。
+从学校部署方的 HTTPS 页面获取 Windows x64 ZIP，核对公布的版本和 SHA-256 后，完整解压到本机目录并打开 `NPEduConsole.App.exe`。发行包自带 .NET 运行时。继续保留解压目录中的其余文件。若部署方提供安装 EXE，也可以安装到当前 Windows 用户，在开始菜单打开 NPEduConsole。
 
 首次建校、续办或迁入时，在登录页点「首次配置学校服务器」。同源部署填写师生网页地址。师生网页和 KV 分域时勾选「使用独立 KV 地址」，再填写 API 地址。先检查连接，确认目标状态和地址一致，再按页面选择新建、继续初始化或从迁移包恢复。只有部署人员提供的初始化密钥适用于此步骤。已有学校使用「使用此地址登录」按正常账号登录。更详细的可核对状态见[首次建校与整校迁入](docs/school-management-migration.md#首次建校与整校迁入)。
 
@@ -17,6 +17,25 @@
 ```
 
 默认输出到 `.artifacts/windows-release/0.1.0/`。也可用 `-OutputDirectory` 指定尚不存在的发行目录。发布时将 ZIP 与生成的 `console-release.json` 一同放在师生网页的 `/downloads/npeduconsole/` 下。版本、文件名、字节数和 SHA-256 来自该次实际生成的 ZIP。需要核对本地文件时运行 `Get-FileHash -Algorithm SHA256 ./NPEduConsole-0.1.0-win-x64.zip`。
+
+要在同次构建生成独立安装 EXE，额外传入 Inno Setup 7 的编译器路径（安装包目标为原生 Windows x64，编译器须带简体中文语言文件）。
+
+```powershell
+./scripts/Publish-Windows.ps1 -Version 0.1.0 -IsccPath $iscc
+```
+
+输出目录还会包含 `NPEduConsole-0.1.0-win-x64-setup.exe` 及其 SHA-256 文件。安装器和 ZIP 使用同一份自包含构建输出。预发行安装包另传递增的 `-InstallerRevision`（1–65534），同一前三段版本的正式版使用 65535。网页仍按原有 `console-release.json` 获取 ZIP。
+
+安装版按当前 Windows 用户登记，路径固定为 `%LOCALAPPDATA%\Programs\NPEduConsole`。升级前关闭安装版和上次尚在执行的安装或卸载。卸载从 Windows「已安装的应用」进行，保留 `%LOCALAPPDATA%\NPEduConsole` 下的服务器地址和待核对记录。自行解压的便携版独立保留。
+
+安装链路验收使用 Windows x64 虚拟机里的全新标准用户。先在 Windows 构建机编译验收程序，再把程序和两份不同版本的组包输出传入来宾。验收程序可从来宾桌面或来宾的独立 Windows 桌面运行。
+
+```powershell
+$csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+& $csc /nologo /platform:x64 '/reference:System.IO.Compression.dll,System.IO.Compression.FileSystem.dll,System.Management.dll,System.Web.Extensions.dll,Microsoft.CSharp.dll' /out:WindowsInstallerLifecycle.exe tests/WindowsInstallerLifecycle.cs
+```
+
+在来宾以测试账号运行 `WindowsInstallerLifecycle.exe --isolated-guest <旧版发行目录> <新版发行目录> <新证据目录>`。程序执行实际安装、升级、已登记的卸载命令和重装，比较落盘文件与同次构建的 ZIP，并验证服务器地址和待核对记录仍在。证据目录包含各步骤的 Inno 日志和 `result.json`。中文向导和 Windows 设置里的卸载入口可另用专用来宾桌面验收。
 
 发行版桌面验收使用交互式 Windows、PowerShell 7 和隔离 KV/PostgreSQL。将 `NP_CONSOLE_RELEASE_ZIP` 指向本次发布或浏览器下载的 ZIP，运行 `node tests/live-kv.mjs <KV 工作副本> <PostgreSQL bin 目录> --windows-release-oobe`。若校验清单与下载件分开存放，通过 `NP_CONSOLE_RELEASE_MANIFEST` 指定清单。测试从独立解压目录启动发行 EXE，记录实际加载的运行时和宽窄窗截图。
 
