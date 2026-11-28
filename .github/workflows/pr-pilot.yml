@@ -1,21 +1,21 @@
-name: Console Windows checks
+name: PR checks (isolated pilot)
 
 on:
-  push:
-    branches:
-      - ci/actions-pilot/green
-      - ci/actions-pilot/red
-  workflow_dispatch:
+  pull_request:
+    branches: ['ci/pr-pilot/base']
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: pr-pilot-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+
 jobs:
-  windows-checks:
+  quick-check:
+    name: PR quick check
     runs-on: windows-2022
     timeout-minutes: 20
     defaults:
