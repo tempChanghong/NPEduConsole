@@ -1,0 +1,41 @@
+name: Console Windows checks
+
+on:
+  push:
+    branches: ['ci/actions-pilot/**']
+  pull_request:
+    branches: ['codex/classroom-overview']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-checks:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build smoke and desktop checks
+        run: |
+          dotnet build tests/NPEduConsole.Smoke -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build tests/NPEduConsole.ClassCreationDesktop -c Release --nologo
+      - name: Server-status checks
+        run: dotnet ./tests/NPEduConsole.Smoke/bin/Release/net10.0/NPEduConsole.Smoke.dll --server-status-checks
+      - name: Software-maintenance polling
+        run: dotnet ./tests/NPEduConsole.ClassCreationDesktop/bin/Release/net10.0/NPEduConsole.ClassCreationDesktop.dll --software-maintenance-poll
+      - name: Software-maintenance retry
+        run: dotnet ./tests/NPEduConsole.ClassCreationDesktop/bin/Release/net10.0/NPEduConsole.ClassCreationDesktop.dll --software-maintenance-retry
