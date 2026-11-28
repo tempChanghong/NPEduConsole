@@ -5,8 +5,6 @@ on:
     branches:
       - ci/actions-pilot/green
       - ci/actions-pilot/red
-  pull_request:
-    branches: ['codex/classroom-overview']
   workflow_dispatch:
 
 permissions:
